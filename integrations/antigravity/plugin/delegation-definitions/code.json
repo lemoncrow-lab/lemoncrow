@@ -2,8 +2,8 @@
   "schemaVersion": "1.0",
   "runtimeContract": "subagent-v1",
   "defineSubagent": {
-    "atelier-code": {
-      "description": "Main Atelier coding agent. Uses Atelier MCP tools for all file I/O, search, edits, and shell work.",
+    "lemoncrow-code": {
+      "description": "Main LemonCrow coding agent. Uses LemonCrow MCP tools for all file I/O, search, edits, and shell work.",
       "capabilities": ["read_files", "edit_files", "create_files", "run_shell", "search_code", "mcp_tools"]
     }
   }

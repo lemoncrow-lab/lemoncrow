@@ -1,8 +1,8 @@
-"""Real A/B benchmark: mcp__atelier__search and mcp__atelier__grep vs naive workflows.
+"""Real A/B benchmark: mcp__lemon__search and mcp__lemon__grep vs naive workflows.
 
 This benchmark measures what the MCP ranked-search and grep tools actually
 deliver, then persists rows to
-``~/.atelier/savings_calibration.jsonl`` for later calibration work.
+``~/.lemoncrow/savings_calibration.jsonl`` for later calibration work.
 
 Marked ``ab`` so it runs under focused local benchmark commands and stays out
 of normal CI runs by default.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters.mcp_server import tool_grep, tool_smart_search
+from lemoncrow.gateway.adapters.mcp_server import tool_grep, tool_smart_search
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
@@ -37,23 +37,23 @@ class ABRow:
     query: str | None
     path: str
     native_chars: int
-    atelier_chars: int
+    lemoncrow_chars: int
     native_tokens: int
-    atelier_tokens: int
+    lemoncrow_tokens: int
     ratio: float | None
     token_ratio: float | None
     chars_saved: int
     tokens_saved_measured: int
     tokens_saved_reported: int
     native_ms: float
-    atelier_ms: float
+    lemoncrow_ms: float
     cache_hit: bool | None
     backend: str | None
     ts: float
 
 
 def _calibration_path() -> Path:
-    path = Path.home() / ".atelier" / "savings_calibration.jsonl"
+    path = Path.home() / ".lemoncrow" / "savings_calibration.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -137,7 +137,7 @@ def _write_fixture_repo(root: Path) -> None:
 
 def _configure_workspace(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(repo_root))
-    monkeypatch.setenv("ATELIER_ROOT", str(repo_root / ".atelier-store"))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(repo_root / ".lemoncrow-store"))
     monkeypatch.chdir(repo_root)
 
 
@@ -191,17 +191,17 @@ def _persist_row(
     query: str | None,
     path: str,
     native_text: str,
-    atelier_text: str,
+    lemoncrow_text: str,
     native_ms: float,
-    atelier_ms: float,
+    lemoncrow_ms: float,
     tokens_saved_reported: int = 0,
     cache_hit: bool | None = None,
     backend: str | None = None,
 ) -> ABRow:
     native_chars = len(native_text)
-    atelier_chars = len(atelier_text)
+    lemoncrow_chars = len(lemoncrow_text)
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(atelier_text)
+    lemoncrow_tokens = _count_tiktoken(lemoncrow_text)
     row = ABRow(
         tool=tool,
         mode=mode,
@@ -209,16 +209,16 @@ def _persist_row(
         query=query,
         path=path,
         native_chars=native_chars,
-        atelier_chars=atelier_chars,
+        lemoncrow_chars=lemoncrow_chars,
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        ratio=(atelier_chars / native_chars) if native_chars else None,
-        token_ratio=(atelier_tokens / native_tokens) if native_tokens else None,
-        chars_saved=native_chars - atelier_chars,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+        lemoncrow_tokens=lemoncrow_tokens,
+        ratio=(lemoncrow_chars / native_chars) if native_chars else None,
+        token_ratio=(lemoncrow_tokens / native_tokens) if native_tokens else None,
+        chars_saved=native_chars - lemoncrow_chars,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
         tokens_saved_reported=tokens_saved_reported,
         native_ms=round(native_ms, 3),
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         cache_hit=cache_hit,
         backend=backend,
         ts=time.time(),
@@ -333,8 +333,8 @@ def test_search_ab_smart_modes(
 
     t1 = time.perf_counter()
     payload = tool_smart_search({"query": query, "path": "src", "budget_tokens": 4000})
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = _flatten_smart_payload(payload)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = _flatten_smart_payload(payload)
 
     row = _persist_row(
         tool=tool_name,
@@ -343,19 +343,19 @@ def test_search_ab_smart_modes(
         query=query,
         path="src",
         native_text=native_text,
-        atelier_text=atelier_text,
+        lemoncrow_text=lemoncrow_text,
         native_ms=native_ms,
-        atelier_ms=atelier_ms,
+        lemoncrow_ms=lemoncrow_ms,
         tokens_saved_reported=int(payload.get("tokens_saved_vs_naive", 0) or 0),
         cache_hit=bool(payload.get("cache_hit")) if "cache_hit" in payload else None,
         backend=str(payload.get("backend")) if payload.get("backend") else None,
     )
 
-    assert atelier_text, f"{mode}: atelier payload was empty"
+    assert lemoncrow_text, f"{mode}: lemoncrow payload was empty"
     assert payload["mode"] == mode
     assert payload.get("matches"), f"{mode}: expected at least one match"
     assert payload.get("matches"), f"{mode}: chunks mode must return matches"
-    assert row.atelier_tokens > 0
+    assert row.lemoncrow_tokens > 0
 
 
 def test_search_ab_native_regex_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,8 +376,8 @@ def test_search_ab_native_regex_mode(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     t1 = time.perf_counter()
     payload = tool_grep(tool_args)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = _flatten_native_payload(payload)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = _flatten_native_payload(payload)
 
     row = _persist_row(
         tool="grep.native_regex",
@@ -386,14 +386,14 @@ def test_search_ab_native_regex_mode(tmp_path: Path, monkeypatch: pytest.MonkeyP
         query="NEEDLE_TOKEN",
         path="docs",
         native_text=native_text,
-        atelier_text=atelier_text,
+        lemoncrow_text=lemoncrow_text,
         native_ms=native_ms,
-        atelier_ms=atelier_ms,
+        lemoncrow_ms=lemoncrow_ms,
     )
 
     assert payload["_meta"]["fileMatchCount"] == 1
-    assert "NEEDLE_TOKEN" in atelier_text
-    assert row.atelier_tokens > 0
+    assert "NEEDLE_TOKEN" in lemoncrow_text
+    assert row.lemoncrow_tokens > 0
 
 
 def test_search_ab_native_glob_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -414,8 +414,8 @@ def test_search_ab_native_glob_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     t1 = time.perf_counter()
     payload = tool_grep(tool_args)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = _flatten_native_payload(payload)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = _flatten_native_payload(payload)
 
     row = _persist_row(
         tool="grep.native_glob",
@@ -424,15 +424,15 @@ def test_search_ab_native_glob_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         query=None,
         path=".",
         native_text=native_text,
-        atelier_text=atelier_text,
+        lemoncrow_text=lemoncrow_text,
         native_ms=native_ms,
-        atelier_ms=atelier_ms,
+        lemoncrow_ms=lemoncrow_ms,
     )
 
     assert payload["_meta"]["fileMatchCount"] >= 4
-    assert "src/orders.py" in atelier_text
-    assert "frontend/sample.ts" in atelier_text
-    assert row.atelier_tokens > 0
+    assert "src/orders.py" in lemoncrow_text
+    assert "frontend/sample.ts" in lemoncrow_text
+    assert row.lemoncrow_tokens > 0
 
 
 def test_search_ab_native_context_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -454,8 +454,8 @@ def test_search_ab_native_context_mode(tmp_path: Path, monkeypatch: pytest.Monke
 
     t1 = time.perf_counter()
     payload = tool_grep(tool_args)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = _flatten_native_payload(payload)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = _flatten_native_payload(payload)
 
     row = _persist_row(
         tool="grep.native_context",
@@ -464,14 +464,14 @@ def test_search_ab_native_context_mode(tmp_path: Path, monkeypatch: pytest.Monke
         query="NEEDLE_TOKEN",
         path="docs",
         native_text=native_text,
-        atelier_text=atelier_text,
+        lemoncrow_text=lemoncrow_text,
         native_ms=native_ms,
-        atelier_ms=atelier_ms,
+        lemoncrow_ms=lemoncrow_ms,
     )
 
-    assert "alpha" in atelier_text
-    assert "omega" in atelier_text
-    assert row.atelier_tokens > 0
+    assert "alpha" in lemoncrow_text
+    assert "omega" in lemoncrow_text
+    assert row.lemoncrow_tokens > 0
 
 
 def test_search_ab_cache_hit_second_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -499,9 +499,9 @@ def test_search_ab_cache_hit_second_call(tmp_path: Path, monkeypatch: pytest.Mon
         query="OrderService",
         path="src",
         native_text=native_text,
-        atelier_text=first_text,
+        lemoncrow_text=first_text,
         native_ms=native_ms,
-        atelier_ms=first_ms,
+        lemoncrow_ms=first_ms,
         tokens_saved_reported=int(first.get("tokens_saved_vs_naive", 0) or 0),
         cache_hit=bool(first.get("cache_hit")),
         backend=str(first.get("backend")) if first.get("backend") else None,
@@ -513,9 +513,9 @@ def test_search_ab_cache_hit_second_call(tmp_path: Path, monkeypatch: pytest.Mon
         query="OrderService",
         path="src",
         native_text=native_text,
-        atelier_text=second_text,
+        lemoncrow_text=second_text,
         native_ms=native_ms,
-        atelier_ms=second_ms,
+        lemoncrow_ms=second_ms,
         tokens_saved_reported=int(second.get("tokens_saved_vs_naive", 0) or 0),
         cache_hit=bool(second.get("cache_hit")),
         backend=str(second.get("backend")) if second.get("backend") else None,
@@ -544,8 +544,8 @@ def test_search_ab_summary_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     t1 = time.perf_counter()
     payload = tool_grep(tool_args)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
-    atelier_text = _flatten_native_payload(payload)
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_text = _flatten_native_payload(payload)
 
     row = _persist_row(
         tool="grep.native_summary",
@@ -554,14 +554,14 @@ def test_search_ab_summary_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         query=None,
         path=".",
         native_text=native_text,
-        atelier_text=atelier_text,
+        lemoncrow_text=lemoncrow_text,
         native_ms=native_ms,
-        atelier_ms=atelier_ms,
+        lemoncrow_ms=lemoncrow_ms,
     )
 
-    assert "ClassDef: OrderService" in atelier_text
-    assert "FunctionDef: checkout" in atelier_text
-    assert row.atelier_tokens < row.native_tokens
+    assert "ClassDef: OrderService" in lemoncrow_text
+    assert "FunctionDef: checkout" in lemoncrow_text
+    assert row.lemoncrow_tokens < row.native_tokens
 
 
 def test_search_calibration_file_grows() -> None:

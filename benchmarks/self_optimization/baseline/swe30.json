@@ -1,5 +1,5 @@
 {
-  "_note": "FROZEN baseline = vanilla Claude Code, SAME model as atelier. Off-limits to the loop. Re-freeze only if the model changes.",
+  "_note": "FROZEN baseline = vanilla Claude Code, SAME model as lemoncrow. Off-limits to the loop. Re-freeze only if the model changes.",
   "source_run": "reports/benchmark/codebench/swe30_run1_20260622T043715Z",
   "model": null,
   "tasks": {

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     save_route_config,
 )
-from atelier.gateway.adapters.mcp_server import _emit_model_recommendation
-from atelier.infra.runtime import outcome_capture
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.gateway.adapters.mcp_server import _emit_model_recommendation
+from lemoncrow.infra.runtime import outcome_capture
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
 def test_recommendation_is_logged_as_counterfactual_when_unused(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ATELIER_ROOT", str(tmp_path))
-    monkeypatch.setenv("ATELIER_MODEL", "claude-sonnet-4.6")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_MODEL", "claude-sonnet-4.6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")

@@ -4,15 +4,15 @@
 
 <img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;">
 
-# Atelier Runtime
+# LemonCrow Runtime
 
 ### Honest and benchmark proven — a faster Agent: one-shot code search, **37.7% fewer turns**, **23.7% less wall-clock** (and average 30% cheaper)
 
-Keep using Claude Code normally — Atelier sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
+Keep using Claude Code normally — LemonCrow sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
 
 [![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier/releases)
-[![Stars](https://img.shields.io/github/stars/atelier-ws/atelier?style=flat-square)](https://github.com/atelier-ws/atelier)
+[![Latest release](https://img.shields.io/github/v/release/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow/releases)
+[![Stars](https://img.shields.io/github/stars/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow)
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
@@ -23,18 +23,18 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 [![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
 [![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
-**Live savings and time saved across Atelier sessions**
+**Live savings and time saved across LemonCrow sessions**
 
-[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://atelier.ws)
-[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://atelier.ws)
-[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
-[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://atelier.ws)
+[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://lemoncrow.ws)
+[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://lemoncrow.ws)
+[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://lemoncrow.ws)
+[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://lemoncrow.ws)
 
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://atelier.ws/pricing)
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://lemoncrow.ws/pricing)
 
-[![Atelier running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://atelier.ws/#terminal)
+[![LemonCrow running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://lemoncrow.ws/#terminal)
 
-*Click for the full walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
+*Click for the full walkthrough on [lemoncrow.ws](https://lemoncrow.ws/#terminal).*
 
 </div>
 
@@ -44,30 +44,30 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 
 Run this once:
 
-    curl -fsSL https://install.atelier.ws | bash
+    curl -fsSL https://install.lemoncrow.ws | bash
 
-Then create or sign in to a free Atelier account and activate it inside the project where you use Claude Code:
+Then create or sign in to a free LemonCrow account and activate it inside the project where you use Claude Code:
 
     cd your-project
-    atelier login
-    atelier init
+    lemon login
+    lemon init
 
-Atelier wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `atelier telemetry remote off`.
+LemonCrow wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `lemon telemetry remote off`.
 ```bash
-atelier update
+lemon update
 ```
 
 Check that everything is connected:
 
 ```bash
-atelier doctor
+lemon doctor
 ```
 
 ## What changes for you
 
-Atelier does not ask you to learn a new coding app. It improves the work Claude Code already does:
+LemonCrow does not ask you to learn a new coding app. It improves the work Claude Code already does:
 
-| Before                                                       | With Atelier                                                                   |
+| Before                                                       | With LemonCrow                                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Claude greps, reads a whole file, greps again to find code.  | One-shot code search returns the symbol, its callers, and exact ranges in a single call. |
 | The same context gets rediscovered again and again.          | Useful session context can be reused, not re-searched.                         |
@@ -76,11 +76,11 @@ Atelier does not ask you to learn a new coding app. It improves the work Claude 
 
 ### What actually gets replaced
 
-`atelier init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
+`lemon init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
 
 **Find things in one shot** -- no wandering the codebase call after call.
 
-| Atelier tool  | Replaces (hidden from the model) | Why                                                                                                      |
+| LemonCrow tool  | Replaces (hidden from the model) | Why                                                                                                      |
 | --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `code_search` | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
 | `read`        | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                      |
@@ -99,15 +99,15 @@ A bare MCP server is a library the model can call *if* it remembers to. A runtim
 | **Agents** — process isolation  | a "read-only" agent can still edit                | `explore`/`plan`/`research`/`review` hard-deny `edit`/`write` at the host-config level |
 | **Skills** — standard library   | multi-step procedures re-improvised every session | encoded once, invoked the same way every time                                          |
 | **Hooks** — interrupts          | wasteful re-reads; "done" without a check         | bad calls denied before they run; on Claude Code, session close blocked until verification ran (advisory on other hosts today) |
-| **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — Atelier tools are the only surface for those jobs                     |
+| **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — LemonCrow tools are the only surface for those jobs                     |
 
 ### The engine underneath — not just for code
 
-Under the coding runtime is a domain-neutral context engine with one contract: **one-shot retrieval** — a single call returns what the model needs, packed to a token budget; follow-up queries are allowed, retry loops are never required. Retrieval, compression, memory, and replay do not assume code — code is the first conforming retriever (`Retriever` protocol, `atelier.core.capabilities.retrieval`), chosen because the pain is mature and the results are measurable. The same engine is being opened to teams building any LLM agent: [atelier.ws/engine](https://atelier.ws/engine).
+Under the coding runtime is a domain-neutral context engine with one contract: **one-shot retrieval** — a single call returns what the model needs, packed to a token budget; follow-up queries are allowed, retry loops are never required. Retrieval, compression, memory, and replay do not assume code — code is the first conforming retriever (`Retriever` protocol, `lemoncrow.core.capabilities.retrieval`), chosen because the pain is mature and the results are measurable. The same engine is being opened to teams building any LLM agent: [lemoncrow.ws/engine](https://lemoncrow.ws/engine).
 
 ### Agents
 
-Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `atelier:<mode>`), not a persona:
+Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `lemon:<mode>`), not a persona:
 
 | Agent      | Writes? | Use                                              |
 | ---------- | :-----: | ------------------------------------------------ |
@@ -128,7 +128,7 @@ Packaged in [integrations/skills/](integrations/skills/):
 
 | Skill         | What it does                                                 |
 | ------------- | ------------------------------------------------------------ |
-| `atelier`     | manage Atelier itself via the CLI                            |
+| `lemon`     | manage LemonCrow itself via the CLI                            |
 | `benchmark`   | measure savings on *your* repo — offline scan or live A/B    |
 | `orchestrate` | one structured multi-step task, routed to the right surface  |
 | `swarm`       | N parallel attempts in isolated worktrees — best result wins |
@@ -141,27 +141,27 @@ Packaged in [integrations/skills/](integrations/skills/):
 Do not take our 30% claim on faith — scan your own local agent history before installing:
 
 ```bash
-curl -fsSL https://savings.atelier.ws | bash
+curl -fsSL https://savings.lemoncrow.ws | bash
 ```
 
-It reads local Claude/Codex session files, estimates where Atelier would have used fewer tokens or cheaper tool calls, and prints savings from your own history. Temporary local store — no account, no API keys.
+It reads local Claude/Codex session files, estimates where LemonCrow would have used fewer tokens or cheaper tool calls, and prints savings from your own history. Temporary local store — no account, no API keys.
 
 Useful variants:
 
 ```bash
-curl -fsSL https://savings.atelier.ws | bash -s -- --since 30d --top 10
-curl -fsSL https://savings.atelier.ws | bash -s -- --host codex --limit 20
+curl -fsSL https://savings.lemoncrow.ws | bash -s -- --since 30d --top 10
+curl -fsSL https://savings.lemoncrow.ws | bash -s -- --host codex --limit 20
 ```
 
 ### Replay a past session
 
-`atelier session replay` plays back a recorded session and, for each native call, **runs the real Atelier tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** Atelier would have saved. No model re-run, nothing written; opens a shareable HTML page.
+`lemon session replay` plays back a recorded session and, for each native call, **runs the real LemonCrow tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** LemonCrow would have saved. No model re-run, nothing written; opens a shareable HTML page.
 
 ```bash
-atelier session replay --last 1
+lemon session replay --last 1
 ```
 
-Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `atelier benchmark local`.
+Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `lemon benchmark local`.
 
 ## Why trust the numbers?
 
@@ -170,7 +170,7 @@ A live badge alone proves little — anyone can fake a counter. Four checks inst
 1. **Raw benchmark receipts:** headline numbers link to committed per-task runs, costs, and reproduction commands.
 2. **Your own scan:** the savings command checks your machine, not our marketing page.
 3. **Labeled live badges:** aggregate usage counters — never the source of the 30% claim.
-4. **Rows where Atelier does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp); it stays in the table.
+4. **Rows where LemonCrow does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp); it stays in the table.
 
 The trust is the audit trail, not the animation.
 
@@ -178,7 +178,7 @@ The trust is the audit trail, not the animation.
 
 Measured on the same model, same tasks, and same environment:
 
-| Benchmark                                           | Baseline correct | Atelier correct | Correct delta |        Baseline cost |        Atelier cost | Cost delta |
+| Benchmark                                           | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |        LemonCrow cost | Cost delta |
 | ----------------------------------------------------- | -----------------: | ----------------: | --------------: | ---------------------: | --------------------: | -----------: |
 | SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |            |
 | SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |   **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |            |
@@ -187,15 +187,15 @@ Measured on the same model, same tasks, and same environment:
 | Telegraphic Q&A, 20 prompts x 5 reps                |                - |               - |             - |     $8.93 |**$5.34** |   **40.2% cheaper** |            |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |       -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |            |
 
-<sub>* Atelier 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
+<sub>* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
 
 <p align="center">
-  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="Atelier vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
+  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
 </p>
 
 SWE-bench Verified detail (250 runs a side) — one-shot search collapses the grep-and-read loop, so turns, wall-clock, and tool calls drop together:
 
-| Metric               | Baseline | Atelier |            Delta |
+| Metric               | Baseline | LemonCrow |            Delta |
 | ---------------------- | ---------: | --------: | -----------------: |
 | Turns                |    6,962 |   4,336 |  **37.7% fewer** |
 | Wall-clock           |    14.3h |   10.9h | **23.7% faster** |
@@ -204,15 +204,15 @@ SWE-bench Verified detail (250 runs a side) — one-shot search collapses the gr
 | Bash                 |    3,327 |   1,785 |       **-46.3%** |
 | Read                 |    1,733 |   1,050 |       **-39.4%** |
 | Edit + Write         |    1,628 |     759 |       **-53.4%** |
-| Search (code_search) |        - |     568 |     atelier-only |
+| Search (code_search) |        - |     568 |     lemoncrow-only |
 
 Exploration detail (7 large repos × 5 reps, read-only Q&A, no edits):
 
-| Tool                          | Baseline calls | Atelier calls |        Delta |
+| Tool                          | Baseline calls | LemonCrow calls |        Delta |
 | ------------------------------- | ---------------: | --------------: | -------------: |
 | Read                          |            672 |            23 |   **-96.6%** |
 | Bash                          |            508 |            71 |   **-86.0%** |
-| Search (code_search)          |              - |            23 | atelier-only |
+| Search (code_search)          |              - |            23 | lemoncrow-only |
 | Agent + orchestration calls\* |             79 |             1 |   **-98.7%** |
 | Total tool calls              |          1,259 |           118 |   **-90.6%** |
 | input                         |        286,191 |       205,967 |   **-28.0%** |
@@ -225,12 +225,12 @@ Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026
 
 ## One-shot code search vs 10 named tools
 
-The search is the engine: right code in front of the agent on the first try. MRR and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos — 10 tools scored on the identical corpus. Atelier's rec@1 of 0.650 means the right code on the very first result two times in three, at 134ms p95:
+The search is the engine: right code in front of the agent on the first try. MRR and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos — 10 tools scored on the identical corpus. LemonCrow's rec@1 of 0.650 means the right code on the very first result two times in three, at 134ms p95:
 
 | Provider                      |       MRR |     rec@1 |    p95 |
 | ------------------------------- | ----------: | ----------: | -------: |
-| **Atelier +semantic (BGE)**   | **0.727** | **0.650** |  390ms |
-| Atelier lexical (default)     |     0.676 |     0.582 |  134ms |
+| **LemonCrow +semantic (BGE)**   | **0.727** | **0.650** |  390ms |
+| LemonCrow lexical (default)     |     0.676 |     0.582 |  134ms |
 | cocoindex-code (best rival)   |     0.557 |     0.457 |  595ms |
 | serena                        |     0.401 |     0.359 | 3834ms |
 | ripgrep                       |     0.376 |     0.320 |   66ms |
@@ -240,7 +240,7 @@ No one had scored these 10 tools against each other on a shared query set before
 
 ## Why it works
 
-Claude is strong; the loop around it is wasteful — grep, read a whole file, grep again. Atelier collapses that loop.
+Claude is strong; the loop around it is wasteful — grep, read a whole file, grep again. LemonCrow collapses that loop.
 
 - **One-shot search:** symbol, callers, and exact ranges in a single call — the biggest source of the turn and wall-clock savings.
 - **Better inputs:** exact file ranges, not whole files.
@@ -259,7 +259,7 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 - [Installation](docs/installation.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Benchmarks](BENCHMARKS.md) · [full results, backed by docs](docs/benchmarks/results.md) · [every "vs" comparison, with sources](https://atelier.ws/vs)
+- [Benchmarks](BENCHMARKS.md) · [full results, backed by docs](docs/benchmarks/results.md) · [every "vs" comparison, with sources](https://lemoncrow.ws/vs)
 - [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 
@@ -267,11 +267,11 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=atelier-ws%2Fatelier">
+<a href="https://www.star-history.com/?repos=lemoncrowhq%2Flemoncrow">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&theme=dark&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=atelier-ws/atelier&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
  </picture>
 </a>
 
@@ -279,5 +279,5 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 ## License
 
-Open-core. The engine (`src/atelier/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services
-Converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/atelier/sdk/`, `src/atelier/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
+Open-core. The engine (`src/lemoncrow/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services
+Converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/lemoncrow/sdk/`, `src/lemoncrow/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).

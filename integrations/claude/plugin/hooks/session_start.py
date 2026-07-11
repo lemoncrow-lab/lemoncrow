@@ -57,7 +57,7 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -95,14 +95,14 @@ def _write_session_state(updates: dict[str, Any]) -> None:
                 Path(tmp_path).unlink(missing_ok=True)
 
 
-def _atelier_root() -> Path:
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+def _lemoncrow_root() -> Path:
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
     state = _read_session_state()
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    return Path.home() / ".atelier"
+    if state.get("lemoncrow_root"):
+        return Path(state["lemoncrow_root"])
+    return Path.home() / ".lemoncrow"
 
 
 def _active_session_id() -> str | None:
@@ -122,16 +122,16 @@ def _apply_session_bootstrap(payload: dict[str, Any]) -> bool:
     if not plugin_root:
         return False
     try:
-        from atelier.core.capabilities.plugin_runtime import apply_session_start_files
+        from lemoncrow.core.capabilities.plugin_runtime import apply_session_start_files
     except (ImportError, AttributeError):
         return False
     with suppress(Exception):
         apply_session_start_files(
-            _atelier_root(),
+            _lemoncrow_root(),
             plugin_root,
             config_dir=_claude_settings_path().parent,
             payload=payload,
-            current_version=os.environ.get("ATELIER_VERSION", "0.0.0"),
+            current_version=os.environ.get("LEMONCROW_VERSION", "0.0.0"),
         )
         return True
     return False
@@ -139,9 +139,9 @@ def _apply_session_bootstrap(payload: dict[str, Any]) -> bool:
 
 def _initialize_session_stats(payload: dict[str, Any]) -> None:
     try:
-        from atelier.core.capabilities.plugin_runtime import update_session_stats
+        from lemoncrow.core.capabilities.plugin_runtime import update_session_stats
 
-        update_session_stats(_atelier_root(), payload)
+        update_session_stats(_lemoncrow_root(), payload)
     except (ImportError, OSError, json.JSONDecodeError, TypeError):
         pass
 
@@ -159,10 +159,10 @@ def _append_session_start_event(
     transcript_path: str,
 ) -> None:
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
     except ImportError:
         return
-    run_file = session_dir(_atelier_root(), "claude", session_id) / "run.json"
+    run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
     if not run_file.exists():
         return
 
@@ -235,7 +235,7 @@ def main() -> int:
                 # stamp doesn't match, so a Claude sid written here is never
                 # adopted by an OpenCode/Codex server sharing the repo.
                 "host": "claude",
-                "atelier_root": str(_atelier_root()),
+                "lemoncrow_root": str(_lemoncrow_root()),
             }
             if model:
                 state_update["model"] = model
@@ -254,14 +254,14 @@ def main() -> int:
             # the first prompt instead.
             if source != "clear":
                 with suppress(Exception):
-                    from atelier.core.foundation.session_window import (
+                    from lemoncrow.core.foundation.session_window import (
                         register_window_session,
                         workspace_hash,
                     )
 
                     _ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
                     register_window_session(
-                        _atelier_root(),
+                        _lemoncrow_root(),
                         workspace_hash(_ws),
                         session_id=session_id_raw,
                         source=source,
@@ -276,7 +276,7 @@ def main() -> int:
         # for clear only — /compact continues the same task, so its cost stands.
         if source == "clear" and session_id_raw:
             with suppress(Exception):
-                reset_dir = _atelier_root() / "statusline_cost_reset"
+                reset_dir = _lemoncrow_root() / "statusline_cost_reset"
                 reset_dir.mkdir(parents=True, exist_ok=True)
                 (reset_dir / session_id_raw).write_text("", encoding="utf-8")
                 # Also write a workspace-keyed marker so the statusline can

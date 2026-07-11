@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities import savings_summary as ss
+from lemoncrow.core.capabilities import savings_summary as ss
 
 
 def _entry(msg_id: str, in_t: int = 100, out_t: int = 10, ts: str = "2026-07-02T00:00:00Z") -> str:

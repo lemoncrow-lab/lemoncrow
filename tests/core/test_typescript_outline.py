@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.semantic_file_memory.typescript_ast import outline
+from lemoncrow.core.capabilities.semantic_file_memory.typescript_ast import outline
 
 
 def test_typescript_outline_extracts_class_function_method_and_arrow() -> None:

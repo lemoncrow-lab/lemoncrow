@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "runtimeContract": "subagent-v1",
   "defineSubagent": {
-    "atelier-solve": {
+    "lemoncrow-solve": {
       "description": "Dedicated benchmark solver. Solves isolated terminal tasks with artifact-first execution and harness-feedback retry discipline.",
       "capabilities": ["read_files", "edit_files", "create_files", "run_shell", "search_code", "mcp_tools"]
     }

@@ -25,8 +25,8 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def compact_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters import mcp_server
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.gateway.adapters import mcp_server
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
     def _call(args: dict[str, Any]) -> Any:
         payload = dict(args)
@@ -107,5 +107,5 @@ def test_compact_op_saves_tokens(case: BenchCase, compact_bench_results: list[Ca
     if not result.passed:
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert (
-        result.atelier_tokens < case.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={case.baseline_tokens}"
+        result.lemoncrow_tokens < case.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={case.baseline_tokens}"

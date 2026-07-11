@@ -98,7 +98,7 @@ def load_instances(
 ) -> list[SweBenchInstance]:
     """Load + filter SWE-bench instances from the dataset (HF or local json/jsonl).
 
-    Defaults select the multi-file slice where Atelier's navigation/edit tooling
+    Defaults select the multi-file slice where LemonCrow's navigation/edit tooling
     matters, mirroring :func:`benchmarks.codebench.multiswe.load_instances`.
     """
     from swebench.harness.utils import load_swebench_dataset

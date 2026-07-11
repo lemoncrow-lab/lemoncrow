@@ -5,21 +5,21 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters.mcp_server import (
+from lemoncrow.gateway.adapters.mcp_server import (
     _emit_model_recommendation,
     _model_recommendation_state,
     _route_outcome_calibration,
     _workspace_session_state_file,
 )
-from atelier.infra.runtime.run_ledger import RunLedger, outcomes_path
+from lemoncrow.infra.runtime.run_ledger import RunLedger, outcomes_path
 
 
 @pytest.fixture()
 def workflow_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
     return root
 

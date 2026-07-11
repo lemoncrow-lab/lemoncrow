@@ -6,8 +6,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.cli import cli
 
 
 def _reset_remote_mode() -> None:
@@ -16,8 +16,8 @@ def _reset_remote_mode() -> None:
 
 def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
     _reset_remote_mode()
-    os.environ.pop("ATELIER_SERVICE_URL", None)
-    root = tmp_path / ".atelier"
+    os.environ.pop("LEMONCROW_SERVICE_URL", None)
+    root = tmp_path / ".lemoncrow"
     runner = CliRunner()
 
     upsert = runner.invoke(
@@ -33,7 +33,7 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "atelier:code",
+                    "agent_id": "lemon:code",
                     "subject": "scratch",
                     "fact": "hello",
                     "citations": 'User input: "hello"',
@@ -62,7 +62,7 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "atelier:code",
+                    "agent_id": "lemon:code",
                     "subject": "scratch",
                     "fact": "hello",
                     "citations": 'User input: "hello"',
@@ -80,8 +80,8 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
 
 def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
     _reset_remote_mode()
-    os.environ.pop("ATELIER_SERVICE_URL", None)
-    root = tmp_path / ".atelier"
+    os.environ.pop("LEMONCROW_SERVICE_URL", None)
+    root = tmp_path / ".lemoncrow"
     runner = CliRunner()
 
     remembered = runner.invoke(
@@ -97,7 +97,7 @@ def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
             "--scope",
             "user",
             "--agent-id",
-            "atelier:code",
+            "lemon:code",
             "--citations",
             'User input: "host-neutral"',
             "--reason",
@@ -124,7 +124,7 @@ def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
             "--scope",
             "user",
             "--agent-id",
-            "atelier:code",
+            "lemon:code",
             "--json",
         ],
     )
@@ -136,8 +136,8 @@ def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
 
 def test_cli_memory_upsert_reads_value_from_file(tmp_path: Path) -> None:
     _reset_remote_mode()
-    os.environ.pop("ATELIER_SERVICE_URL", None)
-    root = tmp_path / ".atelier"
+    os.environ.pop("LEMONCROW_SERVICE_URL", None)
+    root = tmp_path / ".lemoncrow"
     value_file = tmp_path / "value.md"
     value_file.write_text("file-backed memory", encoding="utf-8")
     runner = CliRunner()
@@ -155,7 +155,7 @@ def test_cli_memory_upsert_reads_value_from_file(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "atelier:code",
+                    "agent_id": "lemon:code",
                     "subject": "from-file",
                     "fact": value_file.read_text(encoding="utf-8"),
                     "citations": 'User input: "file-backed memory"',
@@ -174,13 +174,13 @@ def test_cli_memory_upsert_reads_value_from_file(tmp_path: Path) -> None:
 
 def test_cli_memory_upsert_redacts_secret_payload(tmp_path: Path) -> None:
     _reset_remote_mode()
-    os.environ.pop("ATELIER_SERVICE_URL", None)
+    os.environ.pop("LEMONCROW_SERVICE_URL", None)
     runner = CliRunner()
     result = runner.invoke(
         cli,
         [
             "--root",
-            str(tmp_path / ".atelier"),
+            str(tmp_path / ".lemoncrow"),
             "tools",
             "call",
             "memory",

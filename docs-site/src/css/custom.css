@@ -1,4 +1,4 @@
-/* Same font/color language as landing (atelier.ws): JetBrains Mono for UI
+/* Same font/color language as landing (lemoncrow.com): JetBrains Mono for UI
    chrome/labels, system sans for body copy, warm cream light theme, brand
    purple accent. See landing/tailwind.config.mjs + landing/src/styles/global.css. */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');

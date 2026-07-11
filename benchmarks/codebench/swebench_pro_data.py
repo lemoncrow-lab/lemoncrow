@@ -122,7 +122,7 @@ class SweBenchProInstance:
     requirements: str | None = None
     interface: str | None = None
     # Duck-compatible with SweBenchInstance (incontainer.py reads these two off
-    # any instance generically): the prebuilt image to overlay atelier/baseline
+    # any instance generically): the prebuilt image to overlay lemoncrow/baseline
     # tooling onto, and the fixed in-image repo path.
     image: str = ""
     repo_dir: str = _APP_REPO_DIR

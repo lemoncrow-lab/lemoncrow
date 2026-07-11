@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.source_projection import build_minified_projection
-from atelier.core.capabilities.source_projection.minify import _parser_for
-from atelier.infra.code_intel.languages import (
+from lemoncrow.core.capabilities.source_projection import build_minified_projection
+from lemoncrow.core.capabilities.source_projection.minify import _parser_for
+from lemoncrow.infra.code_intel.languages import (
     ALL_LANGUAGES,
     LANGUAGES,
     language_by_name,

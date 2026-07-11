@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ATELIER_ROOT = Path(__file__).resolve().parents[2]
+LEMONCROW_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = (
-    ATELIER_ROOT / "integrations" / "claude" / "plugin" / "workflows" / "fixtures" / "code-audit-review-fixture.json"
+    LEMONCROW_ROOT / "integrations" / "claude" / "plugin" / "workflows" / "fixtures" / "code-audit-review-fixture.json"
 )
 
 

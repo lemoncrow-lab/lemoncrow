@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.source_projection import (
+from lemoncrow.core.capabilities.source_projection import (
     build_compact_projection,
     resolve_projected_range,
     suggest_exact_reread_range,

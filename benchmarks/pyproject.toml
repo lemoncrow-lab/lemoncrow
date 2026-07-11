@@ -1,7 +1,7 @@
 [project]
-name = "atelier-benchmarks"
+name = "lemoncrow-benchmarks"
 version = "0.1.0"
-description = "Atelier benchmark & evaluation suite (MCP-tool A/B, agent A/B, flowlib, Terminal-Bench)"
+description = "LemonCrow benchmark & evaluation suite (MCP-tool A/B, agent A/B, flowlib, Terminal-Bench)"
 requires-python = ">=3.12"
 dependencies = [
     "terminal-bench==0.2.18",
@@ -11,7 +11,7 @@ dependencies = [
     "click>=8.1",
     "jinja2>=3.1",
     "matplotlib>=3.9",
-    "atelier",
+    "lemoncrow",
     "mitmproxy>=12.2.3",
     "multi-swe-bench",
     "swebench>=3.0",
@@ -29,7 +29,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-atelier = { workspace = true }
+lemoncrow = { workspace = true }
 
 [tool.hatch.metadata]
 allow-direct-references = true

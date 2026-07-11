@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.code_health.doc_index import (
+from lemoncrow.core.capabilities.code_health.doc_index import (
     DesignDocStore,
     chunk_markdown,
     doc_indexing_enabled,
@@ -44,16 +44,16 @@ def test_index_and_recall_doc_chunk(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "design.md").write_text(_DOC, encoding="utf-8")
-    atelier_root = tmp_path / "state"
+    lemoncrow_root = tmp_path / "state"
 
     # Explicit enable=True bypasses the env flag (test opt-in).
-    receipt = index_design_docs(repo_root=repo, atelier_root=atelier_root, paths=["design.md"], enable=True)
+    receipt = index_design_docs(repo_root=repo, lemoncrow_root=lemoncrow_root, paths=["design.md"], enable=True)
     assert receipt["enabled"] is True
     assert receipt["indexed_chunks"] >= 3
     assert receipt["docs"] == 1
 
     # A query about storage recalls the Storage section chunk.
-    result = recall_design_docs(atelier_root=atelier_root, query="sqlite vector store embeddings", limit=5)
+    result = recall_design_docs(lemoncrow_root=lemoncrow_root, query="sqlite vector store embeddings", limit=5)
     assert result["result_count"] >= 1
     top = result["results"][0]
     assert top["doc"].endswith("design.md")
@@ -62,63 +62,63 @@ def test_index_and_recall_doc_chunk(tmp_path: Path) -> None:
 
 
 def test_indexing_is_off_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_DOC_INDEXING", raising=False)
+    monkeypatch.delenv("LEMONCROW_DOC_INDEXING", raising=False)
     assert doc_indexing_enabled() is False
 
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "design.md").write_text(_DOC, encoding="utf-8")
-    atelier_root = tmp_path / "state"
+    lemoncrow_root = tmp_path / "state"
 
     # No enable flag, env unset -> no write, observable via enabled=False.
-    receipt = index_design_docs(repo_root=repo, atelier_root=atelier_root, paths=["design.md"])
+    receipt = index_design_docs(repo_root=repo, lemoncrow_root=lemoncrow_root, paths=["design.md"])
     assert receipt["enabled"] is False
     assert receipt["indexed_chunks"] == 0
     # The separate store was never created.
-    assert DesignDocStore(atelier_root).count() == 0
+    assert DesignDocStore(lemoncrow_root).count() == 0
 
 
 def test_env_flag_enables_indexing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_DOC_INDEXING", "1")
+    monkeypatch.setenv("LEMONCROW_DOC_INDEXING", "1")
     assert doc_indexing_enabled() is True
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "design.md").write_text(_DOC, encoding="utf-8")
-    atelier_root = tmp_path / "state"
-    receipt = index_design_docs(repo_root=repo, atelier_root=atelier_root, paths=["design.md"])
+    lemoncrow_root = tmp_path / "state"
+    receipt = index_design_docs(repo_root=repo, lemoncrow_root=lemoncrow_root, paths=["design.md"])
     assert receipt["enabled"] is True
     assert receipt["indexed_chunks"] >= 3
 
 
 def test_doc_store_is_separate_from_code_index(tmp_path: Path) -> None:
     """Indexing docs must not create or mutate the semantic code index cache."""
-    from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-    from atelier.core.capabilities.semantic_file_memory.indexer import _CACHE_FILENAME
+    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.core.capabilities.semantic_file_memory.indexer import _CACHE_FILENAME
 
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "src" / "mod.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
     (repo / "design.md").write_text(_DOC, encoding="utf-8")
-    atelier_root = tmp_path / "state"
+    lemoncrow_root = tmp_path / "state"
 
     # Seed the code index, capture its searchable state.
-    cap = SemanticFileMemoryCapability(atelier_root)
+    cap = SemanticFileMemoryCapability(lemoncrow_root)
     cap.summarize_file(repo / "src" / "mod.py")
     before = cap.semantic_search("f")
-    code_cache = atelier_root / _CACHE_FILENAME
+    code_cache = lemoncrow_root / _CACHE_FILENAME
     code_bytes_before = code_cache.read_bytes()
 
     # Index docs into the separate store.
-    index_design_docs(repo_root=repo, atelier_root=atelier_root, paths=["design.md"], enable=True)
+    index_design_docs(repo_root=repo, lemoncrow_root=lemoncrow_root, paths=["design.md"], enable=True)
 
     # Code index cache is byte-identical; code search is unchanged.
     assert code_cache.read_bytes() == code_bytes_before
-    after = SemanticFileMemoryCapability(atelier_root).semantic_search("f")
+    after = SemanticFileMemoryCapability(lemoncrow_root).semantic_search("f")
     assert [r["path"] for r in after] == [r["path"] for r in before]
 
 
 def test_recall_empty_when_nothing_indexed(tmp_path: Path) -> None:
-    result = recall_design_docs(atelier_root=tmp_path / "empty", query="anything", limit=5)
+    result = recall_design_docs(lemoncrow_root=tmp_path / "empty", query="anything", limit=5)
     assert result["kind"] == "recall_docs"
     assert result["result_count"] == 0
     assert result["results"] == []

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.code_context.search_verdict import (
+from lemoncrow.core.capabilities.code_context.search_verdict import (
     ChannelHealth,
     SearchHistory,
     breaker_threshold,
@@ -89,11 +89,11 @@ def test_threshold_override_param() -> None:
 
 
 def test_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_SEARCH_REFORMULATION_THRESHOLD", "4")
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "4")
     assert reformulation_threshold() == 4
-    monkeypatch.setenv("ATELIER_SEARCH_REFORMULATION_THRESHOLD", "garbage")
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "garbage")
     assert reformulation_threshold() == 2
-    monkeypatch.setenv("ATELIER_SEARCH_REFORMULATION_THRESHOLD", "0")
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "0")
     assert reformulation_threshold() == 2
 
 
@@ -152,9 +152,9 @@ class TestSearchHistory:
         assert h.breaker_tripped(threshold=0) is False
 
     def test_breaker_threshold_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("ATELIER_SEARCH_BREAKER_THRESHOLD", "3")
+        monkeypatch.setenv("LEMONCROW_SEARCH_BREAKER_THRESHOLD", "3")
         assert breaker_threshold() == 3
-        monkeypatch.setenv("ATELIER_SEARCH_BREAKER_THRESHOLD", "junk")
+        monkeypatch.setenv("LEMONCROW_SEARCH_BREAKER_THRESHOLD", "junk")
         assert breaker_threshold() == 6
 
     def test_drives_absent_across_calls(self) -> None:

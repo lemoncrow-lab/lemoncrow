@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv run python -c "..."          # one-off Python
 uv run pytest ...               # tests
 uv run mypy src                 # type-check
-uv run atelier ...              # CLI
+uv run lemon ...              # CLI
 ```
 
 The `.venv` is at `.venv/bin/python3` if you need the path explicitly.
@@ -45,4 +45,4 @@ bash scripts/install_claude.sh
 
 ## Coding Guidelines
 
-The full guidelines (think before coding, simplicity first, surgical changes, goal-driven execution) are embedded in every Atelier persona. Source of truth: `integrations/agents/shared/coding-guidelines.md` — do not restate them here.
+The full guidelines (think before coding, simplicity first, surgical changes, goal-driven execution) are embedded in every LemonCrow persona. Source of truth: `integrations/agents/shared/coding-guidelines.md` — do not restate them here.

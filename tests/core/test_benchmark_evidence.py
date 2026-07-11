@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.benchmark_evidence import (
+from lemoncrow.core.capabilities.benchmark_evidence import (
     build_codebench_evidence,
     build_terminalbench_evidence,
 )
@@ -56,7 +56,7 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
         },
         {
             "task": "task1",
-            "arm": "atelier",
+            "arm": "lemoncrow",
             "valid": True,
             "correct": True,
             "cost_usd": 0.8,
@@ -64,7 +64,7 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
             "output_tokens": 16,
             "cache_read_tokens": 10,
             "duration_ms": 400,
-            "flow_path": "atelier.flow",
+            "flow_path": "lemoncrow.flow",
         },
     ]
     (run_dir / "results.jsonl").write_text(
@@ -80,7 +80,7 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
 
     assert evidence["commit_under_test"]["dirty"] is True
     assert evidence["judge_outputs"]["fields"] == ["correct", "score", "judge_model", "judge_reason"]
-    assert evidence["summary"]["by_arm"]["atelier"]["correct"] == 1
+    assert evidence["summary"]["by_arm"]["lemoncrow"]["correct"] == 1
     assert evidence["summary"]["by_arm"]["baseline"]["cost_usd_sum"] == 1.2
     assert evidence["artifacts"]["task_metrics_csv"]["exists"] is False
     assert evidence["artifacts"]["task_correctness_csv"]["exists"] is False
@@ -94,4 +94,4 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
         "quality_delta",
         "judge_reason",
     ]
-    assert evidence["artifacts"]["flow_paths"] == ["atelier.flow", "baseline.flow"]
+    assert evidence["artifacts"]["flow_paths"] == ["baseline.flow", "lemoncrow.flow"]

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.runtime import AtelierRuntimeCore
-from atelier.infra.runtime.run_ledger import RunLedger
+from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
-def _runtime(tmp_path: Path) -> AtelierRuntimeCore:
-    root = tmp_path / ".atelier"
-    return AtelierRuntimeCore(root)
+def _runtime(tmp_path: Path) -> LemonCrowRuntimeCore:
+    root = tmp_path / ".lemoncrow"
+    return LemonCrowRuntimeCore(root)
 
 
 def test_route_decide_low_risk_routes_cheap(tmp_path: Path) -> None:
@@ -47,7 +47,7 @@ def test_route_decide_high_risk_routes_premium(tmp_path: Path) -> None:
 
 def test_route_decide_repeated_failure_forces_premium(tmp_path: Path) -> None:
     rt = _runtime(tmp_path)
-    ledger = RunLedger(root=tmp_path / ".atelier", session_id="run-repeat")
+    ledger = RunLedger(root=tmp_path / ".lemoncrow", session_id="run-repeat")
     ledger.repeated_failures.append("same-error-signature")
 
     decision = rt.route_decide(

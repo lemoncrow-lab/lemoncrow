@@ -152,7 +152,7 @@ def load_instances(
 ) -> list[MultiSweInstance]:
     """Load + filter instances from a Multi-SWE-bench JSONL.
 
-    Defaults select the non-trivial, multi-file slice where Atelier's
+    Defaults select the non-trivial, multi-file slice where LemonCrow's
     navigation/edit tooling actually matters. ``per_language_limit`` stratifies
     the sample so one language can't dominate a small run.
     """

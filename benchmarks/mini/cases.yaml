@@ -1,4 +1,4 @@
-# Atelier mini eval suite — cheap, deterministic cost-quality benchmark.
+# LemonCrow mini eval suite — cheap, deterministic cost-quality benchmark.
 #
 # Each case is a small, real, verifiable task against this repository. The
 # verify command passes when it exits 0. `starting_git_sha: HEAD` means the
@@ -9,19 +9,19 @@
 # schema assertions.
 #
 # Run with:
-#   atelier benchmark mini --dry-run --json       # offline validation, no API keys
-#   atelier benchmark mini --limit 5 --json        # live run, writes a JSON report
+#   lemon benchmark mini --dry-run --json       # offline validation, no API keys
+#   lemon benchmark mini --limit 5 --json        # live run, writes a JSON report
 
 cases:
   - id: mini-001-eval-mini-schema-doc
     title: "Add missing docstring to MiniEvalCase"
     prompt: |
-      Add a module-level docstring to src/atelier/core/capabilities/eval_mini/schema.py
+      Add a module-level docstring to src/lemoncrow/core/capabilities/eval_mini/schema.py
       explaining what the module contains. One sentence is enough.
     starting_git_sha: HEAD
     allowed_files:
-      - "src/atelier/core/capabilities/eval_mini/schema.py"
-    command_to_verify: "uv run python -c \"import ast, sys; t=ast.parse(open('src/atelier/core/capabilities/eval_mini/schema.py').read()); sys.exit(0 if isinstance(t.body[0], ast.Expr) else 1)\""
+      - "src/lemoncrow/core/capabilities/eval_mini/schema.py"
+    command_to_verify: "uv run python -c \"import ast, sys; t=ast.parse(open('src/lemoncrow/core/capabilities/eval_mini/schema.py').read()); sys.exit(0 if isinstance(t.body[0], ast.Expr) else 1)\""
     expected_success_condition: "File has a module docstring as first statement"
     max_cost_usd: 0.02
     tags: [docs, cheap]
@@ -29,26 +29,26 @@ cases:
   - id: mini-002-eval-mini-dry-run-flag
     title: "Verify dry_run returns all-skipped"
     prompt: |
-      In src/atelier/core/capabilities/eval_mini/runner.py, ensure that
+      In src/lemoncrow/core/capabilities/eval_mini/runner.py, ensure that
       when dry_run=True is passed to run_suite(), all returned case results
       have status="skipped". Add a comment # dry_run: all cases skipped
       at the top of the dry-run branch if not already present.
     starting_git_sha: HEAD
     allowed_files:
-      - "src/atelier/core/capabilities/eval_mini/runner.py"
-    command_to_verify: "uv run python -c \"from atelier.core.capabilities.eval_mini.runner import run_suite; print('ok')\""
+      - "src/lemoncrow/core/capabilities/eval_mini/runner.py"
+    command_to_verify: "uv run python -c \"from lemoncrow.core.capabilities.eval_mini.runner import run_suite; print('ok')\""
     expected_success_condition: "Module imports without error"
     max_cost_usd: 0.03
     tags: [code, cheap]
 
-  - id: mini-003-atelier-benchmark-mini-help
-    title: "Verify atelier benchmark mini --help works"
+  - id: mini-003-lemoncrow-benchmark-mini-help
+    title: "Verify lemon benchmark mini --help works"
     prompt: |
-      No changes needed. Just confirm atelier benchmark mini --help exits 0.
+      No changes needed. Just confirm lemon benchmark mini --help exits 0.
     starting_git_sha: HEAD
     allowed_files: []
-    command_to_verify: "uv run atelier benchmark mini --help"
-    expected_success_condition: "atelier benchmark mini --help exits 0"
+    command_to_verify: "uv run lemon benchmark mini --help"
+    expected_success_condition: "lemon benchmark mini --help exits 0"
     max_cost_usd: 0.00
     tags: [cli, trivial]
 
@@ -61,20 +61,20 @@ cases:
       unless a field is genuinely missing.
     starting_git_sha: HEAD
     allowed_files:
-      - "src/atelier/core/capabilities/eval_mini/schema.py"
-    command_to_verify: "uv run python -c \"from atelier.core.capabilities.eval_mini.schema import MiniEvalReport; r=MiniEvalReport.model_fields; assert all(f in r for f in ['total_tasks','accepted_tasks','failed_tasks','total_cost_usd','trace_coverage_pct'])\""
+      - "src/lemoncrow/core/capabilities/eval_mini/schema.py"
+    command_to_verify: "uv run python -c \"from lemoncrow.core.capabilities.eval_mini.schema import MiniEvalReport; r=MiniEvalReport.model_fields; assert all(f in r for f in ['total_tasks','accepted_tasks','failed_tasks','total_cost_usd','trace_coverage_pct'])\""
     expected_success_condition: "MiniEvalReport has all required fields"
     max_cost_usd: 0.02
     tags: [schema, cheap]
 
   - id: mini-005-dry-run-no-network
-    title: "atelier benchmark mini --dry-run --json works offline"
+    title: "lemon benchmark mini --dry-run --json works offline"
     prompt: |
       No agent call needed. The dry-run command should load cases and
       produce a dry_run report without network access.
     starting_git_sha: HEAD
     allowed_files: []
-    command_to_verify: "uv run atelier benchmark mini --dry-run --json --output /tmp/mini-dry-run-test.json && python3 -c \"import json; d=json.load(open('/tmp/mini-dry-run-test.json')); assert d['status']=='dry_run'\""
+    command_to_verify: "uv run lemon benchmark mini --dry-run --json --output /tmp/mini-dry-run-test.json && python3 -c \"import json; d=json.load(open('/tmp/mini-dry-run-test.json')); assert d['status']=='dry_run'\""
     expected_success_condition: "dry_run report written with status=dry_run"
     max_cost_usd: 0.00
     tags: [cli, dry_run]

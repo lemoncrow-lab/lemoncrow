@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from atelier.core.capabilities.tool_supervision.compact_output import columnar_decode
-from atelier.core.capabilities.tool_supervision.output_format import (
+from lemoncrow.core.capabilities.tool_supervision.compact_output import columnar_decode
+from lemoncrow.core.capabilities.tool_supervision.output_format import (
     apply_output_format,
     normalize_format,
 )

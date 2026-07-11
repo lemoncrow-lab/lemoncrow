@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.code_health.doc_drift import (
+from lemoncrow.core.capabilities.code_health.doc_drift import (
     DocDriftAnalyzer,
     design_gaps,
     verify_design,
 )
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def _build_indexed_repo(repo: Path, cache_root: Path) -> SemanticFileMemoryCapability:
@@ -97,7 +97,7 @@ def test_design_gaps_entry_point_fail_open_on_missing_paths(tmp_path: Path) -> N
     # No docs anywhere -> structurally valid empty result, never raises.
     result = design_gaps(
         repo_root=tmp_path / "nope",
-        atelier_root=tmp_path / "cache",
+        lemoncrow_root=tmp_path / "cache",
         paths=["does_not_exist.md"],
     )
     assert result["kind"] == "design_gaps"
@@ -113,7 +113,7 @@ def test_verify_design_entry_point_reports_kind(tmp_path: Path) -> None:
     doc.write_text("# D\n\n`place_order(sku, quantity, warehouse)`\n", encoding="utf-8")
     result = verify_design(
         repo_root=repo,
-        atelier_root=tmp_path / "cache",
+        lemoncrow_root=tmp_path / "cache",
         paths=["docs/d.md"],
     )
     assert result["kind"] == "verify_design"

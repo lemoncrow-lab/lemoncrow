@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 
 
 def test_parse_copilot_rich_turns_handles_pasted_content_subagents_and_string_patch() -> None:

@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.core.capabilities.lesson_promotion.models import TypedLesson
-from atelier.core.capabilities.lesson_promotion.store import TypedLessonStore
-from atelier.gateway.cli import cli
+from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.gateway.cli import cli
 
 
 def _invoke(root: Path, *args: str) -> Result:
@@ -21,7 +21,7 @@ def _invoke(root: Path, *args: str) -> Result:
 def _pro_entitlement(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Cross-vendor routing CLI is Pro-gated; grant a Pro plan so these tests
     exercise the routing behavior, not the entitlement wall."""
-    from atelier.core.capabilities.licensing import entitlements
+    from lemoncrow.core.capabilities.licensing import entitlements
     from tests.helpers import grant_oauth_pro
 
     grant_oauth_pro(monkeypatch)
@@ -30,7 +30,7 @@ def _pro_entitlement(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def test_route_configure_writes_route_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -45,7 +45,7 @@ def test_route_configure_writes_route_yaml(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_route_plan_fails_closed_without_config(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
 
     res = _invoke(root, "route", "plan", "--tool", "read", "--task", "find the failing test")
 
@@ -54,7 +54,7 @@ def test_route_plan_fails_closed_without_config(tmp_path: Path) -> None:
 
 
 def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
@@ -94,13 +94,13 @@ def test_route_plan_returns_cross_vendor_recommendation(tmp_path: Path, monkeypa
 
 
 def test_proof_run_survives_non_dict_smart_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A hand-edited/corrupt ~/.atelier/smart_state.json holding a valid but
+    """A hand-edited/corrupt ~/.lemoncrow/smart_state.json holding a valid but
     non-dict JSON value (null, list, string, number) must fall through to the
     graceful ClickException, not crash with an uncaught AttributeError."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     fake_home = tmp_path / "home"
-    (fake_home / ".atelier").mkdir(parents=True)
-    (fake_home / ".atelier" / "smart_state.json").write_text("null", encoding="utf-8")
+    (fake_home / ".lemoncrow").mkdir(parents=True)
+    (fake_home / ".lemoncrow" / "smart_state.json").write_text("null", encoding="utf-8")
     monkeypatch.setenv("HOME", str(fake_home))
 
     res = _invoke(root, "proof", "run", "--session-id", "wp32-proof")
@@ -111,7 +111,7 @@ def test_proof_run_survives_non_dict_smart_state(tmp_path: Path, monkeypatch: py
 
 
 def test_route_status_reports_recommendation_count_and_savings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     configured = _invoke(root, "route", "configure", "--vendor", "anthropic", "--json")
     assert configured.exit_code == 0, configured.output

@@ -7,14 +7,14 @@ from subprocess import CompletedProcess
 
 import pytest
 
-from atelier.infra.code_intel.astgrep.adapter import AstGrepAdapter, _parse_json_output
-from atelier.infra.code_intel.astgrep.binaries import discover_astgrep_binary
+from lemoncrow.infra.code_intel.astgrep.adapter import AstGrepAdapter, _parse_json_output
+from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 
 def test_discover_astgrep_binary_rejects_wrong_linux_sg_collision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ATELIER_AST_GREP_BIN", "/usr/bin/sg")
+    monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", "/usr/bin/sg")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sg" if name == "ast-grep" else None)
 
     resolution = discover_astgrep_binary(tmp_path)

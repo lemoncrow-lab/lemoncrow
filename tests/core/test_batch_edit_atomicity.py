@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
+from lemoncrow.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -44,7 +44,7 @@ def test_atomic_all_succeed(tmp_path: Path) -> None:
     assert f2.read_text() == "baz bar\n"
 
     # Backup directory must not remain after success.
-    backup_dirs = list((tmp_path / ".atelier" / "run").glob("*/batch_edit_backup"))
+    backup_dirs = list((tmp_path / ".lemoncrow" / "run").glob("*/batch_edit_backup"))
     assert backup_dirs == [], "backup directory should be cleaned up on success"
 
 

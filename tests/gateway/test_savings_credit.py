@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.pricing import get_model_pricing
-from atelier.core.capabilities.savings_summary import (
+from lemoncrow.core.capabilities.pricing import get_model_pricing
+from lemoncrow.core.capabilities.savings_summary import (
     _carry_credit,
     _read_claude_session_savings,
     compute_savings_summary,
@@ -21,7 +21,7 @@ MODEL = "claude-sonnet-4-5"
 
 
 def _write_sidecar(root: Path, session_id: str, rows: list[dict[str, Any]]) -> None:
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     d = session_dir(root, "claude", session_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -49,7 +49,7 @@ def _usage_line(msg_id: str, ts: str) -> dict[str, Any]:
     (("gpt-5.6-sol", 5.00), ("gpt-5.6-terra", 2.50), ("gpt-5.6-luna", 1.00)),
 )
 def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate: float) -> None:
-    from atelier.core.capabilities.savings_summary import _price_savings_row
+    from lemoncrow.core.capabilities.savings_summary import _price_savings_row
 
     tokens, usd, calls, calls_usd, unpriced = _price_savings_row({"tokens": 1_000_000, "model": model})
     assert (tokens, calls, calls_usd, unpriced) == (1_000_000, 0, 0.0, 0)
@@ -57,7 +57,7 @@ def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate:
 
 
 def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     session_id = "codex-session"
     codex_home = tmp_path / ".codex"
@@ -78,7 +78,7 @@ def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkey
     sidecar.parent.mkdir(parents=True)
     sidecar.write_text(json.dumps({"tool": "read", "tokens": 1_000_000, "model": ""}) + "\n", encoding="utf-8")
 
-    summary = compute_savings_summary(session_id, atelier_root=tmp_path)
+    summary = compute_savings_summary(session_id, lemoncrow_root=tmp_path)
 
     assert summary.ctx_saved == 1_000_000
     assert summary.saved_usd == pytest.approx(2.5)
@@ -115,7 +115,7 @@ def test_read_claude_session_savings_excludes_compaction_rows(tmp_path: Path) ->
 
 
 def test_routing_rows_summed_separately_from_context(tmp_path: Path) -> None:
-    from atelier.core.capabilities.savings_summary import _read_session_routing_usd
+    from lemoncrow.core.capabilities.savings_summary import _read_session_routing_usd
 
     _write_sidecar(
         tmp_path,
@@ -146,7 +146,7 @@ def test_carry_credit_counts_only_later_turns(tmp_path: Path) -> None:
         [
             # 1000 tokens saved before two later turns -> 2 carry turns.
             {"tool": "read", "tokens": 1000, "calls": 0, "model": MODEL, "ts": row_ts},
-            # Compaction rows reset the window; they are not Atelier savings.
+            # Compaction rows reset the window; they are not LemonCrow savings.
             {"kind": "compaction", "tokens": 50_000, "usd": 0.01, "model": MODEL, "ts": row_ts},
             # Unknown-model rows contribute nothing (never guess a rate).
             {"tool": "grep", "tokens": 1000, "calls": 0, "model": "mystery-model-x", "ts": row_ts},
@@ -329,7 +329,7 @@ def test_read_transcript_stats_includes_subagent_usage(tmp_path: Path) -> None:
 
 
 def test_price_avoided_calls_usd_uses_cache_read_rate() -> None:
-    from atelier.gateway.adapters.mcp_server import _price_avoided_calls_usd
+    from lemoncrow.gateway.adapters.mcp_server import _price_avoided_calls_usd
 
     pricing = get_model_pricing(MODEL)
     assert pricing is not None
@@ -351,7 +351,7 @@ def test_price_avoided_calls_usd_uses_cache_read_rate() -> None:
 
 
 def test_savings_price_at_premium_when_long_context() -> None:
-    from atelier.gateway.adapters.mcp_server import (
+    from lemoncrow.gateway.adapters.mcp_server import (
         _price_avoided_calls_usd,
         _price_tokens_saved_usd,
         _savings_long_context,
@@ -523,7 +523,7 @@ def test_carry_credit_prices_long_context_rows_at_premium(tmp_path: Path) -> Non
 
 
 def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> None:
-    from atelier.core.capabilities.savings_summary import _cliff_credit
+    from lemoncrow.core.capabilities.savings_summary import _cliff_credit
 
     base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -570,10 +570,10 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     """
     import json
 
-    from atelier.core.foundation import session_window as sw
-    from atelier.gateway.adapters import mcp_server as m
+    from lemoncrow.core.foundation import session_window as sw
+    from lemoncrow.gateway.adapters import mcp_server as m
 
-    monkeypatch.setattr(m, "_atelier_root", lambda: tmp_path)
+    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
@@ -594,7 +594,7 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     win_file.write_text(json.dumps({"session_id": "active-sid"}), encoding="utf-8")
 
     # Identity (ledger/telemetry) and savings BOTH follow the live window id.
-    from atelier.core.foundation.paths import session_dir
+    from lemoncrow.core.foundation.paths import session_dir
 
     assert m._claude_session_id() == "active-sid"
     assert m._get_host_session_sidecar_path() == session_dir(tmp_path, "claude", "active-sid") / "savings.jsonl"
@@ -619,11 +619,11 @@ def test_append_savings_unresolved_session_routes_to_quarantine_ledger(
     """
     import json
 
-    from atelier.core.capabilities.savings_summary import _scan_savings_files
-    from atelier.core.foundation.paths import find_session_dir
-    from atelier.gateway.adapters import mcp_server as m
+    from lemoncrow.core.capabilities.savings_summary import _scan_savings_files
+    from lemoncrow.core.foundation.paths import find_session_dir
+    from lemoncrow.gateway.adapters import mcp_server as m
 
-    monkeypatch.setattr(m, "_atelier_root", lambda: tmp_path)
+    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))

@@ -27,7 +27,7 @@ describe("Watchdogs page", () => {
             jsonResponse({
               active_profile: "coding",
               runtime_wired: true,
-              config_path: "/tmp/.atelier/watchdog_profiles.json",
+              config_path: "/tmp/.lemoncrow/watchdog_profiles.json",
               library: [
                 {
                   key: "repeated_command_failure",
@@ -63,7 +63,7 @@ describe("Watchdogs page", () => {
             jsonResponse({
               active_profile: payload.active_profile,
               runtime_wired: true,
-              config_path: "/tmp/.atelier/watchdog_profiles.json",
+              config_path: "/tmp/.lemoncrow/watchdog_profiles.json",
               library: [
                 {
                   key: "repeated_command_failure",

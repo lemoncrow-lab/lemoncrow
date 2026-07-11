@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_antigravity.sh — Install Atelier into Antigravity / agy
+# install_antigravity.sh — Install LemonCrow into Antigravity / agy
 #
 # What it does:
 #   Global mode: installs user-level Antigravity MCP config, plugin, and skills.
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
 
 DRY_RUN=false
@@ -48,7 +48,7 @@ fi
 
 ANTIGRAVITY_USER_DIR="${ANTIGRAVITY_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Antigravity/User}"
 AGY_GLOBAL_DIR="${HOME}/.gemini/antigravity-cli"
-AGY_PLUGIN_DIR="${AGY_GLOBAL_DIR}/plugins/atelier"
+AGY_PLUGIN_DIR="${AGY_GLOBAL_DIR}/plugins/lemoncrow"
 AGY_SKILLS_DIR="${AGY_GLOBAL_DIR}/skills"
 
 if $WORKSPACE_SET; then
@@ -59,8 +59,8 @@ else
     MCP_JSON="${ANTIGRAVITY_USER_DIR}/mcp.json"
 fi
 
-info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:antigravity] $*" || true; }
-warn()  { echo "[atelier:antigravity] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:antigravity] $*" || true; }
+warn()  { echo "[lemon:antigravity] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -68,7 +68,7 @@ backup_file() {
         return
     fi
     if [ -f "$f" ]; then
-        local bk="${f}.atelier-backup.$(date +%Y%m%dT%H%M%S)"
+        local bk="${f}.lemoncrow-backup.$(date +%Y%m%dT%H%M%S)"
         run "cp $(printf %q "$f") $(printf %q "$bk")"
         info "backed up $f -> $bk"
     fi
@@ -78,7 +78,7 @@ ANTIGRAVITY_BIN="$(command -v antigravity || true)"
 AGY_BIN="$(command -v agy || true)"
 if [[ -z "$ANTIGRAVITY_BIN" && -z "$AGY_BIN" ]]; then
     if $STRICT; then
-        echo "[atelier:antigravity] ERROR: neither 'antigravity' nor 'agy' is on PATH." >&2
+        echo "[lemon:antigravity] ERROR: neither 'antigravity' nor 'agy' is on PATH." >&2
         exit 1
     fi
     warn "Neither 'antigravity' nor 'agy' is on PATH - SKIPPING."
@@ -98,12 +98,12 @@ if $WORKSPACE_SET; then
     NEW_ENTRY=$(cat <<JSON
 {
   "servers": {
-    "atelier": {
+    "lemoncrow": {
       "type": "stdio",
-      "command": "atelier",
+      "command": "lemon",
       "args": ["mcp", "--host", "antigravity"],
       "env": {
-        "ATELIER_WORKSPACE_ROOT": "${WORKSPACE}"
+        "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
       }
     }
   }
@@ -114,9 +114,9 @@ else
     NEW_ENTRY=$(cat <<'JSON'
 {
   "servers": {
-    "atelier": {
+    "lemoncrow": {
       "type": "stdio",
-      "command": "atelier",
+      "command": "lemon",
       "args": ["mcp", "--host", "antigravity"]
     }
   }
@@ -126,13 +126,13 @@ JSON
 fi
 
 ADD_MCP_JSON=$(cat <<'JSON'
-{"name":"atelier","command":"atelier","args":["mcp","--host","antigravity"]}
+{"name":"lemoncrow","command":"lemon","args":["mcp","--host","antigravity"]}
 JSON
 )
 
 if $PRINT_ONLY; then
     echo ""
-    echo "=== Atelier Antigravity - Manual Install Steps ==="
+    echo "=== LemonCrow Antigravity - Manual Install Steps ==="
     echo ""
     echo "Scope: ${INSTALL_SCOPE}"
     echo ""
@@ -140,14 +140,14 @@ if $PRINT_ONLY; then
         echo "1. Create/merge ${MCP_JSON}:"
         echo "$NEW_ENTRY"
     else
-        echo "1. Add Atelier MCP to the Antigravity user profile:"
+        echo "1. Add LemonCrow MCP to the Antigravity user profile:"
         echo "   antigravity --add-mcp '$ADD_MCP_JSON'"
         echo ""
         echo "2. Create/merge ${MCP_JSON}:"
         echo "$NEW_ENTRY"
     fi
     echo ""
-    echo "3. Open the workspace in Antigravity and use agy or the built-in chat with Atelier MCP enabled."
+    echo "3. Open the workspace in Antigravity and use agy or the built-in chat with LemonCrow MCP enabled."
     exit 0
 fi
 
@@ -155,7 +155,7 @@ run "mkdir -p $(printf %q "$(dirname "$MCP_JSON")")"
 if [ -f "$MCP_JSON" ]; then
     backup_file "$MCP_JSON"
     if $DRY_RUN; then
-        echo "  [dry-run] merge atelier into $MCP_JSON"
+        echo "  [dry-run] merge LemonCrow into $MCP_JSON"
     else
         MCP_JSON="$MCP_JSON" NEW_ENTRY="$NEW_ENTRY" python3 - <<'PYEOF'
 import json
@@ -168,7 +168,7 @@ new_entry = json.loads(os.environ["NEW_ENTRY"])
 server_key = "servers" if "servers" in existing or "mcpServers" not in existing else "mcpServers"
 existing.setdefault(server_key, {}).update(new_entry["servers"])
 path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-print(f"[atelier:antigravity] merged atelier into {path}")
+print(f"[lemon:antigravity] merged LemonCrow into {path}")
 PYEOF
     fi
 else
@@ -183,7 +183,7 @@ fi
 if ! $WORKSPACE_SET && [[ -n "$ANTIGRAVITY_BIN" ]] && ! $DRY_RUN; then
     if ! ADD_MCP_OUTPUT=$(antigravity --add-mcp "$ADD_MCP_JSON" 2>&1); then
         if $STRICT; then
-            echo "[atelier:antigravity] ERROR: antigravity --add-mcp failed: $ADD_MCP_OUTPUT" >&2
+            echo "[lemon:antigravity] ERROR: antigravity --add-mcp failed: $ADD_MCP_OUTPUT" >&2
             exit 1
         fi
         warn "antigravity --add-mcp failed: $ADD_MCP_OUTPUT (user mcp.json was still written)"
@@ -193,34 +193,34 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[atelier:antigravity] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemon:antigravity] FAIL: $*" >&2; VFAIL=1; }
 
-if [ -f "$MCP_JSON" ] && grep -q '"atelier"' "$MCP_JSON" 2>/dev/null; then
+if [ -f "$MCP_JSON" ] && grep -q '"lemoncrow"' "$MCP_JSON" 2>/dev/null; then
     vpass "MCP config present: $MCP_JSON"
 else
-    vfail "missing Atelier MCP config: $MCP_JSON"
+    vfail "missing LemonCrow MCP config: $MCP_JSON"
 fi
 
 # Install plugin (global only — not applicable for workspace-scoped installs)
-PLUGIN_SRC="${ATELIER_REPO}/integrations/antigravity/plugin"
+PLUGIN_SRC="${LEMONCROW_REPO}/integrations/antigravity/plugin"
 if ! $WORKSPACE_SET && [[ -d "$PLUGIN_SRC" ]]; then
     if $DRY_RUN; then
         echo "  [dry-run] install plugin -> $AGY_PLUGIN_DIR"
     else
         run "mkdir -p $(printf %q "$AGY_PLUGIN_DIR")"
         run "cp -r $(printf %q "${PLUGIN_SRC}/.") $(printf %q "$AGY_PLUGIN_DIR/")"
-        ATELIER_VERSION="$(atelier_resolve_version "$ATELIER_REPO")"
-        PLUGIN_MANIFEST="${AGY_PLUGIN_DIR}/plugin.json" ATELIER_VERSION="$ATELIER_VERSION" python3 - <<'PYEOF'
+        LEMONCROW_VERSION="$(lemoncrow_resolve_version "$LEMONCROW_REPO")"
+        PLUGIN_MANIFEST="${AGY_PLUGIN_DIR}/plugin.json" LEMONCROW_VERSION="$LEMONCROW_VERSION" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 
 manifest = Path(os.environ["PLUGIN_MANIFEST"])
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["version"] = os.environ["ATELIER_VERSION"]
+data["version"] = os.environ["LEMONCROW_VERSION"]
 manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
-        atelier_apply_reply_register_level "$AGY_PLUGIN_DIR" false
+        lemoncrow_apply_reply_register_level "$AGY_PLUGIN_DIR" false
         info "installed plugin -> $AGY_PLUGIN_DIR"
     fi
 fi
@@ -228,7 +228,7 @@ fi
 # Install global skills (global only)
 if ! $WORKSPACE_SET; then
     bash "${SCRIPT_DIR}/build_host_skills.sh" --host antigravity 2>/dev/null || true
-    SKILLS_STAGING="${ATELIER_REPO}/integrations/antigravity/skills"
+    SKILLS_STAGING="${LEMONCROW_REPO}/integrations/antigravity/skills"
     if [[ -d "$SKILLS_STAGING" ]] && compgen -G "${SKILLS_STAGING}/*/SKILL.md" > /dev/null 2>&1; then
         if $DRY_RUN; then
             echo "  [dry-run] install skills -> $AGY_SKILLS_DIR"
@@ -246,13 +246,13 @@ if ! $WORKSPACE_SET; then
 fi
 
 if $WORKSPACE_SET; then
-    atelier_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
-if command -v atelier &>/dev/null; then
-    vpass "atelier is available on PATH"
+if command -v lemon &>/dev/null; then
+    vpass "lemon is available on PATH"
 else
-    vfail "atelier NOT found on PATH"
+    vfail "lemon NOT found on PATH"
 fi
 
 if [[ -n "$ANTIGRAVITY_BIN" || -n "$AGY_BIN" ]]; then
@@ -262,8 +262,8 @@ else
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[atelier:antigravity] ERROR: post-install verification failed." >&2
+    echo "[lemon:antigravity] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
-info "Done. Open the workspace in Antigravity or launch agy with Atelier MCP available."
+info "Done. Open the workspace in Antigravity or launch agy with LemonCrow MCP available."

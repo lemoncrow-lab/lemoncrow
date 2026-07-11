@@ -27,7 +27,7 @@ export default function Logo(props: Props): ReactNode {
       <span
         className={[styles.wordmark, titleClassName].filter(Boolean).join(" ")}
       >
-        ATELIER
+        LEMONCROW
       </span>
     </Link>
   );

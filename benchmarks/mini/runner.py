@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from atelier.core.capabilities.savings_summary import estimate_cost_usd
+from lemoncrow.core.capabilities.savings_summary import estimate_cost_usd
 
 from .schema import MiniEvalCaseResult, MiniEvalReport
 
@@ -66,7 +66,7 @@ def _git_head(cwd: Path) -> str:
 
 def _git_stash(cwd: Path) -> bool:
     """Stash tracked + untracked changes. Returns True if a stash was created."""
-    out = _git(["stash", "push", "-u", "-m", "atelier-mini-eval"], cwd)
+    out = _git(["stash", "push", "-u", "-m", "lemoncrow-mini-eval"], cwd)
     return "No local changes to save" not in out
 
 
@@ -112,12 +112,12 @@ def _run_agent(case: MiniEvalCase, *, root: Path, git_repo: Path) -> _AgentRun:
     """Drive the agent through one prompt. Lazy-imports InteractiveRuntime."""
     import asyncio
 
-    from atelier.gateway.cli.events import (
+    from lemoncrow.gateway.cli.events import (
         ContextUsageUpdated,
         RouteSelected,
         RuntimeErrorEvent,
     )
-    from atelier.gateway.cli.runtime import InteractiveRuntime
+    from lemoncrow.gateway.cli.runtime import InteractiveRuntime
 
     session_id = f"mini-{case.id}-{uuid.uuid4().hex[:8]}"
     runtime = InteractiveRuntime(root=root, yolo=True)

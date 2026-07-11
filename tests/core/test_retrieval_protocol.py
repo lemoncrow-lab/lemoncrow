@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.code_context import CodeContextEngine, CodeRetriever
-from atelier.core.capabilities.retrieval import Retriever, default_retriever_factory
-from atelier.core.runtime.engine import AtelierRuntimeCore
+from lemoncrow.core.capabilities.code_context import CodeContextEngine, CodeRetriever
+from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
+from lemoncrow.core.runtime.engine import LemonCrowRuntimeCore
 
 
 class FakeRetriever:
@@ -72,20 +72,20 @@ def test_default_retriever_factory_is_code_vertical(tmp_path: Path) -> None:
 
 def test_runtime_core_accepts_injected_retriever_factory(tmp_path: Path) -> None:
     fake = FakeRetriever()
-    core = AtelierRuntimeCore(tmp_path / "store", retriever_factory=lambda root: fake)
+    core = LemonCrowRuntimeCore(tmp_path / "store", retriever_factory=lambda root: fake)
     assert core.retriever_factory(tmp_path) is fake
 
 
 def test_runtime_core_defaults_to_code_retriever(tmp_path: Path) -> None:
-    core = AtelierRuntimeCore(tmp_path / "store")
+    core = LemonCrowRuntimeCore(tmp_path / "store")
     assert core.retriever_factory is default_retriever_factory
 
 
 def test_get_context_uses_injected_retriever_for_bootstrap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeRetriever(corpus_id="docs-corpus")
-    core = AtelierRuntimeCore(tmp_path / "store", retriever_factory=lambda root: fake)
+    core = LemonCrowRuntimeCore(tmp_path / "store", retriever_factory=lambda root: fake)
     monkeypatch.setattr(
-        "atelier.core.runtime.engine.resolve_workspace_root",
+        "lemoncrow.core.runtime.engine.resolve_workspace_root",
         lambda root: tmp_path,
     )
     payload = core.get_context(task="summarize onboarding docs", agent_id="tester", recall=False)

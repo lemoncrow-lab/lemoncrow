@@ -9,13 +9,13 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.workflow_context import WorkflowContextState
-from atelier.core.capabilities.workflow_runner import (
+from lemoncrow.core.capabilities.workflow_context import WorkflowContextState
+from lemoncrow.core.capabilities.workflow_runner import (
     WorkflowLoopGuardError,
     WorkflowRunner,
     evaluate_predicate,
 )
-from atelier.core.capabilities.workflow_schema import (
+from lemoncrow.core.capabilities.workflow_schema import (
     WorkflowDefinition,
     WorkflowPredicate,
     WorkflowStepDefinition,
@@ -264,7 +264,7 @@ def test_loop_infinite_guard_trips_when_never_converges() -> None:
 
 
 def test_loop_max_iterations_clamped_to_hard_cap() -> None:
-    from atelier.core.capabilities.workflow_schema import LOOP_ITERATION_HARD_CAP
+    from lemoncrow.core.capabilities.workflow_schema import LOOP_ITERATION_HARD_CAP
 
     definition = WorkflowDefinition(
         workflow_id="over-cap",

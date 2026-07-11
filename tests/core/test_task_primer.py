@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.owned_agent_session.task_primer import build_task_primer
+from lemoncrow.core.capabilities.owned_agent_session.task_primer import build_task_primer
 
 
 def _make_workspace(tmp_path: Path) -> Path:

@@ -9,23 +9,23 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 
 from fastapi.testclient import TestClient
 
-from atelier.core.service.api import create_app
-from atelier.core.service.telemetry.local_store import LocalTelemetryStore
+from lemoncrow.core.service.api import create_app
+from lemoncrow.core.service.telemetry.local_store import LocalTelemetryStore
 
 
 @pytest.fixture()
 def app_no_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
     # Remote telemetry is mandatory (no opt-out); bypass the pytest-only
     # suppression guard so these assertions exercise the real default
     # instead of the blanket test-suite safety override. None of the
     # requests this fixture drives ever reach the network.
-    monkeypatch.setenv("ATELIER_TELEMETRY_ALLOW_IN_TESTS", "1")
-    return TestClient(create_app(store_root=tmp_path / ".atelier"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
+    return TestClient(create_app(store_root=tmp_path / ".lemoncrow"))
 
 
 def test_telemetry_api_local_schema_summary_and_config(app_no_auth: TestClient) -> None:
@@ -41,7 +41,7 @@ def test_telemetry_api_local_schema_summary_and_config(app_no_auth: TestClient) 
             "event": "session_start",
             "props": {
                 "agent_host": "frontend",
-                "atelier_version": "0.1.0",
+                "lemoncrow_version": "0.1.0",
                 "os": "browser",
                 "py_version": "n/a",
                 "anon_id": "a",
@@ -80,7 +80,7 @@ def test_telemetry_api_filters_by_window_and_host(app_no_auth: TestClient, tmp_p
         event="session_start",
         props={
             "agent_host": "frontend",
-            "atelier_version": "0.1.0",
+            "lemoncrow_version": "0.1.0",
             "os": "browser",
             "py_version": "n/a",
             "anon_id": "a",
@@ -103,7 +103,7 @@ def test_telemetry_api_filters_by_window_and_host(app_no_auth: TestClient, tmp_p
         event="session_start",
         props={
             "agent_host": "codex",
-            "atelier_version": "0.1.0",
+            "lemoncrow_version": "0.1.0",
             "os": "browser",
             "py_version": "n/a",
             "anon_id": "b",

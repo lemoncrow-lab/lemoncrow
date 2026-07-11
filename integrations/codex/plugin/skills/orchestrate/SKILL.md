@@ -4,7 +4,7 @@ argument-hint: <the goal or multi-step task to orchestrate>
 description: "Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate."
 ---
 
-> **Active** — do not call `Skill("atelier:orchestrate")` again.
+> **Active** — do not call `Skill("lemon:orchestrate")` again.
 
 # Orchestrate
 

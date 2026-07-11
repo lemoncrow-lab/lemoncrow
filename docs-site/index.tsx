@@ -72,7 +72,7 @@ function HomepageHeader() {
           </Link>
           <Link
             className="button button--outline button--lg"
-            href="https://github.com/atelier-ws/atelier"
+            href="https://github.com/lemoncrowhq/lemoncrow"
             style={{ borderColor: "#9B75D9", color: "#9B75D9" }}
           >
             GitHub
@@ -86,7 +86,7 @@ function HomepageHeader() {
 export default function Home(): ReactNode {
   return (
     <Layout
-      title="Atelier — Agent Reasoning Runtime"
+      title="LemonCrow — Agent Reasoning Runtime"
       description="Structured procedure store for AI agents. Query procedures before and after complex tasks."
     >
       <HomepageHeader />

@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import tool_output_spill
+from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
 
 
 @pytest.fixture(autouse=True)
 def _isolated_spill_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -33,8 +33,8 @@ def test_spill_bytes_filename_carries_tool_and_kind(tmp_path: Path) -> None:
 
 
 def test_retention_sweep_evicts_old_pdf_spills_by_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_MAX_FILES", "1")
-    monkeypatch.setenv("ATELIER_MCP_SPILL_TTL_SECONDS", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_MAX_FILES", "1")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", "0")
 
     first = tool_output_spill.spill_bytes(b"one", tool_name="web_fetch", suffix=".pdf")
     second = tool_output_spill.spill_bytes(b"two", tool_name="web_fetch", suffix=".pdf")

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-from atelier.core.capabilities.telemetry.context_budget import (
+from lemoncrow.core.capabilities.telemetry.context_budget import (
     ContextBudgetRecorder,
     RunSavings,
 )
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def test_context_budget_recorder_record(store: ContextStore) -> None:

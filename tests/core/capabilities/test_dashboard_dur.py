@@ -1,4 +1,4 @@
-from atelier.core.capabilities.reporting.dashboard import _dur
+from lemoncrow.core.capabilities.reporting.dashboard import _dur
 
 
 def test_dur_valid_dates():

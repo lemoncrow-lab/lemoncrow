@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.foundation.models import Rubric
-from atelier.core.foundation.rubric_gate import run_rubric
+from lemoncrow.core.foundation.models import Rubric
+from lemoncrow.core.foundation.rubric_gate import run_rubric
 
 
 def test_rubric_returns_escalate_when_any_escalation_condition_true() -> None:
@@ -74,7 +74,7 @@ def test_change_gate_rubric_loads(tmp_path: Path) -> None:
 
 class TestLoadPackagedRubrics:
     def test_returns_empty_list(self) -> None:
-        from atelier.core.foundation.rubric_gate import load_packaged_rubrics
+        from lemoncrow.core.foundation.rubric_gate import load_packaged_rubrics
 
         rubrics = load_packaged_rubrics()
         assert rubrics == []
@@ -120,7 +120,7 @@ class TestLoadPackagedRubrics:
         assert res.status == "pass"
 
     def test_store_init_does_not_seed_packaged_rubrics(self, tmp_path: Path) -> None:
-        from atelier.core.foundation.store import ContextStore
+        from lemoncrow.core.foundation.store import ContextStore
 
         store = ContextStore(tmp_path)
         store.init()

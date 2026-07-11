@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 
 
-def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT", "") or Path.home() / ".atelier")
+def _lemoncrow_root() -> Path:
+    return Path(os.environ.get("LEMONCROW_ROOT", "") or Path.home() / ".lemoncrow")
 
 
 def _workspace_key(path: str) -> str:
@@ -37,7 +37,7 @@ def _session_savings_path(workspace: str) -> Path:
     """Resolve the per-session savings path, mirroring the MCP writer.
 
     Delegates host segregation to the canonical `session_dir()` helper
-    (`atelier.core.foundation.paths`) instead of re-deriving it here. The old
+    (`lemoncrow.core.foundation.paths`) instead of re-deriving it here. The old
     fallback to CLAUDE_CODE_SESSION_ID "for parity" was itself a real
     cross-host collision bug: a copilot-cli session and a Claude Code session
     that happened to share an id (or a stale CLAUDE_CODE_SESSION_ID left over
@@ -48,20 +48,20 @@ def _session_savings_path(workspace: str) -> Path:
 
     1. If GITHUB_COPILOT_SESSION_ID is set ->
        session_dir(root, "copilot", sid) / "savings.jsonl".
-    2. Else workspaces/<_workspace_key(ATELIER_WORKSPACE_ROOT or cwd)>/
+    2. Else workspaces/<_workspace_key(LEMONCROW_WORKSPACE_ROOT or cwd)>/
        session_savings.jsonl (human-readable key, matching paths.workspace_key).
     """
     sid = os.environ.get("GITHUB_COPILOT_SESSION_ID", "").strip()
     if sid:
         try:
-            from atelier.core.foundation.paths import session_dir
+            from lemoncrow.core.foundation.paths import session_dir
         except ImportError:
             pass
         else:
-            return session_dir(_atelier_root(), "copilot", sid) / "savings.jsonl"
-    workspace = str(Path(os.environ.get("ATELIER_WORKSPACE_ROOT") or workspace).resolve())
+            return session_dir(_lemoncrow_root(), "copilot", sid) / "savings.jsonl"
+    workspace = str(Path(os.environ.get("LEMONCROW_WORKSPACE_ROOT") or workspace).resolve())
     h = _workspace_key(workspace)
-    return _atelier_root() / "workspaces" / h / "session_savings.jsonl"
+    return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
 
 
 def _write_session_state_bridge(workspace: str, session_id: str) -> None:
@@ -73,12 +73,12 @@ def _write_session_state_bridge(workspace: str, session_id: str) -> None:
     always shows $0 saved (mcp_server._resolved_host_session falls back to
     _workspace_bridge_session_id, which reads this file). Mirrors the codex
     hooks' _write_codex_session_state — same file, same workspace-hash scheme.
-    Local implementation (no atelier import): this hook has no PYTHONPATH
+    Local implementation (no lemoncrow import): this hook has no PYTHONPATH
     guarantee, and _workspace_key above already matches paths.workspace_key.
     """
     if not session_id:
         return
-    state_path = _atelier_root() / "workspaces" / _workspace_key(workspace) / "session_state.json"
+    state_path = _lemoncrow_root() / "workspaces" / _workspace_key(workspace) / "session_state.json"
     try:
         state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
         if not isinstance(state, dict):

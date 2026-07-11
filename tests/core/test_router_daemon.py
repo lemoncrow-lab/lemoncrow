@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities import router_daemon as rd
+from lemoncrow.core.capabilities import router_daemon as rd
 
 
 def test_generate_config_passthrough_only(tmp_path: Path) -> None:

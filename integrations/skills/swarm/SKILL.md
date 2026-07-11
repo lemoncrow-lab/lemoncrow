@@ -17,7 +17,7 @@ never substitute a hand-written explanation for actually calling the swarm surfa
 1. Swarm vs single `orchestrate` run unclear → `AskUserQuestion` first.
 2. Goal missing (bare invocation) → the one free-text question above; goal already given → skip straight to 3.
 3. Launch parameters still unresolved after explicit args + repo inference → `AskUserQuestion`, up to 4 related unknowns per call.
-4. Launch via the existing swarm surface (`atelier swarm ...` or the matching service API) — never a new custom runtime.
+4. Launch via the existing swarm surface (`lemon swarm ...` or the matching service API) — never a new custom runtime.
 5. Return the `run_id` + the exact status/log/apply surface to use next.
 
 ## Parameters to gather → launch contract

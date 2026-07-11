@@ -1,4 +1,4 @@
-# Installing Atelier into Antigravity
+# Installing LemonCrow into Antigravity
 
 **Support level**: MCP config for Antigravity plus `agy` companion CLI support
 
@@ -25,18 +25,18 @@ bash scripts/install_antigravity.sh --workspace /path/to/workspace
 | MCP server config | `~/.config/Antigravity/User/mcp.json`     | `<workspace>/.vscode/mcp.json` |
 | Host instructions | Existing workspace `AGENTS.md` entrypoint | same workspace entrypoint      |
 
-Global installs also copy the Atelier Antigravity plugin metadata and shared
-skills for `agy`, so Antigravity sessions get stronger Atelier-first guidance
+Global installs also copy the LemonCrow Antigravity plugin metadata and shared
+skills for `agy`, so Antigravity sessions get stronger LemonCrow-first guidance
 instead of only a bare MCP registration.
 
-The MCP config registers Atelier as a stdio server:
+The MCP config registers LemonCrow as a stdio server:
 
 ```json
 {
   "servers": {
-    "atelier": {
+    "lemon": {
       "type": "stdio",
-      "command": "atelier mcp",
+      "command": "lemon mcp",
       "args": ["--host", "antigravity"]
     }
   }
@@ -46,7 +46,7 @@ The MCP config registers Atelier as a stdio server:
 Global installs also try:
 
 ```bash
-antigravity --add-mcp '{"name":"atelier","command":"atelier mcp","args":["--host","antigravity"]}'
+antigravity --add-mcp '{"name":"lemon","command":"lemon mcp","args":["--host","antigravity"]}'
 ```
 
 ## Verify
@@ -57,14 +57,14 @@ make verify
 
 ## First Task
 
-Open the workspace in Antigravity or start `agy` in the repo and ask it to use Atelier context before coding.
+Open the workspace in Antigravity or start `agy` in the repo and ask it to use LemonCrow context before coding.
 
 ## Expected Behavior
 
-- Antigravity can invoke Atelier MCP tools through the local Atelier MCP wrapper
+- Antigravity can invoke LemonCrow MCP tools through the local LemonCrow MCP wrapper
 - `agy` can work against the same workspace and MCP surface
 - Workspace installs stay local to `.vscode/mcp.json`
-- Active context/retrieval/verify tools require `ATELIER_DEV_MODE=1`; otherwise some tools may be visible but return passive `noop`
+- Active context/retrieval/verify tools require `LEMONCROW_DEV_MODE=1`; otherwise some tools may be visible but return passive `noop`
 
 ## Troubleshooting
 

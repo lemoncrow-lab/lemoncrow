@@ -75,7 +75,7 @@ function calendarDaysInRange(start: Date, end: Date) {
 
 export function TimeRangeProvider({ children }: { children: ReactNode }) {
   const [range, setRange] = useState<TimeRangeValue>(() => {
-    const saved = localStorage.getItem("atelier_time_range");
+    const saved = localStorage.getItem("lemoncrow_time_range");
     if (saved && TIME_RANGE_OPTIONS.some((o) => o.value === saved)) {
       return saved as TimeRangeValue;
     }
@@ -92,7 +92,7 @@ export function TimeRangeProvider({ children }: { children: ReactNode }) {
   const days = calendarDaysInRange(start, now);
 
   useEffect(() => {
-    localStorage.setItem("atelier_time_range", range);
+    localStorage.setItem("lemoncrow_time_range", range);
   }, [range]);
 
   useEffect(() => {

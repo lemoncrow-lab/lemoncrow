@@ -1,4 +1,4 @@
-"""Compare token usage across mitmproxy captures (e.g. Atelier on vs off).
+"""Compare token usage across mitmproxy captures (e.g. LemonCrow on vs off).
 
 Reads one or more mitmproxy ``.flow`` files, pulls the token usage out of each
 model response (Bedrock or Anthropic-direct), aggregates per capture, and
@@ -8,14 +8,14 @@ No Anthropic API key needed -- capture works with a Bedrock key or a Claude
 Pro/Max subscription.
 
     # terminal A -- start the proxy, one capture file per run:
-    mitmdump -w atelier_off.flow
+    mitmdump -w lemoncrow_off.flow
     # terminal B -- route Claude Code through it, do ONE task, then quit:
     HTTPS_PROXY=http://127.0.0.1:8080 \\
         NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem claude
-    # repeat for atelier_on.flow with the Atelier MCP server enabled, then:
+    # repeat for lemoncrow_on.flow with the LemonCrow MCP server enabled, then:
 
     uv run python -m benchmarks.flowlib.report \\
-        atelier_off=atelier_off.flow atelier_on=atelier_on.flow
+        lemoncrow_off=lemoncrow_off.flow lemoncrow_on=lemoncrow_on.flow
 
 List the baseline capture FIRST: the delta row is computed as
 ``second vs first``, so a negative percentage means the candidate saved.
@@ -189,7 +189,7 @@ def _parse_args(argv: list[str]) -> tuple[list[tuple[str, str]], dict[str, float
         "captures",
         nargs="+",
         metavar="LABEL=PATH",
-        help="captures to compare, e.g. atelier_off=off.flow atelier_on=on.flow",
+        help="captures to compare, e.g. lemoncrow_off=off.flow lemoncrow_on=on.flow",
     )
     p.add_argument("--in", dest="input_per_m", type=float, default=_DEFAULT_PRICING["input_per_m"])
     p.add_argument("--out", dest="output_per_m", type=float, default=_DEFAULT_PRICING["output_per_m"])

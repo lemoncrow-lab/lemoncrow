@@ -4,7 +4,7 @@
  * Claude Code dynamic workflow for benchmark gating.
  *
  * It delegates to focused agents that:
- *   1. collect benchmark evidence from Atelier's existing benchmark surfaces,
+ *   1. collect benchmark evidence from LemonCrow's existing benchmark surfaces,
  *   2. assess whether the evidence is statistically credible,
  *   3. return one final PASS / FAIL / INSUFFICIENT_DATA verdict.
  *
@@ -21,7 +21,7 @@ function resolveTask(runtime) {
     return runtime.prompt.trim()
   }
   return [
-    "Compare a baseline and candidate benchmark result using Atelier's existing benchmark surfaces.",
+    "Compare a baseline and candidate benchmark result using LemonCrow's existing benchmark surfaces.",
     "Prefer repeated paired results when available.",
     "Return PASS, FAIL, or INSUFFICIENT_DATA with evidence.",
   ].join(" ")

@@ -96,11 +96,11 @@ def test_user_prompt_hook_blocks_after_noop_cap(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """After _NOOP_CAP consecutive no-op retry prompts the hook returns 2 + blocks."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
-    monkeypatch.setenv("ATELIER_STORE_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_STORE_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
 
     noop = user_prompt._NOOP_PROMPT
@@ -129,11 +129,11 @@ def test_user_prompt_hook_resets_noop_count_on_real_prompt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A real user prompt resets the no-op counter so a later noop streak starts fresh."""
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
-    monkeypatch.setenv("ATELIER_STORE_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_STORE_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
 
     noop = user_prompt._NOOP_PROMPT

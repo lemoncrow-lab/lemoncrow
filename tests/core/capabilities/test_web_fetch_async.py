@@ -18,14 +18,14 @@ from typing import Any, ClassVar
 
 import pytest
 
-from atelier.core.capabilities import web_fetch
+from lemoncrow.core.capabilities import web_fetch
 
 
 @pytest.fixture(autouse=True)
 def clear_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # Loopback fetches are denied by default; these tests run real loopback
     # HTTP servers, so opt in explicitly.
-    monkeypatch.setenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", "1")
+    monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
     web_fetch.clear_web_fetch_cache()
     yield
     web_fetch.clear_web_fetch_cache()
@@ -176,12 +176,12 @@ def test_async_resolver_allows_loopback_literal() -> None:
 
 
 def test_async_resolver_blocks_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
+    monkeypatch.delenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
 
     async def _run() -> Any:
         return await web_fetch._ValidatingResolver().resolve("127.0.0.1", 80, socket.AF_INET)
 
-    with pytest.raises(ValueError, match="ATELIER_WEB_FETCH_ALLOW_LOOPBACK"):
+    with pytest.raises(ValueError, match="LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK"):
         asyncio.run(_run())
 
 
@@ -273,8 +273,8 @@ class _MarkdownHandler(BaseHTTPRequestHandler):
 def test_async_fetch_url_carries_summary_param(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """The deferred/async execution path threads `summary` all the way down
     to `_finish_fetch`, same as the sync path."""
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path))
-    monkeypatch.delenv("ATELIER_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path))
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
     srv, port = _loopback_server(_MarkdownHandler)
     try:
         result = asyncio.run(
@@ -285,4 +285,4 @@ def test_async_fetch_url_carries_summary_param(monkeypatch: pytest.MonkeyPatch, 
         srv.server_close()
     assert "# Heading One" in result["content"]
     assert "## Heading Two" in result["content"]
-    assert "[atelier: summarized:heuristic" in result["content"]
+    assert "[lemon: summarized:heuristic" in result["content"]

@@ -10,15 +10,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.session_replay import (
-    _is_atelier_search,
+from lemoncrow.core.capabilities.session_replay import (
+    _is_lemoncrow_search,
     _is_grep,
     _is_whole_file_read,
     build_replay,
     detect_episodes,
     load_replays,
 )
-from atelier.core.capabilities.session_replay_render import render_html, render_text
+from lemoncrow.core.capabilities.session_replay_render import render_html, render_text
 
 
 def _tc(name: str, **args: object) -> dict[str, object]:
@@ -30,21 +30,21 @@ def _tc(name: str, **args: object) -> dict[str, object]:
 # --------------------------------------------------------------------------- #
 
 
-def test_classifies_grep_read_and_atelier() -> None:
+def test_classifies_grep_read_and_lemoncrow() -> None:
     assert _is_grep(_tc("Grep", pattern="x"))
     assert _is_grep(_tc("Glob", pattern="*.py"))
     assert _is_whole_file_read(_tc("Read", file_path="a.py"))
     assert not _is_whole_file_read(_tc("Read", file_path="a.py", offset=10, limit=20))  # ranged
-    assert _is_atelier_search(_tc("mcp__atelier__code_search", query="x"))
-    assert not _is_grep(_tc("mcp__atelier__code_search", query="x"))
+    assert _is_lemoncrow_search(_tc("mcp__lemon__code_search", query="x"))
+    assert not _is_grep(_tc("mcp__lemon__code_search", query="x"))
     assert not _is_grep(_tc("Edit", file_path="a.py"))
 
 
-def test_atelier_read_is_not_a_wasteful_whole_file_read() -> None:
-    # Atelier's read is batched/ranged by design -- classifying it as a wasteful
-    # whole-file read inflated collapse/batch stats on ran-with-Atelier sessions.
-    assert not _is_whole_file_read(_tc("mcp__atelier__read", files=["a.py", "b.py:L1-L20"]))
-    assert not _is_whole_file_read(_tc("mcp__atelier__read", symbol="fold_line"))
+def test_lemon_read_is_not_a_wasteful_whole_file_read() -> None:
+    # LemonCrow's read is batched/ranged by design -- classifying it as a wasteful
+    # whole-file read inflated collapse/batch stats on ran-with-LemonCrow sessions.
+    assert not _is_whole_file_read(_tc("mcp__lemon__read", files=["a.py", "b.py:L1-L20"]))
+    assert not _is_whole_file_read(_tc("mcp__lemon__read", symbol="fold_line"))
     # files/symbol args are targeted on ANY read tool
     assert not _is_whole_file_read(_tc("read", files=["a.py"]))
     assert not _is_whole_file_read(_tc("read", symbol="foo"))
@@ -88,10 +88,10 @@ def test_thinking_is_transparent_between_greps() -> None:
     assert eps[0].turn_indices == [0, 2]
 
 
-def test_atelier_search_breaks_and_is_not_collapsed() -> None:
+def test_lemoncrow_search_breaks_and_is_not_collapsed() -> None:
     turns = [
         _tc("Grep", pattern="a"),
-        _tc("mcp__atelier__code_search", query="a"),
+        _tc("mcp__lemon__code_search", query="a"),
         _tc("Read", file_path="a.py"),
     ]
     # A lone grep (len 1) then a code_search break => no episode; the trailing
@@ -236,13 +236,13 @@ def test_codex_replay_parses_current_custom_and_mcp_calls_with_model() -> None:
         {"type": "event_msg", "payload": {"type": "user_message", "message": "inspect the parser"}},
         {
             "type": "response_item",
-            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.mcp__atelier__read()"},
+            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.mcp__lemon__read()"},
         },
         {
             "type": "event_msg",
             "payload": {
                 "type": "mcp_tool_call_end",
-                "invocation": {"server": "atelier", "tool": "read", "arguments": {"files": ["a.py"]}},
+                "invocation": {"server": "lemon", "tool": "read", "arguments": {"files": ["a.py"]}},
             },
         },
         {
@@ -255,7 +255,7 @@ def test_codex_replay_parses_current_custom_and_mcp_calls_with_model() -> None:
 
     assert replay.model == "gpt-5.6-terra"
     assert replay.summary is not None and replay.summary.total_tool_calls == 2
-    assert [turn.get("tool_name") for turn in replay.turns if turn.get("kind") == "tool_call"] == ["atelier.read"]
+    assert [turn.get("tool_name") for turn in replay.turns if turn.get("kind") == "tool_call"] == ["lemon.read"]
     assert any(
         turn.get("kind") == "shell_command" and turn.get("content") == "await tools.exec_command()"
         for turn in replay.turns
@@ -279,7 +279,7 @@ def test_render_html_is_wellformed() -> None:
     replay = build_replay(_claude_transcript(), host="claude", session_id="s1")
     out = render_html([replay])
     assert out.startswith("<!doctype html>")
-    assert "Atelier Session Replay" in out
+    assert "LemonCrow Session Replay" in out
     assert "code_search" in out
     assert "turn cut" in out  # a struck-through loop turn
     assert out.count("<html") == 1 and out.count("</html>") == 1
@@ -296,20 +296,20 @@ def test_render_html_tabs_for_multiple_sessions() -> None:
 
 
 def test_arg_summary_covers_list_and_scalar_args() -> None:
-    from atelier.core.capabilities.session_replay_render import _arg_summary
+    from lemoncrow.core.capabilities.session_replay_render import _arg_summary
 
     read = {
         "kind": "tool_call",
-        "tool_name": "mcp__atelier__read",
+        "tool_name": "mcp__lemon__read",
         "arguments": {"files": ["a.py", "b.py:L1-L9", "c.py", "d.py"]},
     }
     edit = {
         "kind": "tool_call",
-        "tool_name": "mcp__atelier__edit",
+        "tool_name": "mcp__lemon__edit",
         "arguments": {"edits": [{"path": "x.py:L1-L4", "new": "..."}]},
     }
-    assert _arg_summary(read) == "mcp__atelier__read(a.py, b.py:L1-L9, c.py, +1 more)"
-    assert _arg_summary(edit) == "mcp__atelier__edit(x.py:L1-L4)"
+    assert _arg_summary(read) == "mcp__lemon__read(a.py, b.py:L1-L9, c.py, +1 more)"
+    assert _arg_summary(edit) == "mcp__lemon__edit(x.py:L1-L4)"
     # unknown scalar-only tool still surfaces its first value, never a bare ellipsis
     assert _arg_summary({"kind": "tool_call", "tool_name": "X", "arguments": {"n": 42}}) == "X(42)"
 
@@ -350,7 +350,7 @@ def test_load_replays_empty_when_missing() -> None:
 # Batch detection (read(files=[...]) / edit(edits=[...]))
 # --------------------------------------------------------------------------- #
 
-from atelier.core.capabilities.session_replay import detect_batches  # noqa: E402
+from lemoncrow.core.capabilities.session_replay import detect_batches  # noqa: E402
 
 
 def test_detect_edit_batch() -> None:
@@ -420,7 +420,7 @@ def test_build_replay_counts_batches() -> None:
 # Subagent (sidechain) nesting + savings headline
 # --------------------------------------------------------------------------- #
 
-from atelier.core.capabilities.session_replay import estimate_savings  # noqa: E402
+from lemoncrow.core.capabilities.session_replay import estimate_savings  # noqa: E402
 
 
 def test_subagent_transcripts_nested(tmp_path: Path) -> None:
@@ -483,8 +483,8 @@ def test_subagent_transcripts_nested(tmp_path: Path) -> None:
 def test_subagent_does_not_inherit_parent_savings(monkeypatch) -> None:
     import types
 
-    import atelier.core.capabilities.savings_summary as ss_mod
-    from atelier.core.capabilities.session_replay import Replay, estimate_savings
+    import lemoncrow.core.capabilities.savings_summary as ss_mod
+    from lemoncrow.core.capabilities.session_replay import Replay, estimate_savings
 
     # A parent with recorded savings; the engine would fall back to it for a
     # subagent (no own sidecar) -- which must NOT happen.
@@ -514,23 +514,23 @@ def test_estimate_savings_from_engine_only() -> None:
     sav = estimate_savings(r)
     for key in (
         "total_cost_usd",
-        "atelier_cost_usd",
-        "atelier_cost_is_measured",
+        "lemoncrow_cost_usd",
+        "lemoncrow_cost_is_measured",
         "saved_usd",
         "saved_pct",
         "saved_is_measured",
         "time_saved_seconds",
-        "is_atelier_session",
+        "is_lemoncrow_session",
         "calls_saved",
         "collapsed_output_tokens",
     ):
         assert key in sav
-    # A vanilla session (no Atelier run, no paired benchmark arm): the Atelier
+    # A vanilla session (no LemonCrow run, no paired benchmark arm): the LemonCrow
     # cost is an ESTIMATE, never claimed as measured, and never exceeds the cost.
-    assert sav["is_atelier_session"] is False
-    assert sav["atelier_cost_is_measured"] is False
+    assert sav["is_lemoncrow_session"] is False
+    assert sav["lemoncrow_cost_is_measured"] is False
     assert sav["saved_is_measured"] is False
-    assert sav["atelier_cost_usd"] <= sav["total_cost_usd"]
+    assert sav["lemoncrow_cost_usd"] <= sav["total_cost_usd"]
     # structural counterfactual is still surfaced
     assert sav["calls_saved"] >= 1
 
@@ -539,7 +539,7 @@ def test_estimate_savings_from_engine_only() -> None:
 # Shell-grep loops (agents grep via Bash, not the Grep tool)
 # --------------------------------------------------------------------------- #
 
-from atelier.core.capabilities.session_replay import _shell_search_query  # noqa: E402
+from lemoncrow.core.capabilities.session_replay import _shell_search_query  # noqa: E402
 
 
 def test_shell_grep_is_collapsible() -> None:
@@ -557,7 +557,7 @@ def test_shell_search_query_cleans_regex() -> None:
 def test_bash_with_description_not_misclassified_as_subagent() -> None:
     # Regression: Bash carries a `description`, which used to trip the subagent
     # heuristic -> shell greps vanished from the timeline -> 0 savings detected.
-    from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
+    from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 
     bash = {
         "type": "assistant",
@@ -592,7 +592,7 @@ def test_bash_with_description_not_misclassified_as_subagent() -> None:
 
 
 def test_collapse_saving_fraction_canonical() -> None:
-    from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
+    from lemoncrow.core.capabilities.savings_summary import estimate_collapse_saving_fraction
 
     # baseline-like per-round usage: a grep/read loop (rounds 0-3) then answers.
     rounds = [
@@ -610,14 +610,14 @@ def test_collapse_saving_fraction_canonical() -> None:
     assert estimate_collapse_saving_fraction(rounds, [], "claude-sonnet-5") == 0.0
     assert estimate_collapse_saving_fraction([], [0, 1], "claude-sonnet-5") == 0.0
     assert 0.0 <= estimate_collapse_saving_fraction(rounds, [2], "claude-sonnet-5") <= 1.0
-    # Bounded: even an all-loop session never estimates a 100% saving (Atelier
+    # Bounded: even an all-loop session never estimates a 100% saving (LemonCrow
     # still costs the code_search rounds it keeps).
     all_loop = estimate_collapse_saving_fraction(rounds, list(range(len(rounds))), "claude-sonnet-5")
     assert all_loop < 1.0
 
 
 def test_collapse_saving_keeps_one_standin_per_episode() -> None:
-    from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
+    from lemoncrow.core.capabilities.savings_summary import estimate_collapse_saving_fraction
 
     rounds = [
         {"in": 100, "out": 50, "cache_read": 1000, "cache_write": 200},
@@ -655,7 +655,7 @@ def test_codex_replay_prices_tokens_for_savings() -> None:
     r = build_replay("\n".join(json.dumps(x) for x in lines), host="codex", session_id="cx-usage-zzz")
     sav = estimate_savings(r)
     assert sav["total_cost_usd"] > 0.0  # priced from parsed per-turn tokens
-    assert sav["atelier_cost_usd"] <= sav["total_cost_usd"]
+    assert sav["lemoncrow_cost_usd"] <= sav["total_cost_usd"]
 
 
 def _claude_usage_transcript() -> str:
@@ -715,7 +715,7 @@ def test_vanilla_savings_fraction_applies_to_main_cost_only(tmp_path: Path) -> N
     # Same MAIN transcript twice; one copy also has a huge-usage subagent
     # transcript. The vanilla fraction must be applied to the main-transcript
     # cost only, so the estimated saving must not grow with the subagent bill.
-    from atelier.core.capabilities import savings_summary as ss
+    from lemoncrow.core.capabilities import savings_summary as ss
 
     ss._transcript_stats_cache.clear()
     a = tmp_path / "a" / "vanilla-frac-x1.jsonl"
@@ -742,7 +742,7 @@ def test_vanilla_savings_fraction_applies_to_main_cost_only(tmp_path: Path) -> N
     sav_with_sub = estimate_savings(load_replays(host="claude", file=b)[0])
 
     assert sav_main["saved_usd"] > 0.0  # non-zero usage exercises fraction x cost
-    assert sav_main["atelier_cost_usd"] < sav_main["total_cost_usd"]
+    assert sav_main["lemoncrow_cost_usd"] < sav_main["total_cost_usd"]
     # subagent usage is billed to the session...
     assert sav_with_sub["total_cost_usd"] > sav_main["total_cost_usd"]
     # ...but the collapse fraction never multiplies the subagent bill
@@ -792,7 +792,7 @@ def _make_opencode_db(db: Path) -> None:
 
 
 def test_load_replays_opencode_from_db(tmp_path: Path, monkeypatch) -> None:
-    import atelier.core.capabilities.session_replay as sr
+    import lemoncrow.core.capabilities.session_replay as sr
 
     db = tmp_path / "opencode.db"
     _make_opencode_db(db)
@@ -816,7 +816,7 @@ def test_load_replays_opencode_from_db(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_load_replays_opencode_no_db_no_crash(monkeypatch) -> None:
-    import atelier.core.capabilities.session_replay as sr
+    import lemoncrow.core.capabilities.session_replay as sr
 
     monkeypatch.setattr(sr, "_opencode_db_path", lambda: None)
     monkeypatch.setattr(sr, "_opencode_roots", lambda: [])  # no legacy *.jsonl either
@@ -845,7 +845,7 @@ def _codex_transcript() -> str:
 
 
 def test_detect_transcript_host() -> None:
-    from atelier.core.capabilities.session_replay import detect_transcript_host
+    from lemoncrow.core.capabilities.session_replay import detect_transcript_host
 
     host, count = detect_transcript_host(_codex_transcript())
     assert host == "codex" and count >= 3
@@ -860,7 +860,7 @@ def test_detect_transcript_host() -> None:
 
 
 def test_first_task_text_skips_host_command_noise() -> None:
-    from atelier.core.capabilities.session_replay import _first_task_text
+    from lemoncrow.core.capabilities.session_replay import _first_task_text
 
     turns = [
         {"kind": "user_message", "content": "User ran command: /model"},
@@ -894,7 +894,7 @@ def test_render_text_single_summary_line() -> None:
 
 
 def test_money_formatting_rule() -> None:
-    from atelier.core.capabilities.session_replay_render import _money
+    from lemoncrow.core.capabilities.session_replay_render import _money
 
     assert _money(3.3034) == "$3.30"
     assert _money(1.0) == "$1.00"

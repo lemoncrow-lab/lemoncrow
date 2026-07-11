@@ -6,14 +6,14 @@ All tests use a STUB resolver; no live language server is required. The tiering
 
 from __future__ import annotations
 
-from atelier.core.capabilities.code_context.edge_resolution import (
+from lemoncrow.core.capabilities.code_context.edge_resolution import (
     CallSite,
     LspResolution,
     ResolutionReport,
     compute_residuals,
     resolve_call_sites,
 )
-from atelier.infra.tree_sitter.tags import Tag, extract_tags_from_text
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
 
 
 def _ref(name: str, line: int = 1, file: str = "a.kt") -> Tag:

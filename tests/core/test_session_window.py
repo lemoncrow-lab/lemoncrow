@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atelier.core.foundation import session_window as sw
+from lemoncrow.core.foundation import session_window as sw
 
 
 def _write_window(root: Path, ws: str, pid: int, btime: int, session_id: str) -> None:

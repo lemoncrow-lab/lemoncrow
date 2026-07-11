@@ -18,7 +18,7 @@ import pytest
 
 class TestOtelNoiseFilter:
     def test_filters_opentelemetry_loggers(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _OtelNoiseFilter
+        from lemoncrow.core.service.telemetry.exporters.otel import _OtelNoiseFilter
 
         filt = _OtelNoiseFilter()
         for name in (
@@ -32,7 +32,7 @@ class TestOtelNoiseFilter:
             assert filt.filter(record) is False, f"{name} should be filtered out"
 
     def test_filters_http_client_loggers(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _OtelNoiseFilter
+        from lemoncrow.core.service.telemetry.exporters.otel import _OtelNoiseFilter
 
         filt = _OtelNoiseFilter()
         for name in ("urllib3.connectionpool", "requests"):
@@ -40,12 +40,12 @@ class TestOtelNoiseFilter:
             assert filt.filter(record) is False, f"{name} should be filtered out"
 
     def test_passes_through_other_loggers(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _OtelNoiseFilter
+        from lemoncrow.core.service.telemetry.exporters.otel import _OtelNoiseFilter
 
         filt = _OtelNoiseFilter()
         for name in (
-            "atelier",
-            "atelier.product.telemetry",
+            "lemoncrow",
+            "lemoncrow.product.telemetry",
             "uvicorn",
             "fastapi",
             "root",
@@ -67,7 +67,7 @@ class TestApplySilence:
     """
 
     def test_silences_existing_otel_loggers(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             _apply_silence,
             _sdk_noise_filter,
         )
@@ -86,14 +86,14 @@ class TestApplySilence:
         assert _sdk_noise_filter in otel_logger.filters
 
     def test_does_not_monkeypatch_getlogger(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _apply_silence
+        from lemoncrow.core.service.telemetry.exporters.otel import _apply_silence
 
         orig_get_logger = logging.getLogger
         _apply_silence()
         assert logging.getLogger is orig_get_logger
 
     def test_filters_future_loggers_via_named_parents(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             _apply_silence,
             _sdk_noise_filter,
         )
@@ -127,13 +127,13 @@ class TestApplySilence:
         otel_record = lazy_child.makeRecord(
             lazy_child.name, logging.WARNING, "", 0, "Exception while exporting logs.", (), None
         )
-        keep_record = logging.LogRecord("atelier.keep.me", logging.WARNING, "", 0, "visible", (), None)
+        keep_record = logging.LogRecord("lemoncrow.keep.me", logging.WARNING, "", 0, "visible", (), None)
         # Handler.filter returns False to reject, or the record itself to accept.
         assert logging.lastResort.filter(otel_record) is False
         assert logging.lastResort.filter(keep_record)
 
     def test_idempotent_no_filter_stacking(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             _apply_silence,
             _sdk_noise_filter,
         )
@@ -161,21 +161,21 @@ class TestApplySilence:
 
 class TestCheckEndpointReachable:
     def test_returns_false_for_unreachable_port(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _check_endpoint_reachable
+        from lemoncrow.core.service.telemetry.exporters.otel import _check_endpoint_reachable
 
         # 127.0.0.1:1 is virtually guaranteed to refuse connection
         result = _check_endpoint_reachable("http://127.0.0.1:1")
         assert result is False
 
     def test_handles_malformed_host(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _check_endpoint_reachable
+        from lemoncrow.core.service.telemetry.exporters.otel import _check_endpoint_reachable
 
         # Empty-ish host
         result = _check_endpoint_reachable("http://")
         assert result is False
 
     def test_handles_path_suffix(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _check_endpoint_reachable
+        from lemoncrow.core.service.telemetry.exporters.otel import _check_endpoint_reachable
 
         result = _check_endpoint_reachable("http://otel-collector:4318/v1/logs")
         # Depending on the test environment this may be reachable or not.
@@ -183,7 +183,7 @@ class TestCheckEndpointReachable:
         assert isinstance(result, bool)
 
     def test_handles_non_numeric_port(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _check_endpoint_reachable
+        from lemoncrow.core.service.telemetry.exporters.otel import _check_endpoint_reachable
 
         result = _check_endpoint_reachable("http://localhost:notaport")
         assert result is False
@@ -192,7 +192,7 @@ class TestCheckEndpointReachable:
         # Monkeypatch socket to verify the default port
         import socket as _socket
 
-        from atelier.core.service.telemetry.exporters.otel import _check_endpoint_reachable
+        from lemoncrow.core.service.telemetry.exporters.otel import _check_endpoint_reachable
 
         original_creates = _socket.create_connection
 
@@ -213,17 +213,17 @@ class TestCheckEndpointReachable:
 
 class TestLogsEndpoint:
     def test_appends_v1_logs(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _logs_endpoint
+        from lemoncrow.core.service.telemetry.exporters.otel import _logs_endpoint
 
         assert _logs_endpoint("http://otel-collector:4318") == "http://otel-collector:4318/v1/logs"
 
     def test_preserves_existing_v1_logs(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _logs_endpoint
+        from lemoncrow.core.service.telemetry.exporters.otel import _logs_endpoint
 
         assert _logs_endpoint("http://otel-collector:4318/v1/logs") == "http://otel-collector:4318/v1/logs"
 
     def test_strips_trailing_slash(self) -> None:
-        from atelier.core.service.telemetry.exporters.otel import _logs_endpoint
+        from lemoncrow.core.service.telemetry.exporters.otel import _logs_endpoint
 
         assert _logs_endpoint("http://otel-collector:4318/") == "http://otel-collector:4318/v1/logs"
 
@@ -237,7 +237,7 @@ class TestInitOtel:
     def test_negative_cache_skips_redundant_checks(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When the collector is unreachable, repeated calls should use the
         negative cache instead of doing a TCP check every time."""
-        import atelier.core.service.telemetry.exporters.otel as _otel_mod
+        import lemoncrow.core.service.telemetry.exporters.otel as _otel_mod
 
         # Reset the cache
         monkeypatch.setattr(_otel_mod, "_last_check_failed_at", None)
@@ -270,22 +270,22 @@ class TestInitOtel:
         # Arrange: set a failed cache
         import time
 
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             init_otel,
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._last_check_failed_at",
+            "lemoncrow.core.service.telemetry.exporters.otel._last_check_failed_at",
             time.monotonic() - 10,  # old enough to not be in cooldown
         )
         # Make the TCP check succeed
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._check_endpoint_reachable",
+            "lemoncrow.core.service.telemetry.exporters.otel._check_endpoint_reachable",
             lambda _endpoint: True,
         )
 
         # Mock the otel_endpoint config
-        monkeypatch.setenv("ATELIER_OTEL_ENDPOINT", "http://127.0.0.1:9999")
+        monkeypatch.setenv("LEMONCROW_OTEL_ENDPOINT", "http://127.0.0.1:9999")
 
         # Mock the expensive OTel imports to avoid actually loading them
         import types
@@ -303,7 +303,7 @@ class TestInitOtel:
         # (we can't easily mock the full OTLP SDK)
         # Instead, we just verify the negative cache is cleared:
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel.logger",
+            "lemoncrow.core.service.telemetry.exporters.otel.logger",
             None,
         )
         # The init_otel will try to import OTel and fail (or succeed).
@@ -317,7 +317,7 @@ class TestInitOtel:
             return True
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._check_endpoint_reachable",
+            "lemoncrow.core.service.telemetry.exporters.otel._check_endpoint_reachable",
             check_ok,
         )
 
@@ -339,47 +339,47 @@ class TestEmitProductLog:
     def test_returns_false_when_collector_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When the collector is unreachable, emit_product_log should return
         False without raising or logging errors."""
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             emit_product_log,
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel.logger",
+            "lemoncrow.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._check_endpoint_reachable",
+            "lemoncrow.core.service.telemetry.exporters.otel._check_endpoint_reachable",
             lambda _ep: False,
         )
         # Also set up _last_check_failed_at to allow the check
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._last_check_failed_at",
+            "lemoncrow.core.service.telemetry.exporters.otel._last_check_failed_at",
             None,
         )
         # Point otel_endpoint to something we control
-        monkeypatch.setenv("ATELIER_OTEL_ENDPOINT", "http://127.0.0.1:1")
+        monkeypatch.setenv("LEMONCROW_OTEL_ENDPOINT", "http://127.0.0.1:1")
 
         # This should return False without raising
         result = emit_product_log("test_event", {"key": "value"})
         assert result is False
 
     def test_uses_configured_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """emit_product_log should use ATELIER_OTEL_ENDPOINT from config,
+        """emit_product_log should use LEMONCROW_OTEL_ENDPOINT from config,
         not the default localhost:4318."""
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             emit_product_log,
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel.logger",
+            "lemoncrow.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._last_check_failed_at",
+            "lemoncrow.core.service.telemetry.exporters.otel._last_check_failed_at",
             None,
         )
         # Set a custom endpoint
-        monkeypatch.setenv("ATELIER_OTEL_ENDPOINT", "http://custom-collector:9999")
+        monkeypatch.setenv("LEMONCROW_OTEL_ENDPOINT", "http://custom-collector:9999")
 
         captured_endpoint: list[str] = []
 
@@ -388,7 +388,7 @@ class TestEmitProductLog:
             return False
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel.init_otel",
+            "lemoncrow.core.service.telemetry.exporters.otel.init_otel",
             tracking_init,
         )
 
@@ -403,21 +403,21 @@ class TestEmitProductLog:
 
 class TestShutdownOtel:
     def test_clears_negative_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from atelier.core.service.telemetry.exporters.otel import (
+        from lemoncrow.core.service.telemetry.exporters.otel import (
             _last_check_failed_at,
             shutdown_otel,
         )
 
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._last_check_failed_at",
+            "lemoncrow.core.service.telemetry.exporters.otel._last_check_failed_at",
             12345.0,
         )
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel.logger",
+            "lemoncrow.core.service.telemetry.exporters.otel.logger",
             None,
         )
         monkeypatch.setattr(
-            "atelier.core.service.telemetry.exporters.otel._PROVIDER",
+            "lemoncrow.core.service.telemetry.exporters.otel._PROVIDER",
             None,
         )
 

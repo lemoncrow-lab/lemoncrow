@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.owned_agent_session import (
+from lemoncrow.core.capabilities.owned_agent_session import (
     OwnedAgentSession,
     PhaseTokens,
     SessionReceipt,
@@ -15,7 +15,7 @@ def test_new_session_has_unique_id() -> None:
     a = OwnedAgentSession.new(provider="anthropic", model="claude", transport="api")
     b = OwnedAgentSession.new(provider="anthropic", model="claude", transport="api")
     assert a.session_id != b.session_id
-    assert a.session_id.startswith("atelier-run-")
+    assert a.session_id.startswith("lemoncrow-run-")
 
 
 def test_session_save_load_roundtrip(tmp_path: Path) -> None:

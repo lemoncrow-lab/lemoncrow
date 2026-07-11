@@ -1,7 +1,7 @@
-# Atelier Task Workflow (reference)
+# LemonCrow Task Workflow (reference)
 
 This document is the canonical task loop every Codex coding session
-must follow when the Atelier MCP server is available.
+must follow when the LemonCrow MCP server is available.
 
 ## When this applies
 

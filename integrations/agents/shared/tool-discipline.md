@@ -5,4 +5,4 @@
 - **Batch independent calls.** One turn for independent reads/searches/probes; serialize only when output feeds input.
 - **Large output → a file, never prose.**
 
-Host tools disabled — use Atelier: `bash`, `read`, `edit`, `code_search`.
+Host tools disabled — use LemonCrow: `bash`, `read`, `edit`, `code_search`.

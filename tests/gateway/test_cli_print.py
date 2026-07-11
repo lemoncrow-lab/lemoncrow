@@ -4,8 +4,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
-from atelier.gateway.cli.commands import run as run_cmd
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.commands import run as run_cmd
 
 
 def test_top_level_print_runs_prompt_only(monkeypatch, tmp_path: Path) -> None:

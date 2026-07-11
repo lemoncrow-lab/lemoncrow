@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.foundation.watchdog_profiles import (
+from lemoncrow.core.foundation.watchdog_profiles import (
     active_watchdog_weights,
     frontend_watchdog_profile_config,
     load_watchdog_profile_config,
@@ -12,7 +12,7 @@ from atelier.core.foundation.watchdog_profiles import (
 
 
 def test_watchdog_profile_config_round_trips_and_clamps_weights(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
 
     save_watchdog_profile_config(
         root,
@@ -34,7 +34,7 @@ def test_watchdog_profile_config_round_trips_and_clamps_weights(tmp_path: Path) 
 
 
 def test_frontend_watchdog_profile_config_returns_runtime_payload(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
 
     payload = frontend_watchdog_profile_config(root)
 

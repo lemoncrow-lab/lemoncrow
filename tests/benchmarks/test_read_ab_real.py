@@ -1,10 +1,10 @@
-"""Real A/B benchmark: mcp__atelier__read vs native cat/read on real files.
+"""Real A/B benchmark: mcp__lemon__read vs native cat/read on real files.
 
 This test is NOT a unit test — it measures actual chars/tokens delivered by both
 branches on real repository files and persists the deltas to
-``~/.atelier/savings_calibration.jsonl``. Rolling medians from that file are
+``~/.lemoncrow/savings_calibration.jsonl``. Rolling medians from that file are
 intended to replace the magic ``LIVE_*_TOKENS_PER_CALL`` constants in
-``src/atelier/core/capabilities/plugin_runtime.py``.
+``src/lemoncrow/core/capabilities/plugin_runtime.py``.
 
 Marked ``ab`` so it runs under ``make bench-ab`` and is skipped by default in
 ``pytest`` to keep CI fast. Toggle locally with::
@@ -12,7 +12,7 @@ Marked ``ab`` so it runs under ``make bench-ab`` and is skipped by default in
     uv run pytest tests/benchmarks/test_read_ab_real.py -v -m ab
 
 Do NOT delete this file when refactoring. It is the seed measurement that
-legitimizes (or invalidates) every per-tool savings claim Atelier ships.
+legitimizes (or invalidates) every per-tool savings claim LemonCrow ships.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 
@@ -36,10 +36,10 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 # 1. REAL repo files (Python) — measures the real-world workload
 # 2. SYNTHETIC fixtures for languages the repo doesn't ship (Go/Rust/Java/Markdown)
 FIXTURES_REAL_PY: tuple[Path, ...] = (
-    REPO_ROOT / "src/atelier/core/capabilities/code_context/engine.py",
-    REPO_ROOT / "src/atelier/core/capabilities/plugin_runtime.py",
-    REPO_ROOT / "src/atelier/core/capabilities/pricing.py",
-    REPO_ROOT / "src/atelier/gateway/adapters/mcp_server.py",
+    REPO_ROOT / "src/lemoncrow/core/capabilities/code_context/engine.py",
+    REPO_ROOT / "src/lemoncrow/core/capabilities/plugin_runtime.py",
+    REPO_ROOT / "src/lemoncrow/core/capabilities/pricing.py",
+    REPO_ROOT / "src/lemoncrow/gateway/adapters/mcp_server.py",
 )
 FIXTURES_SYNTHETIC: tuple[Path, ...] = (
     FIXTURE_DIR / "sample.go",
@@ -65,25 +65,25 @@ class ABRow:
     """One A/B measurement persisted to the calibration store."""
 
     tool: str  # 'read'
-    mode: str  # atelier read mode: 'outline' | 'range' | 'full'
+    mode: str  # lemoncrow read mode: 'outline' | 'range' | 'full'
     language: str  # 'python' | 'go' | 'rust' | 'java' | 'markdown' | ...
     path: str  # relative path inside the repo
     native_chars: int  # len(Path.read_text())
-    atelier_chars: int  # len of what atelier actually delivered
+    lemoncrow_chars: int  # len of what lemoncrow actually delivered
     native_tokens: int  # tiktoken count of native_text
-    atelier_tokens: int  # tiktoken count of atelier-delivered text
-    ratio: float  # atelier_chars / native_chars (1.0 = no saving)
-    token_ratio: float  # atelier_tokens / native_tokens
-    chars_saved: int  # native_chars - atelier_chars
-    tokens_saved_measured: int  # native_tokens - atelier_tokens (from tiktoken)
+    lemoncrow_tokens: int  # tiktoken count of lemoncrow-delivered text
+    ratio: float  # lemoncrow_chars / native_chars (1.0 = no saving)
+    token_ratio: float  # lemoncrow_tokens / native_tokens
+    chars_saved: int  # native_chars - lemoncrow_chars
+    tokens_saved_measured: int  # native_tokens - lemoncrow_tokens (from tiktoken)
     tokens_saved_reported: int  # what the tool itself claims
     native_ms: float
-    atelier_ms: float
+    lemoncrow_ms: float
     ts: float
 
 
 def _calibration_path() -> Path:
-    root = Path.home() / ".atelier"  # fixed real home — not test-isolated ATELIER_ROOT
+    root = Path.home() / ".lemoncrow"  # fixed real home — not test-isolated LEMONCROW_ROOT
     root.mkdir(parents=True, exist_ok=True)
     return root / "savings_calibration.jsonl"
 
@@ -95,8 +95,8 @@ def _append_row(row: ABRow) -> None:
         handle.write(json.dumps(asdict(row), sort_keys=True) + "\n")
 
 
-def _atelier_root() -> Path:
-    return Path(os.environ.get("ATELIER_ROOT") or (Path.home() / ".atelier"))
+def _lemoncrow_root() -> Path:
+    return Path(os.environ.get("LEMONCROW_ROOT") or (Path.home() / ".lemoncrow"))
 
 
 def _count_tiktoken(text: str) -> int:
@@ -120,7 +120,7 @@ def _try_relative(p: Path) -> str:
 
 
 def _measure_read_fixture(fixture: Path) -> ABRow:
-    """Run the native-vs-Atelier read comparison and persist one row."""
+    """Run the native-vs-LemonCrow read comparison and persist one row."""
     if not fixture.is_file():
         pytest.xfail(f"fixture missing: {fixture}")
 
@@ -130,10 +130,10 @@ def _measure_read_fixture(fixture: Path) -> ABRow:
     native_chars = len(native_text)
     native_tokens = _count_tiktoken(native_text)
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
     t1 = time.perf_counter()
     payload = cap.smart_read(fixture, range_spec=None, expand=False)
-    atelier_ms = (time.perf_counter() - t1) * 1000.0
+    lemoncrow_ms = (time.perf_counter() - t1) * 1000.0
 
     mode = str(payload.get("mode") or "unknown")
     language = str(payload.get("language") or "unknown")
@@ -146,11 +146,11 @@ def _measure_read_fixture(fixture: Path) -> ABRow:
             # Mirror what the MCP layer actually ships to the agent
             # (mcp_server._render_read_outline_md), not json.dumps — JSON
             # escaping inflates newlines and would understate savings.
-            from atelier.gateway.adapters.mcp_server import _render_read_outline_md
+            from lemoncrow.gateway.adapters.mcp_server import _render_read_outline_md
 
             delivered_parts.append(_render_read_outline_md(str(fixture), outline, language))
-    atelier_chars = sum(len(part) for part in delivered_parts)
-    atelier_tokens = _count_tiktoken("".join(delivered_parts))
+    lemoncrow_chars = sum(len(part) for part in delivered_parts)
+    lemoncrow_tokens = _count_tiktoken("".join(delivered_parts))
     tokens_saved = int(payload.get("tokens_saved", 0) or 0)
 
     row = ABRow(
@@ -159,16 +159,16 @@ def _measure_read_fixture(fixture: Path) -> ABRow:
         language=language,
         path=_try_relative(fixture),
         native_chars=native_chars,
-        atelier_chars=atelier_chars,
+        lemoncrow_chars=lemoncrow_chars,
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        ratio=(atelier_chars / native_chars) if native_chars else 1.0,
-        token_ratio=(atelier_tokens / native_tokens) if native_tokens else 1.0,
-        chars_saved=native_chars - atelier_chars,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+        lemoncrow_tokens=lemoncrow_tokens,
+        ratio=(lemoncrow_chars / native_chars) if native_chars else 1.0,
+        token_ratio=(lemoncrow_tokens / native_tokens) if native_tokens else 1.0,
+        chars_saved=native_chars - lemoncrow_chars,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
         tokens_saved_reported=tokens_saved,
         native_ms=round(native_ms, 3),
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         ts=time.time(),
     )
     _append_row(row)
@@ -183,14 +183,14 @@ def test_read_ab_real(fixture: Path) -> None:
 
     # Honest invariants only:
     native_chars = row.native_chars
-    atelier_chars = row.atelier_chars
+    lemoncrow_chars = row.lemoncrow_chars
     tokens_saved = row.tokens_saved_reported
 
     assert native_chars > 0, "native read returned no bytes"
-    assert atelier_chars > 0, "atelier returned no bytes"
+    assert lemoncrow_chars > 0, "lemoncrow returned no bytes"
     assert (
-        atelier_chars <= native_chars
-    ), f"atelier returned {atelier_chars} chars vs native {native_chars} on {fixture.name}"
+        lemoncrow_chars <= native_chars
+    ), f"lemoncrow returned {lemoncrow_chars} chars vs native {native_chars} on {fixture.name}"
     if tokens_saved > 0:
         assert (
             row.chars_saved > 0
@@ -229,7 +229,7 @@ def test_generic_outline_compresses_large_files(fixture: Path, tmp_path: Path) -
     big = tmp_path / fixture.name
     big.write_text(src + "\n\n" + src + "\n\n" + src, encoding="utf-8")
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
     # Use an explicit threshold (300) so the test is immune to changes in the
     # production default (currently 500). 3x fixtures have 351-420 effective
     # LOC, safely above 300 for all three languages.
@@ -251,9 +251,9 @@ def test_generic_outline_compresses_large_files(fixture: Path, tmp_path: Path) -
 
     native_chars = len(big.read_text())
     outline_text = str(outline.get("text") or "")
-    atelier_chars = len(outline_text)
+    lemoncrow_chars = len(outline_text)
     native_tokens = _count_tiktoken(big.read_text())
-    atelier_tokens = _count_tiktoken(outline_text)
+    lemoncrow_tokens = _count_tiktoken(outline_text)
 
     row = ABRow(
         tool=f"read_{outline_kind}_outline",
@@ -261,24 +261,24 @@ def test_generic_outline_compresses_large_files(fixture: Path, tmp_path: Path) -
         language=language,
         path=f"synthetic-3x:{fixture.name}",
         native_chars=native_chars,
-        atelier_chars=atelier_chars,
+        lemoncrow_chars=lemoncrow_chars,
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
-        ratio=atelier_chars / native_chars,
-        token_ratio=atelier_tokens / native_tokens if native_tokens else 1.0,
-        chars_saved=native_chars - atelier_chars,
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+        lemoncrow_tokens=lemoncrow_tokens,
+        ratio=lemoncrow_chars / native_chars,
+        token_ratio=lemoncrow_tokens / native_tokens if native_tokens else 1.0,
+        chars_saved=native_chars - lemoncrow_chars,
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
         tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
         native_ms=0.0,
-        atelier_ms=0.0,
+        lemoncrow_ms=0.0,
         ts=time.time(),
     )
     _append_row(row)
 
     # Sanity: outline must save at least 25% (the production gate).
-    assert atelier_chars <= int(native_chars * 0.75), (
+    assert lemoncrow_chars <= int(native_chars * 0.75), (
         f"{fixture.name}: {outline_kind} outline only saved "
-        f"{(1 - atelier_chars / native_chars) * 100:.1f}% — below 25% gate"
+        f"{(1 - lemoncrow_chars / native_chars) * 100:.1f}% — below 25% gate"
     )
 
 
@@ -320,11 +320,11 @@ def test_read_ab_range_mode(tmp_path: Path) -> None:
     if not fixture.is_file():
         pytest.xfail(f"fixture missing: {fixture}")
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
 
     t0 = time.perf_counter()
     payload = cap.smart_read(fixture, range_spec="100-200")
-    atelier_ms = (time.perf_counter() - t0) * 1000.0
+    lemoncrow_ms = (time.perf_counter() - t0) * 1000.0
 
     assert payload["mode"] == "range", f"expected mode=range, got {payload['mode']}"
     content = payload.get("content") or ""
@@ -338,7 +338,7 @@ def test_read_ab_range_mode(tmp_path: Path) -> None:
     ), f"range 100-200 should yield {expected_count} lines, got {len(delivered_lines)}"
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(content)
+    lemoncrow_tokens = _count_tiktoken(content)
 
     row = ABRow(
         tool="read_range",
@@ -346,16 +346,16 @@ def test_read_ab_range_mode(tmp_path: Path) -> None:
         language=str(payload.get("language") or "unknown"),
         path=_try_relative(fixture),
         native_chars=len(native_text),
-        atelier_chars=len(content),
+        lemoncrow_chars=len(content),
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
+        lemoncrow_tokens=lemoncrow_tokens,
         ratio=len(content) / len(native_text) if native_text else 1.0,
-        token_ratio=atelier_tokens / native_tokens if native_tokens else 1.0,
+        token_ratio=lemoncrow_tokens / native_tokens if native_tokens else 1.0,
         chars_saved=len(native_text) - len(content),
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
         tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
         native_ms=0.0,
-        atelier_ms=round(atelier_ms, 3),
+        lemoncrow_ms=round(lemoncrow_ms, 3),
         ts=time.time(),
     )
     _append_row(row)
@@ -368,7 +368,7 @@ def test_read_ab_cache_hit() -> None:
     if not fixture.is_file():
         pytest.xfail(f"fixture missing: {fixture}")
 
-    # Use a fresh atelier root so the cache is cold.
+    # Use a fresh lemoncrow root so the cache is cold.
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -395,24 +395,24 @@ def test_read_ab_cache_hit() -> None:
             outline = payload.get("outline")
             if outline:
                 parts.append(json.dumps(outline) if not isinstance(outline, str) else outline)
-            atelier_text = "".join(parts)
-            atelier_tokens = _count_tiktoken(atelier_text)
+            lemoncrow_text = "".join(parts)
+            lemoncrow_tokens = _count_tiktoken(lemoncrow_text)
             row = ABRow(
                 tool=f"read_cache_{'hit' if hit else 'miss'}",
                 mode=str(payload.get("mode") or "unknown"),
                 language=str(payload.get("language") or "unknown"),
                 path=_try_relative(fixture),
                 native_chars=len(native_text),
-                atelier_chars=len(atelier_text),
+                lemoncrow_chars=len(lemoncrow_text),
                 native_tokens=native_tokens,
-                atelier_tokens=atelier_tokens,
-                ratio=len(atelier_text) / len(native_text) if native_text else 1.0,
-                token_ratio=atelier_tokens / native_tokens if native_tokens else 1.0,
-                chars_saved=len(native_text) - len(atelier_text),
-                tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+                lemoncrow_tokens=lemoncrow_tokens,
+                ratio=len(lemoncrow_text) / len(native_text) if native_text else 1.0,
+                token_ratio=lemoncrow_tokens / native_tokens if native_tokens else 1.0,
+                chars_saved=len(native_text) - len(lemoncrow_text),
+                tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
                 tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
                 native_ms=0.0,
-                atelier_ms=round(ms, 3),
+                lemoncrow_ms=round(ms, 3),
                 ts=time.time(),
             )
             _append_row(row)
@@ -425,7 +425,7 @@ def test_read_ab_expand_true() -> None:
     if not fixture.is_file():
         pytest.xfail(f"fixture missing: {fixture}")
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
     native_text = fixture.read_text(encoding="utf-8")
     assert len(native_text.splitlines()) > 200, "fixture must exceed 200 lines for this test"
 
@@ -436,7 +436,7 @@ def test_read_ab_expand_true() -> None:
     assert content == native_text, "expand=True content must equal the raw file text"
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(content)
+    lemoncrow_tokens = _count_tiktoken(content)
 
     row = ABRow(
         tool="read_expand_true",
@@ -444,16 +444,16 @@ def test_read_ab_expand_true() -> None:
         language=str(payload.get("language") or "unknown"),
         path=_try_relative(fixture),
         native_chars=len(native_text),
-        atelier_chars=len(content),
+        lemoncrow_chars=len(content),
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
+        lemoncrow_tokens=lemoncrow_tokens,
         ratio=1.0,
         token_ratio=1.0,
         chars_saved=0,
         tokens_saved_measured=0,
         tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
         native_ms=0.0,
-        atelier_ms=0.0,
+        lemoncrow_ms=0.0,
         ts=time.time(),
     )
     _append_row(row)
@@ -464,9 +464,9 @@ def test_read_ab_max_lines_legacy(tmp_path: Path) -> None:
     """max_lines path goes through _core_runtime().smart_read (different code path)."""
     # Import the runtime engine directly — this is the path triggered by
     # tool_smart_read when max_lines is set without range or expand.
-    from atelier.core.runtime.engine import AtelierRuntimeCore
+    from lemoncrow.core.runtime.engine import LemonCrowRuntimeCore
 
-    runtime = AtelierRuntimeCore(root=tmp_path)
+    runtime = LemonCrowRuntimeCore(root=tmp_path)
 
     fixture = FIXTURE_DIR / "sample.c"
     if not fixture.is_file():
@@ -484,7 +484,7 @@ def test_read_ab_max_lines_legacy(tmp_path: Path) -> None:
     assert len(summary_lines) <= 50, f"max_lines=50 should cap summary at 50 lines, got {len(summary_lines)}"
 
     native_tokens = _count_tiktoken(native_text)
-    atelier_tokens = _count_tiktoken(summary)
+    lemoncrow_tokens = _count_tiktoken(summary)
 
     row = ABRow(
         tool="read_max_lines_legacy",
@@ -492,16 +492,16 @@ def test_read_ab_max_lines_legacy(tmp_path: Path) -> None:
         language=str(payload.get("language") or "unknown"),
         path=_try_relative(fixture),
         native_chars=len(native_text),
-        atelier_chars=len(summary),
+        lemoncrow_chars=len(summary),
         native_tokens=native_tokens,
-        atelier_tokens=atelier_tokens,
+        lemoncrow_tokens=lemoncrow_tokens,
         ratio=len(summary) / len(native_text) if native_text else 1.0,
-        token_ratio=atelier_tokens / native_tokens if native_tokens else 1.0,
+        token_ratio=lemoncrow_tokens / native_tokens if native_tokens else 1.0,
         chars_saved=len(native_text) - len(summary),
-        tokens_saved_measured=max(0, native_tokens - atelier_tokens),
+        tokens_saved_measured=max(0, native_tokens - lemoncrow_tokens),
         tokens_saved_reported=0,
         native_ms=0.0,
-        atelier_ms=0.0,
+        lemoncrow_ms=0.0,
         ts=time.time(),
     )
     _append_row(row)
@@ -513,7 +513,7 @@ def test_read_ab_empty_file(tmp_path: Path) -> None:
     empty = tmp_path / "empty.py"
     empty.write_text("", encoding="utf-8")
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
     payload = cap.smart_read(empty, range_spec=None, expand=False)
 
     # Must not raise; must have mode and language keys.
@@ -522,7 +522,7 @@ def test_read_ab_empty_file(tmp_path: Path) -> None:
 
     content = str(payload.get("content") or "")
     outline = payload.get("outline")
-    atelier_text = content + (json.dumps(outline) if outline else "")
+    lemoncrow_text = content + (json.dumps(outline) if outline else "")
 
     row = ABRow(
         tool="read_empty_file",
@@ -530,16 +530,16 @@ def test_read_ab_empty_file(tmp_path: Path) -> None:
         language=str(payload.get("language") or "unknown"),
         path="tmp/empty.py",
         native_chars=0,
-        atelier_chars=len(atelier_text),
+        lemoncrow_chars=len(lemoncrow_text),
         native_tokens=0,
-        atelier_tokens=_count_tiktoken(atelier_text),
+        lemoncrow_tokens=_count_tiktoken(lemoncrow_text),
         ratio=1.0,
         token_ratio=1.0,
         chars_saved=0,
         tokens_saved_measured=0,
         tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
         native_ms=0.0,
-        atelier_ms=0.0,
+        lemoncrow_ms=0.0,
         ts=time.time(),
     )
     _append_row(row)
@@ -554,16 +554,16 @@ def test_read_ab_nonutf8_binary(tmp_path: Path) -> None:
     payload_bytes = bytes(range(256)) * 2  # 512 bytes, all byte values present
     binary.write_bytes(payload_bytes)
 
-    cap = SemanticFileMemoryCapability(_atelier_root())
+    cap = SemanticFileMemoryCapability(_lemoncrow_root())
     # Must not raise.
     payload = cap.smart_read(binary, range_spec=None, expand=False)
 
     assert "mode" in payload, "binary file payload missing 'mode'"
     content = str(payload.get("content") or "")
     outline = payload.get("outline")
-    atelier_text = content + (json.dumps(outline) if outline else "")
+    lemoncrow_text = content + (json.dumps(outline) if outline else "")
     # Must return something non-empty (replacement chars count).
-    assert len(atelier_text) > 0, "binary file returned empty payload"
+    assert len(lemoncrow_text) > 0, "binary file returned empty payload"
 
     row = ABRow(
         tool="read_binary_file",
@@ -571,16 +571,16 @@ def test_read_ab_nonutf8_binary(tmp_path: Path) -> None:
         language=str(payload.get("language") or "unknown"),
         path="tmp/blob.bin",
         native_chars=len(payload_bytes),
-        atelier_chars=len(atelier_text),
-        native_tokens=_count_tiktoken(atelier_text),  # use decoded text for token count
-        atelier_tokens=_count_tiktoken(atelier_text),
+        lemoncrow_chars=len(lemoncrow_text),
+        native_tokens=_count_tiktoken(lemoncrow_text),  # use decoded text for token count
+        lemoncrow_tokens=_count_tiktoken(lemoncrow_text),
         ratio=1.0,
         token_ratio=1.0,
         chars_saved=0,
         tokens_saved_measured=0,
         tokens_saved_reported=int(payload.get("tokens_saved", 0) or 0),
         native_ms=0.0,
-        atelier_ms=0.0,
+        lemoncrow_ms=0.0,
         ts=time.time(),
     )
     _append_row(row)

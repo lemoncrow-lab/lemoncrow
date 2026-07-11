@@ -14,7 +14,7 @@ def render_markdown(report: MiniEvalReport) -> str:
     """Render a :class:`MiniEvalReport` as a Markdown document."""
     status_label = _STATUS_LABEL.get(report.status, report.status.upper())
     lines: list[str] = [
-        "# Atelier Mini Eval Report",
+        "# LemonCrow Mini Eval Report",
         "",
         f"**Status:** {status_label}",
         f"**Suite:** {report.suite}",

@@ -10,9 +10,9 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 
 from fastapi.testclient import TestClient
 
-from atelier.core.foundation.models import Trace
-from atelier.core.foundation.store import ContextStore
-from atelier.core.service.api import create_app
+from lemoncrow.core.foundation.models import Trace
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.core.service.api import create_app
 
 
 def _write_cost_history(path: Path) -> None:
@@ -20,7 +20,7 @@ def _write_cost_history(path: Path) -> None:
     payload = {
         "operations": {
             "op-search": {
-                "domain": "atelier.platform",
+                "domain": "lemoncrow.platform",
                 "task_sample": "search",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -38,7 +38,7 @@ def _write_cost_history(path: Path) -> None:
                 ],
             },
             "op-batch": {
-                "domain": "atelier.platform",
+                "domain": "lemoncrow.platform",
                 "task_sample": "edit",
                 "first_seen": now.isoformat(),
                 "calls": [
@@ -176,7 +176,7 @@ def _write_live_savings_events(path: Path) -> None:
 def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     (tmp_path / "AGENTS.md").write_text(
         "# Project rules\n" + "- Keep context narrow and delivery-focused.\n" * 40,
         encoding="utf-8",
@@ -195,8 +195,8 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("ATELIER_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
 
     client = TestClient(create_app(store_root=root))
     resp = client.get("/v1/optimizations/summary?window_days=14")

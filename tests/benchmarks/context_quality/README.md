@@ -1,16 +1,16 @@
 # Context Quality Benchmarks
 
 Internal evaluation suite for the Context Quality Lift milestones (v0.2).
-These benchmarks run against a real Atelier installation and require:
+These benchmarks run against a real LemonCrow installation and require:
 - A git repository indexed by `code op="search"` (for M1)
-- A working Atelier MCP server (for M2–M4)
-- Python ≥ 3.12 in the atelier venv
+- A working LemonCrow MCP server (for M2–M4)
+- Python ≥ 3.12 in the lemoncrow venv
 
 ## Protocol
 
 All benchmarks follow this structure:
 1. **Seed** — set up the evaluation fixture (real git repo, pre-seeded commit chunks, etc.)
-2. **Run** — call the Atelier capability under test for each query/task
+2. **Run** — call the LemonCrow capability under test for each query/task
 3. **Grade** — compare result against ground truth; score 1 (correct) or 0 (incorrect)
 4. **Report** — print per-query verdict + aggregate pass rate
 
@@ -67,5 +67,5 @@ Benchmarks are excluded from `pytest` default runs (`-m 'not slow'` in pyproject
 Run them in a separate CI job after merging Phase 8:
 
 ```bash
-ATELIER_LLM_BACKEND=openai uv run pytest tests/benchmarks/context_quality/ -v -m slow
+LEMONCROW_LLM_BACKEND=openai uv run pytest tests/benchmarks/context_quality/ -v -m slow
 ```

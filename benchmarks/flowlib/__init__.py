@@ -2,7 +2,7 @@
 
 Capture the real HTTP traffic between Claude Code and its model provider
 (Amazon Bedrock or Anthropic-direct) with mitmproxy, then compare token usage
-between two runs (e.g. Atelier MCP enabled vs disabled). Unlike Atelier's
+between two runs (e.g. LemonCrow MCP enabled vs disabled). Unlike LemonCrow's
 internal counters, this reads the *actual* ``usage`` blocks billed by the
 provider, so "savings" are ground truth rather than counterfactual estimates.
 

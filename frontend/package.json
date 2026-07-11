@@ -1,5 +1,5 @@
 {
-  "name": "atelier-frontend",
+  "name": "@lemoncrow/frontend",
   "version": "0.3.1",
   "private": true,
   "type": "module",

@@ -3,39 +3,39 @@ test_bootstrap_optional_extras.py -- the interactive agent/skill checklist
 step in the bootstrap flow.
 
 Phases 1-3 (merged) made the default install bare-minimum (agent `code` only,
-zero skills) and exposed a tested CLI (`atelier agent|skill list/install/
-remove`) plus an in-chat `/atelier` skill for opting extras in after the fact.
+zero skills) and exposed a tested CLI (`lemon agent|skill list/install/
+remove`) plus an in-chat `/lemoncrow` skill for opting extras in after the fact.
 
 The interactive checklist lives entirely inside host_wizard() (scripts/lib/
 common.sh), called from main() in both scripts/bundle.sh and scripts/local.sh,
 in this order:
-  1. "Which agents should Atelier configure?"  (which HOSTS -- claude/codex/
+  1. "Which agents should LemonCrow configure?"  (which HOSTS -- claude/codex/
      opencode -- confusingly named "agents" here, this is pre-existing wizard
      copy, not our agent-role concept)
   2. "Optional agent roles to install" -- a checklist containing `code` as
      a locked selected row plus every other role (explore/execute/plan/
      research/review/solve/auto/bare/general), with standard roles pre-checked
      and auto/bare available but deselected by default.
-  3. "Optional skills" -- a checklist of the 6 public skills (the /atelier
+  3. "Optional skills" -- a checklist of the 6 public skills (the /lemoncrow
      management skill itself is excluded -- it ships by default), ALL
      pre-UNchecked (opt in). Copy reminds the user skills are also
-     installable later via /atelier.
+     installable later via /lemoncrow.
   4. "Apply configs globally or just here?" (scope: global vs workspace)
 
 Both checklists read role/skill names + a lightweight chars/4 cost estimate
 directly off integrations/agents/*.md and integrations/skills/*/SKILL.md
-frontmatter rather than shelling to the `atelier` CLI, since host_wizard()
+frontmatter rather than shelling to the `lemon` CLI, since host_wizard()
 runs before the CLI (and its tiktoken dependency) are installed.
 
 Covers:
   * make dev no longer hardcodes --non-interactive (Bug 1): the TTY
     detection already in common.sh decides whether to prompt.
-  * host_wizard() is independently gated by ATELIER_NON_INTERACTIVE /
-    ATELIER_NO_HOSTS / has_interactive_input, same as before this feature.
+  * host_wizard() is independently gated by LEMONCROW_NON_INTERACTIVE /
+    LEMONCROW_NO_HOSTS / has_interactive_input, same as before this feature.
   * The agent-roles block sits textually between the host-selection question
     and the scope question; `code` is excluded from the togglable set and
     shown as an info line instead; the skills block sits between the
-    agent-roles block and the scope question and mentions /atelier.
+    agent-roles block and the scope question and mentions /lemoncrow.
   * The real arrow-key checkbox menu and the dumb-terminal fallback both
     default to "select standard optional roles" for agents and "select nothing"
     for skills, and both correctly thread --roles / --include-skills into
@@ -58,11 +58,11 @@ import subprocess
 import time
 from pathlib import Path
 
-ATELIER_ROOT = Path(__file__).parent.parent.parent
-SCRIPTS = ATELIER_ROOT / "scripts"
+LEMONCROW_ROOT = Path(__file__).parent.parent.parent
+SCRIPTS = LEMONCROW_ROOT / "scripts"
 COMMON_SH = SCRIPTS / "lib" / "common.sh"
-MAKEFILE = ATELIER_ROOT / "Makefile"
-VENV_BIN = ATELIER_ROOT / ".venv" / "bin"
+MAKEFILE = LEMONCROW_ROOT / "Makefile"
+VENV_BIN = LEMONCROW_ROOT / ".venv" / "bin"
 
 
 def test_host_extra_args_appended_to_host_install_args() -> None:
@@ -92,7 +92,7 @@ def test_agent_roles_and_skills_blocks_ordered_inside_host_wizard() -> None:
     wizard_pos = content.index("host_wizard() {")
     next_fn_pos = content.index("\nhost_scope_is_workspace() {", wizard_pos)
     block = content[wizard_pos:next_fn_pos]
-    which_agents_pos = block.index('"Which agents should Atelier configure?"')
+    which_agents_pos = block.index('"Which agents should LemonCrow configure?"')
     roles_pos = block.index("Agent roles to install")
     skills_pos = block.index("Optional skills")
     scope_pos = block.index('"Apply configs globally or just here?"')
@@ -113,15 +113,15 @@ def test_code_shown_as_locked_always_installed_role() -> None:
     ), "code must be rendered in the role list as selected and locked"
 
 
-def test_skills_prompt_excludes_atelier_and_mentions_installing_later() -> None:
+def test_skills_prompt_excludes_lemoncrow_and_mentions_installing_later() -> None:
     content = COMMON_SH.read_text()
     wizard_pos = content.index("host_wizard() {")
     scope_pos = content.index('"Apply configs globally or just here?"', wizard_pos)
     block = content[wizard_pos:scope_pos]
-    assert '"atelier"' in block, "the /atelier management skill (ships by default) must be excluded"
+    assert '"lemoncrow"' in block, "the /lemoncrow management skill (ships by default) must be excluded"
     assert (
-        "/atelier" in block and "install" in block.lower()
-    ), "the skills prompt copy must reference installing later via /atelier"
+        "/lemoncrow" in block and "install" in block.lower()
+    ), "the skills prompt copy must reference installing later via /lemoncrow"
 
 
 def test_claude_project_append_does_not_clobber_earlier_extra_args() -> None:
@@ -167,9 +167,9 @@ def _drain(master_fd: int, buf: bytearray, proc: subprocess.Popen[bytes], timeou
 def _role_names_from_disk() -> list[str]:
     """Non-default role names straight off integrations/agents/*.md frontmatter --
     what host_wizard() reads (it runs before the CLI/venv exist in a real
-    bootstrap, so it can't shell out to `atelier agent list`)."""
+    bootstrap, so it can't shell out to `lemon agent list`)."""
     names = []
-    agents_dir = ATELIER_ROOT / "integrations" / "agents"
+    agents_dir = LEMONCROW_ROOT / "integrations" / "agents"
     for path in sorted(agents_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         m = re.search(r"^mode:\s*(\S+)", text, re.MULTILINE)
@@ -181,10 +181,10 @@ def _role_names_from_disk() -> list[str]:
 def _skill_names_from_disk() -> list[str]:
     """Public, non-hidden, non-default skill names straight off
     integrations/skills/*/SKILL.md -- mirrors host_wizard()'s own exclusion
-    set (HIDDEN_SKILLS dev-only names, plus `atelier` itself)."""
-    hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record", "atelier"}
+    set (HIDDEN_SKILLS dev-only names, plus `lemon` itself)."""
+    hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record", "lemoncrow"}
     names = []
-    skills_dir = ATELIER_ROOT / "integrations" / "skills"
+    skills_dir = LEMONCROW_ROOT / "integrations" / "skills"
     for path in sorted(skills_dir.glob("*/SKILL.md")):
         name = path.parent.name
         if name not in hidden:
@@ -193,7 +193,7 @@ def _skill_names_from_disk() -> list[str]:
 
 
 def test_non_interactive_and_no_tty_leave_host_extra_args_empty() -> None:
-    for extra_env in ({"ATELIER_NON_INTERACTIVE": "1"}, {}):
+    for extra_env in ({"LEMONCROW_NON_INTERACTIVE": "1"}, {}):
         body = (
             "HOST_EXTRA_ARGS=()\n"
             "HOST_FLAGS=(--claude)\n"
@@ -205,11 +205,11 @@ def test_non_interactive_and_no_tty_leave_host_extra_args_empty() -> None:
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": os.environ.get("HOME", "/root"),
-            "ATELIER_INSTALL_DIR": str(ATELIER_ROOT),
+            "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
             **extra_env,
         }
         result = subprocess.run(
-            ["bash", "-c", script], cwd=ATELIER_ROOT, capture_output=True, text=True, timeout=20, env=env
+            ["bash", "-c", script], cwd=LEMONCROW_ROOT, capture_output=True, text=True, timeout=20, env=env
         )
         assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
         # Pre-set HOST_FLAGS/HOST_SCOPE_ARGS also short-circuit host_wizard()
@@ -239,7 +239,7 @@ def _run_host_wizard(*, answers: list[bytes], markers: list[str], tmp_path: Path
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/root"),
         "TERM": term,
-        "ATELIER_INSTALL_DIR": str(ATELIER_ROOT),
+        "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
     }
     master_fd, slave_fd = pty.openpty()
     proc = subprocess.Popen(
@@ -248,7 +248,7 @@ def _run_host_wizard(*, answers: list[bytes], markers: list[str], tmp_path: Path
         stdout=slave_fd,
         stderr=slave_fd,
         env=env,
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         start_new_session=True,
     )
     os.close(slave_fd)
@@ -284,7 +284,7 @@ def _parse_result(result_file: Path) -> dict[str, str]:
 # --- dumb-terminal fallback (free-text) --------------------------------------
 
 _DUMB_MARKERS = [
-    "Which agents should Atelier configure?",
+    "Which agents should LemonCrow configure?",
     "Agents to add",
     "Skills to add",
     "Apply agent configs",
@@ -347,27 +347,27 @@ def test_dumb_terminal_explicit_names_filter_unrecognized(tmp_path: Path) -> Non
     )
     pairs = _parse_result(result_file)
     assert pairs.get("--roles") == f"code,{role_names[0]}"
-    # Wizard prepends "atelier" to the user-supplied skill list.
-    assert pairs.get("--include-skills") == "atelier," + skill_names[0]
+    # Wizard prepends "lemoncrow" to the user-supplied skill list.
+    assert pairs.get("--include-skills") == "lemoncrow," + skill_names[0]
 
 
 # --- installer layout regression checks ---------------------------------------
 
 
-def test_installer_defaults_use_atelier_home() -> None:
+def test_installer_defaults_use_lemoncrow_home() -> None:
     content = (SCRIPTS / "install.sh").read_text()
-    assert 'ATELIER_INSTALL_DIR="${ATELIER_INSTALL_DIR:-${HOME}/.atelier/install}"' in content
-    assert 'ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"' in content
+    assert 'LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-${HOME}/.lemoncrow/install}"' in content
+    assert 'LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"' in content
 
     common = COMMON_SH.read_text()
-    assert 'ATELIER_BIN_DIR="${ATELIER_BIN_DIR:-${HOME}/.atelier/bin}"' in common
-    assert 'ATELIER_TOOL_DIR="${ATELIER_TOOL_DIR:-${HOME}/.atelier/uv-tools}"' in common
+    assert 'LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"' in common
+    assert 'LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"' in common
 
 
 def test_installer_cleans_managed_tree_before_overlay() -> None:
     content = (SCRIPTS / "install.sh").read_text()
     assert "_clean_managed_install_tree" in content
-    assert '"$ATELIER_INSTALL_DIR/integrations"' in content
+    assert '"$LEMONCROW_INSTALL_DIR/integrations"' in content
     assert '_clean_managed_install_tree\n        cp -r "${LOCAL_SRC_ABS}/."' in content
     assert "_clean_managed_install_tree\n\n    printf" in content
 
@@ -387,15 +387,15 @@ def test_local_installer_removes_stale_managed_payload(tmp_path: Path) -> None:
 
     env = {
         **os.environ,
-        "ATELIER_LOCAL_SRC": str(source),
-        "ATELIER_INSTALL_DIR": str(install_dir),
-        "ATELIER_BIN_DIR": str(tmp_path / "bin"),
-        "ATELIER_NO_HOSTS": "1",
-        "ATELIER_NO_PATH": "1",
+        "LEMONCROW_LOCAL_SRC": str(source),
+        "LEMONCROW_INSTALL_DIR": str(install_dir),
+        "LEMONCROW_BIN_DIR": str(tmp_path / "bin"),
+        "LEMONCROW_NO_HOSTS": "1",
+        "LEMONCROW_NO_PATH": "1",
     }
     result = subprocess.run(
         ["bash", str(SCRIPTS / "install.sh"), "--local"],
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         env=env,
         capture_output=True,
         text=True,
@@ -414,7 +414,7 @@ def test_bundle_persists_install_record() -> None:
 # --- real arrow-key checkbox menu ---------------------------------------------
 
 _SELECTOR_MARKERS = [
-    "Which agents should Atelier configure?",
+    "Which agents should LemonCrow configure?",
     "Agent roles to install",
     "Complimentary Skills",
     "Agent reply style",
@@ -438,8 +438,8 @@ def test_confirming_defaults_selects_standard_roles_and_no_skills(tmp_path: Path
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
     assert "auto" not in pairs["--roles"].split(",")
     assert "bare" not in pairs["--roles"].split(",")
-    # Skills now default to all selected (atelier prepended by wizard).
-    assert pairs.get("--include-skills") == "atelier," + ",".join(skill_names)
+    # Skills now default to all selected (lemoncrow prepended by wizard).
+    assert pairs.get("--include-skills") == "lemoncrow," + ",".join(skill_names)
 
 
 def test_toggling_code_does_not_deselect_it(tmp_path: Path) -> None:
@@ -481,8 +481,8 @@ def test_selecting_a_skill_adds_it(tmp_path: Path) -> None:
     default_roles = _default_role_names()
     pairs = _parse_result(result_file)
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
-    # All skills are pre-selected by default; atelier is prepended by wizard.
-    assert pairs.get("--include-skills") == "atelier," + ",".join(skill_names)
+    # All skills are pre-selected by default; lemoncrow is prepended by wizard.
+    assert pairs.get("--include-skills") == "lemoncrow," + ",".join(skill_names)
 
 
 def test_claude_global_scope_appends_claude_project_without_losing_roles(tmp_path: Path) -> None:
@@ -504,7 +504,7 @@ def test_claude_global_scope_appends_claude_project_without_losing_roles(tmp_pat
     default_roles = _default_role_names()
     pairs = _parse_result(result_file)
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
-    assert pairs.get("--claude-project") == str(ATELIER_ROOT)
+    assert pairs.get("--claude-project") == str(LEMONCROW_ROOT)
 
 
 def test_install_hosts_parses_roles_and_include_skills_flags() -> None:
@@ -532,12 +532,12 @@ def test_install_hosts_threads_roles_into_claude_and_codex_agent_files() -> None
             "--dry-run",
             "--print-only",
         ],
-        cwd=ATELIER_ROOT,
+        cwd=LEMONCROW_ROOT,
         capture_output=True,
         text=True,
         timeout=60,
-        env={**os.environ, "ATELIER_VERBOSE": "1"},
+        env={**os.environ, "LEMONCROW_VERBOSE": "1"},
     )
     assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
-    assert "agents/explore.md" in result.stdout or "atelier.explore" in result.stdout, result.stdout
+    assert "agents/explore.md" in result.stdout or "lemoncrow.explore" in result.stdout, result.stdout
     assert "--include-skills=benchmark" in result.stdout, result.stdout

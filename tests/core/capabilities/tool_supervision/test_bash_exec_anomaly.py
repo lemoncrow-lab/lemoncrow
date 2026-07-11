@@ -7,8 +7,12 @@ from pathlib import Path
 
 import pytest
 
-import atelier.core.capabilities.tool_supervision.bash_exec as bx
-from atelier.core.capabilities.tool_supervision.bash_exec import _compact_result, _extract_anomaly_windows, _strip_ansi
+import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
+    _compact_result,
+    _extract_anomaly_windows,
+    _strip_ansi,
+)
 
 
 def test_extract_anomaly_windows_returns_none_when_nothing_matches() -> None:
@@ -65,8 +69,8 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
     With T7 spill enabled (default), the untouched raw stdout is persisted and a
     recovery hint names the path, so the dropped lines stay reachable via `read`.
     """
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path / "spill"))
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)  # default on
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
     lines = [f"line {i}: all good" for i in range(300)]
     stdout = "\n".join(lines)
     result = _compact_result(
@@ -79,7 +83,7 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
     )
     assert result.lines_omitted > 0
     assert "line 100: all good" not in result.stdout  # dropped from the summary
-    assert "[atelier: shrunk" in result.spill_hint
+    assert "[lemon: shrunk" in result.spill_hint
     match = re.search(r"read (\S+\.txt)\]", result.spill_hint)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
@@ -87,7 +91,7 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
 
 
 def test_compact_result_no_spill_hint_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
     lines = [f"line {i}: all good" for i in range(300)]
     result = _compact_result(
         command="python3 build.py",
@@ -132,7 +136,7 @@ def test_managed_command_strips_ansi_and_credits_stripped_chars() -> None:
     assert result["lines_omitted"] == 0
     assert result["chars_omitted"] == 19
 
-    from atelier.gateway.adapters.mcp_server import _bash_omitted_tokens_saved
+    from lemoncrow.gateway.adapters.mcp_server import _bash_omitted_tokens_saved
 
     assert _bash_omitted_tokens_saved(result, int(str(result["chars_omitted"]))) == 19 // 4
 
@@ -206,7 +210,7 @@ def test_watch_managed_command_kills_at_hard_cap(monkeypatch: pytest.MonkeyPatch
 
 
 def test_compact_result_no_spill_hint_when_nothing_omitted(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
     result = _compact_result(
         command="echo hi",
         raw_stdout="hi\n",

@@ -9,10 +9,10 @@ got str", "dict object expected; got str", ...).  ``mcp_server._handle`` even
 carries a comment naming this exact failure mode.
 
 Every other MCP test runs the editable ``.py`` path only:
-  * ``test_mcp_stdio_smoke`` drives ``uv run atelier mcp`` (editable install)
+  * ``test_mcp_stdio_smoke`` drives ``uv run lemon mcp`` (editable install)
   * ``test_mcp_jsonrpc_e2e`` calls ``_handle`` in-process (editable import)
 Neither can catch compiled-only failures.  This module builds the *real* mypyc
-wheel, installs it into an isolated venv, and drives the shipped ``atelier mcp``
+wheel, installs it into an isolated venv, and drives the shipped ``lemon mcp``
 stdio server over JSON-RPC -- the only faithful way to exercise the ``.so``.
 
 For every registered tool we send a ``tools/call`` with native-typed arguments
@@ -23,7 +23,7 @@ failing on the stringified one (the ``.py``-works/``.so``-fails divergence).
 
 These are slow -- the mypyc build takes minutes -- and gated behind
 ``@pytest.mark.slow`` (the whole module via ``pytestmark``).  When the host
-cannot build the wheel (no ``uv``/compiler, or ``ATELIER_SKIP_MYPYC`` produced a
+cannot build the wheel (no ``uv``/compiler, or ``LEMONCROW_SKIP_MYPYC`` produced a
 pure-python wheel) the tests SKIP with a clear reason rather than error.
 """
 
@@ -44,8 +44,8 @@ import pytest
 # Editable import -- used ONLY to enumerate the registered tool surface and read
 # each tool's published input schema.  The handlers themselves are exercised in
 # the compiled subprocess, never here.
-from atelier.core.environment import HIDDEN_LLM_TOOLS
-from atelier.gateway.adapters.mcp_server import TOOLS
+from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.gateway.adapters.mcp_server import TOOLS
 
 pytestmark = pytest.mark.slow
 
@@ -78,7 +78,7 @@ _COPY_IGNORE = shutil.ignore_patterns(
 
 @dataclasses.dataclass
 class _CompiledServer:
-    atelier_bin: str
+    lemoncrow_bin: str
     env: dict[str, str]
     workspace: Path
 
@@ -100,13 +100,13 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if shutil.which("uv") is None:
         pytest.skip("uv not on PATH; cannot build the mypyc wheel")
 
-    build_base = tmp_path_factory.mktemp("atelier_build")
+    build_base = tmp_path_factory.mktemp("lemoncrow_build")
     repo_copy = build_base / "src"
     shutil.copytree(REPO_ROOT, repo_copy, ignore=_COPY_IGNORE, ignore_dangling_symlinks=True)
     out_dir = build_base / "wheel"
 
     # Must NOT skip mypyc -- a pure-python wheel cannot exercise the .so path.
-    env = {k: v for k, v in os.environ.items() if k != "ATELIER_SKIP_MYPYC"}
+    env = {k: v for k, v in os.environ.items() if k != "LEMONCROW_SKIP_MYPYC"}
     proc = subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
         cwd=str(repo_copy),
@@ -122,13 +122,13 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         # whole suite red.
         pytest.skip(f"mypyc wheel build failed (toolchain or mypyc-incompatible module):\n{proc.stderr[-2000:]}")
 
-    wheels = sorted(out_dir.glob("atelier-*.whl"))
+    wheels = sorted(out_dir.glob("lemoncrow-*.whl"))
     if not wheels:
         pytest.skip("`uv build --wheel` produced no wheel")
     wheel = wheels[-1]
 
     # A genuinely compiled wheel carries a platform/abi tag, e.g.
-    # ``atelier-0.3.5-cp312-cp312-linux_x86_64.whl``.  A pure-python wheel
+    # ``lemoncrow-0.3.5-cp312-cp312-linux_x86_64.whl``.  A pure-python wheel
     # (``...-py3-none-any.whl``) means mypyc did not run -- it would give false
     # assurance, so skip instead.
     if wheel.name.endswith("-py3-none-any.whl"):
@@ -139,7 +139,7 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="session")
 def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> _CompiledServer:
     """Install the compiled wheel into an isolated venv and prepare its runtime."""
-    venv_dir = tmp_path_factory.mktemp("atelier_venv") / "venv"
+    venv_dir = tmp_path_factory.mktemp("lemoncrow_venv") / "venv"
     create = subprocess.run(
         ["uv", "venv", str(venv_dir)],
         capture_output=True,
@@ -150,7 +150,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
         pytest.skip(f"`uv venv` failed:\n{create.stderr[-2000:]}")
 
     venv_python = venv_dir / "bin" / "python"
-    atelier_bin = venv_dir / "bin" / "atelier"
+    lemoncrow_bin = venv_dir / "bin" / "lemon"
 
     # The coercion layer lives in the core server modules, so a minimal extra set
     # is enough to start the server and dispatch every tool; tools whose optional
@@ -170,18 +170,18 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
     )
     if install.returncode != 0:
         pytest.skip(f"compiled wheel install failed:\n{install.stderr[-2000:]}")
-    if not atelier_bin.exists():
-        pytest.skip("atelier console script missing from venv after install")
+    if not lemoncrow_bin.exists():
+        pytest.skip("lemon console script missing from venv after install")
 
     # Confirm the installed package is actually compiled (.so present, not .py).
     so_files = list(venv_dir.rglob("mcp_server*.so"))
     if not so_files:
         pytest.skip("installed wheel has no mcp_server .so; not a compiled build")
 
-    root = tmp_path_factory.mktemp("atelier_root") / ".atelier"
-    config_dir = tmp_path_factory.mktemp("atelier_cfg") / ".claude"
+    root = tmp_path_factory.mktemp("lemoncrow_root") / ".lemoncrow"
+    config_dir = tmp_path_factory.mktemp("lemoncrow_cfg") / ".claude"
     config_dir.mkdir(parents=True, exist_ok=True)
-    workspace = tmp_path_factory.mktemp("atelier_ws")
+    workspace = tmp_path_factory.mktemp("lemoncrow_ws")
     (workspace / "sample.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (workspace / "edit_target.txt").write_text("alpha\n", encoding="utf-8")
 
@@ -194,13 +194,13 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
 
     env = {
         **os.environ,
-        "ATELIER_ROOT": str(root),
+        "LEMONCROW_ROOT": str(root),
         "CLAUDE_WORKSPACE_ROOT": str(workspace),
         "CLAUDE_CONFIG_DIR": str(config_dir),
         # Put the venv first so any subprocess the server spawns is the compiled one.
         "PATH": f"{venv_dir / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
     }
-    return _CompiledServer(atelier_bin=str(atelier_bin), env=env, workspace=workspace)
+    return _CompiledServer(lemoncrow_bin=str(lemoncrow_bin), env=env, workspace=workspace)
 
 
 # --------------------------------------------------------------------------- #
@@ -222,7 +222,7 @@ _INITIALIZE = {
 def _run_server(
     server: _CompiledServer, calls: list[dict[str, Any]], timeout: int = 120
 ) -> tuple[dict[Any, dict[str, Any]], subprocess.CompletedProcess[str]]:
-    """Spawn ``atelier mcp``, feed initialize + ``calls``, return {id: response}.
+    """Spawn ``lemon mcp``, feed initialize + ``calls``, return {id: response}.
 
     Strict framing gate (matches test_mcp_stdio_smoke): every non-empty stdout
     line MUST be a JSON object, else the server printed something off-protocol.
@@ -230,7 +230,7 @@ def _run_server(
     requests = [_INITIALIZE, *calls]
     payload = "\n".join(json.dumps(r) for r in requests) + "\n"
     proc = subprocess.run(
-        [server.atelier_bin, "mcp"],
+        [server.lemoncrow_bin, "mcp"],
         input=payload,
         text=True,
         capture_output=True,
@@ -363,7 +363,7 @@ def test_compiled_server_handshake_and_tools_list(compiled_server: _CompiledServ
         [{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}],
     )
     assert 1 in responses, f"no initialize response; stderr:\n{proc.stderr[-1500:]}"
-    assert responses[1]["result"]["serverInfo"]["name"] == "atelier"
+    assert responses[1]["result"]["serverInfo"]["name"] == "lemoncrow"
     assert 2 in responses, f"no tools/list response; stderr:\n{proc.stderr[-1500:]}"
 
     names = {tool["name"] for tool in responses[2]["result"]["tools"]}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.live_reviewer.knowledge import (
+from lemoncrow.core.capabilities.live_reviewer.knowledge import (
     collect_review_context,
     load_overlay,
 )
@@ -31,23 +31,23 @@ def test_collect_empty_when_nothing(tmp_path: Path) -> None:
 
 
 def test_ensure_repo_share_gitignore(tmp_path: Path) -> None:
-    from atelier.core.capabilities.live_reviewer.knowledge import ensure_repo_share_gitignore
+    from lemoncrow.core.capabilities.live_reviewer.knowledge import ensure_repo_share_gitignore
 
     ensure_repo_share_gitignore(tmp_path)
-    gi = (tmp_path / ".atelier" / ".gitignore").read_text(encoding="utf-8")
+    gi = (tmp_path / ".lemoncrow" / ".gitignore").read_text(encoding="utf-8")
     assert "!review.json" in gi and gi.splitlines()[2] == "*"
     # Non-destructive: never clobbers a user's customised allow-list.
-    (tmp_path / ".atelier" / ".gitignore").write_text("custom\n", encoding="utf-8")
+    (tmp_path / ".lemoncrow" / ".gitignore").write_text("custom\n", encoding="utf-8")
     ensure_repo_share_gitignore(tmp_path)
-    assert (tmp_path / ".atelier" / ".gitignore").read_text(encoding="utf-8") == "custom\n"
+    assert (tmp_path / ".lemoncrow" / ".gitignore").read_text(encoding="utf-8") == "custom\n"
 
 
 def test_collect_merges_team_and_personal_layers(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()
     repo = tmp_path / "repo"
-    (repo / ".atelier").mkdir(parents=True)
-    (repo / ".atelier" / "review.json").write_text(
+    (repo / ".lemoncrow").mkdir(parents=True)
+    (repo / ".lemoncrow" / "review.json").write_text(
         json.dumps({"notes": ["team authz rule"], "boost": ["security"], "suppress": []}), encoding="utf-8"
     )
     (root / "review_overlay.json").write_text(
@@ -67,7 +67,7 @@ def test_collect_merges_overlay_and_lessons(tmp_path: Path) -> None:
         json.dumps({"notes": ["check authz"], "suppress": ["nits"], "boost": ["security"]}),
         encoding="utf-8",
     )
-    blocks = tmp_path / "repo" / ".atelier" / "lessons" / "blocks"
+    blocks = tmp_path / "repo" / ".lemoncrow" / "lessons" / "blocks"
     blocks.mkdir(parents=True)
     (blocks / "l1.md").write_text("# Use DI for services\nbody text", encoding="utf-8")
     out = collect_review_context(root, tmp_path / "repo")

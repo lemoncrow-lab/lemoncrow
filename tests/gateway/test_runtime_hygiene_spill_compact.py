@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision import tool_output_spill
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+from lemoncrow.gateway.adapters import mcp_server
 
 _PATH_RE = re.compile(r"read (\S+\.txt)\]")
 
@@ -30,13 +30,13 @@ def _extract_path(text: str) -> Path:
 
 @pytest.fixture(autouse=True)
 def _isolated_spill_dir(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
     # T7 defaults ON; tests that exercise the off path disable it explicitly.
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)
-    monkeypatch.delenv("ATELIER_MCP_SPILL_RESULT_CHARS", raising=False)
-    monkeypatch.delenv("ATELIER_MCP_SPILL_MAX_FILES", raising=False)
-    monkeypatch.delenv("ATELIER_MCP_SPILL_TTL_SECONDS", raising=False)
-    monkeypatch.delenv("ATELIER_AUTO_COMPACT_OUTPUT", raising=False)
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_MAX_FILES", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("LEMONCROW_AUTO_COMPACT_OUTPUT", raising=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -60,35 +60,35 @@ def test_spill_write_is_lossless() -> None:
 
 
 def test_spill_helper_noop_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
     text = "z" * 200_000
     out = mcp_server._spill_oversized_result_text(text, "bash", {}, limit=1000)
     assert out == text  # flag off -> unchanged, legacy truncation still runs
 
 
 def test_spill_helper_noop_for_unlisted_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
     text = "z" * 200_000
     out = mcp_server._spill_oversized_result_text(text, "grep", {}, limit=1000)
     assert out == text  # grep is not a spill-worthy tool
 
 
 def test_spill_helper_passes_through_small_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
     text = "small enough"
     out = mcp_server._spill_oversized_result_text(text, "bash", {}, limit=1_000_000)
     assert out == text  # within budget -> nothing spilled
 
 
 def test_spill_helper_spills_and_returns_recoverable_ref(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
     text = "HEAD-MARKER" + ("q" * 200_000) + "TAIL-MARKER"
     out = mcp_server._spill_oversized_result_text(text, "bash", {}, limit=64 * 1024)
 
     assert len(out) < len(text)  # host-facing text is a compact summary
     assert out.startswith("HEAD-MARKER")  # head preserved in summary
     assert "TAIL-MARKER" in out  # tail preserved in summary
-    assert "[atelier: shrunk" in out  # canonical footer present
+    assert "[lemon: shrunk" in out  # canonical footer present
     assert "read " in out  # recovery hint present
     assert _extract_path(out).read_text(encoding="utf-8") == text  # full original preserved
 
@@ -116,12 +116,12 @@ def test_read_on_spill_file_does_not_re_spill() -> None:
 
 
 def test_spill_result_chars_defaults_to_2k(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_MCP_SPILL_RESULT_CHARS", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", raising=False)
     assert mcp_server._spill_result_chars() == 2048
 
 
 def test_spill_result_chars_per_tool_caps(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_MCP_SPILL_RESULT_CHARS", raising=False)
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", raising=False)
     # bash gets a larger inline budget; web_fetch/sql fall back to the 2 KiB default.
     assert mcp_server._spill_result_chars("bash") == 8 * 1024
     assert mcp_server._spill_result_chars("web_fetch") == 2048
@@ -129,7 +129,7 @@ def test_spill_result_chars_per_tool_caps(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_spill_result_chars_env_overrides_all_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_RESULT_CHARS", "1234")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", "1234")
     # An explicit env value wins for every tool, including the bash override.
     assert mcp_server._spill_result_chars("bash") == 1234
     assert mcp_server._spill_result_chars("web_fetch") == 1234
@@ -137,13 +137,13 @@ def test_spill_result_chars_env_overrides_all_tools(monkeypatch: pytest.MonkeyPa
 
 
 def test_spill_result_chars_env_zero_disables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_RESULT_CHARS", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", "0")
     assert mcp_server._spill_result_chars("bash") == 0
 
 
 def test_enforce_retention_caps_file_count(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_MAX_FILES", "3")
-    monkeypatch.setenv("ATELIER_MCP_SPILL_TTL_SECONDS", "0")  # isolate count-axis
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_MAX_FILES", "3")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", "0")  # isolate count-axis
     for i in range(6):
         p = tmp_path / f"tool_output-bash-{i}-{i:08x}.json"
         p.write_text("{}", encoding="utf-8")
@@ -160,8 +160,8 @@ def test_enforce_retention_caps_file_count(tmp_path, monkeypatch: pytest.MonkeyP
 
 
 def test_enforce_retention_evicts_by_age(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_MCP_SPILL_MAX_FILES", raising=False)
-    monkeypatch.setenv("ATELIER_MCP_SPILL_TTL_SECONDS", "100")
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_MAX_FILES", raising=False)
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", "100")
     now = time.time()
     old = tmp_path / "tool_output-bash-old.json"
     fresh = tmp_path / "tool_output-bash-fresh.json"
@@ -177,8 +177,8 @@ def test_enforce_retention_evicts_by_age(tmp_path, monkeypatch: pytest.MonkeyPat
 
 
 def test_enforce_retention_disabled_keeps_all(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_SPILL_MAX_FILES", "0")
-    monkeypatch.setenv("ATELIER_MCP_SPILL_TTL_SECONDS", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_MAX_FILES", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", "0")
     for i in range(5):
         (tmp_path / f"tool_output-bash-{i}.json").write_text("{}", encoding="utf-8")
 
@@ -189,8 +189,8 @@ def test_enforce_retention_disabled_keeps_all(tmp_path, monkeypatch: pytest.Monk
 
 def test_spill_bounded_and_leaves_no_temp(monkeypatch: pytest.MonkeyPatch) -> None:
     # Cap to 2 then create 5 spills via the real spill() path (autouse spill dir).
-    monkeypatch.setenv("ATELIER_MCP_SPILL_MAX_FILES", "2")
-    monkeypatch.delenv("ATELIER_MCP_SPILL_TTL_SECONDS", raising=False)
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_MAX_FILES", "2")
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", raising=False)
     spill_dir = tool_output_spill._spill_dir()
     for i in range(5):
         assert tool_output_spill.spill(f"content-{i}", tool_name="bash") is not None
@@ -217,23 +217,23 @@ def test_summary_with_ref_preserves_ref_under_tiny_cap() -> None:
 
 def test_spill_notice_shrunk_with_path() -> None:
     text = tool_output_spill.spill_notice(
-        verb="shrunk", original_chars=100907, kept_chars=5035, path=Path("/tmp/atelier-spill/tool_output-x.txt")
+        verb="shrunk", original_chars=100907, kept_chars=5035, path=Path("/tmp/lemoncrow-spill/tool_output-x.txt")
     )
-    assert text == ("[atelier: shrunk 100907→5035; full: read /tmp/atelier-spill/tool_output-x.txt]")
+    assert text == ("[lemon: shrunk 100907→5035; full: read /tmp/lemoncrow-spill/tool_output-x.txt]")
 
 
 def test_spill_notice_truncated_with_path() -> None:
     text = tool_output_spill.spill_notice(
         verb="truncated", original_chars=9000, kept_chars=1024, path=Path("/tmp/x.txt")
     )
-    assert text == "[atelier: truncated 9000→1024; full: read /tmp/x.txt]"
+    assert text == "[lemon: truncated 9000→1024; full: read /tmp/x.txt]"
 
 
 def test_spill_notice_compacted_with_method_verb() -> None:
     text = tool_output_spill.spill_notice(
         verb="compacted:dedup", original_chars=500, kept_chars=100, path=Path("/tmp/x.txt")
     )
-    assert text == "[atelier: compacted:dedup 500→100; full: read /tmp/x.txt]"
+    assert text == "[lemon: compacted:dedup 500→100; full: read /tmp/x.txt]"
 
 
 def test_spill_notice_no_path_is_spill_failed_shape() -> None:
@@ -241,7 +241,7 @@ def test_spill_notice_no_path_is_spill_failed_shape() -> None:
     # the requested verb -- from the model's perspective there's nothing to
     # recover either way.
     text = tool_output_spill.spill_notice(verb="shrunk", original_chars=9000, kept_chars=1024, path=None)
-    assert text == "[atelier: truncated 9000→1024; narrow the query for full]"
+    assert text == "[lemon: truncated 9000→1024; narrow the query for full]"
 
 
 def test_summary_with_ref_inserts_clipped_marker_when_summary_must_shrink() -> None:
@@ -262,11 +262,11 @@ def test_summary_with_ref_inserts_clipped_marker_when_summary_must_shrink() -> N
 
     assert len(out) <= cap
     assert "[… summary clipped; full in spill …]" in out
-    assert "[atelier: shrunk" in out
+    assert "[lemon: shrunk" in out
 
 
 def test_spill_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_TOOL_OUTPUT_SPILL", raising=False)
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
     assert mcp_server._tool_output_spill_enabled() is True
 
 
@@ -303,23 +303,23 @@ def test_shell_still_char_capped() -> None:
 
 
 def test_auto_compact_noop_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "1000")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "1000")
     text = "a" * 50_000
     out = mcp_server._auto_compact_result_text(text, "read", {"path": "x.txt"})
     assert out == text  # flag off -> byte-identical to prior behavior
 
 
 def test_auto_compact_passes_through_small_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "100000")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "100000")
     text = "a" * 1000
     out = mcp_server._auto_compact_result_text(text, "read", {"path": "x.txt"})
     assert out == text  # under threshold -> untouched
 
 
 def test_auto_compact_is_reversible_via_spill(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "2000")
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     # Non-code tool -> deterministic compact_output path.
     text = "START" + ("data line\n" * 5000) + "END"
     out = mcp_server._auto_compact_result_text(text, "bash", {})
@@ -335,9 +335,9 @@ def test_auto_compact_is_reversible_via_spill(monkeypatch: pytest.MonkeyPatch) -
 
 def test_auto_compact_code_is_ast_aware(monkeypatch: pytest.MonkeyPatch) -> None:
     # The AST source-projection path is Pro; treat the install as licensed.
-    monkeypatch.setattr("atelier.core.capabilities.licensing.has_feature", lambda *a, **k: True)
-    monkeypatch.setenv("ATELIER_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "2000")
+    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     # Python source with lots of blank lines -> source_projection compact applies.
     src = "def f():\n" + "\n\n\n".join(f"    x{i} = {i}  " for i in range(2000)) + "\n"
     out = mcp_server._auto_compact_result_text(src, "read", {"path": "mod.py"})
@@ -387,7 +387,7 @@ def test_compact_tool_consolidate_reuses_compaction_entrypoint(monkeypatch: pyte
 
 
 def test_spill_helper_char_unit_fires_at_char_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
     # Under default byte caps (6MB) this 200K-char payload would NOT spill, but
     # the char-gated call (threshold 1000 chars) must.
     text = "HEAD" + ("m" * 200_000) + "TAIL"
@@ -400,9 +400,9 @@ def test_handle_spills_full_untransformed_payload_before_compaction(monkeypatch:
     """End-to-end through _handle: with the flag on and an oversized result, the
     spill file must hold the FULL untransformed payload — specifically the
     MIDDLE that the legacy _compact_result_text would otherwise drop."""
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
     # Char threshold well below the payload so the char-gated spill fires.
-    monkeypatch.setenv("ATELIER_MCP_SPILL_RESULT_CHARS", "2048")
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", "2048")
 
     # `sql` stays in the generic char-capped set (web_fetch is now exempt: it
     # spills+truncates itself, see web_fetch._truncate_with_spill). A bare string
@@ -438,8 +438,8 @@ def test_handle_spills_full_untransformed_payload_before_compaction(monkeypatch:
 
 def test_handle_spill_flag_off_does_not_spill(monkeypatch: pytest.MonkeyPatch) -> None:
     """Flag-off behavior preserved: no spill path, legacy char compaction applies."""
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "0")
-    monkeypatch.setenv("ATELIER_MCP_COMPACT_RESULT_CHARS", "2000")
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     payload = "HEAD" + ("a" * 200_000) + "TAIL"
 
     def _fake_web_fetch(_args: dict) -> dict:  # type: ignore[type-arg]
@@ -459,7 +459,7 @@ def test_handle_spill_flag_off_does_not_spill(monkeypatch: pytest.MonkeyPatch) -
     assert "spilled to" not in host_text  # flag off -> no spill
     # Legacy char compaction still ran; without a recovery path the canonical
     # footer reports a hard truncation (format 3) regardless of the verb.
-    assert "[atelier: truncated" in host_text
+    assert "[lemon: truncated" in host_text
     assert "narrow the query for full" in host_text
 
 
@@ -467,8 +467,8 @@ def test_handle_passes_per_tool_char_cap_to_spill(monkeypatch: pytest.MonkeyPatc
     """Real _handle dispatch must pass the PER-TOOL char cap to the char-gated
     spill: bash -> 8 KiB, web_fetch -> 2 KiB (i.e. _spill_result_chars(name), not
     a single global cap). Guards against the call site dropping ``name``."""
-    monkeypatch.setenv("ATELIER_TOOL_OUTPUT_SPILL", "1")
-    monkeypatch.delenv("ATELIER_MCP_SPILL_RESULT_CHARS", raising=False)  # per-tool defaults
+    monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "1")
+    monkeypatch.delenv("LEMONCROW_MCP_SPILL_RESULT_CHARS", raising=False)  # per-tool defaults
 
     seen: dict[str, int] = {}
     real = mcp_server._spill_oversized_result_text

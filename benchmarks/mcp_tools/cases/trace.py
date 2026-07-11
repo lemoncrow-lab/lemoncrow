@@ -47,7 +47,7 @@ _TRACE_SPECS: list[dict[str, object]] = [
         "domain": "debug",
         "task": "investigate code-intel benchmark failures",
         "status": "partial",
-        "tools_called": ["atelier-read", "atelier-shell", "apply_patch"],
+        "tools_called": ["lemoncrow-read", "lemoncrow-shell", "apply_patch"],
         "validation_results": [{"name": "focused-pytest", "passed": True}],
     },
     {
@@ -121,7 +121,7 @@ _TRACE_SPECS: list[dict[str, object]] = [
         "domain": "providers",
         "task": "summarize provider benchmark outcomes",
         "status": "success",
-        "output_summary": "atelier-zoekt led exact and no-hit queries.",
+        "output_summary": "lemoncrow-zoekt led exact and no-hit queries.",
         "validation_results": [{"name": "summary-csv", "passed": True}],
     },
 ]

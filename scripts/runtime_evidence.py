@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture reproducible runtime evidence from a local Atelier stack."""
+"""Capture reproducible runtime evidence from a local LemonCrow stack."""
 
 from __future__ import annotations
 

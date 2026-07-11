@@ -3,14 +3,14 @@
 Run:
     uv run pytest benchmarks/mcp_tools/bench_code.py -v -s
 
-Exercises Atelier's code-intel surface against the real Atelier codebase:
+Exercises LemonCrow's code-intel surface against the real LemonCrow codebase:
 the public `explore` and `pattern` tools, plus
 `explore(relation=callers|callees|usages)` for the call graph + references
 (the former standalone tools, now folded into `explore`).
 The first run builds the code index (~10-30 s); subsequent runs are cached.
 
 Baseline comparison: each case has a `baseline_tokens` estimate of what
-a naive grep / read approach would require.  Atelier should be ≤ baseline
+a naive grep / read approach would require.  LemonCrow should be ≤ baseline
 for nearly all symbol-level operations.
 """
 
@@ -38,15 +38,15 @@ def code_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Point workspace reads at the repo while keeping runtime state isolated.
 
     Code-intel indexing is expensive to build cold (10-30s+ for this repo);
-    point ATELIER_ROOT at the real ``~/.atelier`` (mirroring bench_savings.py's
+    point LEMONCROW_ROOT at the real ``~/.lemoncrow`` (mirroring bench_savings.py's
     ``scip_workspace`` fixture) so the index persists across benchmark
     invocations instead of rebuilding from a fresh temp dir on every run.
     """
-    real_root = Path(os.environ.get("ATELIER_ROOT") or Path.home() / ".atelier")
+    real_root = Path(os.environ.get("LEMONCROW_ROOT") or Path.home() / ".lemoncrow")
     root = tmp_path_factory.mktemp("bench_code")
     repo_root = Path(__file__).resolve().parent.parent.parent
     configure_benchmark_runtime(root, workspace_root=repo_root)
-    os.environ["ATELIER_ROOT"] = str(real_root)
+    os.environ["LEMONCROW_ROOT"] = str(real_root)
     return repo_root
 
 
@@ -57,7 +57,7 @@ def code_tool_dispatch(args: dict[str, Any]) -> Any:
     exporter (``export_public_mcp_csv.py``) so the two entry points can't
     drift out of sync with each other or with the real tool surface.
     """
-    from atelier.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_server
 
     payload = dict(args)
     tool_name = _tool_name_for_case_args(payload)
@@ -238,5 +238,5 @@ def test_code_op_saves_tokens(case: BenchCase, code_bench_results: list[CaseResu
         pytest.skip(f"skipping savings check — op failed: {result.failure}")
     assert result.baseline_tokens > 0, f"[{case.label}] baseline is zero"
     assert (
-        result.atelier_tokens < result.baseline_tokens
-    ), f"[{case.label}] no savings: atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
+        result.lemoncrow_tokens < result.baseline_tokens
+    ), f"[{case.label}] no savings: lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"

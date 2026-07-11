@@ -600,14 +600,14 @@ function NextActions({
   selectedCandidate: OptimizationAdvisorCandidate;
 }) {
   const applyCommand = summary.advisor.has_recommendation
-    ? "atelier optimize apply --recommended"
-    : "atelier optimize apply --preset balanced";
+    ? "lemon optimize apply --recommended"
+    : "lemon optimize apply --preset balanced";
   const shadowPolicy =
     summary.advisor.has_recommendation &&
     summary.advisor.recommended_candidate_id
       ? "recommended"
       : selectedCandidate.policy.preset;
-  const benchmarkCommand = `atelier optimize apply --preset ${selectedCandidate.policy.preset} && atelier benchmark run`;
+  const benchmarkCommand = `lemon optimize apply --preset ${selectedCandidate.policy.preset} && lemon benchmark run`;
 
   return (
     <section className="space-y-4">
@@ -627,7 +627,7 @@ function NextActions({
         />
         <SnippetCard
           title="Shadow"
-          body={`atelier optimize shadow --policy ${shadowPolicy} --days 7`}
+          body={`lemon optimize shadow --policy ${shadowPolicy} --days 7`}
           caption="Test policy in parallel"
         />
         <SnippetCard

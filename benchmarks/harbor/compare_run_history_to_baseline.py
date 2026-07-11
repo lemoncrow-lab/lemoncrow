@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare every detected Harbor run against the baseline, side by side.
 
-Scans benchmarks/harbor/results/atelier/<timestamp>/ for every run directory,
+Scans benchmarks/harbor/results/lemoncrow/<timestamp>/ for every run directory,
 sorts them oldest -> newest, and prints one compact table: rows are the tasks
 in the latest run, columns are the baseline plus every run (R1..Rn, oldest
 first). The last column is each task's cost saving vs baseline for the
@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from typing import TypedDict
 
+# TODO(lemoncrow): historical results dir name -- kept as-is
 RESULTS_DIR = Path(__file__).parent / "results" / "atelier"
 BASELINE_CSV = Path(__file__).parent / "results" / "baseline" / "normalized_cost.csv"
 
@@ -196,21 +197,21 @@ def main() -> None:
     for row in rows:
         print(fmt(row))
 
-    # Totals for the latest run only, same shape as compare_current_atelier_to_baseline.py:
+    # Totals for the latest run only, same shape as compare_current_lemoncrow_to_baseline.py:
     # every task the latest run actually attempted (status ok or timeout) counts toward
-    # correctness; cost sums only include tasks where atelier reported a cost (i.e. not
-    # timed out), so atelier/baseline cost totals stay apples-to-apples.
+    # correctness; cost sums only include tasks where lemoncrow reported a cost (i.e. not
+    # timed out), so lemoncrow/baseline cost totals stay apples-to-apples.
     attempted = [t for t in all_tasks if status_of(latest, t) in ("ok", "timeout")]
     ok_tasks = [t for t in attempted if all_runs[latest][t]["status"] == "ok"]
     n_timeout = len(attempted) - len(ok_tasks)
-    atelier_total_correct = sum(float(all_runs[latest][t]["reward"] or 0.0) for t in attempted)
+    lemoncrow_total_correct = sum(float(all_runs[latest][t]["reward"] or 0.0) for t in attempted)
     baseline_total_expected_correct = sum(float(baseline_rows[t]["pass_rate"]) for t in attempted)
-    atelier_total_cost = sum(float(all_runs[latest][t]["cost"] or 0.0) for t in ok_tasks)
+    lemoncrow_total_cost = sum(float(all_runs[latest][t]["cost"] or 0.0) for t in ok_tasks)
     baseline_total_cost = sum(float(baseline_rows[t]["cost_norm_blended_1h"]) for t in ok_tasks)
 
     n = len(attempted)
     total_saving = (
-        (baseline_total_cost - atelier_total_cost) / baseline_total_cost * 100.0 if baseline_total_cost else 0.0
+        (baseline_total_cost - lemoncrow_total_cost) / baseline_total_cost * 100.0 if baseline_total_cost else 0.0
     )
 
     print()
@@ -219,14 +220,14 @@ def main() -> None:
         + (f", {n_timeout} timed out" if n_timeout else "")
         + ")"
     )
-    print(f"  Atelier:  {atelier_total_correct:.2f}/{n}, ${atelier_total_cost:.4f}")
+    print(f"  LemonCrow:  {lemoncrow_total_correct:.2f}/{n}, ${lemoncrow_total_cost:.4f}")
     print(f"  Baseline: {baseline_total_expected_correct:.2f}/{n} expected, ${baseline_total_cost:.4f}")
     print(f"  Total saving: {total_saving:+.1f}%")
-    if atelier_total_correct:
-        atelier_cpc = atelier_total_cost / atelier_total_correct
+    if lemoncrow_total_correct:
+        lemoncrow_cpc = lemoncrow_total_cost / lemoncrow_total_correct
         baseline_cpc = baseline_total_cost / baseline_total_expected_correct
-        cpc_saving = (baseline_cpc - atelier_cpc) / baseline_cpc * 100.0 if baseline_cpc else 0.0
-        print(f"  Cost/correct: Atelier ${atelier_cpc:.4f} vs baseline ${baseline_cpc:.4f}")
+        cpc_saving = (baseline_cpc - lemoncrow_cpc) / baseline_cpc * 100.0 if baseline_cpc else 0.0
+        print(f"  Cost/correct: LemonCrow ${lemoncrow_cpc:.4f} vs baseline ${baseline_cpc:.4f}")
         print(f"  Cost/correct saving: {cpc_saving:+.1f}%")
     print("Correctness per run (of tasks that run actually attempted, i.e. status ok or timeout):")
     b_expected = sum(float(r["pass_rate"]) for r in baseline_rows.values())

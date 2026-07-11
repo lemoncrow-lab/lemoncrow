@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# verify_claude.sh — Verify Atelier Claude plugin registration and install
+# verify_claude.sh — Verify LemonCrow Claude plugin registration and install
 #
 # Checks:
 #   1. 'claude' CLI exists on PATH
-#   2. Repo-root .claude-plugin/marketplace.json exists and has name=atelier
+#   2. Repo-root .claude-plugin/marketplace.json exists and has name=lemoncrow
 #   3. Plugin package at integrations/claude/plugin/ validates
 #   4. Packaged workflow assets exist and include code-audit.js + README
-#   5. Claude plugin source 'atelier' is registered
-#   6. Plugin listed as enabled (claude plugin list — atelier@atelier)
-#   7. Global mode: Claude user MCP list contains atelier
-#   8. Workspace mode: .mcp.json in workspace contains atelier server entry
+#   5. Claude plugin source 'lemoncrow' is registered
+#   6. Plugin listed as enabled (claude plugin list — lemoncrow@lemoncrow)
+#   7. Global mode: Claude user MCP list contains lemoncrow
+#   8. Workspace mode: .mcp.json in workspace contains lemoncrow server entry
 #   9. MCP wrapper exists and is executable
 #
 # Options:
@@ -21,8 +21,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-PLUGIN_DIR="${ATELIER_REPO}/integrations/claude/plugin"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLUGIN_DIR="${LEMONCROW_REPO}/integrations/claude/plugin"
 MARKETPLACE_JSON="${PLUGIN_DIR}/.claude-plugin/marketplace.json"
 WORKFLOWS_DIR="${PLUGIN_DIR}/workflows"
 WORKFLOW_FILE="${WORKFLOWS_DIR}/code-audit.js"
@@ -31,7 +31,7 @@ WORKFLOW_README="${WORKFLOWS_DIR}/README.md"
 WORKFLOW_MIN_VERSION="v2.1.154"
 WORKSPACE=""
 WORKSPACE_SET=false
-PLUGIN_REF="atelier@atelier"
+PLUGIN_REF="lemoncrow@lemoncrow"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -58,7 +58,7 @@ pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*" >&2; FAIL=1; }
 skip() { echo "SKIP: $*"; }
 
-echo "=== Atelier Claude Code verification ==="
+echo "=== LemonCrow Claude Code verification ==="
 
 if ! command -v claude &>/dev/null; then
     skip "'claude' CLI not on PATH — install from https://claude.ai/download"
@@ -69,10 +69,10 @@ pass "claude CLI found: $(claude --version 2>/dev/null || echo 'version unknown'
 
 if [ -f "${MARKETPLACE_JSON}" ]; then
     MKT_NAME=$(uv run python -c "import json; d=json.load(open('${MARKETPLACE_JSON}')); print(d.get('name',''))" 2>/dev/null || echo "")
-    if [ "$MKT_NAME" = "atelier" ]; then
-        pass "repo-root marketplace.json valid (name=atelier)"
+    if [ "$MKT_NAME" = "lemoncrow" ]; then
+        pass "repo-root marketplace.json valid (name=lemoncrow)"
     else
-        fail "repo-root marketplace.json name unexpected: '${MKT_NAME}' (expected 'atelier')"
+        fail "repo-root marketplace.json name unexpected: '${MKT_NAME}' (expected 'lemoncrow')"
     fi
 else
     fail "repo-root .claude-plugin/marketplace.json missing — run: make install-claude"
@@ -93,10 +93,10 @@ fi
 echo "NOTE: packaged Claude workflows appear in /workflows and require Claude Code ${WORKFLOW_MIN_VERSION}+"
 
 SOURCE_LIST="$(claude plugin marketplace list 2>&1 || true)"
-if echo "$SOURCE_LIST" | grep -q "atelier"; then
-    pass "Claude plugin source 'atelier' registered"
+if echo "$SOURCE_LIST" | grep -q "lemoncrow"; then
+    pass "Claude plugin source 'lemoncrow' registered"
 else
-    fail "Claude plugin source 'atelier' not registered — run: make install-claude"
+    fail "Claude plugin source 'lemoncrow' not registered — run: make install-claude"
 fi
 
 PLUGIN_LIST="$(claude plugin list 2>&1 || true)"
@@ -117,26 +117,26 @@ if $WORKSPACE_SET; then
 import json
 d = json.load(open('$MCP_JSON'))
 servers = d.get('mcpServers', {})
-print('yes' if 'atelier' in servers else 'no')
+print('yes' if 'lemoncrow' in servers else 'no')
 " 2>/dev/null || echo "error")
         if [ "$HAS" = "yes" ]; then
-            pass ".mcp.json contains atelier server entry"
+            pass ".mcp.json contains lemoncrow server entry"
         else
-            fail ".mcp.json missing atelier entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
+            fail ".mcp.json missing lemoncrow entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
         fi
     else
         fail ".mcp.json missing at $MCP_JSON - run: scripts/install_claude.sh --workspace $WORKSPACE"
     fi
-elif claude mcp list 2>&1 | grep -q "atelier"; then
-    pass "Claude user MCP list contains atelier"
+elif claude mcp list 2>&1 | grep -q "lemoncrow"; then
+    pass "Claude user MCP list contains lemoncrow"
 else
-    fail "Claude user MCP missing atelier - run: make install-claude"
+    fail "Claude user MCP missing lemoncrow - run: make install-claude"
 fi
 
-if command -v atelier &>/dev/null; then
-    pass "atelier is available on PATH"
+if command -v lemon &>/dev/null; then
+    pass "lemon is available on PATH"
 else
-    fail "atelier NOT found on PATH"
+    fail "lemon NOT found on PATH"
 fi
 
 if [ "$FAIL" -ne 0 ]; then

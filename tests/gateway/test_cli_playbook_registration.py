@@ -12,7 +12,7 @@ from __future__ import annotations
 import click
 from click.testing import CliRunner
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 
 _EXPECTED_TOP_LEVEL = (
     "playbook",
@@ -24,7 +24,7 @@ _EXPECTED_TOP_LEVEL = (
 
 
 def _ctx() -> click.Context:
-    return click.Context(cli, info_name="atelier")
+    return click.Context(cli, info_name="lemon")
 
 
 def test_playbook_curation_commands_registered() -> None:
@@ -54,7 +54,7 @@ def test_playbook_commands_help_succeeds() -> None:
         ["reembed", "--help"],
     ):
         result = runner.invoke(cli, args)
-        assert result.exit_code == 0, f"`atelier {' '.join(args)}` failed:\n{result.output}"
+        assert result.exit_code == 0, f"`lemon {' '.join(args)}` failed:\n{result.output}"
 
 
 def test_existing_playbook_registrations_intact() -> None:

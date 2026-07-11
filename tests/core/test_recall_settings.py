@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.plugin_runtime import (
+from lemoncrow.core.capabilities.plugin_runtime import (
     apply_recall_settings,
     plugin_settings_path,
     set_recall_settings,

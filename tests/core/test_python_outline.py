@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atelier.core.capabilities.semantic_file_memory.python_ast import outline
+from lemoncrow.core.capabilities.semantic_file_memory.python_ast import outline
 
 
 def test_python_outline_extracts_symbols_imports_and_ranges() -> None:

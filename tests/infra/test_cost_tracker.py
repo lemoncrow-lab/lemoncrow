@@ -1,11 +1,11 @@
-"""Tests for atelier.runtime.cost_tracker (Phase 7)."""
+"""Tests for lemoncrow.runtime.cost_tracker (Phase 7)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from atelier.infra.runtime.cost_tracker import (
+from lemoncrow.infra.runtime.cost_tracker import (
     CostTracker,
     estimate_cost,
     load_cost_history,
@@ -141,7 +141,7 @@ def test_total_savings_aggregates_across_operations(tmp_path: Path) -> None:
 
 
 def test_run_ledger_record_call_attaches_cost_to_snapshot(tmp_path: Path) -> None:
-    from atelier.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.infra.runtime.run_ledger import RunLedger
 
     led = RunLedger(
         agent="test",

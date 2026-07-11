@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_codex.sh - Remove Atelier from Codex CLI
+# uninstall_codex.sh - Remove LemonCrow from Codex CLI
 #
 # Options:
 #   --workspace DIR  Remove project-local artifacts from DIR instead of global user config
@@ -44,14 +44,14 @@ else
     TASKS_DIR=""
 fi
 
-PLUGIN_DIR="${CODEX_HOME}/plugins/atelier"
-PLUGIN_CACHE_DIR="${HOME}/.codex/plugins/cache/atelier"
-OPENAI_CURATED_PLUGIN_CACHE_DIR="${CODEX_HOME}/plugins/cache/openai-curated/atelier"
+PLUGIN_DIR="${CODEX_HOME}/plugins/lemoncrow"
+PLUGIN_CACHE_DIR="${HOME}/.codex/plugins/cache/lemoncrow"
+OPENAI_CURATED_PLUGIN_CACHE_DIR="${CODEX_HOME}/plugins/cache/openai-curated/lemoncrow"
 AGENTS_DIR="${CODEX_HOME}/agents"
-AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/AGENTS.atelier.md"
-STAGING_DIRS=("${HOME}/.atelier/codex-plugin" "${HOME}/.atelier/codex-plugin-stable" "${HOME}/.atelier/codex-plugin-dev")
+AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/AGENTS.lemoncrow.md"
+STAGING_DIRS=("${HOME}/.lemoncrow/codex-plugin" "${HOME}/.lemoncrow/codex-plugin-stable" "${HOME}/.lemoncrow/codex-plugin-dev")
 
-info()  { echo "[atelier:uninstall:codex] $*"; }
+info()  { echo "[lemon:uninstall:codex] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 codex_cmd() {
@@ -65,20 +65,20 @@ codex_cmd() {
 if command -v codex >/dev/null 2>&1; then
     if $DRY_RUN; then
         if $WORKSPACE_SET; then
-            echo "  [dry-run] (cd '$WORKSPACE' && codex mcp remove atelier)"
-            echo "  [dry-run] (cd '$WORKSPACE' && codex plugin remove atelier@atelier-local)"
-            echo "  [dry-run] (cd '$WORKSPACE' && codex plugin remove atelier --marketplace atelier-local)"
+            echo "  [dry-run] (cd '$WORKSPACE' && codex mcp remove lemoncrow)"
+            echo "  [dry-run] (cd '$WORKSPACE' && codex plugin remove lemoncrow@lemoncrow-local)"
+            echo "  [dry-run] (cd '$WORKSPACE' && codex plugin remove lemoncrow --marketplace lemoncrow-local)"
         else
-            echo "  [dry-run] codex mcp remove atelier"
-            echo "  [dry-run] codex plugin remove atelier@atelier-local"
-            echo "  [dry-run] codex plugin remove atelier --marketplace atelier-local"
+            echo "  [dry-run] codex mcp remove lemoncrow"
+            echo "  [dry-run] codex plugin remove lemoncrow@lemoncrow-local"
+            echo "  [dry-run] codex plugin remove lemoncrow --marketplace lemoncrow-local"
         fi
     else
-        codex_cmd mcp remove atelier >/dev/null 2>&1 || true
-        codex_cmd plugin remove atelier@atelier-local >/dev/null 2>&1 || true
-        codex_cmd plugin remove atelier --marketplace atelier-local >/dev/null 2>&1 || true
-        codex_cmd plugin remove atelier --marketplace atelier >/dev/null 2>&1 || true
-        codex_cmd plugin remove atelier@openai-curated >/dev/null 2>&1 || true
+        codex_cmd mcp remove lemoncrow >/dev/null 2>&1 || true
+        codex_cmd plugin remove lemoncrow@lemoncrow-local >/dev/null 2>&1 || true
+        codex_cmd plugin remove lemoncrow --marketplace lemoncrow-local >/dev/null 2>&1 || true
+        codex_cmd plugin remove lemoncrow --marketplace lemoncrow >/dev/null 2>&1 || true
+        codex_cmd plugin remove lemoncrow@openai-curated >/dev/null 2>&1 || true
     fi
 fi
 
@@ -88,14 +88,14 @@ import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 data = json.loads(path.read_text(encoding=\"utf-8\") or \"{}\")
-plugins = [plugin for plugin in data.get(\"plugins\", []) if plugin.get(\"name\") != \"atelier\"]
+plugins = [plugin for plugin in data.get(\"plugins\", []) if plugin.get(\"name\") != \"lemoncrow\"]
 if plugins:
     data[\"plugins\"] = plugins
     path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
 else:
     path.unlink()
 ' $(printf %q "$MARKETPLACE_JSON")"
-    info "Removed atelier marketplace entry from $MARKETPLACE_JSON"
+    info "Removed LemonCrow marketplace entry from $MARKETPLACE_JSON"
 fi
 
 if [ -d "$PLUGIN_DIR" ]; then
@@ -114,15 +114,15 @@ if [ -d "$OPENAI_CURATED_PLUGIN_CACHE_DIR" ]; then
 fi
 
 CODEX_CONFIG="${CODEX_HOME}/config.toml"
-if [ -f "$CODEX_CONFIG" ] && grep -q 'plugins."atelier@' "$CODEX_CONFIG" 2>/dev/null; then
+if [ -f "$CODEX_CONFIG" ] && grep -q 'plugins."lemoncrow@' "$CODEX_CONFIG" 2>/dev/null; then
     run "python3 -c '
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 remove_headers = {
-    \"[plugins.\\\"atelier@atelier-local\\\"]\",
-    \"[plugins.\\\"atelier@openai-curated\\\"]\",
+    \"[plugins.\\\"lemoncrow@lemoncrow-local\\\"]\",
+    \"[plugins.\\\"lemoncrow@openai-curated\\\"]\",
 }
 lines = path.read_text(encoding=\"utf-8\").splitlines()
 out = []
@@ -145,7 +145,7 @@ else:
     path.unlink()
 print(removed)
 ' $(printf %q "$CODEX_CONFIG")"
-    info "Removed Atelier plugin config from $CODEX_CONFIG"
+    info "Removed LemonCrow plugin config from $CODEX_CONFIG"
 fi
 
 for staging_dir in "${STAGING_DIRS[@]}"; do
@@ -156,7 +156,7 @@ for staging_dir in "${STAGING_DIRS[@]}"; do
 done
 
 if [ -d "$AGENTS_DIR" ]; then
-    for f in "$AGENTS_DIR"/atelier.*.toml; do
+    for f in "$AGENTS_DIR"/lemoncrow.*.toml; do
         [ -f "$f" ] || continue
         run "rm -f $(printf %q "$f")"
         info "Removed agent file: $f"
@@ -165,13 +165,13 @@ fi
 
 if [ -f "$AGENTS_FILE" ]; then
     if $DRY_RUN; then
-        if grep -q "$ATELIER_CODE_BLOCK_START" "$AGENTS_FILE" 2>/dev/null; then
-            echo "  [dry-run] remove managed Atelier Codex instructions from $AGENTS_FILE"
-        elif grep -q "atelier:code" "$AGENTS_FILE" 2>/dev/null; then
-            echo "  [dry-run] remove legacy Atelier Codex instructions file $AGENTS_FILE"
+        if grep -q "$LEMONCROW_CODE_BLOCK_START" "$AGENTS_FILE" 2>/dev/null; then
+            echo "  [dry-run] remove managed LemonCrow Codex instructions from $AGENTS_FILE"
+        elif grep -q "lemon:code" "$AGENTS_FILE" 2>/dev/null; then
+            echo "  [dry-run] remove legacy LemonCrow Codex instructions file $AGENTS_FILE"
         fi
     else
-        REMOVE_RESULT="$(atelier_remove_managed_block "$AGENTS_FILE" "false")"
+        REMOVE_RESULT="$(lemoncrow_remove_managed_block "$AGENTS_FILE" "false")"
         if [ "$REMOVE_RESULT" = "unchanged" ] && [ -f "$AGENTS_FILE" ]; then
             REMOVE_RESULT=$(python3 - <<PYEOF
 from pathlib import Path
@@ -184,8 +184,8 @@ source = source_path.read_text(encoding="utf-8").strip()
 if text.strip() == source:
     agents_path.unlink()
     print("removed-legacy-exact")
-elif "atelier:code" in text:
-    backup_path = agents_path.with_suffix(agents_path.suffix + ".atelier-removed-backup")
+elif "lemon:code" in text:
+    backup_path = agents_path.with_suffix(agents_path.suffix + ".lemoncrow-removed-backup")
     backup_path.write_text(text, encoding="utf-8")
     agents_path.unlink()
     print("removed-legacy-unmanaged")
@@ -196,7 +196,7 @@ PYEOF
         fi
         case "$REMOVE_RESULT" in
             updated)
-                info "Removed managed Atelier Codex instructions from $AGENTS_FILE"
+                info "Removed managed LemonCrow Codex instructions from $AGENTS_FILE"
                 ;;
             removed|removed-legacy-exact|removed-legacy-unmanaged)
                 info "Removed $AGENTS_FILE"

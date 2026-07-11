@@ -168,7 +168,7 @@ SHELL_CASES: list[BenchCase] = [
     _case("shell/nonzero-exit/02", "ls /definitely/missing/path", _assert_nonzero, baseline_tokens=0),
     _case(
         "shell/blocked-rm",
-        "rm -rf /tmp/atelier_bench_never_runs",
+        "rm -rf /tmp/lemoncrow_bench_never_runs",
         _assert_blocked_rm,
         baseline_tokens=0,
     ),

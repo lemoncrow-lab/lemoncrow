@@ -165,7 +165,7 @@ export default function Savings() {
             <p className="max-w-3xl text-xs text-neutral-400 mt-3 leading-relaxed">
               {data.cost_basis === "context_budget"
                 ? "Proof-oriented reduction from persisted context-budget rows. Ledger totals remain visible below for statusline/CLI reconciliation."
-                : "Realized savings from the per-session ledger — the same figure shown by the statusline and the atelier savings CLI."}
+                : "Realized savings from the per-session ledger — the same figure shown by the statusline and the LemonCrow savings CLI."}
             </p>
           </div>
           <div className="w-full md:w-auto">
@@ -291,7 +291,7 @@ export default function Savings() {
           description={
             <>
               Run any task with{" "}
-              <code className="bg-neutral-900 px-1">atelier mcp</code> enabled
+              <code className="bg-neutral-900 px-1">lemon mcp</code> enabled
               to start collecting savings telemetry.
             </>
           }
@@ -351,14 +351,14 @@ export default function Savings() {
                     Success
                   </div>
                   <div className="text-2xl font-semibold text-neutral-200">
-                    {fmtPct(latestBenchmark.atelier_success_rate * 100, 0)}
+                    {fmtPct(latestBenchmark.lemoncrow_success_rate * 100, 0)}
                   </div>
                 </div>
               </div>
               <p className="mt-3 text-xs text-neutral-400">
                 Real paired command run: baseline{" "}
                 {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
-                Atelier-enabled {fmtTok(latestBenchmark.total_tokens_atelier)}{" "}
+                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lemoncrow)}{" "}
                 tokens.
               </p>
             </section>

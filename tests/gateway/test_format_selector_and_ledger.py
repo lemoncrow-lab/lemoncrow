@@ -13,21 +13,21 @@ from typing import Any
 
 import pytest
 
-from atelier.core.capabilities.tool_supervision.compact_output import columnar_decode
-from atelier.core.capabilities.tool_token_ledger import load_tool_token_ledger
-from atelier.gateway.adapters import mcp_server
-from atelier.gateway.adapters.mcp_server import _handle
+from lemoncrow.core.capabilities.tool_supervision.compact_output import columnar_decode
+from lemoncrow.core.capabilities.tool_token_ledger import load_tool_token_ledger
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import _handle
 from tests.helpers import init_store_at
 
 
 @pytest.fixture()
 def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    monkeypatch.setenv("ATELIER_ROOT", str(root))
-    monkeypatch.setenv("ATELIER_STORE_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("LEMONCROW_STORE_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.delenv("ATELIER_SERVICE_URL", raising=False)
+    monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._current_ledger = None
     mcp_server._realtime_ctx = None
     return root

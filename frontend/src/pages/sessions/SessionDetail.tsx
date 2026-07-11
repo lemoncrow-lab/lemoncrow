@@ -410,7 +410,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
     return base.map((turn) => {
       if (turn.kind !== "tool_call" || !turn.tool_name) return turn;
-      // Extract the short name: "mcp__plugin_atelier_atelier__read" → "read"
+      // Extract the short name: "mcp__plugin_lemoncrow_lemon__read" → "read"
       const parts = (turn.tool_name as string).split("__");
       const shortName = parts[parts.length - 1];
       const rows = queue.get(shortName);
@@ -570,7 +570,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
             />
             <HeaderStat
               label="Saved"
-              value={report ? fmtUsd(report.total_atelier_savings_usd) : "—"}
+              value={report ? fmtUsd(report.total_lemoncrow_savings_usd) : "—"}
               tone="emerald"
             />
             <HeaderStat

@@ -1,21 +1,21 @@
 # Production Readiness Checklist
 
-This checklist is the release gate for Atelier Phase D hardening.
+This checklist is the release gate for LemonCrow Phase D hardening.
 
 ## Deployment Checklist
 
 - `uv sync --all-extras` completed in a clean environment.
 - `make verify` passes (ruff, black --check, mypy --strict, pytest, runtime smoke tests, host checks).
 - `make benchmark` passes when benchmark evidence is required for the release.
-- Service config reviewed with `atelier service config`.
-- `ATELIER_REQUIRE_AUTH=true` for non-local environments.
+- Service config reviewed with `lemon service config`.
+- `LEMONCROW_REQUIRE_AUTH=true` for non-local environments.
   Local development defaults to `false`.
-- `ATELIER_API_KEY` set for service environments.
+- `LEMONCROW_API_KEY` set for service environments.
 
 ## Backups
 
 - SQLite deployments:
-  - Backup `.atelier/atelier.db` and `.atelier/runs/` before upgrade.
+  - Backup `.lemoncrow/lemoncrow.db` and `.lemoncrow/runs/` before upgrade.
 - Postgres deployments:
   - Run database backup before migrations.
   - Verify restore in a staging database before production rollout.
@@ -26,17 +26,17 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Run migrations in staging first.
 - Validate backwards-compatible reads before traffic cutover.
 - Verify rollback path is tested for the target release.
-- For Postgres, verify schema with `bash scripts/verify_atelier_postgres.sh`.
+- For Postgres, verify schema with `bash scripts/verify_lemoncrow_postgres.sh`.
 
 ## Observability
 
 - Service health endpoints verified:
   - `/health`
   - `/config` (authenticated)
-- Run ledger persistence verified in `.atelier/runs/`.
-- Trace ingestion verified via `atelier runs record` and `/v1/traces`.
+- Run ledger persistence verified in `.lemoncrow/runs/`.
+- Trace ingestion verified via `lemon runs record` and `/v1/traces`.
 - Analytics summary checked via `/analytics/summary` or the dashboard summary endpoint.
-- Background controller status reviewed with `atelier background status`.
+- Background controller status reviewed with `lemon background status`.
 
 ## Logging
 
@@ -62,7 +62,7 @@ This checklist is the release gate for Atelier Phase D hardening.
 - Secret redaction tests pass (`tests/test_redaction.py`, `tests/test_security.py`).
 - Shell injection checks pass in MCP tool paths.
 - API auth enforced in non-local mode.
-- Dev-mode-only retrieval and rubric tools are gated behind `ATELIER_DEV_MODE=1` where expected.
+- Dev-mode-only retrieval and rubric tools are gated behind `LEMONCROW_DEV_MODE=1` where expected.
 - Remote MCP mode tested with explicit API key boundary.
 
 ## Scaling Guidance
@@ -74,10 +74,10 @@ This checklist is the release gate for Atelier Phase D hardening.
 
 ## Knowledge Bundle Governance
 
-- Built-in seed blocks under `src/atelier/infra/seed_playbooks/` and built-in rubrics under `src/atelier/core/rubrics/` remain source-controlled artifacts.
-- Domain bundle metadata exposed through `atelier domain list` and `atelier domain info` should match the shipped content.
-- New or updated knowledge artifacts require a clean `atelier init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
-- `atelier benchmark packs` remains the benchmark-only coverage surface; there is no public `atelier pack install` workflow on the current CLI.
+- Built-in seed blocks under `src/lemoncrow/infra/seed_playbooks/` and built-in rubrics under `src/lemoncrow/core/rubrics/` remain source-controlled artifacts.
+- Domain bundle metadata exposed through `lemon domain list` and `lemon domain info` should match the shipped content.
+- New or updated knowledge artifacts require a clean `lemon init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
+- `lemon benchmark packs` remains the benchmark-only coverage surface; there is no public `lemon pack install` workflow on the current CLI.
 - Runtime-learned Playbooks are review/promote candidates, not auto-published governance records.
 
 ## Release Sign-Off

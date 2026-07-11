@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.quality_router import (
+from lemoncrow.core.capabilities.quality_router import (
     RoutingPolicyConfig,
     VerifierRequirementConfig,
     draft_route_decision,
     has_protected_file_match,
     load_routing_policy_config,
 )
-from atelier.core.foundation.routing_models import AgentRequest, ContextBudgetPolicy
+from lemoncrow.core.foundation.routing_models import AgentRequest, ContextBudgetPolicy
 
 
 def _request(
@@ -34,7 +34,7 @@ def test_default_policy_loads_without_routing_toml(tmp_path: Path) -> None:
     assert config.models.cheap == ""
     assert config.models.mid == ""
     assert config.models.premium == ""
-    assert "src/atelier/core/foundation/**" in config.protected_file_patterns
+    assert "src/lemoncrow/core/foundation/**" in config.protected_file_patterns
     assert "state.change*" in config.high_risk_domain_patterns
     assert config.verifiers.high_risk == ["tests", "rubric"]
 
@@ -47,12 +47,12 @@ def test_protected_file_matching_uses_configured_globs() -> None:
 
     assert has_protected_file_match(["./schema/product.sql"], config)
     assert has_protected_file_match(["pyproject.toml"], config)
-    assert not has_protected_file_match(["src/atelier/core/example.py"], config)
+    assert not has_protected_file_match(["src/lemoncrow/core/example.py"], config)
 
 
 def test_protected_files_force_premium_escalation() -> None:
     config = RoutingPolicyConfig(
-        protected_file_patterns=["src/atelier/core/foundation/**"],
+        protected_file_patterns=["src/lemoncrow/core/foundation/**"],
         verifiers=VerifierRequirementConfig(
             default=["unit"],
             protected_file=["review"],
@@ -68,7 +68,7 @@ def test_protected_files_force_premium_escalation() -> None:
     )
 
     decision = draft_route_decision(
-        request=_request(changed_files=["src/atelier/core/foundation/routing_models.py"]),
+        request=_request(changed_files=["src/lemoncrow/core/foundation/routing_models.py"]),
         budget=budget,
         config=config,
         evidence_summary={"confidence": 0.95, "refs": ["trace:1"]},
@@ -114,7 +114,7 @@ def test_high_risk_domain_forces_premium_and_rubric_verifier() -> None:
 
 
 def test_provider_neutral_toml_loading(tmp_path: Path) -> None:
-    config_path = tmp_path / ".atelier" / "routing.toml"
+    config_path = tmp_path / ".lemoncrow" / "routing.toml"
     config_path.parent.mkdir()
     config_path.write_text(
         """

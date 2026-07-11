@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from atelier.core.foundation.models import ValidationResult
-from atelier.core.foundation.routing_models import (
+from lemoncrow.core.foundation.models import ValidationResult
+from lemoncrow.core.foundation.routing_models import (
     AgentRequest,
     ContextBudgetPolicy,
     RouteDecision,

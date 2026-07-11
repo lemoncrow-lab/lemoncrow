@@ -20,7 +20,7 @@ SUPPORTED_HOSTS = [
 
 REQUIRED_HOST_MATRIX_COLUMNS = [
     "Host",
-    "Native surfaces Atelier uses",
+    "Native surfaces LemonCrow uses",
     "MCP",
     "Hooks / events",
     "Wrapper",

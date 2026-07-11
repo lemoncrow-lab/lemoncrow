@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from atelier.core.capabilities.governance import (
+from lemoncrow.core.capabilities.governance import (
     GovernancePolicy,
     RedactionRule,
     default_policy,
@@ -15,7 +15,7 @@ from atelier.core.capabilities.governance import (
 
 
 def test_policy_redacts_and_filters_by_retention(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     policy = GovernancePolicy(
         retention_days={"memory": 1},
         redaction_rules=[RedactionRule(pattern="secret", replacement="[MASKED]")],

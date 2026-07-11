@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from atelier.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters import mcp_server
 
 
 def _astgrep_available() -> bool:
     try:
-        from atelier.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
 
         try:
             AstGrepAdapter(Path(".")).search(pattern='"x"', language="python", limit=1)
@@ -73,7 +73,7 @@ def test_edit_surfaces_parallel_consumer(tmp_path: Path, monkeypatch: pytest.Mon
 @_requires_astgrep
 def test_off_switch_disables_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_workspace(tmp_path, monkeypatch)
-    monkeypatch.setenv("ATELIER_CONTRACT_REVIEW", "0")
+    monkeypatch.setenv("LEMONCROW_CONTRACT_REVIEW", "0")
     result = mcp_server.tool_smart_edit(
         {
             "edits": [

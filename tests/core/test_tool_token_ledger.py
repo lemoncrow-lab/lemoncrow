@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from atelier.core.capabilities.prompt_compilation.tokens import estimate_tokens
-from atelier.core.capabilities.tool_token_ledger import (
+from lemoncrow.core.capabilities.prompt_compilation.tokens import estimate_tokens
+from lemoncrow.core.capabilities.tool_token_ledger import (
     TOOL_TOKEN_LEDGER_FILENAME,
     ToolTokenLedger,
     count_payload_tokens,
@@ -29,7 +29,7 @@ def test_count_payload_tokens_serialises_non_strings() -> None:
 
 
 def test_record_tool_tokens_accumulates_per_tool(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     record_tool_tokens(root, "read", input_payload={"path": "a.py"}, output_payload="hello world")
     record_tool_tokens(root, "read", input_payload={"path": "b.py"}, output_payload="second body here")
     record_tool_tokens(root, "grep", input_payload={"content_regex": "foo"}, output_payload="match line")
@@ -45,7 +45,7 @@ def test_record_tool_tokens_accumulates_per_tool(tmp_path: Path) -> None:
 
 
 def test_record_tool_tokens_exact_output_count(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     body = "the quick brown fox jumps over the lazy dog " * 10
     record_tool_tokens(root, "search", input_payload={"query": "x"}, output_payload=body)
     ledger = load_tool_token_ledger(root)
@@ -55,7 +55,7 @@ def test_record_tool_tokens_exact_output_count(tmp_path: Path) -> None:
 
 
 def test_ledger_persists_to_named_sidecar(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     record_tool_tokens(root, "read", input_payload={"path": "a.py"}, output_payload="body")
     sidecar = root / TOOL_TOKEN_LEDGER_FILENAME
     assert sidecar.exists()
@@ -72,7 +72,7 @@ def test_load_empty_when_absent(tmp_path: Path) -> None:
 
 
 def test_load_tolerates_corrupt_sidecar(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True)
     (root / TOOL_TOKEN_LEDGER_FILENAME).write_text("{not json", encoding="utf-8")
     ledger = load_tool_token_ledger(root)
@@ -80,7 +80,7 @@ def test_load_tolerates_corrupt_sidecar(tmp_path: Path) -> None:
 
 
 def test_empty_tool_name_is_ignored(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     record_tool_tokens(root, "", input_payload={"a": 1}, output_payload="x")
     assert load_tool_token_ledger(root).total_calls() == 0
 
@@ -92,7 +92,7 @@ def test_empty_tool_name_is_ignored(tmp_path: Path) -> None:
 
 
 def test_record_tool_tokens_concurrent_no_lost_updates(tmp_path: Path) -> None:
-    root = tmp_path / ".atelier"
+    root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
     # Pre-create the sidecar so every thread starts from a real on-disk file,
     # maximising the read-modify-write overlap the lock must serialize.

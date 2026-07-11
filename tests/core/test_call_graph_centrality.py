@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atelier.core.capabilities.code_context.call_graph_centrality import (
+from lemoncrow.core.capabilities.code_context.call_graph_centrality import (
     compute_call_graph_centrality,
 )
 

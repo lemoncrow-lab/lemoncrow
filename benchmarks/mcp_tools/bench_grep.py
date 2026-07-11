@@ -28,7 +28,7 @@ def bench_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def grep_tool_fn(bench_workspace: Path) -> Any:
-    from atelier.gateway.adapters.mcp_server import tool_grep
+    from lemoncrow.gateway.adapters.mcp_server import tool_grep
 
     return tool_grep
 
@@ -74,8 +74,8 @@ def test_grep_op_saves_tokens(case: BenchCase, grep_bench_results: list[CaseResu
     # Measured baselines make per-case savings query-dependent: sparse-match
     # queries can legitimately not save (compact JSON > tiny rg output).
     # Report, do not gate — mirrors bench_savings.py grep/ranked (min 0.0).
-    if result.atelier_tokens >= result.baseline_tokens:
+    if result.lemoncrow_tokens >= result.baseline_tokens:
         pytest.skip(
             f"[{case.label}] no savings on this query (measured, report-only): "
-            f"atelier={result.atelier_tokens} >= baseline={result.baseline_tokens}"
+            f"lemoncrow={result.lemoncrow_tokens} >= baseline={result.baseline_tokens}"
         )

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from atelier.core.foundation.models import Playbook
-from atelier.core.foundation.renderer import render_block_for_agent
-from atelier.core.foundation.retriever import TaskContext, count_tokens, retrieve
-from atelier.core.foundation.store import ContextStore
+from lemoncrow.core.foundation.models import Playbook
+from lemoncrow.core.foundation.renderer import render_block_for_agent
+from lemoncrow.core.foundation.retriever import TaskContext, count_tokens, retrieve
+from lemoncrow.core.foundation.store import ContextStore
 
 
 def _block(
@@ -66,7 +66,7 @@ def test_dedup_collapses_near_duplicate_pair(store: ContextStore) -> None:
     ctx = TaskContext(
         task="retriever playbook dedup",
         domain="coding",
-        files=["src/atelier/core/foundation/retriever.py"],
+        files=["src/lemoncrow/core/foundation/retriever.py"],
     )
 
     naive_ids = [s.block.id for s in retrieve(store, ctx, limit=5, dedup=False, token_budget=None)]
@@ -102,7 +102,7 @@ def test_token_budget_greedy_packs_highest_scoring_blocks(store: ContextStore) -
     ctx = TaskContext(
         task="retriever playbook budget",
         domain="coding",
-        files=["src/atelier/core/foundation/retriever.py"],
+        files=["src/lemoncrow/core/foundation/retriever.py"],
     )
     budget = count_tokens(render_block_for_agent(top)) + count_tokens(render_block_for_agent(small))
     ids = [s.block.id for s in retrieve(store, ctx, limit=3, token_budget=budget, dedup=False)]

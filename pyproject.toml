@@ -15,13 +15,13 @@ conflicts = [
 babel = { path = "vendor/babel-99.0.0-py3-none-any.whl" }
 
 [project]
-name = "atelier"
+name = "lemoncrow"
 version = "0.3.9"
 description = "Agent runtime for coding agents — reusable procedures, code intelligence, cost tracking, and model routing."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "FSL-1.1-ALv2" }
-authors = [{ name = "Atelier" }]
+authors = [{ name = "LemonCrow" }]
 
 # FSL-1.1-ALv2 has no OSI-approved trove classifier; omit rather than misstate.
 classifiers = []
@@ -80,7 +80,7 @@ vector = [
 # Local code-embedding semantic search (BGE-Code-v1 via SentenceTransformers).
 # sentence-transformers 5.x regresses bge-code-v1 loading (AutoProcessor error) --
 # pin <5. Heavy (torch); opt-in only. accelerate + datasets back the per-repo
-# finetuner behind `atelier code train --name=embedding`.
+# finetuner behind `lemon code train --name=embedding`.
 semantic = [
     "sentence-transformers>=3,<5",
     "torch>=2.2",
@@ -106,22 +106,23 @@ dev = [
 ]
 
 [project.scripts]
-atelier = "atelier.gateway.cli:main"
-atelierd = "atelier.core.service.daemon:main"
+lemon = "lemoncrow.gateway.cli:main"
+lc = "lemoncrow.gateway.cli:main"
+lemond = "lemoncrow.core.service.daemon:main"
 
 [build-system]
 requires = ["hatchling", "setuptools", "mypy>=1.10"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/atelier"]
+packages = ["src/lemoncrow"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/atelier/core/service/telemetry/frustration_lexicon.yaml" = "atelier/core/service/telemetry/frustration_lexicon.yaml"
-"integrations" = "atelier/integrations"
+"src/lemoncrow/core/service/telemetry/frustration_lexicon.yaml" = "lemoncrow/core/service/telemetry/frustration_lexicon.yaml"
+"integrations" = "lemoncrow/integrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
-# hatch_build.py: compiles src/atelier/ with mypyc (skipped if ATELIER_SKIP_MYPYC=1)
+# hatch_build.py: compiles src/lemoncrow/ with mypyc (skipped if LEMONCROW_SKIP_MYPYC=1)
 
 [tool.ruff]
 line-length = 120
@@ -161,14 +162,14 @@ mypy_path = ["src", "benchmarks", "integrations"]
 
 [[tool.mypy.overrides]]
 module = [
-    "atelier.core.service.api",
-    "atelier.gateway.adapters.http_api",
+    "lemoncrow.core.service.api",
+    "lemoncrow.gateway.adapters.http_api",
 ]
 disable_error_code = ["untyped-decorator"]
 
 [[tool.mypy.overrides]]
 module = [
-    "atelier.gateway.cli.app",
+    "lemoncrow.gateway.cli.app",
 ]
 ignore_errors = true
 
@@ -198,7 +199,7 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
-    "atelier.gateway.cli.commands.*",
+    "lemoncrow.gateway.cli.commands.*",
     "gateway.cli.commands.*",
 ]
 disable_error_code = ["no-untyped-call", "untyped-decorator"]

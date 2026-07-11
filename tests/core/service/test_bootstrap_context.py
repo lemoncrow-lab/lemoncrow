@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.service.bootstrap_context import (
+from lemoncrow.core.service.bootstrap_context import (
     _render_architecture_sketch,
     build_bootstrap_plan,
     expected_bootstrap_labels,
     list_bootstrap_blocks,
     persist_bootstrap_plan,
 )
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -41,7 +41,7 @@ def _write_fixture_repo(root: Path) -> None:
 
 def test_cold_repo_plans_and_persists_expected_bootstrap_blocks(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
-    store_root = tmp_path / ".atelier"
+    store_root = tmp_path / ".lemoncrow"
     _write_fixture_repo(repo_root)
     memory_store = SqliteMemoryStore(store_root)
 
@@ -70,7 +70,7 @@ def test_bootstrap_plan_is_deterministic_and_does_not_embed_or_summarize(
 
 def test_partial_bootstrap_metadata_allows_retry_without_rewriting_completed_blocks(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
-    store_root = tmp_path / ".atelier"
+    store_root = tmp_path / ".lemoncrow"
     _write_fixture_repo(repo_root)
     memory_store = SqliteMemoryStore(store_root)
 
@@ -98,10 +98,10 @@ def test_architecture_sketch_filters_non_project_paths() -> None:
         {
             "ranked_files": [
                 ".claude/worktrees/agent-x/src/hidden.py",
-                "src/atelier/core/runtime/engine.py",
+                "src/lemoncrow/core/runtime/engine.py",
             ]
         },
         {},
     )
-    assert "src/atelier/core/runtime/engine.py" in rendered
+    assert "src/lemoncrow/core/runtime/engine.py" in rendered
     assert ".claude/worktrees" not in rendered

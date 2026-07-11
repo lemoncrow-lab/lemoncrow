@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.gateway.cli import cli
+from lemoncrow.gateway.cli import cli
 from tests.helpers import init_store_at
 
 
@@ -19,10 +19,10 @@ def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("ATELIER_TELEMETRY", "0")
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")
 
     root = tmp_path / "a"
     init_store_at(str(root))
@@ -40,11 +40,11 @@ def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(
 
 
 def test_telemetry_toggles_and_reset_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
-    monkeypatch.setenv("ATELIER_TELEMETRY_ALLOW_IN_TESTS", "1")
-    monkeypatch.delenv("ATELIER_TELEMETRY", raising=False)
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
     root = tmp_path / "a"
     init_store_at(str(root))
     remote_on = _invoke(root, "telemetry", "remote", "on")

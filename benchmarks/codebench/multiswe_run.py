@@ -1,4 +1,4 @@
-"""One-command Multi-SWE-bench A/B: vanilla Claude Code vs Atelier, in-container.
+"""One-command Multi-SWE-bench A/B: vanilla Claude Code vs LemonCrow, in-container.
 
 Pipeline (single command):
   load+filter instances -> build per-arm overlays -> run each (instance, arm,
@@ -6,8 +6,8 @@ Pipeline (single command):
   the official multi_swe_bench harness -> reuse run.py savings/report/CSV.
 
 The arms differ only in overlay contents + claude flags (baseline = vanilla
-Claude Code; atelier = + Atelier plugin/MCP), same model, same instance -- the
-clean isolation that attributes any cost/quality delta to Atelier alone.
+Claude Code; lemoncrow = + LemonCrow plugin/MCP), same model, same instance -- the
+clean isolation that attributes any cost/quality delta to LemonCrow alone.
 
 Example:
   uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
@@ -54,7 +54,7 @@ FLASH_URL = (
     "https://huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench-flash/resolve/main/multi_swe_bench_flash.jsonl"
 )
 DATA_DIR = Path(__file__).parent / "data"
-ARMS = ("baseline", "atelier")
+ARMS = ("baseline", "lemoncrow")
 
 
 def ensure_flash() -> Path:
@@ -92,13 +92,13 @@ def _prebuild_overlays(instances: list[Any], arms: list[str]) -> None:
     seen: set[tuple[str, bool]] = set()
     for inst in instances:
         for arm in arms:
-            key = (inst.image, arm == "atelier")
+            key = (inst.image, arm == "lemoncrow")
             if key in seen:
                 continue
             seen.add(key)
             print(f"[overlay] ensuring {arm} overlay for {inst.image}", flush=True)
             try:
-                incontainer.ensure_overlay(inst.image, atelier=(arm == "atelier"))
+                incontainer.ensure_overlay(inst.image, lemon=(arm == "lemoncrow"))
             except Exception as exc:
                 print(f"[overlay] FAILED for {arm}/{inst.image}: {exc} -- skipping, will error at run time", flush=True)
 
@@ -337,7 +337,7 @@ def run(args: argparse.Namespace) -> int:
     jobs = [(inst, arm, rep) for inst in instances for arm in args.arms for rep in range(1, args.reps + 1)]
     # --resume: reuse a prior (task, arm, rep) result when its patch artifact is
     # still present, so a re-run re-executes only the missing/stripped jobs (e.g.
-    # keep valid baseline runs, re-run atelier after a fix) without re-paying.
+    # keep valid baseline runs, re-run lemoncrow after a fix) without re-paying.
     prior = _load_prior_results(out_dir) if getattr(args, "resume", False) else {}
     results: list[ArmResult] = []
     reused_rows: list[ArmResult] = []
@@ -366,7 +366,7 @@ def run(args: argparse.Namespace) -> int:
             pending.append(job)
     if prior:
         # Carry forward prior rows outside this run's scope so a narrower resume
-        # (e.g. -a atelier only) never drops the rows it isn't re-running.
+        # (e.g. -a lemoncrow only) never drops the rows it isn't re-running.
         covered = {(i.instance_id, a, r) for (i, a, r) in jobs}
         preserved = [res for key, res in prior.items() if key not in covered]
         results.extend(preserved)
@@ -477,7 +477,7 @@ def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="SWE A/B: vanilla Claude Code vs Atelier, in-container (multi-swe-bench or swe-bench)"
+        description="SWE A/B: vanilla Claude Code vs LemonCrow, in-container (multi-swe-bench or swe-bench)"
     )
     p.add_argument(
         "--suite",

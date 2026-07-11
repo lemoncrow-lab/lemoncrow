@@ -66,9 +66,9 @@ Related choices in the same area:
 
 - **Tool naming.** The canonical install is the user-scope MCP server
   registered by `scripts/install_claude.sh` (`claude mcp add --scope user
-  atelier …`), which yields `mcp__atelier__*` tool names — so generated agent
+  lemoncrow …`), which yields `mcp__lemon__*` tool names — so generated agent
   bodies use that prefix. A marketplace plugin install would namespace them as
-  `mcp__plugin_atelier_atelier__*`. Runtime consumers (hooks, session parsers)
+  `mcp__plugin_lemoncrow_lemon__*`. Runtime consumers (hooks, session parsers)
   accept both shapes, and the `disallowedTools` deny-list blocks **both** edit
   spellings so read-only roles stay read-only under either install.
 - **Claude personas ship a thin tool-discipline block.** Claude Code folds the
@@ -78,7 +78,7 @@ Related choices in the same area:
   partial.
 - **Spawn-aware delegation.** Roles whose policy denies the `Agent` tool
   (execute, solve) do not get the "delegate read-only work to
-  atelier:explore/atelier:plan" line — telling an agent to use a tool it
+  lemon:explore/lemon:plan" line — telling an agent to use a tool it
   cannot call wastes a turn.
 - **auto has an unattended override.** `auto` denies questions and plan gates
   (CI/headless), but the shared change discipline demands explicit
@@ -98,7 +98,7 @@ Related choices in the same area:
 | Behavior shared by every role | `agents/shared/*.md` |
 | One role's behavior or output contract | `agents/<role>.md` |
 | Claude-specific overrides, tool prefix, frontmatter | `scripts/sync_agent_context.py` |
-| Tool deny policy per role | `_claude_disallowed_tools` in `src/atelier/core/capabilities/default_definitions.py` |
+| Tool deny policy per role | `_claude_disallowed_tools` in `src/lemoncrow/core/capabilities/default_definitions.py` |
 
 After any of the above: `make sync-agent-context`, run
 `tests/gateway/test_telegraphic_budget.py` and

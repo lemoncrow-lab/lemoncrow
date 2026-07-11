@@ -12,7 +12,7 @@ const sidebars: SidebarsConfig = {
       id: "installation",
     },
     {
-      label: "Use Atelier",
+      label: "Use LemonCrow",
       type: "category",
       items: [
         {

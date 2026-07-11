@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# statusline.sh -- Codex command-backed statusline for Atelier.
+# statusline.sh -- Codex command-backed statusline for LemonCrow.
 #
 # Match the Claude statusline shape:
-#   ❯ atelier | gpt-5.5 xhigh ctx 1.1M $0.012(I:30k C:10k O:5k) ↓ $0.045(R:12k C:2k)
+#   ❯ lemon | gpt-5.5 xhigh ctx 1.1M $0.012(I:30k C:10k O:5k) ↓ $0.045(R:12k C:2k)
 #
 # Codex statusline input is version-dependent. Newer command-backed builds may
 # pass JSON; some builds expose the native footer text. Both are parsed into the
-# same fields and rendered through `atelier savings --segment`, the same backend
+# same fields and rendered through `lemon savings --segment`, the same backend
 # used by the Claude script.
 set -uo pipefail
 
 input="$(cat 2>/dev/null || true)"
-PLUGIN_LABEL="❯ atelier"
+PLUGIN_LABEL="❯ lemon"
 
 MODEL=""
 EFFORT=""
@@ -122,19 +122,19 @@ PCT_PART=""
 [ -n "${PCT_INT:-}" ] && PCT_PART=" ${PCT_INT}%"
 ACTUAL_CTX_F="$(fmt_ctx "${USED_INT:-0}")"
 
-ATELIER_STATUS_ROOT="${ATELIER_ROOT:-${ATELIER_STORE_ROOT:-${HOME}/.atelier}}"
-export ATELIER_STATUS_ROOT
-export ATELIER_ROOT="${ATELIER_STATUS_ROOT}"
-export ATELIER_STATUS_HOST="codex"
-export ATELIER_STATUS_SESSION_ID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
-export ATELIER_STATUS_WORKSPACE_ROOT="${WORKSPACE:-${CODEX_WORKSPACE_ROOT:-$PWD}}"
-export ATELIER_STATUS_MODEL="${MODEL:-$MODEL_DISPLAY}"
-export ATELIER_STATUS_MODEL_DISPLAY="${MODEL_DISPLAY}"
-export ATELIER_STATUSLINE_COST_USD="${COST:-0}"
-export ATELIER_STATUSLINE_LIVE_IN_TOK="$(( IN_INT + CACHE_W_INT ))"
-export ATELIER_STATUSLINE_LIVE_CACHE_TOK="${CACHE_R_INT:-0}"
-export ATELIER_STATUSLINE_LIVE_OUT_TOK="${OUT_INT:-0}"
-[ -n "${ATELIER_NO_COLOR:-}" ] && export ATELIER_STATUSLINE_NO_COLOR=1
+LEMONCROW_STATUS_ROOT="${LEMONCROW_ROOT:-${LEMONCROW_STORE_ROOT:-${HOME}/.lemoncrow}}"
+export LEMONCROW_STATUS_ROOT
+export LEMONCROW_ROOT="${LEMONCROW_STATUS_ROOT}"
+export LEMONCROW_STATUS_HOST="codex"
+export LEMONCROW_STATUS_SESSION_ID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
+export LEMONCROW_STATUS_WORKSPACE_ROOT="${WORKSPACE:-${CODEX_WORKSPACE_ROOT:-$PWD}}"
+export LEMONCROW_STATUS_MODEL="${MODEL:-$MODEL_DISPLAY}"
+export LEMONCROW_STATUS_MODEL_DISPLAY="${MODEL_DISPLAY}"
+export LEMONCROW_STATUSLINE_COST_USD="${COST:-0}"
+export LEMONCROW_STATUSLINE_LIVE_IN_TOK="$(( IN_INT + CACHE_W_INT ))"
+export LEMONCROW_STATUSLINE_LIVE_CACHE_TOK="${CACHE_R_INT:-0}"
+export LEMONCROW_STATUSLINE_LIVE_OUT_TOK="${OUT_INT:-0}"
+[ -n "${LEMONCROW_NO_COLOR:-}" ] && export LEMONCROW_STATUSLINE_NO_COLOR=1
 if [ -n "${CODEX_WORKSPACE_ROOT:-}" ]; then
   export CLAUDE_WORKSPACE_ROOT="${CODEX_WORKSPACE_ROOT}"
 fi
@@ -146,8 +146,8 @@ DYNAMIC_SEG=""
 # savings segment into another, so with no session id we skip caching.
 _NOW_S=$(date +%s)
 _SEG_SID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
-_SEG_CACHE="${ATELIER_STATUS_ROOT}/statusline_segment_cache_codex_${_SEG_SID}"
-_SEG_CACHE_TS="${ATELIER_STATUS_ROOT}/statusline_segment_ts_codex_${_SEG_SID}"
+_SEG_CACHE="${LEMONCROW_STATUS_ROOT}/statusline_segment_cache_codex_${_SEG_SID}"
+_SEG_CACHE_TS="${LEMONCROW_STATUS_ROOT}/statusline_segment_ts_codex_${_SEG_SID}"
 if [ -n "${_SEG_SID}" ]; then
   _CACHED_TS=$(cat "${_SEG_CACHE_TS}" 2>/dev/null || echo 0)
   _CACHE_AGE=$(( _NOW_S - ${_CACHED_TS:-0} ))
@@ -156,12 +156,12 @@ if [ -n "${_SEG_SID}" ]; then
   fi
 fi
 if [ -z "${DYNAMIC_SEG:-}" ]; then
-  ATELIER_BIN="$(command -v atelier 2>/dev/null || true)"
-  if [ -n "$ATELIER_BIN" ]; then
-    DYNAMIC_SEG="$("$ATELIER_BIN" savings --segment 2>/dev/null || true)"
+  LEMONCROW_BIN="$(command -v lemon 2>/dev/null || true)"
+  if [ -n "$LEMONCROW_BIN" ]; then
+    DYNAMIC_SEG="$("$LEMONCROW_BIN" savings --segment 2>/dev/null || true)"
   fi
   if [ -z "${DYNAMIC_SEG:-}" ]; then
-    DYNAMIC_SEG="$(uv run --quiet atelier savings --segment 2>/dev/null || true)"
+    DYNAMIC_SEG="$(uv run --quiet lemon savings --segment 2>/dev/null || true)"
   fi
   # Cache only with a real session id and real live usage -- never a shared,
   # unkeyed slot, never a stale zero-token segment. Atomic renames so a
@@ -174,7 +174,7 @@ if [ -z "${DYNAMIC_SEG:-}" ]; then
   fi
 fi
 
-if [ -n "${ATELIER_NO_COLOR:-}" ]; then
+if [ -n "${LEMONCROW_NO_COLOR:-}" ]; then
   C_BRAND=""; C_PIPE=""; C_RESET=""
 else
   C_BRAND=$'\033[1;38;2;168;85;247m'

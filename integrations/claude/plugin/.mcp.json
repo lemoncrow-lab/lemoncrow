@@ -1,13 +1,13 @@
 {
   "mcpServers": {
-    "atelier": {
+    "lemon": {
       "alwaysLoad": true,
       "args": [
         "mcp",
         "--host",
         "claude"
       ],
-      "command": "atelier",
+      "command": "lemon",
       "env": {
         "CLAUDE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       },

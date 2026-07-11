@@ -3,14 +3,14 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SOURCE_ROOT = Path("src/atelier")
+SOURCE_ROOT = Path("src/lemoncrow")
 FORBIDDEN_PROVIDER_IMPORTS = {
     "anthropic",
     "google.generativeai",
     "mistralai",
 }
 # Allowed provider imports are restricted to a single file each.
-# - "ollama": Atelier's internal-processing module only (WP-36). Any other file
+# - "ollama": LemonCrow's internal-processing module only (WP-36). Any other file
 #   importing ollama breaks the boundary rule: no model-client imports on the
 #   user's hot path.
 # - "openai": The OpenAI embedder only (text-embedding-3-small vector lookups).
@@ -18,26 +18,26 @@ FORBIDDEN_PROVIDER_IMPORTS = {
 # - "httpx": The OpenAI embedder uses httpx directly (the openai SDK depends on
 #   it). Allowing httpx only in that same file keeps the boundary consistent
 #   without special-casing the transitive openai→httpx dependency at the SDK
-#   level. No other Atelier module should import httpx.
-# - "litellm": Atelier's internal-processing module only. Native multi-provider
+#   level. No other LemonCrow module should import httpx.
+# - "litellm": LemonCrow's internal-processing module only. Native multi-provider
 #   (Bedrock / Vertex / Azure) completion client, confined like the others so no
 #   model-client import lands on the user's hot path.
 ALLOWED_PROVIDER_IMPORTS = {
-    "ollama": {Path("src/atelier/infra/internal_llm/ollama_client.py")},
+    "ollama": {Path("src/lemoncrow/infra/internal_llm/ollama_client.py")},
     "litellm": {
-        Path("src/atelier/infra/internal_llm/litellm_client.py"),
+        Path("src/lemoncrow/infra/internal_llm/litellm_client.py"),
         # TODO(boundary): The owned-agent execution loop in the CLI runtime drives
         # native litellm streaming + tool-call dispatch directly (async
         # litellm.completion with backoff). This is a genuine boundary violation
         # introduced on the `bench` refactor that should be routed through an
         # infra streaming wrapper. Allowlisted here pending CLI-owned refactor.
-        Path("src/atelier/gateway/cli/runtime.py"),
+        Path("src/lemoncrow/gateway/cli/runtime.py"),
     },
     "openai": {
-        Path("src/atelier/infra/embeddings/openai_embedder.py"),
-        Path("src/atelier/infra/internal_llm/openai_client.py"),
+        Path("src/lemoncrow/infra/embeddings/openai_embedder.py"),
+        Path("src/lemoncrow/infra/internal_llm/openai_client.py"),
     },
-    "httpx": {Path("src/atelier/infra/embeddings/openai_embedder.py")},
+    "httpx": {Path("src/lemoncrow/infra/embeddings/openai_embedder.py")},
 }
 
 

@@ -37,12 +37,12 @@ class TestMCPTools:
     """Test MCP tool registration and schemas."""
 
     def test_core_tools_present(self) -> None:
-        from atelier.gateway.adapters import mcp_server
+        from lemoncrow.gateway.adapters import mcp_server
 
         assert set(mcp_server.TOOLS.keys()) == EXPECTED_TOOLS
 
     def test_all_tools_have_handlers(self) -> None:
-        from atelier.gateway.adapters import mcp_server
+        from lemoncrow.gateway.adapters import mcp_server
 
         for tool_name, tool_spec in mcp_server.TOOLS.items():
             assert "handler" in tool_spec, f"{tool_name} missing handler"
@@ -51,7 +51,7 @@ class TestMCPTools:
             assert "inputSchema" in tool_spec, f"{tool_name} missing inputSchema"
 
     def test_all_schemas_valid_json_schema(self) -> None:
-        from atelier.gateway.adapters import mcp_server
+        from lemoncrow.gateway.adapters import mcp_server
 
         for tool_spec in mcp_server.TOOLS.values():
             schema = tool_spec["inputSchema"]

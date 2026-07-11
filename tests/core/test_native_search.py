@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atelier.core.capabilities.tool_supervision.native_search import (
+from lemoncrow.core.capabilities.tool_supervision.native_search import (
     MAX_STRUCTURED_OUTPUT_CHARS,
     _match_line_numbers,
     search_workspace,
@@ -187,7 +187,7 @@ def test_match_line_numbers_hard_bounds_catastrophic_single_line() -> None:
     # path prefers) and a tiny deadline so the test stays fast.
     import time
 
-    from atelier.core.capabilities.tool_supervision.native_search import _regex_module
+    from lemoncrow.core.capabilities.tool_supervision.native_search import _regex_module
 
     assert _regex_module is not None, "the `regex` engine is a declared dependency"
 
@@ -215,7 +215,7 @@ def test_match_line_numbers_hard_bounds_catastrophic_single_line() -> None:
 
 def test_native_search_file_content_mode_spills_large_payload(tmp_path: Path, monkeypatch: Any) -> None:
     spill_dir = tmp_path / "spill"
-    monkeypatch.setenv("ATELIER_MCP_SPILL_DIR", str(spill_dir))
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(spill_dir))
     path = tmp_path / "large.py"
     path.write_text("\n".join(f"line_{idx} needle payload text" for idx in range(2000)), encoding="utf-8")
 

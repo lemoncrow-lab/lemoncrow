@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from atelier.gateway.cli import cli
-from atelier.gateway.cli.app import (
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.app import (
     _IMPORT_PROGRESS_LOGGER,
     _ensure_import_progress_logging,
 )
@@ -56,7 +56,7 @@ def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch:
     assert "claude: discovered sessions" in result.stderr
 
     # Import progress text must NOT leak onto stdout.
-    assert "[atelier]" not in result.stdout
+    assert "[lemon]" not in result.stdout
     assert "discovering sessions" not in result.stdout
 
     # User-facing result line stays on stdout.
@@ -67,7 +67,7 @@ def test_import_progress_handler_is_idempotent() -> None:
     progress_logger = logging.getLogger(_IMPORT_PROGRESS_LOGGER)
 
     def _flagged_handler_count() -> int:
-        return sum(1 for h in progress_logger.handlers if getattr(h, "_atelier_import_progress_handler", False))
+        return sum(1 for h in progress_logger.handlers if getattr(h, "_lemoncrow_import_progress_handler", False))
 
     _ensure_import_progress_logging()
     after_first = _flagged_handler_count()

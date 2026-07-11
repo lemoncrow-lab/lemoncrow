@@ -6,7 +6,7 @@ Reads the hook payload (stdin: JSON with session_id, transcript_path).
 Behavior:
 1. Discussion-only session (no code-editing tools used in the transcript) →
    show plain stats under a "Session stats:" header.
-2. Code work happened → show stats under an "Atelier session complete." header.
+2. Code work happened → show stats under an "LemonCrow session complete." header.
 
 Token and tool-call counts are read directly from the Claude Code
 transcript JSONL at `transcript_path`.
@@ -27,7 +27,7 @@ from typing import Any
 # Route hook logs to a file so tracebacks never leak to Claude Code's
 # hook stderr pipeline. Fall back to NullHandler if the path can't be opened.
 _log_path = (
-    Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     / "stop_hook.log"
 )
 try:
@@ -81,7 +81,7 @@ def _workspace_key(path: str) -> str:
 def _state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT") or Path.home() / ".atelier")
+    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -102,24 +102,24 @@ def _load_state() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _atelier_root() -> Path:
+def _lemoncrow_root() -> Path:
     state = _load_state()
-    root = os.environ.get("ATELIER_ROOT") or os.environ.get("ATELIER_STORE_ROOT")
+    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
     if root:
         return Path(root)
-    if state.get("atelier_root"):
-        return Path(state["atelier_root"])
-    return Path.home() / ".atelier"
+    if state.get("lemoncrow_root"):
+        return Path(state["lemoncrow_root"])
+    return Path.home() / ".lemoncrow"
 
 
 def _sessions_root() -> Path:
-    """Session store root -- the plain atelier root, matching the MCP writer and the
+    """Session store root -- the plain lemoncrow root, matching the MCP writer and the
     sibling hooks (session_start / post_tool_use). Sessions are keyed by a globally
     unique id, so they are NOT workspace-scoped: the previous ``workspaces/<key>``
     path silently missed the canonical run.json (its ``if not exists: return`` guards
-    no-op'd) whenever ATELIER_WORKSPACE_ROOT/CLAUDE_WORKSPACE_ROOT was set, dropping
+    no-op'd) whenever LEMONCROW_WORKSPACE_ROOT/CLAUDE_WORKSPACE_ROOT was set, dropping
     the session-end token event, cost row, and enrichment writes."""
-    return _atelier_root()
+    return _lemoncrow_root()
 
 
 def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> None:
@@ -131,7 +131,7 @@ def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> 
     if not session_id:
         return
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
@@ -193,7 +193,7 @@ def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> 
 
 def _is_real_model_id(raw: object) -> bool:
     try:
-        from atelier.core.capabilities.savings_summary import is_real_model
+        from lemoncrow.core.capabilities.savings_summary import is_real_model
 
         return is_real_model(raw)
     except (ImportError, ModuleNotFoundError):
@@ -202,7 +202,7 @@ def _is_real_model_id(raw: object) -> bool:
 
 def _resolve_model_id(raw: str | None) -> str:
     try:
-        from atelier.core.capabilities.savings_summary import resolve_model_id
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
         return resolve_model_id(raw or "")
     except (ImportError, ModuleNotFoundError):
@@ -218,7 +218,7 @@ def _estimate_cost_usd(
     cache_write_tokens: int,
 ) -> float:
     try:
-        from atelier.core.capabilities.savings_summary import estimate_cost_usd
+        from lemoncrow.core.capabilities.savings_summary import estimate_cost_usd
 
         return estimate_cost_usd(
             model_id=model_id,
@@ -239,7 +239,7 @@ def _read_transcript_stats(transcript_path: str) -> dict[str, Any] | None:
     has always returned.
     """
     try:
-        from atelier.core.capabilities.savings_summary import TranscriptStats, read_transcript_stats
+        from lemoncrow.core.capabilities.savings_summary import TranscriptStats, read_transcript_stats
     except (ImportError, ModuleNotFoundError):
         return None
     stats: TranscriptStats | None = read_transcript_stats(transcript_path)
@@ -439,17 +439,17 @@ def _extract_edited_paths(transcript_path: str) -> list[str]:
 
 
 def _format_deferred_edits(transcript_path: str) -> None:
-    """When ATELIER_DEFER_EDIT_HOOKS was on, the edit tool skipped the mutating
+    """When LEMONCROW_DEFER_EDIT_HOOKS was on, the edit tool skipped the mutating
     format / organize-imports steps so the formatter could not reflow files
     mid-session and break the agent's read anchors. Run them once now, at Stop,
     over the files edited this session. Fail-open: never break the Stop hook."""
-    if os.environ.get("ATELIER_DEFER_EDIT_HOOKS", "0").strip().lower() not in {"1", "true", "on", "yes"}:
+    if os.environ.get("LEMONCROW_DEFER_EDIT_HOOKS", "0").strip().lower() not in {"1", "true", "on", "yes"}:
         return
     paths = _extract_edited_paths(transcript_path)
     if not paths:
         return
     try:
-        from atelier.core.capabilities.tool_supervision.post_edit_hooks import (
+        from lemoncrow.core.capabilities.tool_supervision.post_edit_hooks import (
             HookConfig,
             run_post_edit_hooks,
         )
@@ -482,7 +482,7 @@ def _write_session_enrichment(
     if not session_id:
         return
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
@@ -539,9 +539,9 @@ def _load_session_aggregate(session_id: str) -> dict[str, Any]:
     if not session_id:
         return {}
     try:
-        from atelier.core.capabilities.plugin_runtime import aggregate_session_stats
+        from lemoncrow.core.capabilities.plugin_runtime import aggregate_session_stats
 
-        aggregate = aggregate_session_stats(_atelier_root(), session_id=session_id)
+        aggregate = aggregate_session_stats(_lemoncrow_root(), session_id=session_id)
         return aggregate if isinstance(aggregate, dict) else {}
     except Exception:
         logger.exception("Failed to load session aggregate")
@@ -617,7 +617,7 @@ def _is_task_session(stats: dict[str, Any] | None, session_aggregate: dict[str, 
 
     A session that only called Read, Bash (read-only), Glob, WebFetch,
     WebSearch, or had zero tool calls is classified as a "discussion" session
-    and does not require an Atelier trace.
+    and does not require an LemonCrow trace.
     """
     if session_aggregate and int(session_aggregate.get("edit_tool_calls", 0) or 0) > 0:
         return True
@@ -643,7 +643,7 @@ def _write_session_cost(
     if not session_id or cost_usd <= 0:
         return
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
         path = session_dir(_sessions_root(), "claude", session_id) / "savings.jsonl"
     except ImportError:
@@ -664,7 +664,7 @@ def _write_session_cost(
 
 def _sidecar_path(session_id: str) -> Path | None:
     try:
-        from atelier.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.paths import session_dir
 
         return session_dir(_sessions_root(), "claude", session_id) / "savings.jsonl"
     except ImportError:
@@ -684,14 +684,14 @@ def _refresh_statusline_frames(session_id: str) -> None:
         return
     import time
 
-    from atelier.core.capabilities.savings_summary import savings_frames
-    from atelier.core.foundation.paths import find_session_dir
+    from lemoncrow.core.capabilities.savings_summary import savings_frames
+    from lemoncrow.core.foundation.paths import find_session_dir
 
     root = _sessions_root()
     seg_dir = find_session_dir(root, session_id)
     if seg_dir is None:
         return
-    frames = savings_frames(session_id=session_id, atelier_root=root)
+    frames = savings_frames(session_id=session_id, lemoncrow_root=root)
     if not frames:
         return
     (seg_dir / "statusline_frames").write_text("\n".join(frames) + "\n", encoding="utf-8")
@@ -782,15 +782,15 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     (ratio - 1), priced at the output rate plus a cache write (the avoided
     prose would have re-entered context). Code output and code fences are
     excluded from the basis. Incremental per Stop fire via the cumulative
-    marker on the last ``output_style`` row. ``ATELIER_OUTPUT_STYLE_RATIO``
+    marker on the last ``output_style`` row. ``LEMONCROW_OUTPUT_STYLE_RATIO``
     (<=1 disables) defaults to 2.09 -- measured AND reconciled, not guessed.
     Matched telegraphic Q&A head-to-head (2026-07-08, opus-4-8, 20 prompts x
     5 reps x 2 arms = 200 runs; prose isolated on both arms by stripping
     fences/code-ish lines/the session-title JSON turn): baseline reply prose
-    is 2.09x atelier's pooled (40.3k vs 19.2k tokens). Supersedes swe-lite's
+    is 2.09x LemonCrow's pooled (40.3k vs 19.2k tokens). Supersedes swe-lite's
     smaller 10-instance measurement. No turn-cut overlap to net out here
     (unlike swe-lite): baseline's extra turns are 100% the benchmark
-    harness's title-generation turn (atelier skips it outright, 0/100 vs
+    harness's title-generation turn (LemonCrow skips it outright, 0/100 vs
     100/100 runs); once that's excluded from both arms, answering-turn
     counts are flat (138 vs 142), so none of the prose delta double-counts
     with the turn_cut row -- the pooled ratio applies directly. Per-prompt
@@ -800,14 +800,14 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     if not session_id:
         return
     try:
-        ratio = float(os.environ.get("ATELIER_OUTPUT_STYLE_RATIO", "2.09"))
+        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", "2.09"))
     except ValueError:
         return
     if ratio <= 1.0:
         return
     path = _sidecar_path(session_id)
     if path is None or not path.exists():
-        return  # no sidecar → session not Atelier-instrumented; nothing to fold into
+        return  # no sidecar → session not LemonCrow-instrumented; nothing to fold into
     prose_tokens = _prose_output_tokens(transcript_path)
     if prose_tokens <= 0:
         return
@@ -827,8 +827,8 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     if saved <= 0:
         return
     try:
-        from atelier.core.capabilities.pricing import get_model_pricing
-        from atelier.core.capabilities.savings_summary import resolve_model_id
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
         model = str(stats.get("last_model") or stats.get("model") or "")
         pricing = get_model_pricing(resolve_model_id(model)) if model else None
@@ -853,11 +853,11 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
 
 # Avoided host turns per executed turn, measured on the matched swe-lite
 # head-to-head (2026-07-06, opus-4-8, 10 instances, reconciled reps):
-# baseline needed 152 median turns where atelier needed 123 — (152-123)/123.
+# baseline needed 152 median turns where LemonCrow needed 123 — (152-123)/123.
 # Avoided host turns per executed turn, measured on the swe50 head-to-head
 # (2026-06-30, opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489
 # successful runs -- supersedes the smaller 10-instance swe-lite sample):
-# baseline needed 28.59 avg turns/run where atelier needed 17.41 --
+# baseline needed 28.59 avg turns/run where LemonCrow needed 17.41 --
 # (28.59-17.41)/17.41. Per-task median across the 50 tasks is 0.695,
 # consistent with this pooled figure. Raw data:
 # benchmarks/codebench/results/swe50_2026_06_30/.
@@ -880,19 +880,19 @@ def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
     rule: one context re-send at the cache-read rate (session's measured
     average context per turn) plus one turn of average output (output rate,
     re-entering context at the cache-write rate). Unknown model → no row,
-    never guess a rate. ``ATELIER_TURN_CUT_RATIO`` overrides; <=0 disables.
+    never guess a rate. ``LEMONCROW_TURN_CUT_RATIO`` overrides; <=0 disables.
     """
     if not session_id:
         return
     try:
-        ratio = float(os.environ.get("ATELIER_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
+        ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
     except ValueError:
         return
     if ratio <= 0:
         return
     path = _sidecar_path(session_id)
     if path is None or not path.exists():
-        return  # no sidecar → session not Atelier-instrumented; no turn cut to credit
+        return  # no sidecar → session not LemonCrow-instrumented; no turn cut to credit
     turns = int(stats.get("turns") or 0)
     if turns <= 0:
         return
@@ -916,8 +916,8 @@ def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
     if avg_ctx <= 0 and avg_out <= 0:
         return
     try:
-        from atelier.core.capabilities.pricing import get_model_pricing
-        from atelier.core.capabilities.savings_summary import resolve_model_id
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
         model = str(stats.get("last_model") or stats.get("model") or "")
         pricing = get_model_pricing(resolve_model_id(model)) if model else None
@@ -946,7 +946,7 @@ def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
         fh.write(json.dumps(row_out) + "\n")
 
 
-# Baseline's avg cache-read per turn vs atelier's, measured on the same
+# Baseline's avg cache-read per turn vs LemonCrow's, measured on the same
 # swe50 head-to-head as turn_cut above: 26.1k vs 22.4k tokens/turn -- 1.163x.
 # See _write_input_style_row's docstring for the full derivation and the
 # cross-check against Harbor's independent Terminal-Bench-2.1 suite.
@@ -960,17 +960,17 @@ def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
     credits *whole avoided turns* (each priced at the session's own avg
     context/turn); this credits the other, orthogonal effect measured on the
     same bench -- turns that DO execute still carry less context each,
-    because atelier's context stays leaner turn over turn (compressed reads,
+    because LemonCrow's context stays leaner turn over turn (compressed reads,
     code_search over raw grep/cat, prefix-cache-aware batching) than
     baseline's would. Credit = incremental session cache-read tokens x
     (ratio - 1), priced at the cache-read rate. Incremental per Stop fire via
     the cumulative marker on the last ``input_style`` row, same pattern as
     ``_write_output_style_row``.
 
-    ``ATELIER_INPUT_STYLE_RATIO`` (<=1 disables) defaults to 1.16 -- measured
+    ``LEMONCROW_INPUT_STYLE_RATIO`` (<=1 disables) defaults to 1.16 -- measured
     on the same swe50 head-to-head as the turn_cut ratio above (2026-06-30,
     opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489 successful runs):
-    baseline's avg cache-read is 26.1k tokens/turn vs atelier's 22.4k --
+    baseline's avg cache-read is 26.1k tokens/turn vs LemonCrow's 22.4k --
     1.163x. That per-turn gap is the residual left over after turn_cut: the
     raw cache-read delta (745.5k vs 390.5k tokens/run, 1.909x total) factors
     as turn count (1.642x, matching 1+0.642) times per-turn leanness
@@ -980,7 +980,7 @@ def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
     Terminal-Bench-2.1 suite (89 real long-horizon tasks, no turn-cut
     decomposition possible there -- see
     context (fresh input + cache, 83 matched tasks with cost data on both
-    sides) there is 1.23x baseline/atelier -- same
+    sides) there is 1.23x baseline/lemoncrow -- same
     direction, smaller than the isolated 1.909x cache-read figure here as
     expected (blended across fresh input and cache-creation too, on a very
     different task distribution/turn profile from SWE-bench code fixes).
@@ -989,14 +989,14 @@ def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
     if not session_id:
         return
     try:
-        ratio = float(os.environ.get("ATELIER_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
+        ratio = float(os.environ.get("LEMONCROW_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
     except ValueError:
         return
     if ratio <= 1.0:
         return
     path = _sidecar_path(session_id)
     if path is None or not path.exists():
-        return  # no sidecar → session not Atelier-instrumented; nothing to fold into
+        return  # no sidecar → session not LemonCrow-instrumented; nothing to fold into
     cache_read_tokens = int(stats.get("cache_read_tokens") or 0)
     if cache_read_tokens <= 0:
         return
@@ -1016,8 +1016,8 @@ def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
     if saved <= 0:
         return
     try:
-        from atelier.core.capabilities.pricing import get_model_pricing
-        from atelier.core.capabilities.savings_summary import resolve_model_id
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
         model = str(stats.get("last_model") or stats.get("model") or "")
         pricing = get_model_pricing(resolve_model_id(model)) if model else None
@@ -1074,7 +1074,7 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     """Fold rtk's own measured savings into the ledger as a bash row.
 
     When the external-compactor integration routes bash commands through an
-    installed ``rtk`` binary, Atelier never sees the raw output — rtk does,
+    installed ``rtk`` binary, LemonCrow never sees the raw output — rtk does,
     and records raw-vs-filtered tokens in its gain ledger. ``rtk gain`` is
     PROJECT-scoped (cwd), so the probe runs from this session's workspace and
     the cumulative marker in ``rtk_gain_state.json`` is keyed per workspace:
@@ -1083,9 +1083,9 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     is credited exactly once across that project's sessions. Credit the delta
     since the last credit as a measured ``external_compactor`` row (priced at
     the input rate — content that would have entered context once).
-    ``ATELIER_RTK_GAIN_CREDIT=0`` disables.
+    ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
     """
-    if not session_id or os.environ.get("ATELIER_RTK_GAIN_CREDIT", "1") == "0":
+    if not session_id or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0":
         return
     import shutil
     import subprocess
@@ -1111,7 +1111,7 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
         logger.exception("rtk gain probe failed")
         return
     total = _rtk_total_tokens_saved(payload)
-    marker = _atelier_root() / "rtk_gain_state.json"
+    marker = _lemoncrow_root() / "rtk_gain_state.json"
     credited_map: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         raw_marker = json.loads(marker.read_text(encoding="utf-8"))
@@ -1124,8 +1124,8 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     usd = 0.0
     if delta > 0:
         try:
-            from atelier.core.capabilities.pricing import get_model_pricing
-            from atelier.core.capabilities.savings_summary import resolve_model_id
+            from lemoncrow.core.capabilities.pricing import get_model_pricing
+            from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
             model = str(stats.get("last_model") or stats.get("model") or "")
             pricing = get_model_pricing(resolve_model_id(model)) if model else None
@@ -1157,7 +1157,7 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
     """Return session savings summary for the Claude session.
 
     Delegates to ``compute_savings_summary`` — the same function behind the
-    statusline's ``atelier savings --segment`` — so the statusline
+    statusline's ``lemon savings --segment`` — so the statusline
     figure and this stop-hook summary are always derived from the same
     source (``sessions/<session_id>/savings.jsonl``, priced per-row
     at the model captured when each row was written).
@@ -1174,9 +1174,9 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
     if not session_id:
         return zero
     try:
-        from atelier.core.capabilities.savings_summary import compute_savings_summary
+        from lemoncrow.core.capabilities.savings_summary import compute_savings_summary
 
-        summary = compute_savings_summary(session_id, atelier_root=_atelier_root())
+        summary = compute_savings_summary(session_id, lemoncrow_root=_lemoncrow_root())
         return {
             "saved_usd": float(summary.saved_usd),
             "routing_usd": float(summary.routing_saved_usd),
@@ -1203,7 +1203,7 @@ def _format_stats(
     # scheme that had drifted from the canonical 2-decimal-M formatter every
     # other Python savings surface uses); import it instead of redefining it.
     try:
-        from atelier.core.capabilities.savings_summary import (
+        from lemoncrow.core.capabilities.savings_summary import (
             _fmt_tok,
             _fmt_usd,
             estimate_time_saved_seconds,
@@ -1211,7 +1211,7 @@ def _format_stats(
         )
     except ImportError:
         # This hook script is synced from the dev repo independently of the
-        # installed `atelier` package (uv tool / pip) -- an older installed
+        # installed `lemon` package (uv tool / pip) -- an older installed
         # package predating these private helpers must not crash Stop on
         # every turn. Fall back to the same formatting inline.
         def _fmt_usd(v: float) -> str:
@@ -1316,13 +1316,13 @@ def _format_review_findings(session_id: str) -> str:
     if not session_id:
         return ""
     try:
-        from atelier.core.capabilities.live_reviewer.sink import (
+        from lemoncrow.core.capabilities.live_reviewer.sink import (
             latest_unconsumed,
             mark_consumed,
         )
     except ImportError:
         return ""
-    root = _atelier_root()
+    root = _lemoncrow_root()
     pending = latest_unconsumed(root, session_id)
     if not pending:
         return ""
@@ -1330,7 +1330,7 @@ def _format_review_findings(session_id: str) -> str:
     needs_fix = [row for row in pending if row.get("verdict") == "NEEDS_FIX"]
     if not needs_fix:
         return ""
-    lines = ["", "Code review (atelier) — NEEDS_FIX:"]
+    lines = ["", "Code review (Lemon) — NEEDS_FIX:"]
     for row in needs_fix[:5]:
         paths = ", ".join(str(p) for p in (row.get("paths") or []))
         missing = str(row.get("missing") or "").strip().replace("\n", " ")
@@ -1352,7 +1352,7 @@ def main() -> int:
 
     session_id: str = payload.get("session_id", "") or ""
     transcript_path: str = payload.get("transcript_path", "") or ""
-    # Deferred-format pass: when ATELIER_DEFER_EDIT_HOOKS moved format off the
+    # Deferred-format pass: when LEMONCROW_DEFER_EDIT_HOOKS moved format off the
     # per-edit path, format the session's edited files once now (fail-open).
     with contextlib.suppress(Exception):
         _format_deferred_edits(transcript_path)
@@ -1390,7 +1390,7 @@ def main() -> int:
 
     # Public rollup: no longer pushed from here. The servicectl daemon's daily
     # tick computes it directly from the same savings.jsonl ledger written
-    # below (see atelier.core.service.telemetry.public_rollup), so there is
+    # below (see lemoncrow.core.service.telemetry.public_rollup), so there is
     # nothing to send on every Stop -- the hook now touches neither the
     # network nor a side queue file for this.
 
@@ -1438,7 +1438,7 @@ def main() -> int:
     # valid here, unlike PreToolUse/PostToolUse/UserPromptSubmit/PostToolBatch.)
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
-        print(json.dumps({"systemMessage": f"Atelier session complete.\n{summary}{review_suffix}"}))
+        print(json.dumps({"systemMessage": f"LemonCrow session complete.\n{summary}{review_suffix}"}))
     return 0
 
 

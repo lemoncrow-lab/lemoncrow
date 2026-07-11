@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.capabilities.knowledge_extract import (
+from lemoncrow.core.capabilities.knowledge_extract import (
     extract_rules,
     gather_sources,
     merge_into_overlay,
@@ -13,7 +13,7 @@ from atelier.core.capabilities.knowledge_extract import (
 
 
 def _lessons(repo: Path, *texts: str) -> None:
-    blocks = repo / ".atelier" / "lessons" / "blocks"
+    blocks = repo / ".lemoncrow" / "lessons" / "blocks"
     blocks.mkdir(parents=True)
     for i, text in enumerate(texts):
         (blocks / f"l{i}.md").write_text(text, encoding="utf-8")
@@ -85,10 +85,10 @@ def test_extract_rules_applies_with_stub_runner(tmp_path: Path) -> None:
     assert result["scope"] == "repo"
     assert "Validate inputs at boundaries" in result["rules"]
     # Default scope=repo writes the team overlay in the repo (committable/shared).
-    overlay = json.loads((repo / ".atelier" / "review.json").read_text(encoding="utf-8"))
+    overlay = json.loads((repo / ".lemoncrow" / "review.json").read_text(encoding="utf-8"))
     assert "Prefer dependency injection" in overlay["notes"]
     # A managed allow-list is emitted so the team overlay is committable.
-    assert (repo / ".atelier" / ".gitignore").exists()
+    assert (repo / ".lemoncrow" / ".gitignore").exists()
 
 
 def test_extract_rules_personal_scope_writes_user_overlay(tmp_path: Path) -> None:
@@ -101,7 +101,7 @@ def test_extract_rules_personal_scope_writes_user_overlay(tmp_path: Path) -> Non
     )
     assert result["scope"] == "personal"
     assert (root / "review_overlay.json").exists()
-    assert not (repo / ".atelier" / "review.json").exists()
+    assert not (repo / ".lemoncrow" / "review.json").exists()
 
 
 def test_extract_rules_dry_run_does_not_write(tmp_path: Path) -> None:
@@ -137,4 +137,4 @@ def test_extract_rules_no_sources(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()
     result = extract_rules(root, tmp_path / "empty", runner=lambda *a, **k: "[]")
-    assert result["reason"] == "no .atelier/lessons/blocks found"
+    assert result["reason"] == "no .lemoncrow/lessons/blocks found"

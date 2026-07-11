@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from atelier.core.foundation.models import FileEditRecord
-from atelier.core.foundation.store import ContextStore
-from atelier.gateway.hosts.session_parsers._common import snapshot_edited_files
-from atelier.gateway.hosts.session_parsers.claude import ClaudeImporter, find_claude_sessions
+from lemoncrow.core.foundation.models import FileEditRecord
+from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.gateway.hosts.session_parsers._common import snapshot_edited_files
+from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter, find_claude_sessions
 
 
 def _write_jsonl(path: Path, events: list[dict[str, object]]) -> None:
@@ -31,7 +31,7 @@ def test_find_claude_sessions_discovers_project_jsonl_files(tmp_path: Path) -> N
 
 
 def test_claude_import_session_merges_subagent_jsonls(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     importer = ClaudeImporter(store)
 
@@ -88,7 +88,7 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     Regression: tally dicts were declared per-file, so a session whose last
     subagent used only builtin tools reported the whole session as builtin-only.
     """
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
     importer = ClaudeImporter(store)
 
@@ -109,8 +109,8 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
                     "model": "claude-sonnet-4-6",
                     "usage": {"input_tokens": 10, "output_tokens": 4},
                     "content": [
-                        {"type": "tool_use", "id": "tu-1", "name": "mcp__atelier__read", "input": {"path": "a.py"}},
-                        {"type": "tool_use", "id": "tu-2", "name": "mcp__atelier__grep", "input": {"q": "x"}},
+                        {"type": "tool_use", "id": "tu-1", "name": "mcp__lemon__read", "input": {"path": "a.py"}},
+                        {"type": "tool_use", "id": "tu-2", "name": "mcp__lemon__grep", "input": {"q": "x"}},
                     ],
                 },
             },
@@ -139,7 +139,7 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     traces = [t for t in store.list_traces(limit=10) if t.session_id == filename_session_id]
     assert len(traces) == 1
     tool_counts = {c.name: c.count for c in traces[0].tools_called}
-    assert tool_counts == {"mcp__atelier__read": 1, "mcp__atelier__grep": 1, "Bash": 1}
+    assert tool_counts == {"mcp__lemon__read": 1, "mcp__lemon__grep": 1, "Bash": 1}
 
 
 def test_claude_parallel_coverage_matrix_doc_exists_and_has_required_rows() -> None:
@@ -160,7 +160,7 @@ def test_claude_parallel_coverage_matrix_doc_exists_and_has_required_rows() -> N
 
 
 def test_snapshot_edited_files_normalizes_absolute_content_path(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "atelier")
+    store = ContextStore(tmp_path / "lemoncrow")
     store.init()
 
     edited = tmp_path / "workspace" / "scripts" / "install_claude.sh"

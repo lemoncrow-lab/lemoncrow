@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from atelier.core.capabilities.repo_map.budget import count_tokens
-from atelier.core.capabilities.scoped_context import ScopedContextCapability, Subtask
-from atelier.core.capabilities.scoped_context.line_skimmer import (
+from lemoncrow.core.capabilities.repo_map.budget import count_tokens
+from lemoncrow.core.capabilities.scoped_context import ScopedContextCapability, Subtask
+from lemoncrow.core.capabilities.scoped_context.line_skimmer import (
     LineSkimmer,
     build_goal_text,
     is_line_skim_enabled,
@@ -130,8 +130,8 @@ def _relevant_lines(text: str) -> list[str]:
 
 def test_is_line_skim_enabled_default_off() -> None:
     assert is_line_skim_enabled(env={}) is False
-    assert is_line_skim_enabled(env={"ATELIER_LINE_SKIM": "1"}) is True
-    assert is_line_skim_enabled(env={"ATELIER_LINE_SKIM": "0"}) is False
+    assert is_line_skim_enabled(env={"LEMONCROW_LINE_SKIM": "1"}) is True
+    assert is_line_skim_enabled(env={"LEMONCROW_LINE_SKIM": "0"}) is False
 
 
 def test_build_goal_text_combines_fields() -> None:
@@ -277,7 +277,7 @@ def _records() -> list[_FakeRecord]:
 
 
 def test_pull_unchanged_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ATELIER_LINE_SKIM", raising=False)
+    monkeypatch.delenv("LEMONCROW_LINE_SKIM", raising=False)
     cap = ScopedContextCapability(_FakeEngine(_records()))
     result = cap.pull(
         Subtask(
@@ -294,7 +294,7 @@ def test_pull_unchanged_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_pull_skims_when_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATELIER_LINE_SKIM", "1")
+    monkeypatch.setenv("LEMONCROW_LINE_SKIM", "1")
     cap = ScopedContextCapability(_FakeEngine(_records()))
     result = cap.pull(
         Subtask(

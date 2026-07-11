@@ -1,4 +1,4 @@
-"""Tests for the Harbor Terminal-Bench adapter (benchmarks/harbor/atelier_agent.py).
+"""Tests for the Harbor Terminal-Bench adapter (benchmarks/harbor/lemoncrow_agent.py).
 
 The harbor framework is installed as a uv tool, not a project dependency, so
 these tests skip unless harbor is importable. To run them locally:
@@ -25,8 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarks.harbor import atelier_agent  # noqa: E402
-from benchmarks.harbor.atelier_agent import AtelierClaudeCodeHarborAgent  # noqa: E402
+from benchmarks.harbor import lemoncrow_agent  # noqa: E402
+from benchmarks.harbor.lemoncrow_agent import LemonCrowClaudeCodeHarborAgent  # noqa: E402
 
 FAKE_TOKEN = "sk-ant-oat01-FAKETESTTOKEN123456"
 
@@ -41,17 +41,17 @@ class _Ctx:
 
 
 @pytest.fixture()
-def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AtelierClaudeCodeHarborAgent:
+def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LemonCrowClaudeCodeHarborAgent:
     # Single-token fallback path: no _1/_2 pool, plain env token.
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN_1", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN_2", raising=False)
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FAKE_TOKEN)
-    monkeypatch.setattr(atelier_agent, "_TOKEN_QUEUE", None)
-    monkeypatch.setattr(atelier_agent, "_TOKEN_QUEUE_INIT", False)
-    return AtelierClaudeCodeHarborAgent(logs_dir=tmp_path, model_name="anthropic/claude-opus-4-8")
+    monkeypatch.setattr(lemoncrow_agent, "_TOKEN_QUEUE", None)
+    monkeypatch.setattr(lemoncrow_agent, "_TOKEN_QUEUE_INIT", False)
+    return LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path, model_name="anthropic/claude-opus-4-8")
 
 
-def _run_and_capture(agent: AtelierClaudeCodeHarborAgent) -> tuple[str, dict[str, str]]:
+def _run_and_capture(agent: LemonCrowClaudeCodeHarborAgent) -> tuple[str, dict[str, str]]:
     captured: dict[str, Any] = {}
 
     async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
@@ -60,11 +60,11 @@ def _run_and_capture(agent: AtelierClaudeCodeHarborAgent) -> tuple[str, dict[str
 
     agent.exec_as_root = fake_exec  # type: ignore[method-assign]
     # __wrapped__ bypasses the prompt-template decorator (needs no template file).
-    asyncio.run(AtelierClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
+    asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
     return captured["command"], captured["env"]
 
 
-def test_run_keeps_token_out_of_logged_command(agent: AtelierClaudeCodeHarborAgent) -> None:
+def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborAgent) -> None:
     """harbor logs the command verbatim into trial.log; the token must only
     travel via the exec env= dict (dropped by harbor's log formatter)."""
     command, env = _run_and_capture(agent)
@@ -73,7 +73,7 @@ def test_run_keeps_token_out_of_logged_command(agent: AtelierClaudeCodeHarborAge
     assert env is not None and env["CLAUDE_CODE_OAUTH_TOKEN"] == FAKE_TOKEN
 
 
-def test_run_uses_harbor_model_and_stages_sessions(agent: AtelierClaudeCodeHarborAgent) -> None:
+def test_run_uses_harbor_model_and_stages_sessions(agent: LemonCrowClaudeCodeHarborAgent) -> None:
     command, _ = _run_and_capture(agent)
     # -m anthropic/claude-opus-4-8 -> operational --model claude-opus-4-8
     assert "--model claude-opus-4-8" in command
@@ -96,7 +96,7 @@ def _session_event(uuid: str, typ: str, message: dict[str, Any], ts: str) -> dic
     }
 
 
-def test_populate_context_writes_atif_trajectory(agent: AtelierClaudeCodeHarborAgent, tmp_path: Path) -> None:
+def test_populate_context_writes_atif_trajectory(agent: LemonCrowClaudeCodeHarborAgent, tmp_path: Path) -> None:
     """populate_context_post_run must emit agent/trajectory.json (ATIF) with the
     cost patched in from claude-run.json, and still fill the context totals."""
     events = [
@@ -164,7 +164,7 @@ def test_populate_context_writes_atif_trajectory(agent: AtelierClaudeCodeHarborA
 
 
 def test_populate_context_without_session_still_fills_totals(
-    agent: AtelierClaudeCodeHarborAgent, tmp_path: Path
+    agent: LemonCrowClaudeCodeHarborAgent, tmp_path: Path
 ) -> None:
     """No staged session (e.g. claude crashed early): no trajectory, but the
     claude-run.json totals must still populate the context."""
@@ -178,7 +178,7 @@ def test_populate_context_without_session_still_fills_totals(
     assert ctx.n_output_tokens == 3
 
 
-def test_supports_atif_and_commit_version(agent: AtelierClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert AtelierClaudeCodeHarborAgent.SUPPORTS_ATIF is True
-    monkeypatch.setenv("ATELIER_BENCH_COMMIT", "abc1234")
+def test_supports_atif_and_commit_version(agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert LemonCrowClaudeCodeHarborAgent.SUPPORTS_ATIF is True
+    monkeypatch.setenv("LEMONCROW_BENCH_COMMIT", "abc1234")
     assert agent.version() == "abc1234"

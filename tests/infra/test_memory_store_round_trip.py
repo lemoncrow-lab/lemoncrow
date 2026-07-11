@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 
-from atelier.core.foundation.memory_models import ArchivalPassage, MemoryBlock, RunMemoryFrame
-from atelier.infra.memory_bridges.letta_adapter import LettaMemoryStore
-from atelier.infra.memory_bridges.openmemory import OpenMemoryMemoryStore
-from atelier.infra.storage.memory_store import MemoryStore
-from atelier.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock, RunMemoryFrame
+from lemoncrow.infra.memory_bridges.letta_adapter import LettaMemoryStore
+from lemoncrow.infra.memory_bridges.openmemory import OpenMemoryMemoryStore
+from lemoncrow.infra.storage.memory_store import MemoryStore
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 class _FakeLettaClient:
@@ -33,7 +33,7 @@ class _FakeLettaClient:
         for payload in self.blocks.values():
             metadata_obj = payload.get("metadata")
             existing = dict(metadata_obj) if isinstance(metadata_obj, dict) else {}
-            if existing.get("atelier_block_id") == block_id:
+            if existing.get("lemoncrow_block_id") == block_id:
                 existing.update(metadata)
                 payload["metadata"] = existing
                 return
@@ -53,10 +53,10 @@ class _FakeLettaClient:
     def archival_insert(self, **payload: object) -> dict[str, object]:
         metadata_obj = payload.get("metadata")
         metadata = dict(metadata_obj) if isinstance(metadata_obj, dict) else {}
-        passage_id = str(metadata.get("atelier_passage_id", "pas-letta"))
+        passage_id = str(metadata.get("lemoncrow_passage_id", "pas-letta"))
         row = {
             "id": passage_id,
-            "agent_id": payload.get("agent_id", "atelier:code"),
+            "agent_id": payload.get("agent_id", "lemon:code"),
             "text": payload.get("text", payload.get("value", "")),
             "tags": payload.get("tags", []),
             "metadata": metadata,
@@ -104,34 +104,34 @@ class _FakeOpenMemoryClient:
 @pytest.fixture(params=["sqlite", "letta", "openmemory"])
 def memory_store(request: pytest.FixtureRequest, tmp_path: Path) -> MemoryStore:
     if request.param == "sqlite":
-        return SqliteMemoryStore(tmp_path / "atelier")
+        return SqliteMemoryStore(tmp_path / "lemoncrow")
     if request.param == "letta":
-        return LettaMemoryStore(tmp_path / "atelier", client=_FakeLettaClient())
-    return OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
+        return LettaMemoryStore(tmp_path / "lemoncrow", client=_FakeLettaClient())
+    return OpenMemoryMemoryStore(tmp_path / "lemoncrow", client=_FakeOpenMemoryClient())
 
 
 def test_memory_store_core_round_trip(memory_store: MemoryStore) -> None:
     block = MemoryBlock(
-        agent_id="atelier:code",
+        agent_id="lemon:code",
         label="working-style",
         value="Keep implementation scoped.",
         pinned=True,
     )
 
-    stored = memory_store.upsert_block(block, actor="agent:atelier:code", reason="test")
-    fetched = memory_store.get_block("atelier:code", "working-style")
+    stored = memory_store.upsert_block(block, actor="agent:lemon:code", reason="test")
+    fetched = memory_store.get_block("lemon:code", "working-style")
 
     assert fetched is not None
     assert fetched.label == stored.label
     assert fetched.value == stored.value
-    assert memory_store.list_pinned_blocks("atelier:code")[0].label == "working-style"
+    assert memory_store.list_pinned_blocks("lemon:code")[0].label == "working-style"
     if isinstance(memory_store, SqliteMemoryStore):
         assert memory_store.list_block_history(stored.id)
 
 
 def test_memory_store_passage_and_run_frame_round_trip(memory_store: MemoryStore) -> None:
     passage = ArchivalPassage(
-        agent_id="atelier:code",
+        agent_id="lemon:code",
         text="Memory store persists archival passages.",
         tags=["memory"],
         source="user",
@@ -159,14 +159,14 @@ def test_memory_store_passage_and_run_frame_round_trip(memory_store: MemoryStore
 
 
 def test_letta_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_path: Path) -> None:
-    store = LettaMemoryStore(tmp_path / "atelier", client=_FakeLettaClient())
+    store = LettaMemoryStore(tmp_path / "lemoncrow", client=_FakeLettaClient())
     store.upsert_block(
-        MemoryBlock(agent_id="atelier:code", label="primary", value="stored in letta"),
-        actor="agent:atelier:code",
+        MemoryBlock(agent_id="lemon:code", label="primary", value="stored in letta"),
+        actor="agent:lemon:code",
     )
     store.insert_passage(
         ArchivalPassage(
-            agent_id="atelier:code",
+            agent_id="lemon:code",
             text="Letta owns this archival passage.",
             tags=["letta"],
             source="user",
@@ -174,20 +174,20 @@ def test_letta_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_path: P
         )
     )
 
-    sqlite = SqliteMemoryStore(tmp_path / "atelier")
-    assert sqlite.get_block("atelier:code", "primary") is None
-    assert sqlite.list_passages("atelier:code") == []
+    sqlite = SqliteMemoryStore(tmp_path / "lemoncrow")
+    assert sqlite.get_block("lemon:code", "primary") is None
+    assert sqlite.list_passages("lemon:code") == []
 
 
 def test_openmemory_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_path: Path) -> None:
-    store = OpenMemoryMemoryStore(tmp_path / "atelier", client=_FakeOpenMemoryClient())
+    store = OpenMemoryMemoryStore(tmp_path / "lemoncrow", client=_FakeOpenMemoryClient())
     store.upsert_block(
-        MemoryBlock(agent_id="atelier:code", label="primary", value="stored in openmemory"),
-        actor="agent:atelier:code",
+        MemoryBlock(agent_id="lemon:code", label="primary", value="stored in openmemory"),
+        actor="agent:lemon:code",
     )
     store.insert_passage(
         ArchivalPassage(
-            agent_id="atelier:code",
+            agent_id="lemon:code",
             text="OpenMemory owns this archival passage.",
             tags=["openmemory"],
             source="user",
@@ -195,20 +195,20 @@ def test_openmemory_memory_store_does_not_mirror_primary_memory_to_sqlite(tmp_pa
         )
     )
 
-    sqlite = SqliteMemoryStore(tmp_path / "atelier")
-    assert sqlite.get_block("atelier:code", "primary") is None
-    assert sqlite.list_passages("atelier:code") == []
+    sqlite = SqliteMemoryStore(tmp_path / "lemoncrow")
+    assert sqlite.get_block("lemon:code", "primary") is None
+    assert sqlite.list_passages("lemon:code") == []
 
 
 def test_letta_memory_store_tombstones_blocks_with_metadata(tmp_path: Path) -> None:
-    store = LettaMemoryStore(tmp_path / "atelier", client=_FakeLettaClient())
-    block = MemoryBlock(agent_id="atelier:code", label="primary", value="stored in letta")
-    store.upsert_block(block, actor="agent:atelier:code")
+    store = LettaMemoryStore(tmp_path / "lemoncrow", client=_FakeLettaClient())
+    block = MemoryBlock(agent_id="lemon:code", label="primary", value="stored in letta")
+    store.upsert_block(block, actor="agent:lemon:code")
 
     store.tombstone_block(block.id, reason="superseded")
 
-    assert store.get_block("atelier:code", "primary") is None
-    tombstoned = store.get_block("atelier:code", "primary", include_tombstoned=True)
+    assert store.get_block("lemon:code", "primary") is None
+    tombstoned = store.get_block("lemon:code", "primary", include_tombstoned=True)
     assert tombstoned is not None
     assert tombstoned.deprecated_at is not None
     assert tombstoned.deprecation_reason == "superseded"

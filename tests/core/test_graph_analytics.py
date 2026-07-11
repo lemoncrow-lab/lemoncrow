@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atelier.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-from atelier.core.capabilities.semantic_file_memory.graph_analytics import GraphAnalytics
+from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.core.capabilities.semantic_file_memory.graph_analytics import GraphAnalytics
 
 
 def _build_capability(repo: Path, cache_root: Path) -> SemanticFileMemoryCapability:

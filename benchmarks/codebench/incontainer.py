@@ -1,6 +1,6 @@
 """In-container agent runner for Multi-SWE-bench instances (option A).
 
-The agent (Claude Code, optionally + Atelier) runs INSIDE each instance's
+The agent (Claude Code, optionally + LemonCrow) runs INSIDE each instance's
 Docker image -- which carries the real toolchain -- against the repo checked
 out at ``base_sha``. The produced git diff is extracted as the agent's
 ``fix_patch`` and the run is parsed into a run.py ``ArmResult`` so every
@@ -8,8 +8,8 @@ existing savings / report / CSV path applies unchanged.
 
 The two arms differ only in the overlay contents + the claude flags:
   baseline -> vanilla Claude Code (default persona, empty MCP)
-  atelier  -> Claude Code + the Atelier plugin (--plugin-dir, --agent atelier:auto)
-That is the vanilla-vs-Atelier isolation, same model, same task.
+  lemoncrow -> Claude Code + the LemonCrow plugin (--plugin-dir, --agent lemon:auto)
+That is the vanilla-vs-LemonCrow isolation, same model, same task.
 """
 
 from __future__ import annotations
@@ -44,18 +44,18 @@ class RunnableInstance(Protocol):
 
 
 ENTRY_SCRIPT = Path(__file__).parent / "incontainer_entry.sh"
-# Pre-warmed tiktoken cache bind-mounted into the atelier container. The Atelier
+# Pre-warmed tiktoken cache bind-mounted into the LemonCrow container. The LemonCrow
 # MCP server loads cl100k_base at import (repo_map.budget); without a warmed
 # cache it downloads from openaipublic.blob, which dies under the benchmark proxy
 # (mitm CA absent from Python's trust store) and crashes the server -> zero
-# Atelier tools reach the agent. Warmed by _ensure_tiktoken_cache().
+# LemonCrow tools reach the agent. Warmed by _ensure_tiktoken_cache().
 TIKTOKEN_CACHE_HOST = Path(__file__).parent / ".tiktoken-cache"
 OVERLAY_NAMESPACE = "codebench-overlay"
 _DIFF_BEGIN = "<<<CODEBENCH_DIFF_BEGIN>>>"
 _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 
 # Persona per arm for the "code" capability (mirrors run.ARM_SPECS).
-_ARM_AGENT: dict[str, str | None] = {"baseline": None, "atelier": "atelier:auto"}
+_ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lemon:auto"}
 
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
@@ -71,21 +71,21 @@ npm cache clean --force
 rm -rf /var/lib/apt/lists/*
 """
 
-# Atelier arm only: install the atelier CLI from the mounted repo (skip mypyc
+# LemonCrow arm only: install the LemonCrow CLI from the mounted repo (skip mypyc
 # for a fast pure-Python build) onto PATH so the plugin's MCP server
-# (`atelier mcp --host claude`) resolves exactly as it does on the host.
+# (`lemon mcp --host claude`) resolves exactly as it does on the host.
 # Extras go on the path requirement; UV_TOOL_BIN_DIR puts the entrypoints on PATH.
-_ATELIER_INSTALL = r"""
+_LEMONCROW_INSTALL = r"""
 set -e
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-ATELIER_SKIP_MYPYC=1 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/atelier[mcp,smart,parsers,rename]"
+LEMONCROW_SKIP_MYPYC=1 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/lemoncrow[mcp,smart,parsers,rename]"
 
 # Pre-install the ast-grep binary so the codemod MCP tool works at runtime.
 # Download NOW (overlay build time) -- the mitmproxy that runs during the actual
 # benchmark uses a CA that Python's ssl module does not trust, so any urllib call
 # at runtime fails. ast-grep is a compiled Rust CLI; there is no pip wheel for it.
 # Version/URL/SHA must stay in sync with:
-#   src/atelier/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
+#   src/lemoncrow/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
 python3 - <<'PYEOF'
 import hashlib, io, platform, stat, sys, urllib.request, zipfile
 from pathlib import Path
@@ -102,7 +102,7 @@ ASSETS = {
 if ARCH not in ASSETS:
     sys.exit(f'no pinned ast-grep asset for arch {ARCH!r}')
 url, sha256 = ASSETS[ARCH]
-dest = Path('/opt/atelier-astgrep/ast-grep')
+dest = Path('/opt/lemoncrow-astgrep/ast-grep')
 dest.parent.mkdir(parents=True, exist_ok=True)
 print(f'Downloading ast-grep ({ARCH}) ...', flush=True)
 with urllib.request.urlopen(url, timeout=120) as r:
@@ -127,9 +127,9 @@ def _run(cmd: list[str], *, timeout: float | None = None, capture: bool = True) 
 def _ensure_tiktoken_cache() -> None:
     """Warm the bind-mounted tiktoken cache (idempotent; a hit is a no-op).
 
-    The in-container Atelier MCP server loads cl100k_base at import; with this
+    The in-container LemonCrow MCP server loads cl100k_base at import; with this
     cache present it never reaches the network, which would otherwise crash the
-    server under the benchmark proxy. Warms with the atelier venv (which carries
+    server under the benchmark proxy. Warms with the LemonCrow venv (which carries
     tiktoken) so a fresh clone / CI run can't silently regress.
     """
     if TIKTOKEN_CACHE_HOST.exists() and any(TIKTOKEN_CACHE_HOST.iterdir()):
@@ -157,8 +157,8 @@ def _safe(base_image: str) -> str:
     return re.sub(r"[^a-z0-9_.-]+", "_", base_image.lower()).strip("_")
 
 
-def overlay_tag(base_image: str, *, atelier: bool) -> str:
-    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{'atelier' if atelier else 'baseline'}"
+def overlay_tag(base_image: str, *, lemon: bool) -> str:
+    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{'lemoncrow' if lemon else 'baseline'}"
 
 
 def ensure_base_image(image: str, *, timeout: float = 1800) -> None:
@@ -176,11 +176,11 @@ def _install_zoekt_into(builder: str, *, timeout: float = 600) -> None:
     needed.  The four binaries go to ``/usr/local/bin/`` so
     ``discover_zoekt_binary()`` finds them via PATH (installed mode).
     Version is pinned in
-    ``src/atelier/infra/code_intel/zoekt/VERSIONS.toml``.
+    ``src/lemoncrow/infra/code_intel/zoekt/VERSIONS.toml``.
     """
     import tomllib
 
-    versions_path = REPO_ROOT / "src" / "atelier" / "infra" / "code_intel" / "zoekt" / "VERSIONS.toml"
+    versions_path = REPO_ROOT / "src" / "lemoncrow" / "infra" / "code_intel" / "zoekt" / "VERSIONS.toml"
     try:
         image_ref = tomllib.loads(versions_path.read_text())["zoekt"]["image_ref"]
     except Exception as exc:
@@ -245,26 +245,26 @@ def _install_zoekt_into(builder: str, *, timeout: float = 600) -> None:
         _run(["docker", "rm", "-f", tmp])
 
 
-def ensure_overlay(base_image: str, *, atelier: bool, build_timeout: float = 3600) -> str:
+def ensure_overlay(base_image: str, *, lemon: bool, build_timeout: float = 3600) -> str:
     """Build (once, then cache) the harness overlay for *base_image*.
 
-    The atelier overlay layers on the baseline overlay (which already carries
-    Node + claude), so node/claude install once per base image and the atelier
-    build only adds the atelier CLI.
+    The LemonCrow overlay layers on the baseline overlay (which already carries
+    Node + claude), so node/claude install once per base image and the LemonCrow
+    build only adds the LemonCrow CLI.
     """
-    tag = overlay_tag(base_image, atelier=atelier)
+    tag = overlay_tag(base_image, lemon=lemon)
     if image_exists(tag):
         return tag
-    if atelier:
-        parent = ensure_overlay(base_image, atelier=False)
-        install = _ATELIER_INSTALL
-        mounts = ["-v", f"{REPO_ROOT}:/opt/atelier:ro"]
+    if lemon:
+        parent = ensure_overlay(base_image, lemon=False)
+        install = _LEMONCROW_INSTALL
+        mounts = ["-v", f"{REPO_ROOT}:/opt/lemon:ro"]
     else:
         ensure_base_image(base_image)
         parent = base_image
         install = _BASELINE_INSTALL
         mounts = []
-    builder = f"overlay_build_{_safe(base_image)}_{'atelier' if atelier else 'baseline'}"
+    builder = f"overlay_build_{_safe(base_image)}_{'lemoncrow' if lemon else 'baseline'}"
     _run(["docker", "rm", "-f", builder])
     # --entrypoint sleep overrides whatever ENTRYPOINT the base image sets (most
     # SWE-bench images have none, so "sleep infinity" runs as the CMD -- but
@@ -281,12 +281,12 @@ def ensure_overlay(base_image: str, *, atelier: bool, build_timeout: float = 360
         proc = _run(["docker", "exec", builder, "bash", "-lc", install], timeout=build_timeout)
         if proc.returncode != 0:
             raise RuntimeError(f"overlay install failed for {tag}:\n{proc.stdout[-800:]}\n{proc.stderr[-800:]}")
-        # ATELIER_ZOEKT_MODE defaults to "off" (lexical/FTS5-only, see zoekt_mode()
-        # in src/atelier/infra/code_intel/zoekt/binary.py) and the container never
+        # LEMONCROW_ZOEKT_MODE defaults to "off" (lexical/FTS5-only, see zoekt_mode()
+        # in src/lemoncrow/infra/code_intel/zoekt/binary.py) and the container never
         # sets it otherwise -- should_route() short-circuits on mode=="off" before
         # ever touching the binaries, so installing them is pure dead weight unless
         # a caller explicitly opts in to test the zoekt path.
-        if atelier and os.environ.get("CODEBENCH_ZOEKT_MODE", "off") != "off":
+        if lemon and os.environ.get("CODEBENCH_ZOEKT_MODE", "off") != "off":
             _install_zoekt_into(builder)
         if _run(["docker", "commit", builder, tag]).returncode != 0:
             raise RuntimeError(f"docker commit {tag} failed")
@@ -380,14 +380,14 @@ def _docker_run_cmd(
         "-v",
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
-    if arm == "atelier":
-        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('atelier') or 'atelier:auto')}:/mnt/plugin:ro"]
+    if arm == "lemoncrow":
+        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemon:auto')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
         # Overlay the live repo source onto the baked-in (pure-Python) install so
         # tool-behavior changes take effect without rebuilding 12 overlay images.
         cmd += [
             "-v",
-            f"{REPO_ROOT}/src/atelier:/root/.local/share/uv/tools/atelier/lib/python3.13/site-packages/atelier:ro",
+            f"{REPO_ROOT}/src/lemon:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemon:ro",
         ]
         # Semantic bash-output compaction: bind-mount an rtk binary so
         # external_compactors routes pytest/git/linter output through it inside
@@ -428,14 +428,14 @@ def _docker_run_cmd(
     if before_repo_set_cmd:
         env["CODEBENCH_BEFORE_REPO_SET_CMD"] = str(before_repo_set_cmd)
     agent = _ARM_AGENT.get(arm)
-    if arm == "atelier":
-        # Per-run persona override (default atelier:auto). Lets a diagnostic run
-        # use e.g. atelier:bare without disturbing a concurrent auto run -- the
+    if arm == "lemoncrow":
+        # Per-run persona override (default lemon:auto). Lets a diagnostic run
+        # use e.g. lemon:bare without disturbing a concurrent auto run -- the
         # other process doesn't set this env var, so it keeps the default.
-        agent = os.environ.get("CODEBENCH_ATELIER_AGENT") or agent
+        agent = os.environ.get("CODEBENCH_LEMONCROW_AGENT") or agent
     if agent:
         env["CODEBENCH_AGENT"] = agent
-    if arm == "atelier":
+    if arm == "lemoncrow":
         # Point tiktoken at the bind-mounted pre-warmed cache so the MCP server
         # never reaches the network at import (see TIKTOKEN_CACHE_HOST).
         env["TIKTOKEN_CACHE_DIR"] = "/opt/tiktoken-cache"
@@ -444,17 +444,17 @@ def _docker_run_cmd(
         # reasons over. callers/callees/usages are already hidden by default
         # (folded into `explore`), so they need not be repeated here. Visible
         # surface after this: read, edit, code_search, bash (verified via
-        # `atelier tools list` under this env) -- ~1k tokens of schema total.
-        env["ATELIER_HIDE_TOOLS"] = "sql,memory,web_fetch"
+        # `lemon tools list` under this env) -- ~1k tokens of schema total.
+        env["LEMONCROW_HIDE_TOOLS"] = "sql,memory,web_fetch"
         # Point at the pre-installed binary so discover_astgrep_binary() finds it
         # immediately via the env-var path (no runtime download attempt through proxy).
-        env["ATELIER_AST_GREP_BIN"] = "/opt/atelier-astgrep/ast-grep"
+        env["LEMONCROW_AST_GREP_BIN"] = "/opt/lemoncrow-astgrep/ast-grep"
         # Edit-verify gate ON by default (tree-sitter parse + scoped mypy): catches
         # mechanical edit errors in-tool instead of via a shell round-trip, which
         # collapses the edit->test->error->re-edit cycle on iteration-bound tasks
         # (measured -33% to -47% cost at equal correctness). Opt out for control
         # runs with CODEBENCH_EDIT_VERIFY=0.
-        env["ATELIER_EDIT_VERIFY"] = os.environ.get("CODEBENCH_EDIT_VERIFY", "1")
+        env["LEMONCROW_EDIT_VERIFY"] = os.environ.get("CODEBENCH_EDIT_VERIFY", "1")
         # Code search runs lexical (symbol FTS + zoekt) by default -- the shipped
         # default (NullEmbedder, FTS-only). The feature-hashing "local" embedder was
         # removed: RETRIEVAL_EVAL measured it at -0.0004 MRR (net zero, flask -0.16)
@@ -462,14 +462,14 @@ def _docker_run_cmd(
         # backend (ollama/bge) via CODEBENCH_CODE_EMBEDDER.
         _code_embedder = os.environ.get("CODEBENCH_CODE_EMBEDDER", "")
         if _code_embedder:
-            env["ATELIER_CODE_EMBEDDER"] = _code_embedder
+            env["LEMONCROW_CODE_EMBEDDER"] = _code_embedder
         # Verify-before-done gate ON for every persona. It is the DETERMINISTIC
         # half of correctness: silent on the happy path (a real test ran), and
         # actionable only on the fail/skip case (edited code, no test runner). This
         # replaces a blanket persona "always iterate against tests" rule, which
         # taxed easy tasks; the gate nudges once, only when a test was actually
         # skipped. Override with CODEBENCH_VERIFY_BEFORE_DONE=0.
-        env["ATELIER_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", "1")
+        env["LEMONCROW_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", "1")
         # code_search outline mode ON by default: large sections become L<start>-L<end>
         # pointers (small ones stay inline; include_source keeps a bounded top-2).
         # Flow-capture attribution (reports/benchmark/swe/20260706T065549Z) measured
@@ -477,15 +477,15 @@ def _docker_run_cmd(
         # per 10 tasks while the agent read its edit targets anyway (sphinx: 14k chars
         # of sections next to an unchanged read volume). Opt out for control runs with
         # CODEBENCH_CODESEARCH_OUTLINE=0.
-        env["ATELIER_CODESEARCH_OUTLINE"] = os.environ.get("CODEBENCH_CODESEARCH_OUTLINE", "1")
+        env["LEMONCROW_CODESEARCH_OUTLINE"] = os.environ.get("CODEBENCH_CODESEARCH_OUTLINE", "1")
         # Defer mutating edit-hooks (format/organize-imports) + contract-site re-fires
         # to the Stop hook so the formatter can't reflow files mid-session and break
         # the agent's read anchors. Opt-in via CODEBENCH_DEFER_EDIT_HOOKS=1.
-        env["ATELIER_DEFER_EDIT_HOOKS"] = os.environ.get("CODEBENCH_DEFER_EDIT_HOOKS", "0")
+        env["LEMONCROW_DEFER_EDIT_HOOKS"] = os.environ.get("CODEBENCH_DEFER_EDIT_HOOKS", "0")
         # Matches the host default (lexical/FTS5-only); overlay only installs the
         # zoekt binaries when this is set to something other than "off" (see the
         # ensure_overlay() gate above), so this must stay in sync with that check.
-        env["ATELIER_ZOEKT_MODE"] = os.environ.get("CODEBENCH_ZOEKT_MODE", "off")
+        env["LEMONCROW_ZOEKT_MODE"] = os.environ.get("CODEBENCH_ZOEKT_MODE", "off")
     env.update(agent_env)
     for key, value in env.items():
         cmd += ["-e", f"{key}={value}"]
@@ -531,9 +531,9 @@ def run_in_container(
     ``...flow`` (wire capture) under *out_dir*; the grader reads the patch.
     """
     agent_env = agent_env or {}
-    if arm == "atelier":
+    if arm == "lemoncrow":
         _ensure_tiktoken_cache()
-    overlay = overlay or ensure_overlay(instance.image, atelier=(arm == "atelier"))
+    overlay = overlay or ensure_overlay(instance.image, lemon=(arm == "lemoncrow"))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{instance.instance_id}_{arm}_rep{rep}"

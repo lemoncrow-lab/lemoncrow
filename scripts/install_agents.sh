@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_agents.sh — Universal project-local Atelier installer
+# install_agents.sh — Universal project-local LemonCrow installer
 #
 # Creates/updates the universally-respected AGENTS.md config file.
 # AGENTS.md is respected by opencode, codex, copilot, gemini, claude, etc.
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATELIER_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
 
 DRY_RUN=false
@@ -50,32 +50,32 @@ if [ -z "$WORKSPACE" ]; then
 fi
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
-# Host-neutral atelier:code persona that ships with the distribution. Never source
-# the repo's own AGENTS.md (that is atelier's dev entrypoint, not a user persona).
-AGENTS_SOURCE="${ATELIER_REPO}/integrations/AGENTS.atelier.md"
+# Host-neutral lemon:code persona that ships with the distribution. Never source
+# the repo's own AGENTS.md (that is LemonCrow's dev entrypoint, not a user persona).
+AGENTS_SOURCE="${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md"
 
-info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:agents] $*" || true; }
-warn()  { echo "[atelier:agents] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:agents] $*" || true; }
+warn()  { echo "[lemon:agents] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || "$@"; }
 
 if $PRINT_ONLY; then
     echo ""
-    echo "=== Atelier Universal Agents Install ==="
+    echo "=== LemonCrow Universal Agents Install ==="
     echo ""
     echo "Project: ${WORKSPACE}"
     echo ""
-    echo "1. Ensure ${WORKSPACE}/AGENTS.md has atelier:code persona"
+    echo "1. Ensure ${WORKSPACE}/AGENTS.md has lemon:code persona"
     echo "   Source: ${AGENTS_SOURCE}"
     echo ""
-    echo "2. Install the Git prepare-commit-msg hook for Atelier co-author attribution"
-    echo "   Trailer: Co-Authored-By: atelier <293447754+atelier@users.noreply.github.com>"
+    echo "2. Install the Git prepare-commit-msg hook for LemonCrow co-author attribution"
+    echo "   Trailer: Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
     echo ""
-    echo "After install, AGENTS.md will contain the atelier:code agent persona and commits will carry Atelier attribution."
+    echo "After install, AGENTS.md will contain the lemon:code agent persona and commits will carry LemonCrow attribution."
     exit 0
 fi
 
 # ── 1. AGENTS.md ──────────────────────────────────────────────────────────────
-# Ensures the project's AGENTS.md includes the atelier:code persona via
+# Ensures the project's AGENTS.md includes the lemon:code persona via
 # sentinel markers so re-install updates in place without destroying user content.
 
 AGENTS_FILE="${WORKSPACE}/AGENTS.md"
@@ -83,35 +83,35 @@ AGENTS_FILE="${WORKSPACE}/AGENTS.md"
 if [ -f "$AGENTS_SOURCE" ]; then
     if [ -f "$AGENTS_FILE" ]; then
         if $DRY_RUN; then
-            atelier_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
-            info "[dry-run] would ensure atelier:code persona in $AGENTS_FILE"
+            lemoncrow_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
+            info "[dry-run] would ensure lemon:code persona in $AGENTS_FILE"
         else
-            atelier_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
-            info "ensured atelier:code persona in $AGENTS_FILE"
+            lemoncrow_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
+            info "ensured lemon:code persona in $AGENTS_FILE"
         fi
     else
         if $DRY_RUN; then
-            atelier_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
-            info "[dry-run] would create $AGENTS_FILE with atelier:code persona"
+            lemoncrow_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
+            info "[dry-run] would create $AGENTS_FILE with lemon:code persona"
         else
-            atelier_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
-            info "created $AGENTS_FILE with atelier:code persona"
+            lemoncrow_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
+            info "created $AGENTS_FILE with lemon:code persona"
         fi
     fi
 else
-    warn "atelier persona source not found: $AGENTS_SOURCE"
+    warn "LemonCrow persona source not found: $AGENTS_SOURCE"
 fi
 
 # ── 2. Git attribution ───────────────────────────────────────────────────────
-# Host-agnostic co-author attribution for commits made by any Atelier-backed
+# Host-agnostic co-author attribution for commits made by any LemonCrow-backed
 # agent in this workspace.
-atelier_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 info "Universal agents config installed in ${WORKSPACE}"
-info "  ${AGENTS_FILE}  — atelier:code persona (respected by all agent CLIs)"
-info "  Git hook       — Atelier co-author attribution for agent commits"
+info "  ${AGENTS_FILE}  — lemon:code persona (respected by all agent CLIs)"
+info "  Git hook       — LemonCrow co-author attribution for agent commits"
 echo ""
 info "Next: install per-host configs (if needed)"
 info "  bash scripts/install_opencode.sh --workspace '${WORKSPACE}'"

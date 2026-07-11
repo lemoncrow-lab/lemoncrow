@@ -4,7 +4,7 @@ argument-hint: <the code change or surface to verify, e.g. an endpoint or page>
 description: "Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review)."
 ---
 
-> **Active** — do not call `Skill("atelier:perf-review")` again.
+> **Active** — do not call `Skill("lemon:perf-review")` again.
 
 # Performance review
 
