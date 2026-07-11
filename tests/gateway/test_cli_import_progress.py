@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner, Result
 
 from atelier.gateway.cli import cli
@@ -39,7 +40,10 @@ def _invoke(root: Path, *args: str) -> Result:
     return runner.invoke(cli, ["--root", str(root), *args])
 
 
-def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path) -> None:
+def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     root = tmp_path / "store"
     _invoke(root, "init", "--no-index")
     sessions = _make_claude_fixture(tmp_path)

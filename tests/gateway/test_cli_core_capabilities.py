@@ -25,7 +25,10 @@ def _isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def test_search_smart_blocks(tmp_path: Path) -> None:
+def test_search_smart_blocks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     root = tmp_path / ".atelier"
     code, out = _invoke(root, "init")
     assert code == 0, out
@@ -54,7 +57,10 @@ def test_search_smart_blocks(tmp_path: Path) -> None:
     assert "shopify" in out.lower()
 
 
-def test_read_smart_and_edit_smart(tmp_path: Path) -> None:
+def test_read_smart_and_edit_smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     root = tmp_path / ".atelier"
     code, out = _invoke(root, "init")
     assert code == 0, out

@@ -613,7 +613,23 @@ def init(
     index: bool,
     configure_models: bool | None,
 ) -> None:
-    """Initialize the runtime store at --root."""
+    """Initialize the official runtime store at --root.
+
+    Official activation requires a free Atelier account. Source builds can still
+    be run independently; this check establishes the supported product boundary.
+    """
+    from atelier.core.capabilities.licensing.store import load_auth_token
+
+    if not load_auth_token():
+        if not _is_interactive_terminal():
+            raise click.ClickException(
+                "A free Atelier account is required to activate this install. Run atelier login, then retry atelier init."
+            )
+        click.echo("No Atelier account found — starting login...")
+        _oauth_login(as_json=False)
+        if not load_auth_token():
+            raise click.ClickException("Login did not complete. Run atelier login, then retry atelier init.")
+
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
     # ContextStore resolves the active workspace root internally (for its
@@ -1346,156 +1362,41 @@ def login_cmd(
 
 def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
     """Run the OAuth browser flow and persist the returned session token."""
-    import http.server
-    import json
-    import socket
-    import threading
-    import urllib.parse
-    import urllib.request
-    import webbrowser
+    from atelier.core.capabilities.licensing.oauth_flow import run_oauth_login
 
-    from atelier.core.capabilities.licensing.store import (
-        load_or_create_device_id,
-        save_auth_base,
-        save_auth_token,
-        save_auth_user,
-    )
+    result = run_oauth_login(dev_mode=dev_mode, notify=lambda msg: click.echo(f"  {msg}"))
 
-    base = "http://localhost:4321" if dev_mode else "https://atelier.ws"
-
-    # Always open the browser — atelier login is intentional and issues a fresh device token.
-
-    # Find a free port
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    import platform
-
-    hostname = platform.node() or "cli"
-    stable_device_id = load_or_create_device_id()
-    cli_redirect = f"http://localhost:{port}/callback"
-    oauth_url = (
-        f"{base}/account"
-        f"?cli_redirect={urllib.parse.quote(cli_redirect, safe='')}"
-        f"&device_name={urllib.parse.quote(hostname, safe='')}"
-        f"&stable_device_id={urllib.parse.quote(stable_device_id, safe='')}"
-    )
-
-    received: dict[str, str] = {}
-    server_ready = threading.Event()
-    shutdown_event = threading.Event()
-
-    class _Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
-            if parsed.path == "/callback":
-                qs = urllib.parse.parse_qs(parsed.query)
-                received["token"] = qs.get("token", [""])[0]
-                received["email"] = qs.get("email", [""])[0]
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(
-                    b"<html><body><p>Logged in. You can close this tab.</p>"
-                    b"<script>window.close()</script></body></html>"
-                )
-            else:
-                self.send_response(404)
-                self.end_headers()
-            shutdown_event.set()
-
-        def log_message(self, *args: object) -> None:
-            pass  # suppress access log
-
-    httpd = http.server.HTTPServer(("127.0.0.1", port), _Handler)
-    httpd.timeout = 1
-
-    def _serve() -> None:
-        server_ready.set()
-        deadline = 120
-        import time
-
-        start = time.monotonic()
-        while not shutdown_event.is_set() and time.monotonic() - start < deadline:
-            httpd.handle_request()
-        httpd.server_close()
-
-    thread = threading.Thread(target=_serve, daemon=True)
-    thread.start()
-    server_ready.wait()
-
-    click.secho("Opening browser to sign in...", fg="cyan", dim=True)
-    click.echo(f"  or open: {oauth_url}")
-    opened = False
-    if sys.stdout.isatty():
-        try:
-            opened = webbrowser.open(oauth_url)
-        except Exception:  # noqa: BLE001
-            opened = False
-    if not opened:
-        click.echo("  Could not open a browser automatically — open the URL above to continue.")
-
-    shutdown_event.wait(timeout=120)
-    thread.join(timeout=5)
-
-    session_token = received.get("token", "")
-    email = received.get("email", "")
-
-    if not session_token:
+    if result is None:
         click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
         click.echo("  Fallback: atelier login --token <token> (from your account page).", err=True)
         raise SystemExit(1)
 
-    save_auth_token(session_token)
-
-    # Best-effort: fetch plan + device_id from server
-    plan = "free"
-    plan_verified = False
-    device_id = session_token[:8]
-    try:
-        from atelier.core.capabilities.licensing.entitlements import USER_AGENT
-
-        req = urllib.request.Request(
-            f"{base}/api/auth/me",
-            headers={"Authorization": f"Bearer {session_token}", "User-Agent": USER_AGENT},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data: dict[str, object] = json.loads(resp.read())
-        plan = str(data.get("plan") or plan)
-        plan_verified = True
-        device_id = str(data.get("device_id") or device_id)
-        save_auth_user({**data, "_base": base})
-        save_auth_base(base)
-    except Exception:  # noqa: BLE001
-        pass
-
-    plan_label = plan if plan_verified else "unknown (could not verify)"
+    plan_label = result.plan if result.plan_verified else "unknown (could not verify)"
     if as_json:
         _emit(
             {
-                "email": email,
-                "plan": plan if plan_verified else "unknown",
-                "plan_verified": plan_verified,
-                "device_id": device_id,
+                "email": result.email,
+                "plan": result.plan if result.plan_verified else "unknown",
+                "plan_verified": result.plan_verified,
+                "device_id": result.device_id,
                 "mode": "oauth",
             },
             as_json=True,
         )
         return
-    click.secho(f"✓ Logged in as {email} ({plan_label}) · device {device_id}", fg="green")
-    if plan_verified and plan == "free":
+    click.secho(f"✓ Logged in as {result.email} ({plan_label}) · device {result.device_id}", fg="green")
+    if result.plan_verified and result.plan == "free":
         from atelier.core.capabilities.licensing import pro_url
 
         click.secho(
-            f"💡 You're on Free. Pro ($19/mo) unlocks large-repo search & indexing, "
+            f"You're on Free. Pro beta ($5/mo or $49/yr) unlocks large-repo search & indexing, "
             f"cross-session memory, the savings engine, model routing, and multi-repo "
             f"swarm — upgrade at {pro_url()}",
             fg="cyan",
         )
-    elif plan == "pro":
+    elif result.plan == "pro":
         click.secho(
-            "✨ Pro is active — large-repo search, cross-session memory, savings engine, "
+            "Pro beta is active — large-repo search, cross-session memory, savings engine, "
             "model routing & multi-repo swarm all unlocked. Thanks for supporting Atelier!",
             fg="cyan",
         )
