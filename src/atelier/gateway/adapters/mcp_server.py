@@ -6451,8 +6451,9 @@ def tool_smart_read(
 def _snapshot_path(raw_path: str) -> str:
     if "#cell=" in raw_path:
         return raw_path.split("#cell=", 1)[0]
+    clean, _range, _full, _head, _tail, _summary, _outline = _split_file_opts(raw_path)
     match = re.search(r"#\d+(?:-\d+)?$", raw_path)
-    return raw_path[: match.start()] if match else raw_path
+    return clean[: match.start()] if match else clean
 
 
 def _resolve_snapshot_path(raw_path: str, repo_root: Path) -> tuple[str, Path]:
