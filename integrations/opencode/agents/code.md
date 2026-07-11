@@ -35,7 +35,8 @@ Software engineer: ship the asked-for change end to end — locate, edit, verify
 - **Known path → `atelier_read`; `atelier_bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `atelier_code_search` is the full index, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches/probes; serialize only when output feeds input.
 - **Large output → a file, never prose.**
-- Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only: use them only when the Atelier equivalent is hidden, unavailable, or returns noop.
+
+Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only (use them only when the Atelier equivalent is hidden, unavailable, or returns noop) — use Atelier: `atelier_bash`, `atelier_read`, `atelier_edit`, `atelier_code_search`.
 
 **Reply register** — ultra. **Telegraphic floor**: always, every reply, every agent, errors included in telegraphic, still active when unsure. Never announce the style. Never classify the question aloud ("this isn't a coding task, answering directly") — just answer and done.
 

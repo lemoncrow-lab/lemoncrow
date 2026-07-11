@@ -107,6 +107,28 @@ def test_opencode_agent_has_host_specific_tool_policy() -> None:
     # as pure duplication of the shared workflow bullets above.
     assert "OpenCode host" not in content
     assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
+    # Regression: native OpenCode tool names must stay bare (they name OpenCode's
+    # own tools, not Atelier's) while the "use Atelier: ..." clause right after
+    # them must be prefixed -- both directions have broken before.
+    assert "`atelier_read`, `grep`, `atelier_bash`" not in content
+    assert "— use Atelier: `atelier_bash`, `atelier_read`, `atelier_edit`, `atelier_code_search`." in content
+
+
+def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
+    # Codex's real native tool-call names (apply_patch/exec_command) must be
+    # named explicitly -- the generic "Host tools disabled" phrasing every
+    # fully-disabled host keeps doesn't apply to Codex (no permission-deny
+    # mechanism exists; see plugin_runtime._codex_native_tool_replacement).
+    code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
+    assert (
+        "Native Codex `apply_patch` and `exec_command` are disallowed — use Atelier: "
+        "`atelier.bash`, `atelier.read`, `atelier.edit`, `atelier.code_search`."
+    ) in code_skill
+    # Read-only roles have no edit tool to name apply_patch as a fallback from --
+    # only exec_command applies, singular verb.
+    explore_skill = (ROOT / "integrations/codex/plugin/skills/explore/SKILL.md").read_text(encoding="utf-8")
+    assert "Native Codex `exec_command` is disallowed" in explore_skill
+    assert "apply_patch" not in explore_skill
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:
