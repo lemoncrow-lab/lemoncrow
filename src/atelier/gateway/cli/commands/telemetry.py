@@ -14,7 +14,7 @@ def telemetry_group(ctx: click.Context) -> None:
 
 
 def _render_telemetry_overview() -> str:
-    """Render the default ``atelier telemetry`` view: state, storage, and controls."""
+    """Render the default atelier telemetry view: state, storage, and controls."""
     from pathlib import Path
 
     from atelier.core.foundation.identity import get_anon_id
@@ -44,10 +44,12 @@ def _render_telemetry_overview() -> str:
     lines.append(f"  {'Config file':<14}{_short(config_path())}")
     lines.append("")
     lines.append("  Controls")
-    lines.append("    atelier telemetry lexical off     disable frustration detection")
-    lines.append("    atelier telemetry reset-id        rotate the anonymous ID")
-    lines.append("    atelier telemetry show            inspect locally-stored events")
-    lines.append("    atelier telemetry status --json   machine-readable status")
+    lines.append("    atelier telemetry remote on      opt in to anonymous remote telemetry")
+    lines.append("    atelier telemetry remote off     keep telemetry local")
+    lines.append("    atelier telemetry lexical off    disable frustration detection")
+    lines.append("    atelier telemetry reset-id       rotate the anonymous ID")
+    lines.append("    atelier telemetry show           inspect locally-stored events")
+    lines.append("    atelier telemetry status --json  machine-readable status")
     return "\n".join(lines)
 
 
@@ -98,6 +100,35 @@ def telemetry_show(limit: int) -> None:
     _emit([{"event": item["event"], "props": item["props"]} for item in events], as_json=True)
 
 
+@telemetry_group.group("remote")
+def telemetry_remote_group() -> None:
+    """Anonymous remote telemetry controls."""
+
+
+@telemetry_remote_group.command("on")
+def telemetry_remote_on() -> None:
+    from atelier.core.service.telemetry.config import save_telemetry_config
+
+    save_telemetry_config(remote_enabled=True)
+    click.echo("anonymous remote telemetry: on")
+
+
+@telemetry_remote_group.command("off")
+def telemetry_remote_off() -> None:
+    from atelier.core.service.telemetry.config import save_telemetry_config
+
+    save_telemetry_config(remote_enabled=False)
+    click.echo("anonymous remote telemetry: off")
+
+
+@telemetry_remote_group.command("status")
+def telemetry_remote_status() -> None:
+    from atelier.core.service.telemetry.config import load_telemetry_config
+
+    cfg = load_telemetry_config()
+    click.echo(f"anonymous remote telemetry: {'on' if cfg.remote_enabled else 'off'}")
+
+
 @telemetry_group.command("reset-id")
 def telemetry_reset_id() -> None:
     from atelier.core.foundation.identity import reset_anon_id
@@ -134,4 +165,4 @@ def telemetry_lexical_status() -> None:
     click.echo(f"lexical frustration detection: {'on' if cfg.lexical_frustration_enabled else 'off'}")
 
 
-__all__ = ["telemetry_group", "telemetry_lexical_group"]
+__all__ = ["telemetry_group", "telemetry_lexical_group", "telemetry_remote_group"]
