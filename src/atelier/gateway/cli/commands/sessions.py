@@ -200,6 +200,16 @@ def session_report_cmd(
     # paths, which default this off -- see build_report's docstring).
     report = load_report(session_id, root, include_carry_credit=True)
     if report is None:
+        # Prefix/substring match (same convenience as `session replay --session-id`).
+        matches = sorted({f.parent.name for f in list_run_files(root) if session_id in f.parent.name})
+        if len(matches) == 1:
+            report = load_report(matches[0], root, include_carry_credit=True)
+        elif len(matches) > 1:
+            click.echo(f"Session id '{session_id}' is ambiguous ({len(matches)} matches):", err=True)
+            for m in matches[:10]:
+                click.echo(f"  {m}", err=True)
+            raise SystemExit(1)
+    if report is None:
         click.echo(f"Session '{session_id}' not found in {root / 'sessions'}.", err=True)
         raise SystemExit(1)
 
@@ -288,7 +298,10 @@ def _estimated_trace_cost_breakdown(trace: Trace) -> dict[str, float]:
             breakdown["input"] += float(part.get("input") or 0.0)
             breakdown["cache_read"] += float(part.get("cache_read") or 0.0)
             breakdown["cache_write"] += float(part.get("cache_write") or 0.0)
-            breakdown["output"] += float(part.get("output") or 0.0)
+            # Thinking is priced at the output rate and counted in the
+            # estimated total (_estimated_trace_cost_usd); fold it into the
+            # output bucket so the displayed parts sum to that total.
+            breakdown["output"] += float(part.get("output") or 0.0) + float(part.get("thinking") or 0.0)
     else:
         model = resolve_model_id(trace.model)
         part = usage_cost_breakdown_usd(
@@ -302,7 +315,8 @@ def _estimated_trace_cost_breakdown(trace: Trace) -> dict[str, float]:
         breakdown["input"] = float(part.get("input") or 0.0)
         breakdown["cache_read"] = float(part.get("cache_read") or 0.0)
         breakdown["cache_write"] = float(part.get("cache_write") or 0.0)
-        breakdown["output"] = float(part.get("output") or 0.0)
+        # See above: fold thinking into output so parts sum to the total.
+        breakdown["output"] = float(part.get("output") or 0.0) + float(part.get("thinking") or 0.0)
     return {k: round(v, 6) for k, v in breakdown.items()}
 
 
@@ -1076,7 +1090,7 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
             live_cost,
             live_read_saved_usd,
         ) = _claude_live_savings_summary(sid, root)
-        if live_saved_tokens > 0 or live_calls > 0 or live_carry_usd > 0:
+        if live_saved_usd > 0 or live_saved_tokens > 0 or live_calls > 0 or live_carry_usd > 0:
             saved_usd = live_saved_usd
             saved_tokens = live_saved_tokens
             calls_avoided = live_calls
@@ -1802,6 +1816,8 @@ def session_list_cmd(
 
     if path is not None and len(selected_hosts) != 1:
         raise click.ClickException("--path requires exactly one --host")
+    if path is not None and not path.exists():
+        click.echo(f"Warning: --path {path} does not exist", err=True)
 
     cutoff = datetime.now(UTC) - _parse_duration(since) if since else None
     session_filter = (session_id_filter or "").strip().lower()
@@ -1864,9 +1880,14 @@ def session_list_cmd(
     if source_mode == "store":
         store = _load_store(root)
         any_found = False
+        store_truncated = False
         all_store_rows: list[dict[str, Any]] = []
         for host_name in sorted(selected_hosts):
-            traces = store.list_traces(host=host_name, since=cutoff, limit=scan)
+            traces = list(store.list_traces(host=host_name, since=cutoff, limit=scan))
+            # Mirror the live scan: a full page at the scan cap means the
+            # window may hold more sessions than were queried.
+            if since and len(traces) >= scan:
+                store_truncated = True
             rows_store: list[dict[str, Any]] = []
             for trace in traces:
                 sid = (trace.session_id or trace.id or "").strip()
@@ -1885,6 +1906,10 @@ def session_list_cmd(
             click.echo("No host sessions found for the selected filters.")
         elif all_store_rows:
             _render_hosts_footer_rich(all_store_rows, since or f"{limit} sessions")
+            if store_truncated:
+                # Mirror `session stats`: the scan cap is a per-host query
+                # cost cap, not a claim about the full --since window.
+                click.echo(f"  (store scan capped at {scan}/host, more may exist)")
         return
 
     # live mode + text: stream each host as it's scanned
@@ -2122,6 +2147,8 @@ def session_stats_cmd(
 
     if data_path is not None and len(selected_hosts) != 1:
         raise click.ClickException("--path requires exactly one --host")
+    if data_path is not None and not data_path.exists():
+        click.echo(f"Warning: --path {data_path} does not exist", err=True)
 
     if limit:
         cutoff: datetime | None = None
@@ -2141,7 +2168,12 @@ def session_stats_cmd(
     if source == "store":
         store = _load_store(root)
         for hn in selected_hosts:
-            for trace in store.list_traces(host=hn, since=cutoff, limit=scan_cap):
+            host_traces = list(store.list_traces(host=hn, since=cutoff, limit=scan_cap))
+            # Mirror the live branch: a full page at scan_cap means the
+            # window may hold more sessions than we scanned.
+            if since_mode and len(host_traces) >= scan_cap:
+                truncated = True
+            for trace in host_traces:
                 all_rows.append(_build_session_row(trace, store, hn, root))
     else:
         click.echo(f"Scanning last {label} across {len(selected_hosts)} host(s)…", err=True)

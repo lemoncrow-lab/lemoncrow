@@ -142,6 +142,12 @@ def _dur(seconds: float) -> str:
         return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
 
 
+def _money(value: float) -> str:
+    """$ amount: 2 decimals at/above $1, 4 below (sub-cent costs stay visible)."""
+    amount = float(value)
+    return f"${amount:.2f}" if amount >= 1 else f"${amount:.4f}"
+
+
 def render_text(replay: Replay, *, color: bool = True) -> str:
     def c(code: str, text: str) -> str:
         return f"{code}{text}{_RESET}" if color else text
@@ -158,12 +164,17 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         if s.batch_calls_saved:
             parts.append(f"-{s.batch_calls_saved} via {s.batch_count} batch{'es' if s.batch_count != 1 else ''}")
         detail = f"  ({', '.join(parts)})" if parts else ""
-        lines.append("  tool calls: " + c(_BOLD, f"{s.total_tool_calls} → {s.kept_tool_calls}") + c(_GREEN, detail))
         sav = estimate_savings(replay)
-        head = "  " + c(_BOLD, f"cost ${sav['total_cost_usd']:.4f}")
+        lines.append(
+            "  tool calls "
+            + c(_BOLD, f"{s.total_tool_calls} → {s.kept_tool_calls}")
+            + f" · {sav['calls_saved']} collapsed · {s.episode_count} search loops · {s.batch_count} batches"
+            + c(_GREEN, detail)
+        )
+        head = "  " + c(_BOLD, f"cost {_money(sav['total_cost_usd'])}")
         if sav["saved_is_measured"]:
             # Ran with Atelier and has its own recorded savings -> show them.
-            head += "     " + c(_GREEN + _BOLD, f"saved ${sav['saved_usd']:.4f} ({sav['saved_pct']}%) measured")
+            head += "     " + c(_GREEN + _BOLD, f"saved {_money(sav['saved_usd'])} ({sav['saved_pct']}%) measured")
             head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}") + c(_DIM, " est")
         elif sav["ran_with_atelier"]:
             # Ran with Atelier, no per-node savings. Only a subagent can point
@@ -178,23 +189,17 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
             # Vanilla session -> estimated Atelier cost.
             head += (
                 "     "
-                + c(_GREEN + _BOLD, f"atelier cost ${sav['atelier_cost_usd']:.4f} (-{sav['saved_pct']}%)")
+                + c(_GREEN + _BOLD, f"atelier cost {_money(sav['atelier_cost_usd'])} (-{sav['saved_pct']}%)")
                 + c(_DIM, " est")
             )
             head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
         lines.append(head)
-        lines.append(
-            "  "
-            + c(
-                _DIM,
-                f"{s.total_tool_calls} → {s.kept_tool_calls} tool calls · {sav['calls_saved']} collapsed · "
-                f"{s.episode_count} search loops · {s.batch_count} batches",
-            )
-        )
         if not sav["saved_is_measured"] and not sav["ran_with_atelier"]:
             lines.append(
                 "  " + c(_DIM, "atelier cost & saving are estimates — run `atelier benchmark` for the measured A/B")
             )
+    if not replay.turns:
+        lines.append("  " + c(_ORANGE, "⚠ no turns parsed from this transcript — nothing to replay"))
     lines.append("  " + c(_DIM, "reconstructed from history — no model re-run, $0"))
     lines.append("")
 
@@ -591,13 +596,13 @@ def _html_session(replay: Replay) -> str:
     tiles = ""
     if s:
         sav = estimate_savings(replay)
-        cost_tile = f'<div class="tile hero"><div class="k">Cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">this session</div></div>'
+        cost_tile = f'<div class="tile hero"><div class="k">Cost</div><div class="v">{_money(sav["total_cost_usd"])}</div><div class="d before">this session</div></div>'
         time_tile = f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">est</div></div>'
         # Three states: measured savings / ran-with-Atelier (savings on parent) /
         # vanilla estimate.
         if sav["saved_is_measured"]:
             mid_tile = (
-                f'<div class="tile hero good"><div class="k">Saved</div><div class="v">${sav["saved_usd"]:.4f}</div>'
+                f'<div class="tile hero good"><div class="k">Saved</div><div class="v">{_money(sav["saved_usd"])}</div>'
                 f'<div class="d">&minus;{sav["saved_pct"]}% &middot; measured</div></div>'
             )
             hero = f'<div class="tiles hero-row">{cost_tile}{mid_tile}{time_tile}</div>'
@@ -615,7 +620,7 @@ def _html_session(replay: Replay) -> str:
             hero = f'<div class="tiles hero-row two">{cost_tile}{mid_tile}</div>'
         else:
             mid_tile = (
-                f'<div class="tile hero good"><div class="k">Atelier cost</div><div class="v">${sav["atelier_cost_usd"]:.4f}</div>'
+                f'<div class="tile hero good"><div class="k">Atelier cost</div><div class="v">{_money(sav["atelier_cost_usd"])}</div>'
                 f'<div class="d">&minus;{sav["saved_pct"]}% &middot; est</div></div>'
             )
             time_est = f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">estimate</div></div>'

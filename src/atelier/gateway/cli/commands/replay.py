@@ -1,9 +1,9 @@
 """``atelier session replay`` — counterfactual session replay (reconstruct, no re-run).
 
-Replays a recorded coding session (Claude / Codex / opencode) as a full
-transcript timeline and marks the grep→read loops a single Atelier
-``code_search`` would have collapsed. Reads JSONL off disk only — no model is
-re-run, no API is called.
+Replays a recorded coding session (claude / codex / opencode / copilot /
+hermes / cursor / antigravity) as a full transcript timeline and marks the
+grep→read loops a single Atelier ``code_search`` would have collapsed. Reads
+recorded sessions off disk only — no model is re-run, no API is called.
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ import json
 from pathlib import Path
 
 import click
+from click.core import ParameterSource
 
-from atelier.core.capabilities.session_replay import SUPPORTED_HOSTS, load_replays
+from atelier.core.capabilities.session_replay import SUPPORTED_HOSTS, detect_transcript_host, load_replays
 from atelier.core.capabilities.session_replay_live import enrich_replay
 from atelier.core.capabilities.session_replay_render import render_html, render_text
 
@@ -75,13 +76,35 @@ def replay_cmd(
     tool calls and outputs); the grep-and-read loops the agent walked are marked
     and collapsed into the single ``code_search`` that would have replaced them.
 
+    Works for every supported host: claude, codex, opencode (opencode.db),
+    copilot, hermes (state.db), cursor and antigravity (imported sessions).
+    With ``--file`` and no explicit ``--host``, the transcript format is
+    auto-detected.
+
     \b
     Examples:
       atelier session replay --last 1
       atelier session replay --session-id <id> --host codex
+      atelier session replay --host opencode --last 3
       atelier session replay --file ./session.jsonl --html replay.html
     """
-    replays = load_replays(host=host, session_id=session_id, file=file_path, last=max(1, last))
+    if file_path is not None and ctx.get_parameter_source("host") == ParameterSource.DEFAULT:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        detected, turn_count = detect_transcript_host(content)
+        if detected is None or turn_count == 0:
+            click.echo(
+                f"Could not parse any turns from {file_path} — not a recognized transcript "
+                "(tried claude, codex, opencode, copilot and normalized formats).",
+                err=True,
+            )
+            ctx.exit(1)
+        if detected != host:
+            click.echo(f"Detected a {detected} transcript — parsing as {detected}.", err=True)
+            host = detected
+
+    replays = load_replays(
+        host=host, session_id=session_id, file=file_path, last=max(1, last), store_root=ctx.obj["root"]
+    )
 
     if replays and not no_live:
         repo_root = (repo or Path.cwd()).resolve()

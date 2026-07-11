@@ -6140,6 +6140,10 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         cost_status = (
             "recorded" if (total_cost_usd > 0 or report.total_turns > 0 or bool(report.models_used)) else "unavailable"
         )
+        if report.cost_estimated and total_cost_usd > 0:
+            # build_report backfilled the total from pricing-derived buckets
+            # because the ledger recorded no cost -- that is an estimate.
+            cost_status = "estimated"
 
         if estimated_payload is not None:
             if total_cost_usd <= 0 and float(estimated_payload["total_cost_usd"]) > 0:
