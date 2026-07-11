@@ -14454,50 +14454,50 @@
     "matplotlib__matplotlib": {
       "ws": "/tmp/idx_ws_matplotlib__matplotlib",
       "db": "/tmp/idx_isolated/matplotlib__matplotlib/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v3.11.0",
+      "base_commit": "v3.11.0"
     },
     "mwaskom__seaborn": {
       "ws": "/tmp/idx_ws_mwaskom__seaborn",
       "db": "/tmp/idx_isolated/mwaskom__seaborn/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v0.13.2",
+      "base_commit": "v0.13.2"
     },
     "pallets__flask": {
       "ws": "/tmp/idx_ws_pallets__flask",
       "db": "/tmp/idx_isolated/pallets__flask/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "3.1.3",
+      "base_commit": "3.1.3"
     },
     "psf__requests": {
       "ws": "/tmp/idx_ws_psf__requests",
       "db": "/tmp/idx_isolated/psf__requests/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v2.34.2",
+      "base_commit": "v2.34.2"
     },
     "pylint-dev__pylint": {
       "ws": "/tmp/idx_ws_pylint-dev__pylint",
       "db": "/tmp/idx_isolated/pylint-dev__pylint/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v4.0.6",
+      "base_commit": "v4.0.6"
     },
     "sphinx-doc__sphinx": {
       "ws": "/tmp/idx_ws_sphinx-doc__sphinx",
       "db": "/tmp/idx_isolated/sphinx-doc__sphinx/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v9.1.0",
+      "base_commit": "v9.1.0"
     },
     "atelier__atelier": {
       "ws": "/tmp/idx_ws_atelier_dev",
       "db": "/tmp/idx_isolated/atelier__atelier/code_context.sqlite",
-      "anchor": "local",
-      "base_commit": ""
+      "anchor": "v0.3.9",
+      "base_commit": "v0.3.9"
     },
     "torvalds__linux": {
       "ws": "/tmp/idx_ws_linux_core",
       "db": "/tmp/idx_isolated/torvalds__linux/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": "HEAD"
+      "anchor": "v7.2-rc2",
+      "base_commit": "v7.2-rc2"
     }
   }
 }

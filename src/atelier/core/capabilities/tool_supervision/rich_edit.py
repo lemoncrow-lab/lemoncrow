@@ -41,6 +41,10 @@ class TargetSpec:
     start_line: int | None = None
     end_line: int | None = None
     cell: str | int | None = None
+    whole_file: bool = False
+    head_lines: int | None = None
+    tail_lines: int | None = None
+    to_end: bool = False
 
 
 def _repo_root(repo_root: str | Path | None = None) -> Path:
@@ -48,17 +52,67 @@ def _repo_root(repo_root: str | Path | None = None) -> Path:
 
 
 def _parse_target(raw_path: str) -> TargetSpec:
-    if "#cell=" in raw_path:
-        path, cell = raw_path.split("#cell=", 1)
-        return TargetSpec(path=path, cell=cell)
-    match = re.search(r":L?(\d+)(?:-L?(\d+))?$", raw_path, re.IGNORECASE)
-    if match:
-        return TargetSpec(
-            path=raw_path[: match.start()],
-            start_line=int(match.group(1)),
-            end_line=int(match.group(2) or match.group(1)),
-        )
-    return TargetSpec(path=raw_path)
+    whole_file = False
+    head_lines: int | None = None
+    tail_lines: int | None = None
+    start_line: int | None = None
+    end_line: int | None = None
+    to_end = False
+    parts = raw_path.split(":")
+    while len(parts) > 1:
+        token = parts[-1]
+        if token in {"full", "full=true", "full=1"}:
+            whole_file = True
+        elif token in {"summary", "summary=true", "summary=1", "outline", "outline=true", "outline=1"}:
+            pass
+        elif token.startswith("head="):
+            try:
+                head_lines = int(token[5:])
+            except ValueError:
+                break
+        elif token.startswith("tail="):
+            try:
+                tail_lines = int(token[5:])
+            except ValueError:
+                break
+        else:
+            match = re.fullmatch(r"L?(\d+)(?:-L?(\d*))?", token, re.IGNORECASE)
+            if match is None:
+                break
+            start_line = int(match.group(1))
+            to_end = match.group(2) == ""
+            end_line = int(match.group(2) or match.group(1))
+        parts.pop()
+    path = ":".join(parts)
+    if "#cell=" in path:
+        path, cell = path.split("#cell=", 1)
+        return TargetSpec(path=path, cell=cell, whole_file=whole_file)
+    return TargetSpec(
+        path=path,
+        start_line=None if whole_file else start_line,
+        end_line=None if whole_file else end_line,
+        whole_file=whole_file,
+        head_lines=None if whole_file else head_lines,
+        tail_lines=None if whole_file else tail_lines,
+        to_end=False if whole_file else to_end,
+    )
+
+
+def _read_scope_for_edit(spec: TargetSpec, content: str) -> TargetSpec:
+    """Translate read-only head/tail selectors into their equivalent line scope."""
+    if spec.head_lines is None and spec.tail_lines is None and not spec.to_end:
+        return spec
+    line_count = len(content.splitlines())
+    if spec.head_lines is not None:
+        return TargetSpec(path=spec.path, start_line=1, end_line=min(line_count, max(spec.head_lines, 0)))
+    if spec.to_end:
+        return TargetSpec(path=spec.path, start_line=spec.start_line, end_line=line_count)
+    assert spec.tail_lines is not None
+    return TargetSpec(
+        path=spec.path,
+        start_line=max(1, line_count - max(spec.tail_lines, 0) + 1),
+        end_line=line_count,
+    )
 
 
 def _resolve(root: Path, raw_path: str, allowed_roots: list[Path] | None = None) -> Path:
@@ -496,8 +550,11 @@ def apply_rich_edits(
             content = file_state.get(path)
             if content is None:
                 content = path.read_text(encoding="utf-8") if path.exists() else ""
+            scope_spec = _read_scope_for_edit(spec, content)
 
-            if path.suffix.lower() == ".ipynb":
+            _replace = bool(edit.get("replace") or edit.get("overwrite") or spec.whole_file)
+
+            if path.suffix.lower() == ".ipynb" and not spec.whole_file:
                 notebook = json.loads(content or '{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}')
                 _apply_notebook_edit(notebook, spec, edit)
                 file_state[path] = json.dumps(notebook, indent=2)
@@ -567,17 +624,16 @@ def apply_rich_edits(
                 )
                 continue
 
-            _replace = edit.get("replace") or edit.get("overwrite")  # overwrite is the legacy name
             if _replace or (not path.exists() and not edit.get("old_string")):
                 # replace=true replaces the WHOLE file. A #line range only ever scopes
                 # old_string matching, so replace+range is a contradiction: the
                 # range gets silently dropped and the entire file is replaced. Reject
                 # it loudly rather than truncate the file the caller meant to scope.
-                if _replace and spec.start_line is not None:
+                if _replace and scope_spec.start_line is not None:
                     rng = (
-                        f":L{spec.start_line}"
-                        if spec.start_line == spec.end_line
-                        else f":L{spec.start_line}-L{spec.end_line}"
+                        f":L{scope_spec.start_line}"
+                        if scope_spec.start_line == scope_spec.end_line
+                        else f":L{scope_spec.start_line}-L{scope_spec.end_line}"
                     )
                     raise ValueError(
                         f"replace=true replaces the entire file and ignores the {rng} line "
@@ -613,15 +669,15 @@ def apply_rich_edits(
             # lines), replace the range verbatim — old_string is not required.
             # If old_string IS also given, fall through to _replace_in_scope so
             # it can do its normal scoped search within the narrowed range.
-            if spec.start_line is not None and "new_string" in edit and not edit.get("old_string"):
+            if scope_spec.start_line is not None and "new_string" in edit and not edit.get("old_string"):
                 if path in content_edited:
                     raise ValueError(
                         f"range edit {raw_path!r} follows a content-located edit to the same "
                         "file in this batch, so its pre-batch line numbers no longer resolve "
                         "-- put range edits first, use old/new, or split into a second call"
                     )
-                pre_start = spec.start_line
-                pre_end = spec.end_line or spec.start_line
+                pre_start = scope_spec.start_line
+                pre_end = scope_spec.end_line or scope_spec.start_line
                 # Translate pre-batch line numbers through earlier range splices
                 # to this file: edits fully above shift us by their net delta;
                 # an overlap is ambiguous and must fail loudly.
@@ -648,7 +704,12 @@ def apply_rich_edits(
                 applied.append(
                     {
                         "path": raw_path,
-                        "hunks": [{"line_start": spec.start_line, "line_end": spec.end_line or spec.start_line}],
+                        "hunks": [
+                            {
+                                "line_start": scope_spec.start_line,
+                                "line_end": scope_spec.end_line or scope_spec.start_line,
+                            }
+                        ],
                         "match_mode": "range",
                     }
                 )
@@ -663,11 +724,11 @@ def apply_rich_edits(
             # content-located edit in this batch has shifted this file's lines. Fail
             # loudly instead of searching the wrong window and reporting a generic
             # (and misleading) "old_string not found".
-            if spec.start_line is not None and path in content_edited:
+            if scope_spec.start_line is not None and path in content_edited:
                 rng = (
-                    f":L{spec.start_line}"
-                    if spec.start_line == spec.end_line
-                    else f":L{spec.start_line}-L{spec.end_line}"
+                    f":L{scope_spec.start_line}"
+                    if scope_spec.start_line == scope_spec.end_line
+                    else f":L{scope_spec.start_line}-L{scope_spec.end_line}"
                 )
                 raise ValueError(
                     f"range edit {raw_path!r} ({rng}) follows a content-located edit to the same "
@@ -676,7 +737,7 @@ def apply_rich_edits(
                     "first, or split into a second call"
                 )
             new_content, line_start, line_end, match_mode = _replace_in_scope(
-                content, spec, old_string, str(edit.get("new_string", ""))
+                content, scope_spec, old_string, str(edit.get("new_string", ""))
             )
             file_state[path] = new_content
             content_edited.add(path)

@@ -883,6 +883,29 @@ def test_dispatcher_preserves_cross_file_calls_saved(workspace: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_edit_accepts_read_style_path_suffixes(workspace: Path) -> None:
+    f = workspace / "selectors.txt"
+    f.write_text("head\nbody\ntail\n", encoding="utf-8")
+
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:head=1", "old": "head", "new": "HEAD"}]})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:tail=1", "old": "tail", "new": "TAIL"}]})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:summary", "old": "body", "new": "BODY"}]})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:outline", "old": "BODY", "new": "middle"}]})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "selectors.txt:full", "new": "replacement\n"}]})
+
+    assert f.read_text(encoding="utf-8") == "replacement\n"
+
+    open_range = workspace / "open_range.txt"
+    open_range.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "open_range.txt:L2-", "old": "two\nthree\n", "new": "rest\n"}],
+        }
+    )
+    assert open_range.read_text(encoding="utf-8") == "one\nrest\n"
+
+
 def _read(path: str) -> None:
     """Serve a file through the read tool so its stat signature is recorded."""
     resp = _call("read", {"path": path})

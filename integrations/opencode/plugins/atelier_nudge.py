@@ -15,7 +15,7 @@ def _atelier_root() -> Path:
 
 
 def _stale_nudge_message(root: Path) -> str | None:
-    """Once-per-item-per-day staleness nudge for installed OPTIONAL agents.
+    """At most one stale-optional-agent nudge per day (per calendar day).
 
     OpenCode has no skills concept (see agents_skills._skill_dir), so only
     installed agent roles are checked here. Reuses the exact same
@@ -33,14 +33,12 @@ def _stale_nudge_message(root: Path) -> str | None:
         if not items:
             return None
         today = datetime.date.today().isoformat()
-        marker_dir = root / "opencode_stale_nudge_shown"
-        for item in items:
-            marker = marker_dir / f"{item['kind']}_{item['name']}"
-            if marker.exists() and marker.read_text(encoding="utf-8").strip() == today:
-                continue
-            marker_dir.mkdir(parents=True, exist_ok=True)
-            marker.write_text(today, encoding="utf-8")
-            return format_stale_nudge(item)
+        marker = root / "opencode_stale_nudge_shown" / "last_shown"
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == today:
+            return None
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(today, encoding="utf-8")
+        return format_stale_nudge(items[0])
     except (ImportError, OSError, KeyError, TypeError, ValueError):
         pass
     return None

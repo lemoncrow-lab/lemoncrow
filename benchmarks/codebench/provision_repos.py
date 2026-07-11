@@ -285,6 +285,8 @@ _LINUX_WS = Path("/tmp/idx_ws_linux_core")
 _LINUX_DB = Path("/tmp/idx_linux_core.db")
 _LINUX_CORE_SUBTREES = ["kernel", "mm", "fs", "block", "ipc", "lib", "security", "crypto", "init", "virt", "include"]
 _LINUX_URL = "https://github.com/torvalds/linux.git"
+
+_ATELIER_URL = "https://github.com/atelier-ws/atelier.git"
 _LINUX_MULTI = Path("/tmp/bench_pairs_linux.json")
 _LINUX_GOLD = Path("/tmp/bench_pairs_linux_def_gold.json")
 
@@ -334,24 +336,37 @@ _GENERIC = {
 }
 
 
-def _linux_prepare() -> None:
+def _linux_prepare(commit_ref: str | None = None) -> None:
     """Clone (shallow), scope to the core subtrees, and Atelier-index the workspace.
 
     The full kernel tree is too large to provision whole (~64k C files, ~30M LOC
     across drivers/ + arch/ that are hardware-specific and repetitive), so we scope
     to the stable, symbol-rich core subsystems -- ~11k C files / ~4.5M LOC.
+
+    When *commit_ref* is set, the clone is pinned to that tag/commit instead
+    of HEAD, for reproducible evaluation.
     """
     if not _LINUX_WS.exists() or not any(_LINUX_WS.iterdir()):
         if not _LINUX_FULL_CLONE.exists():
-            print(f"[linux] shallow clone {_LINUX_URL} -> {_LINUX_FULL_CLONE}", flush=True)
-            r = subprocess.run(
-                ["git", "clone", "--quiet", "--depth", "1", _LINUX_URL, str(_LINUX_FULL_CLONE)],
-                capture_output=True,
-                text=True,
+            ref = commit_ref or "HEAD"
+            print(f"[linux] shallow clone {_LINUX_URL} @ {ref[:12]} -> {_LINUX_FULL_CLONE}", flush=True)
+            _LINUX_FULL_CLONE.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init", "--quiet", str(_LINUX_FULL_CLONE)], check=True, timeout=60)
+            subprocess.run(
+                ["git", "-C", str(_LINUX_FULL_CLONE), "remote", "add", "origin", _LINUX_URL],
+                check=True,
+                timeout=60,
+            )
+            subprocess.run(
+                ["git", "-C", str(_LINUX_FULL_CLONE), "fetch", "--quiet", "--depth", "1", "origin", ref],
+                check=True,
                 timeout=3600,
             )
-            if r.returncode != 0:
-                raise RuntimeError(r.stderr[:800])
+            subprocess.run(
+                ["git", "-C", str(_LINUX_FULL_CLONE), "checkout", "--quiet", "FETCH_HEAD"],
+                check=True,
+                timeout=300,
+            )
         _LINUX_WS.mkdir(parents=True, exist_ok=True)
         print(f"[linux] scoping core subtrees -> {_LINUX_WS}", flush=True)
         for d in _LINUX_CORE_SUBTREES:
@@ -475,6 +490,114 @@ def provision_linux(
     _linux_prepare()
     _linux_mine(n_single=n_single, n_alt=n_alt, alt_size=alt_size, max_def=max_def, seed=seed)
     _linux_merge()
+
+
+# ── Eval auto-provision ──────────────────────────────────────────────────────
+
+
+def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
+    """Clone + index repos from gold files whose workspaces/indexes are missing.
+
+    Idempotent: skips repos whose ws and db already exist.
+    Designed to be called by ``atelier eval retrieval`` before the benchmark
+    subprocess so the eval never fails with "ws not found" for the standard
+    gold-set repos.
+    """
+    import shutil
+    import subprocess
+
+    # 1. Union of repos across all gold files
+    repos: dict[str, dict] = {}
+    for gp in gold_paths:
+        raw = json.loads(gp.read_text())
+        for prefix, meta in raw.get("repos", {}).items():
+            if prefix not in repos:
+                repos[prefix] = meta
+
+    # 2. URL map (prefix -> full git URL) -- mirrors DIVERSE6_REPOS,
+    #    MISSING_REPOS, and the linux constants above.
+    url_map: dict[str, str] = {}
+    for prefix, repo in DIVERSE6_REPOS.items():
+        url_map[prefix] = f"https://github.com/{repo}.git"
+    for prefix, repo in MISSING_REPOS.items():
+        url_map[prefix] = f"https://github.com/{repo}.git"
+    url_map[_LINUX_PREFIX] = _LINUX_URL
+    url_map["atelier__atelier"] = _ATELIER_URL
+
+    for prefix, meta in sorted(repos.items()):
+        ws = Path(meta["ws"])
+        db_path = Path(meta.get("db", "")) if meta.get("db") else None
+
+        ws_missing = not ws.exists() or not any(ws.iterdir())
+        db_missing = db_path is not None and not db_path.exists()
+
+        if not ws_missing and not db_missing:
+            continue
+
+        # ── Clone workspace ──────────────────────────────────────────────
+        if ws_missing:
+            if prefix == _LINUX_PREFIX:
+                ref = meta.get("base_commit", "") or None
+                _linux_prepare(commit_ref=ref)
+                # _linux_prepare handles the full clone + scope + index for
+                # the kernel workspace. The isolated DB still gets built below.
+            elif prefix in url_map:
+                url = url_map[prefix]
+                base_commit = meta.get("base_commit", "") or "HEAD"
+                print(f"[provision] shallow clone {url} @ {base_commit[:12]} -> {ws}", flush=True)
+                if ws.exists():
+                    shutil.rmtree(ws)
+                ws.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["git", "init", "--quiet", str(ws)], check=True, timeout=60)
+                subprocess.run(
+                    ["git", "-C", str(ws), "remote", "add", "origin", url],
+                    check=True,
+                    timeout=60,
+                )
+                subprocess.run(
+                    ["git", "-C", str(ws), "fetch", "--quiet", "--depth", "1", "origin", base_commit],
+                    check=True,
+                    timeout=1200,
+                )
+                subprocess.run(
+                    ["git", "-C", str(ws), "checkout", "--quiet", "FETCH_HEAD"],
+                    check=True,
+                    timeout=300,
+                )
+            else:
+                print(f"[provision] no URL mapping for {prefix}, skip clone", flush=True)
+
+        # ── Build index DB ───────────────────────────────────────────────
+        if db_missing and db_path is not None and ws.exists() and any(ws.iterdir()):
+            isolated_dir = db_path.parent
+            isolated_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[provision] indexing {prefix} -> {db_path}", flush=True)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "atelier.gateway.cli",
+                    "code",
+                    "index",
+                    "--repo-root",
+                    str(ws),
+                    "--reindex",
+                    "--no-stats",
+                    "--db-path",
+                    str(db_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=7200,
+            )
+            if result.returncode != 0:
+                sys.stderr.write(result.stderr)
+                print(f"[provision] index FAILED for {prefix} (exit {result.returncode})", flush=True)
+            else:
+                print(f"[provision] index done {prefix}", flush=True)
+
+        if ws_missing or db_missing:
+            print(f"[provision] ready {prefix}", flush=True)
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────

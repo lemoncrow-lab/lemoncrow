@@ -4488,8 +4488,8 @@
     "atelier__atelier": {
       "ws": "/tmp/idx_ws_atelier_dev",
       "db": "/tmp/idx_isolated/atelier__atelier/code_context.sqlite",
-      "anchor": "local",
-      "base_commit": ""
+      "anchor": "v0.3.9",
+      "base_commit": "v0.3.9"
     }
   },
   "params": {

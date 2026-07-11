@@ -8344,1502 +8344,1502 @@
     [
       "(grep|search|explore)",
       "session_0",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def search_workspace",
       "session_7",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "search|grep|verdict|reformulate|tool",
       "session_15",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "escapes the workspace root|additionalDirectories|ATELIER_ADDITIONAL_DIRS|additional_dirs|allowed_dirs|allowed_roots",
       "session_22",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^class Trace\\(BaseModel\\)",
       "session_30",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "interactive_single_select|interactive_multi_select|supports_interactive_selector",
       "session_37",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "woz|wozcode",
       "session_45",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _op_hover",
       "session_53",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "public MCP tool benchmark|def mcp\\(|@benchmark|benchmark\\.command|def benchmark|--jobs|Parallel suite shards",
       "session_60",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "hunk|def tool_smart_edit|def .*batch_edit|apply.*edit|fuzzy",
       "session_68",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_workspace_session_state_file|_write_workspace_session_state|_read_workspace_session_state|def _connect",
       "session_75",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Projection: outline|structure only|def .*outline.*text|symbols:|build_compact_projection|def _format_outline|Pass range=",
       "session_83",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _memory_recall",
       "session_91",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "add_parser\\(|subparsers\\.|\"index\"|'index'|def cmd_index|code.*index",
       "session_98",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "repo_id\\s*=|self\\.repo_id|def repo_id|sha256|hexdigest|blake2|def _compute_repo_id|workspace_hash",
       "session_106",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "setup_preflight|preflight|bundle.tar.gz|docker run",
       "session_113",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "etc/hosts|HTTPS_PROXY|HTTP_PROXY|egress|mitm|allowlist|proxy|127\\.0\\.0\\.1|curl",
       "session_121",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_OUTLINE_INDIVIDUAL|py_django|js_webpack|js_lodash",
       "session_129",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def start|def search|def ensure_started|def _start",
       "session_136",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "select\\.",
       "session_144",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "class SerenaRunner|def stop|def start",
       "session_151",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "intel_store\\s*=|self\\.intel_store\\s*=|intel_store.*search_symbols|class.*IntelStore|class.*SCIPStore|intel_store.*type",
       "session_159",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_unique_substring_queries|generate_case_manifest|substring_pairs",
       "session_167",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "OllamaUnavailable|def _search_symbols_semantic_local|_semantic_ranker|resolve_search_mode|mode == \\\"semantic\\\"|resolved_mode == \\\"semantic\\\"",
       "session_174",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_tool_call_rendered_text|render_tool_result_text|def render_code_payload",
       "session_182",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _render_grep_md|def _render_shell_text|def _render_read_md",
       "session_189",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def \\w*outline\\w*|outline",
       "session_197",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\.lessons|DEFAULT_LESSONS_DIRNAME|ATELIER_LESSONS_ROOT",
       "session_205",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Coding, edits, fixes|## Agent spawning|narrowest type",
       "session_212",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def index_repo|def _semantic_symbol_candidates|def embed_symbol|def index_files|max_workers|ThreadPool|ProcessPool|def _source_tree_signature",
       "session_220",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ATELIER_LINEAGE|ATELIER_AUTOSYNC|ATELIER_HISTORY",
       "session_227",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_ensure_history_ready|scope=\\\"deleted\\\"|scope == \\\"deleted\\\"|DeletedHistorySearchAdapter|start_background_warmup|HISTORY_DISABLED|HISTORY_ENABLED|find_deleted|\\.search\\(",
       "session_235",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tip|tips",
       "session_242",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_load_state",
       "session_250",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "codebench|benchmark",
       "session_258",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "overwrite",
       "session_265",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_read_session_state|_active_session_id|_load_state|session_state|_read_workspace_session_bridge|resolve_window_session_id|_resolve_live_session_id",
       "session_273",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "session_window|registry_path|register_window|resolve_window",
       "session_280",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _reset_runtime_cache_for_testing|_WINDOW_SID_CACHE|_MCP_WINDOW_ID",
       "session_288",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "lesson",
       "session_296",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "prompt_recall_indexing|prompt_knowledge_extraction|ATELIER_RECALL_PROMPTED|ATELIER_RECALL_INDEX|ATELIER_RECALL_EMBEDDER",
       "session_303",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "antigravity|hermes|copilot|install_hosts|host_target_for_name|HOST_FLAGS|Cursor IDE|\\.cursor",
       "session_311",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "stop_existing_atelier_processes|run_setup|source.*common|\\. .*common|dev_mode|CLEAN_PROCESSES|is_dev|DEV",
       "session_318",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_install_go\\(\\)|/.local/go|tar |GOROOT|sudo|curl|wget",
       "session_326",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "auto.?upgrade|auto.?update|self.?update|self.?upgrade|def upgrade|def update|check_for_update|update_state|pip install.*upgrade|uv tool upgrade",
       "session_334",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "7d|30d|carry|statusline|status_line",
       "session_341",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^from|^import|environ|which|cpu_count|ProgressReporter|resolve_claude_provider_preset",
       "session_349",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_armresult|persona_by_capability|applies\\(|capability=\\\"explore\\\"|capability=\\\"plan\\\"",
       "session_356",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "web_fetch|_remove_noise|html_to_markdown_for_agent|fetch_url",
       "session_364",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _provider_for_model",
       "session_372",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "CLAUDE_CONFIG_DIR|CLAUDE_HOME|Path\\.home|\\.claude/projects|projects|monkeypatch\\.setenv|setattr.*home|transcript",
       "session_379",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "redact_failure_cluster|FailureCluster",
       "session_387",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "internal_llm|summarize|semantic_review|consolidation|sleeptime|reflector|arbiter|reflection|compact\\(|enable_llm",
       "session_394",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "REDIRECT_BASE|SITE_URL",
       "session_402",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "outline|def read|class.*Read|def render|projection_mapping|def _outline|compact|def project_source",
       "session_410",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "coding-guidelines|coding_guidelines|change-discipline|Spec before edit|shared/.*\\.md|GUIDELINES|persona|render_guidelines",
       "session_417",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ATELIER_CODE_EMBEDDER|def available|hidden|visible_to_llm|_HIDDEN|hide.*search",
       "session_425",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "claude plugin agent disallowed list",
       "session_432",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "background|sync_wait|\"shell\"|action.*poll|_run_shell_tool",
       "session_440",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "mcp_server|run_mcp|stdio_server",
       "session_448",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^\\[build-system\\]|build-backend|^\\[tool.hatch|hatch-vcs|vcs|dynamic|^version|^\\[project\\]|requires =",
       "session_455",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "CORE_DISCIPLINE|CHANGE_DISCIPLINE|TOOL_DISCIPLINE",
       "session_463",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _get_ledger|def _claude_session_id|session_id\\s*=|workspace.*session_id|bridge.*session|def session_id",
       "session_470",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def test_",
       "session_478",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "silent_success|_silence_clean_edit|silent.*edit|edit.*result.*\\{\\}|clean success",
       "session_485",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\"missed\"|get\\(\"missed\"\\)|`missed`|missed sites|reports `missed`",
       "session_493",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Per-rep spread|noise check|min / median / max",
       "session_501",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "outline|def read|class.*Read|def render|projection_mapping|def _outline|compact|def project_source",
       "session_508",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\{\\{CODING_GUIDELINES\\}\\}|load_mode_docs|mode_docs|MODE_DOC|modes/|def load_mode_docs",
       "session_516",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def render_opencode_agent|def render_simple_agent|def render_claude_agent|def render_copilot_agent|def _inject_description|def render_mode_body|def build_mode_outputs|def render_cursor_role_rule|_inject_description|\\.agent_description|\\.skill_description|projection\\(|\\.frontmatter|HOST_SKILL_DIRS",
       "session_523",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Atelier - main coding agent|Main Atelier coding agent|_fallback_mode_metadata|_role_descriptions|_OPENCODE_DESCRIPTIONS|strict=False|strict=True|load_mode_docs",
       "session_531",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_raw_tool_symbols_handler",
       "session_539",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "scip-python|universal-ctags|ast-grep|zoekt|code-index-mcp|codegraph|CodeGraph|jcodemunch|PROVIDERS|provider.?id|name\\s*=|class .*Provider|GITHUB|github.com",
       "session_546",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Return ONLY compact JSON|judge_prompt|JUDGE_PROMPT|_judge_prompt",
       "session_554",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "workspace",
       "session_561",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "atelier:knowledge|skills/knowledge|name:\\s*knowledge",
       "session_569",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_RECALL_CANDIDATE_LIMIT\\s*=|_RECALL_CANDIDATE_LIMIT|ann_retrieval_enabled|ATELIER_ANN_RETRIEVAL",
       "session_577",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_SEGMENT_INTERVAL_S",
       "session_584",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "nonblocking_reads|_FileIndexData\\(|_reindex_files|mtime_ns",
       "session_592",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def test.*read|read_tool|smart_read|files=\\[|expand|def _call|read\\(",
       "session_599",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def apply_minified_edit|def language_for_minify|class MinifiedEditError|def .*minif|mapping|raise MinifiedEditError",
       "session_607",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "mcp_tool_visible_to_llm|visible_to_llm|advertised|tools/list|list_tools|HIDDEN_LLM_TOOLS|\"callers\"|\"callees\"|\"usages\"",
       "session_615",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "[\"'`](callers|callees|usages)[\"'`]",
       "session_622",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_OWNED_TOOL_NAMES\\s*=|\"callers\"|\"callees\"|\"usages\"",
       "session_630",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tool_symbols|tool_blame|tool_cache_status|tool_cache_invalidate|\"symbols\"|'symbols'|\"blame\"|\"cache_status\"|\"cache_invalidate\"",
       "session_637",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "rename",
       "session_645",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _symbol_arg|tool_node|mcp_server\\.tool_node",
       "session_653",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "`node`|`callers`|`usages`",
       "session_660",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "lines_per_file|context_budget_tokens|file_limit|if_modified_since|auto_limit|\"budget_tokens\"|'budget_tokens'|\"max_lines\"|'max_lines'",
       "session_668",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_existing_test_contract_paths|allow_test_contract_change|contract_change_evidence|def _snapshot_paths|def _compute_and_record_diffs|def _apply_edit_verify_gate|_existing_test|contract_change|test_contract",
       "session_675",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_savings_summary_payload|SavingsSummaryV2|would_have_cost_usd|window_days",
       "session_683",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "DO_CLAUDE|DO_CODEX|DO_OPENCODE|EXPLICIT|enable_detected|--all|--claude|--codex|--opencode",
       "session_690",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _find_callers_local|def _maybe_autosync|def _start_autosync_worker|def _autosync|def _index_repo|with self\\._autosync_lock|def _ensure",
       "session_698",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _default_db_path|def _shared_db_lock|_default_db_path",
       "session_706",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_code_engine_for_current_call =|_code_engine_for_current_call:|class _CallLocal|threading.local|_code_engine_cache =",
       "session_713",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "code_warm|start_code_warmer",
       "session_721",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def __init__\\(self, repo_root|self\\._index_ready_cached = False|def _ensure_indexed|self\\._ensure_indexed\\(",
       "session_728",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_real_agent_run|def run_pr_arm",
       "session_736",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def mcp_tool_visible_to_llm|def mcp_tool_mode|def mcp_tool_description|HIDDEN|visible",
       "session_744",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "[\"']imports:[\"']|imports:\\\\n|cache_control.*ephemeral|content_item\\[.saved",
       "session_751",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\b\\d+(\\.\\d+)?\\s*[x\u00d7%]|\\$\\d|cheaper|reduction|tokens?\\s+saved|faster|outperform|beats?\\b",
       "session_759",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "dark|absent|missed|verdict",
       "session_766",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _resolve_live_session_id|def _claude_session_id|def _get_claude_session_id|def _read_workspace_session_bridge|def _register_mcp_session|def _mcp_session_file|def _workspace_savings_path",
       "session_774",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_carry_credit|carry_usd|carry_tokens|_bucket_cost_usd|savings_input_rate|_price_savings_row",
       "session_782",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "session_window|_resolve_session|host_window_id|current_session_id",
       "session_789",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "saved|_apply_savings|_calculate_savings|def test_|report\\(",
       "session_797",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_append_search_verdict_footer|_render_search|_render_grep|def _smart_search_render|smart_search_result|def tool_smart_search",
       "session_804",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "total_cost_usd|cost_usd|token_usage|usage.*token|input_tokens|output_tokens",
       "session_812",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def update_session_stats|_accumulate_usage|usage.*payload|payload.*usage",
       "session_820",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def build_codex_post_tool_use_savings_output|def build_codex_user_prompt",
       "session_827",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def test_workflow_run_executes_agent_steps_by_default|def test_workflow_run_pauses_for_plan_review_and_resumes_on_approval|def test_workflow_tool_status_pause_resume_and_stop|subprocess|monkeypatch\\.setattr|resolve_swarm_runner_command|_default_workflow_agent_executor|executor=|agent_executor",
       "session_835",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "print\\(|sys\\.stdout\\.write|sys\\.stdout\\.flush",
       "session_842",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_code_engine_cache|threading\\.Lock|threading\\.RLock\\(\\)|import threading",
       "session_850",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _status_tip|_status_tip\\(\\)|_TIPS|STATUS_TIPS",
       "session_858",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name=[\"']|\\.command\\(|\\.group\\(",
       "session_865",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "/dev/tty|BUNDLE_SH|bash \"\\$BUNDLE_SH|ATELIER_RELEASE_TAG:-|^ASSET_NAME=|RELEASE_BASE_URL",
       "session_873",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "workspace|--all|claude-project|scope",
       "session_880",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "CORE_DISCIPLINE|CHANGE_DISCIPLINE|CODING_GUIDELINES|core-discipline|SHARED_TOKENS|TEMPLATE_TOKENS|_expand|placeholder",
       "session_888",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "prompt|task_dir",
       "session_896",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "PROVIDER_ALIASES|CLAUDE_PROVIDER_PRESETS|claude\\.ai|subscription|harbor|minibench|mini.bench|terminal.bench\"",
       "session_903",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Failure-triage gate|Validation discipline|loop until verified|Goal-Driven Execution",
       "session_911",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "already (been )?read|already seen|previously read|byte.?identical|identical contents?|unchanged since|same hash|noop|seen_paths|read_cache|_seen",
       "session_918",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _smart_read_single|def _read_dedup_resource|_DEFAULT_READ|MAX_.*READ|persist|too large|hard_cap|max_chars|expand",
       "session_926",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "skill",
       "session_933",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "render_host_surface|distribution_sections|Budget optimizer|AGENTS\\.atelier|Core discipline",
       "session_941",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "atelier_score|atelier worse|atelier better|_vs_provider",
       "session_949",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "correctness",
       "session_956",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name=\\\"symbol\\\"|\\\"symbol\\\"\\s*[,:]|alias.*symbol|symbol.*alias|register.*symbol|\\\"symbol\\\":|tool.*symbol",
       "session_964",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def mcp_tool_visible_to_llm",
       "session_971",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "orientation|allowed_tools|playbook|SURFACE_AUDIT",
       "session_979",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def.*agent|agent_tool|spawn.*agent|class.*Agent",
       "session_987",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tool_agent|name=.agent.|[\"']agent[\"']\\s*[:,\\]]|\\bagent\\b.*tool",
       "session_994",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _run_owned_workflow",
       "session_1002",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _execute_transport|def _transport_|InternalLLMResponse|TransportResponse|class .*Response|litellm|_call_provider|host_runner|subprocess",
       "session_1009",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "savings --line|savings_line|--session|atelier_bin|resolve_atelier|printf|SAVED|CARRY",
       "session_1017",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_role_default_model|_build_claude_stable_frontmatter|model_default|def _role_",
       "session_1025",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_dev_command|_dev_group|domain_group|report_cmd",
       "session_1032",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "@_dev_command|@_dev_group|@click\\.|^__all__|def [a-z_]+\\(|\"[a-z-]+\"",
       "session_1040",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "index_sessions|session_recall|db_name=.recall|_memory_recall|op.*recall",
       "session_1047",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "redact\\(|splitlines\\(\\)|logger|_log\\b|logging",
       "session_1055",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Recovered from broad exception handler|Recovered from unexpected error",
       "session_1063",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "rt\\.store\\.record_trace|store\\.record_trace\\(trace\\)|def tool_record_trace|Trace\\.model_validate\\(payload\\)",
       "session_1070",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tool_rescue_failure|tool_record_trace|tool_run_rubric_gate|tool_get_context|tool_route|tool_compact",
       "session_1078",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_ACTIVE_MODEL_OVERRIDE",
       "session_1085",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "@mcp_tool|_TOOLS\\b|TOOL_REGISTRY|_REGISTRY|register|visible_to_llm|mode=|name=",
       "session_1093",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "EXPECTED_TOOLS|HIDDEN|callees|callers|def test_tools_list_returns_exact_public_surface|def test_tools_list_hides_internal_tools|def test_cli_tools_list_hides_internal_tools_even_with_legacy_flag",
       "session_1101",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _get_host_session_sidecar_path|def _context_savings_path|def _workspace_savings_path|def _mcp_session_file|def _claude_session_id|def _get_host_session_sidecar",
       "session_1108",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_DISPLAY_NAME_MODEL_MAP\\s*[:=]",
       "session_1116",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_index_snapshot|_current_index_version|index_write_lock|database is locked|index_repo\\(",
       "session_1123",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "do not retry this path|def _read|def read|files\\s*[:=]|range",
       "session_1131",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "#|split|partition|line_start|line_end|scope|range",
       "session_1139",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def search_first|ranges|range|line|chunk|snippet|\\\"file\\\"|files",
       "session_1146",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def retrieve|slice_start|slice_length|def summary_with_ref|offset",
       "session_1154",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _handle|_handle\\(|def test_handle",
       "session_1161",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "parity",
       "session_1169",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "reasonblock",
       "session_1176",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "reasonblock|seed_blocks|seed_playbooks",
       "session_1184",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_source_section_for_symbol|_merge_nearby_source_sections|def tool_node|def tool_callers|source_sections|line_numbers",
       "session_1192",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^\\s*(def|class)\\s+\\w*[Bb]ootstrap\\w*",
       "session_1199",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "difflib|unified_diff|\"diff\"\\]?\\s*=|\\[.diff.\\]|calls_saved.*=|edit.*envelope|def .*edit",
       "session_1207",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "AST-shape|Structural code search|Run a command via the system shell|codemod",
       "session_1214",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_extra_roots",
       "session_1222",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "transport|api.provider|max.output.token",
       "session_1230",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "impact",
       "session_1237",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_indexed_files|_read_file\\(",
       "session_1245",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "impact",
       "session_1252",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\"op\":\\s*\"(search|node|symbol|callers|callees|usages|explore|pattern)\"",
       "session_1260",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "EXPECTED_TOOLS|\"symbols\"|\"index\"|\"outline\"|\"callees\"|tool_code|\"op\":\\s*\"",
       "session_1268",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tool_code",
       "session_1275",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "mcp_server|MCPServer|FastMCP|mcp\\.server|stdio_server|class.*MCP|register.*tool",
       "session_1283",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "path escapes workspace root|is_relative_to|def _workspace_path|def _smart_read_single",
       "session_1290",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "rubric|run_rubric_gate|RubricResult|\"status\"|\"passed\"|def _rubric|gate_result|\\.echo\\(json",
       "session_1298",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "(?i)atelierbench",
       "session_1306",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "workflow",
       "session_1313",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "cg_",
       "session_1321",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name=\\\"(symbols|node|callers|callees|usages|explore|codemod|sql|shell)\\\",",
       "session_1328",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name=\\\"explore\\\"",
       "session_1336",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "codebench|cg_vscode|cg_django|benchmark.*run\\|run.*benchmark\"",
       "session_1344",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def __init__",
       "session_1351",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_pre_index_workspace",
       "session_1359",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_resolve_index_max_workers|ATELIER_INDEX_MAX_WORKERS",
       "session_1366",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "patch_row|fix_patch|git\\b.*diff|def .*diff|test_patch|\\.diff\\(|extract",
       "session_1374",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "claude-sonnet-4-6|claude-haiku-4-5|cache_write_1h|cache_write:",
       "session_1381",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "(append-system-prompt|system_prompt|--agents?|agent\\b|code\\.md|--model|CODEBENCH_AGENT|claude\\b.*-p|cmd\\s*=|args\\.(append|extend))",
       "session_1389",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Per-task medians|def .*median|_median|median\\(|clean runs|Per-task correctness",
       "session_1397",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "iter_commit_records|ATELIER_LINEAGE_DISABLED|ATELIER_LINEAGE_ENABLED|_ensure_lineage_ready|_walk_and_summarise|limit=500",
       "session_1404",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "DEFAULT_DATASET|DEFAULT_SPLIT|MODEL_NAME|TESTBED|changed_file_count",
       "session_1412",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ToolPolicy\\(|denied_actions|_denies_spawn|agent-spawn",
       "session_1419",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^class ArmResult|^def _write_results_jsonl|^def _apply_savings|^def report\\b|^\\s{4}def __init__|^\\s{4}self\\.\\w+ =",
       "session_1427",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "opus-4-8|opus-4-7|opus-4-6|opus-4-5|sonnet-4-6",
       "session_1435",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_load_existing_results|_result_key|import json|from dataclasses",
       "session_1442",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_ARM_AGENT|atelier:code|atelier:auto|atelier:solve",
       "session_1450",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name|plugin",
       "session_1457",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ATELIER_BENCH_MODE|make_arm_env|bench\\.mode|agent_env|BenchMode",
       "session_1465",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "subprocess|Popen|bash|-lc|-c|shell=|login|profile|bashrc|def .*exec|def run",
       "session_1473",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "swebench instance test_patch field dataclass",
       "session_1480",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "EDIT_TOOL_INPUT_SCHEMA|\"post_edit_hooks\"|\"verify\"|\"atomic\"",
       "session_1488",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ScheduleWakeup|disallowedTools|mode",
       "session_1495",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "class ToolPolicy|denied_actions|web-search|web_search|ask-user|plan-gate|_VALID|Literal\\[",
       "session_1503",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "file_line_fts",
       "session_1511",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _sync_symbol_intel|def _build_symbol_vectors|def _ensure_symbol_vectors|embed_symbols|upsert.*vector|def _semantic_ranker|class .*SemanticRanker|def available",
       "session_1518",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\.record\\(|record_event\\(|kind=|\\.append_event\\(",
       "session_1526",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "record_tool_call|record_command|\\.record\\(|kind\\s*=\\s*[\"']|\"kind\":\\s*[\"']|file_edit|read_file|file_revert|\"search\"|\"grep\"",
       "session_1533",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^# |^title:|^## ",
       "session_1541",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "savings|saving|subagent|sub_agent",
       "session_1549",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_carry_credit|carry_tokens|carry_usd|subagent_turn|turn_timestamps",
       "session_1556",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "command|args|atelier|mcp|serve|python|uv",
       "session_1564",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "session_stats/claude|session_stats.*claude|write.*session_stats",
       "session_1571",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_CLAUDE_READ_LINE_LIMIT|_claude_read_baseline|native.*limit|2000",
       "session_1579",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _code_context_engine|_code_engine_cache|lru_cache.*engine|_engine.*cache",
       "session_1587",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_append_live_savings_event",
       "session_1594",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "^from|^import",
       "session_1602",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "generate_embedding\\(|LocalEmbedder\\(\\)|NullEmbedder\\(\\)",
       "session_1609",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "code.*index|def index|\"index\"|add_argument.*index",
       "session_1617",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_code_search_target_view|_code_search_graph_view|def tool_search",
       "session_1624",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "threading\\.local\\(\\)|_tool_call_tokens_saved|class _ThreadLocal|\\.value\\s*=\\s*0",
       "session_1632",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def tool_memory|op: Literal|\\\"op\\\"|require\\(",
       "session_1640",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "pytest over touched|scoped mypy over touched|\"tests\", \"lint\"|verify_checks|pytest over the touched",
       "session_1647",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "eval_cycle|eval_from_cluster|from-cluster|analyze_failures_cmd|register.*lessons|lessons_commands|import lessons",
       "session_1655",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "rescue_failure|def analyze_failure\\b|analyze_failure\\(|RescueResult|rescue",
       "session_1662",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "shell",
       "session_1670",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ATELIER_BENCH_MODE.*off|bench_mode.*off|BenchMode\\.OFF|bench.*=.*off",
       "session_1678",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "hidden|alias|op=|multiplex|profile|_TOOL_NAMES|expose|registered_tools",
       "session_1685",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_raw_tool_symbols_handler|_STRUCTURAL_OPS",
       "session_1693",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ATELIER_BIN_DIR|ATELIER_TOOL_DIR|ATELIER_INSTALL_RECORD",
       "session_1700",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "web_fetch",
       "session_1708",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "@mcp_tool\\(",
       "session_1716",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "distribution_notice|Distribution artifact: do not edit|do not edit directly",
       "session_1723",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "session_end|kind.*end|carry.*jsonl|savings\\.jsonl.*carry",
       "session_1731",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\\"kind\\\".*\\\"session_end\\\"|'kind'.*'session_end'|kind.*=.*session_end",
       "session_1738",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def build_savings_report|summary_breakdown|carry",
       "session_1746",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "code_context\\.sqlite|workspace.*delete|prune.*workspace|cleanup.*workspace|workspace.*cleanup",
       "session_1754",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "shell",
       "session_1761",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "(_MCP_ID|def _mcp_session_file|def _register_mcp_session|def _emit_mcp_session_start|def _claude_session_id|def _atelier_root|ATELIER_MCP_ID|def _append_savings|def _append_workspace_savings|def _get_host_session_sidecar_path)",
       "session_1769",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "text-neutral-(500|600|700)\\b",
       "session_1776",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "system_prompt|SYSTEM_PROMPT|system message|context_window|max_tokens",
       "session_1784",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "savings.*avoided|avoided_failures|inject.*savings",
       "session_1792",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "post-edit hook pipeline|JS/TS formatter|Rust formatter",
       "session_1799",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def session_stats_path|def update_session_stats|def _read_json|def _write_json",
       "session_1807",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "alwaysLoad|defaultPrompt|PostToolUse|tool policy|native|fallback|context",
       "session_1814",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "saving|savings|cache|input|output|session|tokens|cost",
       "session_1822",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def update_session_stats\\(|update_session_stats\\(",
       "session_1829",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "claude (plugin|mcp|--version)|read -r|prompt|tty|git rev-parse",
       "session_1837",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "# Default: all hosts|enable_detected_hosts_by_default",
       "session_1845",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_run_native_grep",
       "session_1852",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "rank_reusable_procedures|ContextReuseCapability|_HybridResult|inject_runtime_context",
       "session_1860",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\$0\\.000|\\(I:|C: 0|O: 0|121k|0\\.608",
       "session_1867",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_get_host_session_sidecar_path|session_savings|session_stats.*claude|ATELIER_AGENT|CLAUDE_CODE|CODEX",
       "session_1875",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "line-length|ruff|black",
       "session_1883",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def search_symbols\\(|class .*Symbol|_compact_search_items|_SEARCH_ESSENTIAL_KEYS|_SEARCH_OPTIONAL_KEYS|provenance_filter",
       "session_1890",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "tool_search|op=.*search|rendered|mode|snippet|provenance|items|qualified_name|classify_command|compact",
       "session_1898",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _resolve_symbol_target|def tool_callers|def tool_callees|def _build_call_graph_payload|def find_references",
       "session_1905",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "benchmarks/mcp_tools/**/*.py",
       "session_1913",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def main\\(|csv-out|artifact-root|render_summary|write_csv",
       "session_1921",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "benchmark providers|summary.csv|render_summary_table|CaseBenchResult",
       "session_1928",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "zoekt|Zoekt|max_chars_per_file|include_outline",
       "session_1936",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "op == \"grep\"|op == \"text\"|search_text|tool_search|SYMBOLS_TOOL_INPUT_SCHEMA|Literal\\[",
       "session_1943",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "_tool_text_substring_search|_should_use_text_substring_search|_has_exact_repo_symbol|test_tool_search_routes_lowercase_substrings|file_glob\": \"src/atelier/\\*\\*/\\*\\.py\"",
       "session_1951",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "claude.*ollama|ollama.*claude|bridge|claude-ollama|ollama-claude|claude.*bridge",
       "session_1959",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "\\)    |\\]    |\\}    |\\\"\\)    |\\w\\)    \\w|\\w\\]    \\w|\\w\\}    \\w",
       "session_1966",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "while .*continuous|current_wave|stop_reason|consecutive_no_progress|max_evaluator_failures|max_no_progress|launch_swarm_children|def launch_swarm_children|def _run_swarm_coordinator",
       "session_1974",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "max-idle-waves|max_idle_waves|max_no_progress_waves|max_idle|continues_until_idle_budget|idle wave|idle_budget",
       "session_1981",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*api*.py, **/*server*.py, **/*routes*.py, **/*app*.py",
       "session_1989",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "resume|checkpoint|skip|exists|append|report",
       "session_1997",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "@_dev_command\\(\"(deprecate|quarantine|detect-loop)\"|@click\\.command\\(\"(status|reset|doctor|init|login|logout|insights)\"",
       "session_2004",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def _connect",
       "session_2012",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "with self\\._connect\\(\\) as conn",
       "session_2019",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "cacheRead|cacheWrite|message.*usage|usage.get\\(\"input\"",
       "session_2027",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def main|ArgumentParser|--out|--timeout|--jobs|--rate|RESULTS_ROOT|run_dir =|args.report",
       "session_2035",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "timeout|ArgumentParser|main\\(|RESULTS_ROOT|rate",
       "session_2042",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def run_arm|subprocess.run\\(|Popen\\(|agent_env|HTTPS_PROXY|rate_limit",
       "session_2050",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*",
       "session_2057",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*",
       "session_2065",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*",
       "session_2072",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "claude-sonnet-4-6|sonnet-4-5|bedrock",
       "session_2080",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def tool_shell\\(|timeout: Annotated",
       "session_2088",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "search_read\\(|ZoektSupervisor|backend=\"|ranked",
       "session_2095",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "name=\"(node|callers|callees|usages|explore|impact|read|grep)\"|def tool_(node|callers|callees|usages|explore|impact|read|grep)",
       "session_2103",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*validation*.md, **/scorecard.md, **/README.md",
       "session_2110",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       ".",
       "session_2118",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "host_context_state|_codex_probe|OpenCodeImporter|install_opencode",
       "session_2126",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "additionalContext|decision|reason|rescue|sys.stdout|print",
       "session_2133",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "multi-file|batched read|one edit call|file-by-file|Tool discipline",
       "session_2141",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "**/*",
       "session_2148",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "12\\.44|6\\.64|1\\.82|3\\.65",
       "session_2156",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "*.md",
       "session_2164",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "Switch to benchmark solve mode|Dedicated benchmark solver|Benchmark task solving|isolated terminal-bench-style tasks",
       "session_2171",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "shared_skill|SKILL.md|render.*skill",
       "session_2179",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def build_savings_report|return \\{.*session|\"cost\"|compute_savings_summary",
       "session_2186",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def compute_savings_summary|session_stats|live_savings|tools_used|ctx_saved|smart_calls",
       "session_2194",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def build_codex_stop_output|def update_session_stats|def aggregate_session_stats|def build_codex_post_tool_use_savings_output",
       "session_2202",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "OpenAI-style Codex usage|def _codex_probe|def _claude_probe",
       "session_2209",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "PLUGIN_LABEL|tok_to_int|savings --segment|printf '%s%s%s",
       "session_2217",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "gpt-5|gpt-5.5|def get_model_pricing|unknown|cost_usd|ModelPricing",
       "session_2224",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "def test_.*pattern|def test_.*substring|tool_pattern",
       "session_2232",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "scripts/**, release/**, .github/workflows/**, docs/quality/**, Makefile, pyproject.toml, package.json",
       "session_2240",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "@app\\.command|@.*\\.command|def .*\\(",
       "session_2247",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "*",
       "session_2255",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "AstGrepRunner|ast-grep|sg |npx|npm|CodeGraphRunner|ZoektRunner|ensure_zoekt|go install|github.com",
       "session_2262",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ],
     [
       "ROOT|yaml|argparse|--check|if __name__|write|AGENTS.md|integrations",
       "session_2270",
-      "atelier-ws__atelier-dev"
+      "atelier__atelier"
     ]
   ],
   "true_map": {
@@ -25536,26 +25536,26 @@
     "matplotlib__matplotlib": {
       "ws": "/tmp/idx_ws_matplotlib__matplotlib",
       "db": "/tmp/idx_isolated/matplotlib__matplotlib/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v3.11.0",
+      "base_commit": "v3.11.0"
     },
     "mwaskom__seaborn": {
       "ws": "/tmp/idx_ws_mwaskom__seaborn",
       "db": "/tmp/idx_isolated/mwaskom__seaborn/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v0.13.2",
+      "base_commit": "v0.13.2"
     },
     "pallets__flask": {
       "ws": "/tmp/idx_ws_pallets__flask",
       "db": "/tmp/idx_isolated/pallets__flask/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "3.1.3",
+      "base_commit": "3.1.3"
     },
     "psf__requests": {
       "ws": "/tmp/idx_ws_psf__requests",
       "db": "/tmp/idx_isolated/psf__requests/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v2.34.2",
+      "base_commit": "v2.34.2"
     },
     "pydata__xarray": {
       "ws": "/tmp/idx_ws_pydata__xarray",
@@ -25566,8 +25566,8 @@
     "pylint-dev__pylint": {
       "ws": "/tmp/idx_ws_pylint-dev__pylint",
       "db": "/tmp/idx_isolated/pylint-dev__pylint/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v4.0.6",
+      "base_commit": "v4.0.6"
     },
     "pytest-dev__pytest": {
       "ws": "/tmp/idx_ws_pytest-dev__pytest",
@@ -25584,8 +25584,8 @@
     "sphinx-doc__sphinx": {
       "ws": "/tmp/idx_ws_sphinx-doc__sphinx",
       "db": "/tmp/idx_isolated/sphinx-doc__sphinx/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": ""
+      "anchor": "v9.1.0",
+      "base_commit": "v9.1.0"
     },
     "sympy__sympy": {
       "ws": "/tmp/idx_ws_sympy__sympy",
@@ -25593,21 +25593,17 @@
       "anchor": "sympy__sympy-13091",
       "base_commit": "d1320814eda6549996190618a21eaf212cfd4d1e"
     },
-    "atelier-ws__atelier-dev": {
-      "ws": "/tmp/idx_ws_atelier_dev",
-      "db": "/tmp/idx_isolated/atelier-ws__atelier-dev/code_context.sqlite"
-    },
     "atelier__atelier": {
       "ws": "/tmp/idx_ws_atelier_dev",
       "db": "/tmp/idx_isolated/atelier__atelier/code_context.sqlite",
-      "anchor": "local",
-      "base_commit": ""
+      "anchor": "v0.3.9",
+      "base_commit": "v0.3.9"
     },
     "torvalds__linux": {
       "ws": "/tmp/idx_ws_linux_core",
       "db": "/tmp/idx_isolated/torvalds__linux/code_context.sqlite",
-      "anchor": "HEAD",
-      "base_commit": "HEAD"
+      "anchor": "v7.2-rc2",
+      "base_commit": "v7.2-rc2"
     }
   }
 }
