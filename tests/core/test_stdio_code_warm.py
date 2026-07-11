@@ -173,5 +173,8 @@ def test_stdio_warm_hook_is_fail_open(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError("warm exploded")
 
     monkeypatch.setattr(code_warm, "warm_stdio_workspace", _boom, raising=True)
+    # Skip the account-activation gate: no need to exercise the real OAuth
+    # flow (network + browser) just to test fail-open error handling here.
+    monkeypatch.setattr(mcp_server, "_ensure_account_activated", lambda root: True, raising=True)
     # Must not raise.
     mcp_server._warm_stdio_code_index()

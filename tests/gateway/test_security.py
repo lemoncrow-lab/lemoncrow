@@ -95,7 +95,9 @@ def test_assert_safe_grep_args_accepts_clean_args() -> None:
 
 def test_record_trace_redacts_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from atelier.gateway.adapters.mcp_server import tool_record_trace
+    from tests.helpers import grant_oauth_pro
 
+    grant_oauth_pro(monkeypatch)
     # Run outside a git repo so `init` skips the ~40s code-index bootstrap and the
     # project-setup writes (both gated on _detect_git_root(cwd)); this test only
     # needs an initialized store to exercise redaction.
