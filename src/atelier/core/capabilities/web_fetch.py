@@ -46,13 +46,13 @@ MAX_BODY_BYTES = 2_000_000
 # critical xref/trailer structure lives at the END of the file -- truncating at the
 # generic text-page cap corrupts the file before pypdf ever gets to read it. A real
 # ~100-page model system card with embedded charts runs 20MB+ (observed: 20.6MB).
-# This is NOT unbounded: web_fetch runs inside a long-lived shared gateway process,
-# so one huge/malicious URL reading without limit can hang or OOM it for every other
-# session, not just the caller's. 200MB comfortably covers any legitimate paper,
-# manual, or system card while still bounding the worst case. If a real PDF ever
-# exceeds this, _render_content raises a clear "too large" error instead of feeding
-# pypdf a truncated (and therefore unparseable) file.
-MAX_PDF_BODY_BYTES = 200_000_000
+# This is NOT unbounded: web_fetch runs inside a long-lived shared gateway process
+# and the whole body is buffered in RAM, so one huge/malicious URL can hang or OOM
+# it for every other session, not just the caller's. 50MB covers any legitimate
+# paper, manual, or system card while keeping the worst-case resident buffer
+# bounded. If a real PDF ever exceeds this, _render_content raises a clear "too
+# large" error instead of feeding pypdf a truncated (and therefore unparseable) file.
+MAX_PDF_BODY_BYTES = 50_000_000
 MAX_REDIRECTS = 5
 FETCH_CACHE_TTL_S = 300.0
 FETCH_CACHE_MAX_ITEMS = 128
@@ -143,8 +143,9 @@ _DNS_EXECUTOR: concurrent.futures.ThreadPoolExecutor = concurrent.futures.Thread
 def _resolve_host_safe(hostname: str, timeout: float) -> str:
     """Resolve *hostname* with a timeout and reject unsafe network destinations.
 
-    Public and loopback addresses are allowed. Private-network, link-local, and
-    otherwise non-routable addresses are rejected.
+    Public addresses are allowed. Loopback is denied by default (localhost SSRF)
+    unless ``ATELIER_WEB_FETCH_ALLOW_LOOPBACK=1``. Private-network, link-local,
+    and otherwise non-routable addresses are always rejected.
     """
     try:
         ascii_host = hostname.encode("idna").decode("ascii")
@@ -168,11 +169,26 @@ def _resolve_host_safe(hostname: str, timeout: float) -> str:
 
 _CGNAT_RANGE = ipaddress.ip_network("100.64.0.0/10")
 
+_LOOPBACK_ALLOW_ENV = "ATELIER_WEB_FETCH_ALLOW_LOOPBACK"
+
+
+def _loopback_allowed() -> bool:
+    """Loopback fetches are DENIED by default (localhost SSRF); opt in via env.
+
+    Same truthy-string convention as the other env toggles in this module
+    (see ``_spill_enabled``).
+    """
+    return os.environ.get(_LOOPBACK_ALLOW_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 def _assert_fetchable_ip(raw_ip: str) -> None:
     ip = ipaddress.ip_address(raw_ip)
     if ip.is_loopback:
-        return
+        if _loopback_allowed():
+            return
+        raise ValueError(
+            f"web_fetch blocked loopback address: {raw_ip} (set {_LOOPBACK_ALLOW_ENV}=1 to allow localhost fetches)"
+        )
     if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
         raise ValueError(f"web_fetch blocked private/local network IP: {raw_ip}")
     if ip.version == 4 and ip in _CGNAT_RANGE:

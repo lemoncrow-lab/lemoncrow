@@ -1,8 +1,16 @@
 """Raw Anthropic API integration for Atelier.
 
-``make_atelier_tools()`` returns ``(tool_specs, dispatch)`` so you can
-inject Atelier's watchdog + cost-tracking capabilities as Anthropic tool
-calls without changing your agent architecture.
+``make_atelier_tools()`` returns ``(tool_specs, dispatch)``:
+
+- ``tool_specs``: at most one tool — ``atelier_session_status`` — which lets
+  the model query session health (loop/watchdog alerts, cache hit ratio).
+- ``dispatch``: a client-side callback you invoke with each Anthropic
+  ``Message`` response; it records token usage in the RunLedger and fires
+  watchdog checks (repeated identical tool calls, budget exhaustion).
+
+Nothing is injected into your requests: you pass ``tool_specs`` to
+``messages.create(tools=...)`` yourself, set ``cache_control`` in your own
+prompt if you want prefix caching, and handle tool-use blocks in your loop.
 
 Usage::
 
@@ -22,7 +30,7 @@ Usage::
             system=[{
                 "type": "text",
                 "text": "You are a helpful assistant.",
-                "cache_control": {"type": "ephemeral"},   # injected by Atelier
+                "cache_control": {"type": "ephemeral"},   # set by you, not Atelier
             }],
             tools=tool_specs,
             messages=messages,
@@ -35,6 +43,8 @@ Usage::
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -76,7 +86,8 @@ def make_atelier_tools(
 
     Returns:
         A 2-tuple of:
-        - ``tool_specs``: list of Anthropic ``ToolParam``-compatible dicts.
+        - ``tool_specs``: list of Anthropic ``ToolParam``-compatible dicts
+          (the ``atelier_session_status`` tool, or empty).
           Pass directly to ``messages.create(tools=...)``.
         - ``dispatch``: Callable that accepts an Anthropic ``Message`` response
           and records token usage + fires watchdog checks.
@@ -85,7 +96,10 @@ def make_atelier_tools(
     if include_telemetry_tool:
         tool_specs.append(_ATELIER_TELEMETRY_TOOL)
 
-    tool_call_counts: dict[str, int] = {}
+    # Loop-detection streak state: consecutive identical (tool, args) calls.
+    streak_key: str | None = None
+    streak_count = 0
+    streak_alerted = False
     prior_prefix_hash: list[str] = [""]  # mutable container for closure
 
     def dispatch(response: Any) -> None:
@@ -95,6 +109,7 @@ def make_atelier_tools(
             response: An ``anthropic.types.Message`` instance (or any object with
                       ``.usage``, ``.model``, ``.content``, and ``.stop_reason``).
         """
+        nonlocal streak_key, streak_count, streak_alerted
         # Extract usage from Anthropic Message
         usage = getattr(response, "usage", None)
         input_tokens: int = 0
@@ -147,7 +162,9 @@ def make_atelier_tools(
             prefix_invalidated_reason=prefix_invalidated_reason,
         )
 
-        # Loop detection: scan tool_use blocks in response
+        # Loop detection: consecutive identical (tool, args) calls.  A streak
+        # breaks as soon as a different call intervenes; the alert fires once
+        # per streak and re-arms only after the streak breaks.
         content = getattr(response, "content", []) or []
         for block in content:
             if getattr(block, "type", "") == "tool_use":
@@ -158,16 +175,29 @@ def make_atelier_tools(
                     _handle_telemetry_call(ledger)
                     continue
 
-                tool_call_counts[tool_name] = tool_call_counts.get(tool_name, 0) + 1
-                count = tool_call_counts[tool_name]
-                if count >= 3:
+                try:
+                    args_canon = json.dumps(getattr(block, "input", None), sort_keys=True, default=str)
+                except (TypeError, ValueError):
+                    args_canon = "<unserializable>"
+                key = f"{tool_name}\x00{hashlib.sha256(args_canon.encode()).hexdigest()}"
+
+                if key == streak_key:
+                    streak_count += 1
+                else:
+                    streak_key = key
+                    streak_count = 1
+                    streak_alerted = False
+
+                if streak_count >= 3 and not streak_alerted:
+                    streak_alerted = True
                     ledger.record(
                         "watchdog_alert",
-                        f"loop_detection: tool '{tool_name}' called {count} times",
+                        f"loop_detection: tool '{tool_name}' called {streak_count} times in a row "
+                        "with identical arguments",
                         {
                             "event_type": "REPEATED_TOOL_CALL",
                             "tool": tool_name,
-                            "count": count,
+                            "count": streak_count,
                             "hint": f"Agent is looping on '{tool_name}'. Consider redirecting.",
                         },
                     )

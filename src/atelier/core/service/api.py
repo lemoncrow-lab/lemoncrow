@@ -3154,11 +3154,13 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         docs_url="/docs",
     )
 
-    # CORS for local dev
+    # CORS for the local web UI: loopback origins only (any port). A wildcard
+    # origin with credentials would let any website a browser visits drive
+    # this API with the user's cookies/credentials.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -3909,6 +3911,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         from atelier.core.service.telemetry.config import save_telemetry_config
 
         cfg_telemetry = save_telemetry_config(
+            remote_enabled=payload.get("remote_enabled"),
             lexical_frustration_enabled=payload.get("lexical_frustration_enabled"),
         )
         return {
@@ -6928,7 +6931,23 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     return app
 
 
-app = create_app()
+_lazy_app: Any | None = None
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy ``app`` module attribute (PEP 562).
+
+    Building the FastAPI instance at import time started background threads
+    (savings reconciler) as an import side effect. uvicorn runs through the
+    factory pattern (see ``main``); any legacy ``api:app`` reference still
+    works via this deferred, cached constructor.
+    """
+    global _lazy_app
+    if name == "app":
+        if _lazy_app is None:
+            _lazy_app = create_app()
+        return _lazy_app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -6949,8 +6968,9 @@ def main(
     Used by ``atelier service start`` CLI command and the ``atelier-service``
     entrypoint.
 
-    Warns when binding a non-loopback interface without ATELIER_REQUIRE_AUTH=1.
-    Set ATELIER_REQUIRE_AUTH=1 + ATELIER_API_KEY=<secret> for authenticated public access.
+    Binding a non-loopback interface fails closed: auth is required (requests
+    are rejected until ATELIER_API_KEY is set) unless ATELIER_REQUIRE_AUTH is
+    explicitly disabled.
     """
     import sys
 
@@ -6959,20 +6979,28 @@ def main(
     _host = host or cfg.host
     _port = port or cfg.port
 
+    # cfg.require_auth keys off ATELIER_SERVICE_HOST; feed it the host that is
+    # actually being bound so an explicit ``--host 0.0.0.0`` fails closed
+    # (auth required) instead of only warning. An explicit
+    # ATELIER_REQUIRE_AUTH still wins in either direction.
+    os.environ["ATELIER_SERVICE_HOST"] = _host
+    os.environ["ATELIER_SERVICE_PORT"] = str(_port)
+
     if not _is_loopback(_host):
         if not cfg.require_auth:
             sys.stderr.write(
-                f"\nWarning: host={_host!r} is non-loopback and "
-                "ATELIER_REQUIRE_AUTH is not enabled.\n"
+                f"\nWarning: host={_host!r} is non-loopback and ATELIER_REQUIRE_AUTH "
+                "was explicitly disabled.\n"
                 "Local memory, traces, and configuration will be exposed to the network.\n"
-                "To enable authenticated access:\n"
-                "  export ATELIER_REQUIRE_AUTH=1\n"
-                "  export ATELIER_API_KEY=<a-long-random-secret>\n"
+                "Remove the ATELIER_REQUIRE_AUTH override and set "
+                "ATELIER_API_KEY=<a-long-random-secret> for authenticated access.\n"
             )
         elif not cfg.api_key:
             sys.stderr.write(
-                "\nWarning: ATELIER_REQUIRE_AUTH=1 but ATELIER_API_KEY is empty.\n"
-                "Set ATELIER_API_KEY=<a-long-random-secret> to enable authenticated access.\n"
+                f"\nNote: host={_host!r} is non-loopback, so auth is required, "
+                "but ATELIER_API_KEY is empty.\n"
+                "All protected routes will return 503 until "
+                "ATELIER_API_KEY=<a-long-random-secret> is set.\n"
             )
 
     uvicorn.run(

@@ -60,6 +60,48 @@ def test_edit_tracking_then_read_after_edit_blocks_expand_reread(tmp_path: Path)
     assert _run("pre_tool_discipline.py", expand_reread, tmp_path, {"ATELIER_READ_AFTER_EDIT_GUARD": "0"}) == ""
 
 
+def test_files_schema_full_reads_blocked_after_edit(tmp_path: Path) -> None:
+    # The read tool's real input shape is files=[]; the guard must catch full
+    # reads expressed as ':full' strings, bare-path strings, and dict entries.
+    edit = {
+        "tool_name": "mcp__atelier__edit",
+        "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+
+    def denied(tool_input: dict) -> bool:
+        out = _run("pre_tool_discipline.py", {"tool_name": "mcp__atelier__read", "tool_input": tool_input}, tmp_path)
+        return bool(out) and json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    assert denied({"files": ["shop/pricing.py:full"]})
+    assert denied({"files": ["shop/pricing.py"]})  # bare path = whole file
+    assert denied({"files": [{"path": "shop/pricing.py", "full": True}]})
+    assert denied({"files": [{"path": "shop/pricing.py"}]})
+    # bounded reads pass
+    assert not denied({"files": ["shop/pricing.py:L1-L20"]})
+    assert not denied({"files": ["shop/pricing.py:summary"]})
+    assert not denied({"files": [{"path": "shop/pricing.py", "range": "L1-L20"}]})
+    # full read of an un-edited file passes
+    assert not denied({"files": ["shop/other.py:full"]})
+
+
+def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
+    # utils.py edited in one package must not block a full read of a different
+    # package's utils.py -- comparison is on resolved paths, not basenames.
+    edit = {
+        "tool_name": "mcp__atelier__edit",
+        "tool_input": {"edits": [{"file_path": "pkg_a/utils.py", "old_string": "a", "new_string": "b"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+
+    other = {"tool_name": "mcp__atelier__read", "tool_input": {"path": "pkg_b/utils.py", "full": True}}
+    assert _run("pre_tool_discipline.py", other, tmp_path) == ""
+
+    same = {"tool_name": "mcp__atelier__read", "tool_input": {"path": "pkg_a/utils.py", "full": True}}
+    out = _run("pre_tool_discipline.py", same, tmp_path)
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
 def test_read_after_edit_no_block_without_prior_edit(tmp_path: Path) -> None:
     expand_reread = {"tool_name": "mcp__atelier__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
     assert _run("pre_tool_discipline.py", expand_reread, tmp_path) == ""

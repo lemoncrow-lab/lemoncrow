@@ -58,8 +58,7 @@ def openmemory_down(ctx: click.Context) -> None:
     root = ctx.obj["root"]
     workdir = lifecycle.openmemory_workdir(root)
     if not workdir.exists():
-        click.echo("OpenMemory checkout not found; nothing to stop.")
-        return
+        raise click.ClickException("OpenMemory checkout not found")
     lifecycle.run_make(root, "down")
     click.echo("OpenMemory stopped.")
 
@@ -73,8 +72,7 @@ def openmemory_status(ctx: click.Context) -> None:
     root = ctx.obj["root"]
     workdir = lifecycle.openmemory_workdir(root)
     if not workdir.exists():
-        click.echo("OpenMemory checkout not found.")
-        return
+        raise click.ClickException("OpenMemory checkout not found")
     subprocess.run(["docker", "compose", "ps"], cwd=workdir, check=False)
 
 
