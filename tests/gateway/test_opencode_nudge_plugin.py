@@ -59,9 +59,8 @@ console.log(JSON.stringify(output))
 def test_opencode_nudge_helper_surfaces_stale_agent_nudge_once_per_day(tmp_path: Path) -> None:
     """An installed OPTIONAL agent role that's never been used surfaces a
     staleness nudge via the same uiMessage channel the compaction notice
-    uses, gated to at most once per calendar day per item (marker file under
-    ATELIER_ROOT/opencode_stale_nudge_shown/, mirroring the Claude statusline
-    tip's once-a-day marker pattern).
+    uses, gated to at most once per calendar day total (single global
+    marker under ATELIER_ROOT/opencode_stale_nudge_shown/last_shown).
     """
     opencode_config = tmp_path / "opencode_config"
     (opencode_config / "agents").mkdir(parents=True)
