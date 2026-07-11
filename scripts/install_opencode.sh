@@ -102,7 +102,7 @@ backup_file() {
 if $WORKSPACE_SET; then
     NEW_ENTRY=$(cat <<JSON
 {
-  "default_agent": "atelier",
+  "default_agent": "code",
   "permission": {
     "atelier_*": "allow"
   },
@@ -131,7 +131,7 @@ JSON
 else
     NEW_ENTRY=$(cat <<JSON
 {
-  "default_agent": "atelier",
+  "default_agent": "code",
   "permission": {
     "atelier_*": "allow"
   },
@@ -163,7 +163,7 @@ if $PRINT_ONLY; then
     echo ""
     echo "Scope: ${INSTALL_SCOPE}"
     echo "Config target: ${OC_FILE}"
-    echo "Agent target: ${AGENT_DEST_DIR}/atelier.md"
+    echo "Agent target: ${AGENT_DEST_DIR}/code.md"
     echo ""
     echo "Merge/create config:"
     echo "$NEW_ENTRY"
@@ -233,26 +233,29 @@ print(f"[atelier:opencode] projected {len(written)} workspace-local OpenCode age
 PYEOF
     fi
 elif [[ "$ROLES" == "code" ]]; then
-    AGENT_SRC="${ATELIER_REPO}/integrations/opencode/agents/atelier.md"
+    AGENT_SRC="${ATELIER_REPO}/integrations/opencode/agents/code.md"
 
     STAGING_DIR="${HOME}/.atelier/opencode"
     run "mkdir -p $(printf %q "$STAGING_DIR")"
     info "Staging opencode agent instructions"
-    atelier_write_managed_copy "${AGENT_SRC}" "$STAGING_DIR/atelier.md" "$DRY_RUN"
-    AGENT_SRC="$STAGING_DIR/atelier.md"
+    atelier_write_managed_copy "${AGENT_SRC}" "$STAGING_DIR/code.md" "$DRY_RUN"
+    AGENT_SRC="$STAGING_DIR/code.md"
+
+    # Clean up the pre-rename bare filename so it doesn't linger alongside code.md.
+    run "rm -f $(printf %q "$AGENT_DEST_DIR/atelier.md")"
 
     if $DRY_RUN; then
-        echo "  [dry-run] copy '$AGENT_SRC' to '$AGENT_DEST_DIR/atelier.md'"
+        echo "  [dry-run] copy '$AGENT_SRC' to '$AGENT_DEST_DIR/code.md'"
     elif [ -f "$AGENT_SRC" ]; then
         run "mkdir -p $(printf %q "$AGENT_DEST_DIR")"
-        run "cp -f $(printf %q "$AGENT_SRC") $(printf %q "$AGENT_DEST_DIR/atelier.md")"
-        info "atelier agent installed -> $AGENT_DEST_DIR/atelier.md"
+        run "cp -f $(printf %q "$AGENT_SRC") $(printf %q "$AGENT_DEST_DIR/code.md")"
+        info "code agent installed -> $AGENT_DEST_DIR/code.md"
     else
         warn "agent source missing: $AGENT_SRC"
     fi
 else
     # On-demand extra roles requested: migrate the global agent set from the
-    # single legacy atelier.md (code only) to per-role atelier.<role>.md files
+    # single legacy code.md (code only) to per-role atelier.<role>.md files
     # (mirrors workspace-mode naming), and point default_agent at atelier.code
     # since the primary agent's identity is now the per-role filename.
     if $DRY_RUN; then
@@ -342,10 +345,10 @@ except Exception:
     print('')
 PYEOF
 )
-    if [ "$DEFAULT_AGENT" = "atelier" ] || { [ "$INSTALL_SCOPE" = "global" ] && [ "$ROLES" != "code" ] && [ "$DEFAULT_AGENT" = "atelier.code" ]; }; then
+    if [ "$DEFAULT_AGENT" = "code" ] || { [ "$INSTALL_SCOPE" = "global" ] && [ "$ROLES" != "code" ] && [ "$DEFAULT_AGENT" = "atelier.code" ]; }; then
         vpass "opencode default_agent = $DEFAULT_AGENT"
     else
-        vfail "opencode default_agent is '$DEFAULT_AGENT' (expected 'atelier' or 'atelier.code')"
+        vfail "opencode default_agent is '$DEFAULT_AGENT' (expected 'code' or 'atelier.code')"
     fi
 
     HAS_PROVIDER=$(ATELIER_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
@@ -384,13 +387,13 @@ else
     vfail "opencode Atelier prompt nudge plugin missing from $PLUGIN_DEST_DIR"
 fi
 
-# Global mode installs a single primary agent as atelier.md; workspace mode
+# Global mode installs a single primary agent as code.md; workspace mode
 # projects per-role files (atelier.<role>.md) with atelier.code.md as the
 # primary, so verify the name the writer actually produces for this scope.
 if [ "$INSTALL_SCOPE" = "workspace" ] || [[ "$ROLES" != "code" ]]; then
     AGENT_FILE="${AGENT_DEST_DIR}/atelier.code.md"
 else
-    AGENT_FILE="${AGENT_DEST_DIR}/atelier.md"
+    AGENT_FILE="${AGENT_DEST_DIR}/code.md"
 fi
 if [ -f "$AGENT_FILE" ]; then
     vpass "opencode atelier agent installed: $AGENT_FILE"

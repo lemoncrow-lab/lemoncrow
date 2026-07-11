@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from itertools import takewhile
 from pathlib import Path
 from typing import Any
@@ -106,19 +107,90 @@ _CODEX_TOOL_PREFIX = "atelier."
 # Every other surface (codex — openai/codex#6148 closed not-planned — opencode,
 # copilot, cursor, and owned lanes, none of which receive MCP instructions)
 # keeps the full shared block.
-_CLAUDE_TOOL_DISCIPLINE = (
-    "Host tools disabled — use Atelier: `bash`, `read`, `edit`, and `code_search` / `explore` for search."
-)
+_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use Atelier: `bash`, `read`, `edit`, `code_search`."
 _CLAUDE_TOOL_DISCIPLINE_READ = (
     "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Host tools disabled — use Atelier: `bash`, `read`, and `code_search` / `explore` for search."
+    "Host tools disabled — use Atelier: `bash`, `read`, `code_search`."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
     "{{TOOL_DISCIPLINE_READ}}": _CLAUDE_TOOL_DISCIPLINE_READ,
 }
+
+
+# {{NATIVE_FALLBACK_NAMES}} / {{HOST_LABEL}} are resolved by render_agent from the
+# calling HostInstructionProfile *after* replace_inline_tool_names has already run
+# (see render_agent) -- these bare native tool names (read/grep/bash/edit/patch)
+# name OpenCode's OWN tools, not Atelier's, and must never be rewritten with the
+# atelier_ prefix the way `code_search`/`read`/`edit`/`bash` are elsewhere in this
+# string. Interpolating them pre-rewrite (the previous approach) silently mangled
+# this sentence into nonsense ("Native OpenCode `atelier_read`... are fallback-only").
+def _tool_discipline_workflow_bullets() -> str:
+    """The reusable workflow bullets from tool-discipline.md, minus its closing
+    ``Host tools disabled -- ...`` line. Codex/Copilot/Cursor keep that closing
+    line verbatim (their host tools ARE fully disabled); OpenCode's own tools
+    stay available as a fallback, so it swaps in a host-specific closing line
+    instead -- but must keep these bullets, same as every host but Claude (whose
+    equivalent already arrives via the MCP server's `instructions` field).
+    """
+    body = _markdown_body(TOOL_DISCIPLINE_PATH)
+    bullets, _, _tail = body.rpartition("\n\n")
+    return bullets
+
+
+_OPENCODE_TOOL_DISCIPLINE = (
+    # No separate "use atelier_code_search/read/edit/bash instead" bullet here:
+    # the shared workflow bullets above already name every one of those tools,
+    # prefixed, in context ("Lead with `code_search`", "ALL edits in ONE `edit`",
+    # etc.) -- restating them was pure duplication. The only genuinely new info
+    # for OpenCode is which native names are fallback-only, so that's the one
+    # extra line appended below (mirrors Codex's single-line native-tool policy).
+    f"{_tool_discipline_workflow_bullets()}\n"
+    "- Native {{HOST_LABEL}} {{NATIVE_FALLBACK_NAMES}} are fallback-only: "
+    "use them only when the Atelier equivalent is hidden, unavailable, or returns noop."
+)
+_OPENCODE_SHARED_OVERRIDES = {"{{TOOL_DISCIPLINE}}": _OPENCODE_TOOL_DISCIPLINE}
+
+
+@dataclass(frozen=True)
+class HostInstructionProfile:
+    """Per-host knobs consumed by render_agent.
+
+    Bundles what used to be separate render_agent kwargs so a host's tool
+    identity travels as one object instead of a growing parameter list.
+
+    tool_prefix : str
+        Prefix Atelier MCP tools are registered under by the host, e.g.
+        ``atelier_`` (OpenCode), ``mcp__atelier__`` (Claude Code user-scope server).
+    host_label : str
+        Human-readable host name. Fills the ``{{HOST_LABEL}}`` marker a shared-section
+        override may embed (e.g. "Native {{HOST_LABEL}} ... are fallback-only").
+    native_fallback_names : tuple[str, ...]
+        The host's own tool names that are fallback-only once Atelier tools are
+        available. Fills the ``{{NATIVE_FALLBACK_NAMES}}`` marker. Resolved *after*
+        replace_inline_tool_names so these bare names are never mistaken for
+        Atelier tool names and rewritten with tool_prefix.
+    overrides : dict[str, str] | None
+        Shared-section token overrides (e.g. ``{{TOOL_DISCIPLINE}}``), expanded by
+        render_mode_body before the prefix rewrite.
+    host_instruction : str
+        Extra host-only instruction appended verbatim after the rendered body.
+    """
+
+    tool_prefix: str
+    host_label: str = "Atelier"
+    native_fallback_names: tuple[str, ...] = field(default_factory=tuple)
+    overrides: dict[str, str] | None = None
+    host_instruction: str = ""
+
+
+def _format_fallback_names(names: tuple[str, ...]) -> str:
+    quoted = [f"`{name}`" for name in names]
+    if len(quoted) > 1:
+        return ", ".join(quoted[:-1]) + f", and {quoted[-1]}"
+    return quoted[0] if quoted else ""
 
 
 def agent_guide() -> str:
@@ -351,26 +423,27 @@ def render_agent(
     mode_doc: ModeDoc,
     projection: HostProjection,
     *,
-    tool_prefix: str = _CLAUDE_TOOL_PREFIX,
-    host_label: str = "Atelier",
+    profile: HostInstructionProfile,
 ) -> str:
-    """Host agent renderer with configurable tool name prefix.
+    """Host agent renderer driven by a HostInstructionProfile.
 
     Different MCP hosts expose Atelier tools under different name prefixes.
     This renderer expands shared sections and rewrites bare tool names to the
     host's prefix so agents know the exact tool names to call.
 
-    Parameters
-    ----------
-    tool_prefix : str
-        Prefix Atelier MCP tools are registered under by the host, e.g.
-        ``atelier_`` (OpenCode), ``mcp__atelier__`` (Claude Code user-scope server).
-    host_label : str
-        Human-readable host name for the generated prose.
+    Order matters: shared-section overrides expand, then replace_inline_tool_names
+    rewrites bare Atelier tool names to profile.tool_prefix, and only after that
+    does profile.host_label / profile.native_fallback_names resolve -- those name
+    the *host's own* native tools and must survive the prefix rewrite unmangled.
     """
-    p = tool_prefix
+    p = profile.tool_prefix
     identity_block = ["You are operating as *atelier:code*.", ""] if role.role_id == "code" else []
-    body = replace_inline_tool_names(render_mode_body(mode_doc), p)
+    body = replace_inline_tool_names(render_mode_body(mode_doc, profile.overrides), p)
+    body = body.replace("{{HOST_LABEL}}", profile.host_label)
+    if profile.native_fallback_names:
+        body = body.replace("{{NATIVE_FALLBACK_NAMES}}", _format_fallback_names(profile.native_fallback_names))
+    if profile.host_instruction:
+        body = f"{body}\n\n{profile.host_instruction}"
     return (
         "\n".join(
             [
@@ -451,7 +524,15 @@ def build_mode_outputs(
         opencode_projection = registry.projection(role_id, "opencode_agent")
         opencode_path = repo_root / "integrations" / "opencode" / "agents" / f"{opencode_projection.output_name}.md"
         outputs[opencode_path] = render_agent(
-            role, mode_doc, opencode_projection, tool_prefix=_OPENCODE_TOOL_PREFIX, host_label="OpenCode"
+            role,
+            mode_doc,
+            opencode_projection,
+            profile=HostInstructionProfile(
+                tool_prefix=_OPENCODE_TOOL_PREFIX,
+                host_label="OpenCode",
+                native_fallback_names=("read", "grep", "bash", "edit", "patch"),
+                overrides=_OPENCODE_SHARED_OVERRIDES,
+            ),
         )
 
         copilot_projection = registry.projection(role_id, "copilot_agent")

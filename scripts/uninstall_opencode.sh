@@ -61,7 +61,7 @@ data = json.loads(stripped) if stripped.strip() else {}
 data.get(\"mcp\", {}).pop(\"atelier\", None)
 data.get(\"provider\", {}).pop(\"atelier\", None)
 data.get(\"permission\", {}).pop(\"atelier_*\", None)
-if data.get(\"default_agent\") == \"atelier\":
+if data.get(\"default_agent\") in (\"atelier\", \"code\"):
     data.pop(\"default_agent\", None)
 for key in (\"mcp\", \"provider\", \"permission\"):
     if key in data and not data[key]:
@@ -79,7 +79,7 @@ clean_config "$OC_FILE"
 clean_config "$LEGACY_OC_FILE"
 
 if [ -d "$AGENTS_DIR" ]; then
-    for f in "$AGENTS_DIR"/atelier.md "$AGENTS_DIR"/atelier.*.md; do
+    for f in "$AGENTS_DIR"/atelier.md "$AGENTS_DIR"/code.md "$AGENTS_DIR"/atelier.*.md; do
         [ -f "$f" ] || continue
         run "rm -f $(printf %q "$f")"
         info "Removed $f"
