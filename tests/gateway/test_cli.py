@@ -70,12 +70,20 @@ def _seed_rescue_block(root: Path) -> None:
     )
 
 
-def test_init_seeds_blocks_and_rubrics(tmp_path: Path) -> None:
+def test_init_seeds_blocks_and_rubrics(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "free-account-token")
     res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "seeded" in res.output
     assert "playbooks and" in res.output
     assert "rubrics" in res.output
+
+
+def test_init_requires_a_free_account(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
+    res = _invoke(tmp_path / "a", "init", "--no-seed", "--no-index")
+    assert res.exit_code != 0
+    assert "free Atelier account is required" in res.output
 
 
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
