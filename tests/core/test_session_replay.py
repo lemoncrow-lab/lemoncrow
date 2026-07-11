@@ -230,6 +230,38 @@ def test_codex_meta_does_not_crash() -> None:
     assert replay.summary is not None  # no episodes, but builds cleanly
 
 
+def test_codex_replay_parses_current_custom_and_mcp_calls_with_model() -> None:
+    lines = [
+        {"type": "turn_context", "payload": {"model": "gpt-5.6-terra"}},
+        {"type": "event_msg", "payload": {"type": "user_message", "message": "inspect the parser"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.mcp__atelier__read()"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "mcp_tool_call_end",
+                "invocation": {"server": "atelier", "tool": "read", "arguments": {"files": ["a.py"]}},
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.exec_command()"},
+        },
+    ]
+
+    replay = build_replay("\n".join(json.dumps(line) for line in lines), host="codex", session_id="cx-current")
+
+    assert replay.model == "gpt-5.6-terra"
+    assert replay.summary is not None and replay.summary.total_tool_calls == 2
+    assert [turn.get("tool_name") for turn in replay.turns if turn.get("kind") == "tool_call"] == ["atelier.read"]
+    assert any(
+        turn.get("kind") == "shell_command" and turn.get("content") == "await tools.exec_command()"
+        for turn in replay.turns
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Renderers
 # --------------------------------------------------------------------------- #
@@ -289,6 +321,25 @@ def test_load_replays_from_file(tmp_path: Path) -> None:
     assert len(replays) == 1
     assert replays[0].summary is not None
     assert replays[0].summary.episode_count == 1
+
+
+def test_load_codex_replay_uses_transcript_session_id(tmp_path: Path) -> None:
+    f = tmp_path / "rollout-2026-07-11T07-41-57-random.jsonl"
+    f.write_text(
+        "\n".join(
+            json.dumps(line)
+            for line in (
+                {"type": "session_meta", "payload": {"session_id": "codex-session-id"}},
+                {"type": "event_msg", "payload": {"type": "user_message", "message": "inspect the parser"}},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    replays = load_replays(host="codex", file=f)
+
+    assert len(replays) == 1
+    assert replays[0].session_id == "codex-session-id"
 
 
 def test_load_replays_empty_when_missing() -> None:

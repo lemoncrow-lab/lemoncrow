@@ -999,6 +999,30 @@ def _find_savings_sidecar(session_id: str, root: Path) -> Path:
     return session_dir(root, detect_host(), session_id) / "savings.jsonl"
 
 
+def _codex_transcript_model(session_id: str) -> str:
+    """Return the latest model recorded in a Codex transcript, if available."""
+    try:
+        from atelier.core.capabilities.session_replay import locate_transcript
+
+        path = locate_transcript("codex", session_id)
+        if path is None:
+            return ""
+        model = ""
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "turn_context":
+                continue
+            candidate = str((event.get("payload") or {}).get("model") or "").strip()
+            if is_real_model(candidate):
+                model = candidate
+        return model
+    except OSError:
+        return ""
+
+
 def _load_savings_rows(session_id: str, atelier_root: Path) -> list[dict[str, Any]]:
     """Parse ``sessions/<id>/savings.jsonl`` ONCE into a row list.
 
@@ -1732,7 +1756,11 @@ def compute_savings_summary(
             try:
                 from atelier.core.capabilities.pricing import get_model_pricing
 
-                for mid in (stats.last_model if stats else "", "claude-sonnet-4-5"):
+                for mid in (
+                    stats.last_model if stats else "",
+                    _codex_transcript_model(session_id),
+                    "claude-sonnet-4-5",
+                ):
                     if not mid:
                         continue
                     pricing = get_model_pricing(resolve_model_id(mid))
@@ -3108,6 +3136,20 @@ def savings_segment(
     return frames[idx]
 
 
+def dynamic_status_line(
+    session_id: str = "",
+    *,
+    atelier_root: str | Path | None = None,
+) -> str:
+    """Return one current non-headline statusline message for a static host."""
+    lines = dynamic_status_lines(session_id, atelier_root=atelier_root)
+    if not lines:
+        return ""
+    root = _resolve_atelier_root(atelier_root)
+    index = _get_frame_index(root / "statusline_frame_state.json", len(lines))
+    return lines[index]
+
+
 def dynamic_status_lines(
     session_id: str = "",
     *,
@@ -3116,18 +3158,13 @@ def dynamic_status_lines(
     """Return the dynamic statusline messages as plain-text lines, deduped.
 
     Every rotating frame beyond frame 0 -- historical 1d/7d/30d windows,
-    status tip, login nudge -- for hosts that cannot rotate a statusline
-    (e.g. the Codex Stop hook, which folds them into its systemMessage).
-    Derived from :func:`savings_frames` so every gate (days-active
-    thresholds, tip resolution, auth signal) stays single-sourced. Frame 0
-    (live cost/savings) is excluded: Stop output already prints those
-    figures on dedicated lines.
+    status tip, login nudge -- for callers that need the complete frame set.
+    Frame 0 (live cost/savings) is excluded because it is already shown on
+    dedicated lines by the stop summaries.
     """
     lines: list[str] = []
     for frame in savings_frames(session_id, atelier_root=atelier_root, no_color=True):
         text = frame.strip()
-        # Icon-led frames (live cost/savings, weighted 3x) have no leading
-        # separator; text frames arrive as "| <content>[ | review: ...]".
         if not text.startswith("|"):
             continue
         text = text.lstrip("|").strip().split(" | ")[0].strip()

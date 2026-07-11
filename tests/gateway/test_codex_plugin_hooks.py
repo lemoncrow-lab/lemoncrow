@@ -413,16 +413,15 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
     assert "est. cost: ~$20.46" in message
 
 
-def test_codex_stop_hook_folds_dynamic_status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Codex statusline support is version-dependent, so the Stop summary
-    carries the same dynamic messages (tips/login nudge) the Claude
-    statusline rotates through."""
+def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex emits only the statusline frame selected for the Stop event."""
     root = tmp_path / ".atelier"
     root.mkdir()
     monkeypatch.delenv("ATELIER_AUTH_TOKEN", raising=False)
-    # Suppress the status tip so the only dynamic line is the login nudge.
+    # Suppress the status tip so the login nudge is the sole dynamic frame.
     (root / "auth.json").write_text(json.dumps({"authenticated": True}))
     (root / "plugin_settings.json").write_text(json.dumps({"atelier": {"statusLineTips": False}}))
+    (root / "statusline_frame_state.json").write_text(json.dumps({"counter": 3, "ts": 9_000_000_000}))
 
     payload = {
         "hook_event_name": "Stop",
@@ -431,9 +430,9 @@ def test_codex_stop_hook_folds_dynamic_status_lines(tmp_path: Path, monkeypatch:
         "tokens": {"input": "1000", "output": "10"},
     }
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert "not signed in -- /atelier login to unlock Pro" in message
+    assert message.count("not signed in -- /atelier login to unlock Pro") == 1
 
-    # Signed in: nudge disappears from the Stop summary.
+    # Signed in: the selected dynamic frame disappears from the Stop summary.
     (root / "auth_token").write_text("tok")
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
     assert "/atelier login" not in message
@@ -611,13 +610,15 @@ def test_codex_session_start_is_quiet_and_records_session(tmp_path: Path) -> Non
     result = _run_hook(
         "update_notification.py",
         root,
-        {"hook_event_name": "SessionStart", "session_id": "c1", "cwd": str(cwd)},
+        {"hook_event_name": "SessionStart", "session_id": "c1", "cwd": str(cwd), "model": "gpt-5.6-terra"},
     )
 
     assert result.stdout == ""
     state_files = list((root / "workspaces").glob("*/session_state.json"))
     assert len(state_files) == 1
-    assert json.loads(state_files[0].read_text(encoding="utf-8"))["session_id"] == "c1"
+    state = json.loads(state_files[0].read_text(encoding="utf-8"))
+    assert state["session_id"] == "c1"
+    assert state["model"] == "gpt-5.6-terra"
 
 
 def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
