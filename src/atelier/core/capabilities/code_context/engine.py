@@ -7251,7 +7251,7 @@ class CodeContextEngine:
             payload,
             budget_tokens=effective_budget_tokens,
             essential_keys=_CACHE_STATUS_ESSENTIAL_KEYS,
-            optional_keys_in_drop_order=["repo_id", "index_version", "last_hit_at", "scope"],
+            optional_keys_in_drop_order=["index_version", "last_hit_at", "scope"],
         )
 
     def tool_cache_invalidate(

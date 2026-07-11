@@ -19,9 +19,9 @@ Atelier is a 30-second install that helps Claude Code waste fewer tokens while y
 > In our same-model SWE-bench Verified run, Atelier was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
 
 ```bash
-curl -fsSL https://install.atelier.ws | bash
-```
+**[Install in 30 seconds]** · **[Check my savings first →]** · source-available · runs locally · free account to activate
 
+_Small line:_ Keep using Claude Code. Atelier sits underneath it and makes the tool loop tighter.
 **[Install in 30 seconds]** · **[Check my savings first →]** · Apache-2.0 · runs locally · no account to start
 
 _Small line:_ Keep using Claude Code. Atelier sits underneath it and makes the tool loop tighter.
@@ -50,14 +50,12 @@ _Caption:_ Live badges are not the benchmark. They show real usage adding up. Th
 
 ```bash
 curl -fsSL https://install.atelier.ws | bash
-cd your-project
-atelier init
-```
+    curl -fsSL https://install.atelier.ws | bash
+    cd your-project
+    atelier login
+    atelier init
 
-Then open Claude Code like usual. Atelier adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running savings meter.
-
-**Time to first value:** about 30 seconds for install, then savings start showing up as your sessions end.
-
+Create a free account to activate the official install. Then open Claude Code like usual. Atelier adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).
 ---
 
 ## Live savings demo
@@ -138,15 +136,13 @@ The trust is the audit trail, not the animation.
 ---
 
 ## Pricing
+## Pricing
 
-**Free — $0.** Install locally, wire into Claude Code, get better search/read/edit/bash tools, agent skills, and headline savings estimates. No account to start.
+**Free — $0.** Create a free account, activate the official local install, and get better search/read/edit/bash tools, agent skills, and local savings estimates.
 
-**Pro — $19/mo.** More leverage for heavy users: large-repo search, session recall, full savings breakdown, model routing, and multi-worktree swarm.
+**Pro beta — $5/mo or $49/yr.** Existing gated capabilities for heavy users: large-repo search, session recall, savings optimization, model routing, and multi-worktree swarm.
 
-**Enterprise — contact us.** Shared team context, governance, SSO, retention, audit, and very large repos.
-
-**[See full plan matrix →](../pricing.md)**
-
+**[See the full plan matrix →](../pricing.md)**
 ---
 
 ## Social proof [[PLACEHOLDER — fill only as earned, never fake]]
