@@ -440,7 +440,9 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "top_k": 2,
         },
     )
-    assert transcript_recall["error"]["message"] == "memory op not supported in remote mode: transcript_recall"
+    tr_result = transcript_recall["result"]
+    assert tr_result["isError"] is True
+    assert tr_result["content"][0]["text"] == "memory op not supported in remote mode: transcript_recall"
 
 
 def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:

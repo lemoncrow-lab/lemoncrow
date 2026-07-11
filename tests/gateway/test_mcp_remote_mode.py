@@ -335,6 +335,8 @@ def test_remote_service_unavailable_returns_structured_error(
     # Either the result contains an "ok": False dict OR it's a JSON-RPC error.
     if "error" in resp:
         assert "message" in resp["error"]
+    elif resp["result"].get("isError"):
+        assert resp["result"]["content"][0]["text"]
     else:
         payload = json.loads(resp["result"]["content"][0]["text"])
         assert payload.get("ok") is False or "error" in payload

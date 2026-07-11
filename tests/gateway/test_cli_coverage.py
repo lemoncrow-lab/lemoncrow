@@ -247,7 +247,7 @@ def test_savings_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def test_savings_reset_clears_counters(tmp_path: Path) -> None:
     root = tmp_path / ".atelier"
     init_store_at(str(root))
-    res = _invoke(root, "savings", "reset")
+    res = _invoke(root, "savings", "reset", "--force")
     assert res.exit_code == 0
     assert "reset" in res.output
 

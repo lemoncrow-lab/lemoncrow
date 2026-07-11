@@ -26,8 +26,12 @@ from atelier.core.service.jobs import (
     JOB_CONSOLIDATE_BLOCKS,
     JOB_INGEST_SESSION_FILE,
     JOB_OPTIMIZE,
+    JOB_RETENTION_CLEANUP,
     KNOWN_JOB_TYPES,
 )
+
+# Terminal jobs (succeeded/failed/dead) older than this are pruned.
+DEFAULT_JOB_RETENTION_DAYS = 14
 
 logger = logging.getLogger(__name__)
 
@@ -112,11 +116,20 @@ class Worker:
                 store=self._store,
             )
 
+        def retention_cleanup_handler(payload: dict[str, Any]) -> dict[str, Any]:
+            days = int(payload.get("days", DEFAULT_JOB_RETENTION_DAYS) or DEFAULT_JOB_RETENTION_DAYS)
+            prune = getattr(self._store, "prune_jobs", None)
+            if not callable(prune):
+                return {"status": "skipped", "reason": "store does not support prune_jobs"}
+            deleted = int(prune(older_than_days=max(1, days)))
+            return {"status": "success", "deleted_jobs": deleted}
+
         return {
             JOB_CONSOLIDATE_BLOCKS: consolidate_handler,
             JOB_BOOTSTRAP_CONTEXT: bootstrap_context_handler,
             JOB_INGEST_SESSION_FILE: ingest_session_handler,
             JOB_OPTIMIZE: optimize_handler,
+            JOB_RETENTION_CLEANUP: retention_cleanup_handler,
         }
 
     # ------------------------------------------------------------------ #
@@ -142,20 +155,32 @@ class Worker:
                     if file_path not in self._seen_session_files or self._seen_session_files[file_path] < mtime:
                         logger.info("Detected new or modified session file: %s", file_path)
                         result = ingest_session_file(str(file_path), self._store)
-                        if result.get("status") == "success":
+                        status = result.get("status")
+                        if status == "success":
                             logger.info(
                                 "Successfully ingested session file: %s (session_id: %s, events: %d)",
                                 file_path,
                                 result.get("session_id"),
                                 result.get("event_count", 0),
                             )
+                            self._seen_session_files[file_path] = mtime
+                        elif status == "skipped":
+                            # Nothing was persisted, but retrying will not help.
+                            logger.warning(
+                                "Skipped session file %s: %s",
+                                file_path,
+                                result.get("reason", result.get("message", "not implemented")),
+                            )
+                            self._seen_session_files[file_path] = mtime
                         else:
+                            # Do NOT record the mtime: a failed ingest is
+                            # retried on the next poll instead of being
+                            # silently marked as seen forever.
                             logger.error(
                                 "Failed to ingest session file %s: %s",
                                 file_path,
                                 result.get("message", "Unknown error"),
                             )
-                        self._seen_session_files[file_path] = mtime
                 except OSError as exc:
                     logger.error("Error accessing file %s: %s", file_path, exc)
 
@@ -176,8 +201,19 @@ class Worker:
         logger.info("Atelier worker started (poll_interval=%ss)", self._poll_interval)
         if self._session_directory:
             logger.info("Will also watch for session files in: %s", self._session_directory)
+        consecutive_failures = 0
         while True:
-            claimed = self.run_once()
+            try:
+                claimed = self.run_once()
+            except Exception:
+                # claim_job (store/DB) blew up: back off and retry instead of
+                # letting one transient error kill the whole worker loop.
+                consecutive_failures += 1
+                delay = min(self._poll_interval * (2 ** min(consecutive_failures, 6)), 300.0)
+                logger.exception("worker loop error (attempt %d); retrying in %.0fs", consecutive_failures, delay)
+                time.sleep(delay)
+                continue
+            consecutive_failures = 0
             if claimed is None:
                 # Queue was empty, so we can do directory watching if configured
                 if self._session_directory:

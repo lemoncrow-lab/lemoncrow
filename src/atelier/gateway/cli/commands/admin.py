@@ -229,8 +229,6 @@ def _interactive_model_select(label: str, *, default: str, allow_auto: bool, sho
             _clear_rendered_lines(rendered)
             click.echo(click.style(f"  ●  {options[selected]}", dim=True))
             return options[selected]
-            click.echo(f"  ●  {options[selected]}")
-            return options[selected]
 
 
 def _prompt_custom_model_value(label: str, *, default: str) -> str:
@@ -713,44 +711,227 @@ def init(
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Run diagnostics on the Atelier installation."""
+    """Full diagnostics: core install, services, MCP servers, integrations, environment.
+
+    \b
+    Sections:
+      Core              python, atelier version, git repo, store
+      Code intelligence code index, zoekt search backend
+      Services          servicectl, stack (backend + frontend), backend API
+      MCP               active Atelier MCP server processes (see also: atelier mcp list)
+      Integrations      letta, openmemory, langfuse, external compactors
+      Environment       host CLIs, external tools, optional python packages, core libraries
+    """
+    import atelier as _atelier_pkg
+
     checks: dict[str, Any] = {}
+    sections: dict[str, list[str]] = {}
 
-    # Python version
+    def add(section: str, name: str, info: dict[str, Any]) -> None:
+        checks[name] = info
+        sections.setdefault(section, []).append(name)
+
+    # ── Core ────────────────────────────────────────────────────────────
     py_ok = sys.version_info >= (3, 10)
-    checks["python"] = {
-        "ok": py_ok,
-        "version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-    }
+    add(
+        "Core",
+        "python",
+        {"ok": py_ok, "version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"},
+    )
+    add("Core", "atelier", {"ok": True, "version": _atelier_pkg.__version__})
 
-    # Git repo
     git_root = _detect_git_root(Path.cwd())
-    checks["git_repo"] = {
-        "ok": git_root is not None,
-        "path": str(git_root) if git_root else None,
-    }
+    add(
+        "Core",
+        "git_repo",
+        {"ok": git_root is not None, "optional": True, "path": str(git_root) if git_root else None},
+    )
 
-    # Atelier store
     root: Path = ctx.obj["root"]
     store_ok = root.exists() and (root / "atelier.db").exists()
-    checks["store"] = {
-        "ok": store_ok,
-        "root": str(root),
-        "exists": root.exists(),
-    }
+    store_info: dict[str, Any] = {"ok": store_ok, "root": str(root), "exists": root.exists()}
+    try:
+        from atelier.infra.storage.factory import create_store
 
-    # Code index
+        store = create_store(root)
+        store.init()
+        health = store.health_check()
+        store_info["backend"] = type(store).__name__
+        store_info["healthy"] = (
+            bool(health.get("ok", health.get("healthy", True))) if isinstance(health, dict) else True
+        )
+    except Exception as exc:  # noqa: BLE001 — diagnostics must never crash
+        store_info["healthy"] = False
+        store_info["hint"] = f"store health check failed: {exc}"
+    add("Core", "store", store_info)
+
+    # ── Code intelligence ───────────────────────────────────────────────
     if git_root:
         index_path = _code_index_db_path(git_root)
         index_ok = index_path.exists()
         stats = _index_stats_pretty(git_root) if index_ok else []
-        checks["code_index"] = {
-            "ok": index_ok,
-            "path": str(index_path),
-            "stats": stats if stats else None,
-        }
+        add(
+            "Code intelligence",
+            "code_index",
+            {"ok": index_ok, "path": str(index_path), "stats": stats if stats else None},
+        )
     else:
-        checks["code_index"] = {"ok": False, "path": None, "stats": None}
+        add("Code intelligence", "code_index", {"ok": False, "optional": True, "path": None, "stats": None})
+
+    try:
+        from atelier.infra.code_intel.zoekt.binary import discover_zoekt_binary
+
+        zr = discover_zoekt_binary(git_root or Path.cwd())
+        add(
+            "Code intelligence",
+            "zoekt",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": zr.available,
+                "path": str(zr.path) if zr.path else None,
+                "hint": zr.reason if not zr.available else None,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        add("Code intelligence", "zoekt", {"ok": True, "optional": True, "installed": False})
+
+    # ── Services ────────────────────────────────────────────────────────
+    try:
+        from atelier.infra.runtime.servicectl_lifecycle import _servicectl_status_payload
+
+        sc = _servicectl_status_payload(root)
+        qh = sc.get("job_queue_health") or {}
+        add(
+            "Services",
+            "servicectl",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": bool(sc["running"]),
+                "pid": sc["pid"],
+                "last_tick_at": sc.get("last_tick_at"),
+                "job_queue": qh or None,
+                "hint": None if sc["running"] else "not running — start: atelier servicectl start",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Services", "servicectl", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
+
+    service_url = None
+    try:
+        from atelier.infra.runtime.stack_lifecycle import _stack_status_payload
+
+        st = _stack_status_payload(root)
+        service_url = st.get("service_url")
+        add(
+            "Services",
+            "stack_backend",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": bool(st["service_running"]),
+                "pid": st["service_pid"],
+                "url": st.get("service_url"),
+                "hint": None if st["service_running"] else "not running — start: atelier stack start",
+            },
+        )
+        add(
+            "Services",
+            "stack_frontend",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": bool(st["frontend_running"]),
+                "pid": st["frontend_pid"],
+                "url": st.get("frontend_url"),
+                "hint": None if st["frontend_running"] else "not running — start: atelier stack start",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Services", "stack_backend", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
+
+    api_info: dict[str, Any] = {"ok": True, "optional": True, "installed": False}
+    if service_url:
+        import urllib.request as _urllib_request
+
+        try:
+            with _urllib_request.urlopen(f"{service_url.rstrip('/')}/health", timeout=1.5) as resp:
+                api_info["installed"] = resp.status == 200
+                api_info["url"] = f"{service_url.rstrip('/')}/health"
+        except Exception:  # noqa: BLE001
+            api_info["hint"] = f"no response from {service_url}/health"
+    add("Services", "backend_api", api_info)
+
+    # ── MCP ─────────────────────────────────────────────────────────────
+    try:
+        from atelier.gateway.cli.commands.mcp import active_mcp_sessions
+
+        servers = active_mcp_sessions(root)
+        lines = []
+        for s in servers:
+            ws = str(s.get("workspace") or "?")
+            home = str(Path.home())
+            if ws.startswith(home):
+                ws = "~" + ws[len(home) :]
+            sid = str(s.get("claude_session_id") or "")[:8]
+            lines.append(f"pid {s.get('pid')}  {ws}" + (f"  session={sid}" if sid else ""))
+        add(
+            "MCP",
+            "mcp_servers",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": bool(servers),
+                "count": len(servers),
+                "stats": lines or None,
+                "hint": None if servers else "no active servers — full list: atelier mcp list",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        add("MCP", "mcp_servers", {"ok": True, "optional": True, "installed": False, "count": 0})
+
+    # ── Integrations ────────────────────────────────────────────────────
+    letta_url = os.environ.get("ATELIER_LETTA_URL", "http://localhost:8283").rstrip("/")
+    letta_info: dict[str, Any] = {"ok": True, "optional": True, "installed": False, "url": letta_url}
+    try:
+        import urllib.request as _urllib_request
+
+        with _urllib_request.urlopen(f"{letta_url}/v1/health", timeout=1.5) as resp:
+            letta_info["installed"] = resp.status == 200
+    except Exception:  # noqa: BLE001
+        letta_info["hint"] = "unreachable — start: atelier letta up"
+    add("Integrations", "letta", letta_info)
+
+    try:
+        from atelier.gateway.integrations.openmemory_lifecycle import openmemory_workdir
+
+        om_dir = openmemory_workdir(root)
+        add(
+            "Integrations",
+            "openmemory",
+            {
+                "ok": True,
+                "optional": True,
+                "installed": om_dir.exists(),
+                "path": str(om_dir) if om_dir.exists() else None,
+                "hint": None if om_dir.exists() else "not set up — start: atelier openmemory up",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        add("Integrations", "openmemory", {"ok": True, "optional": True, "installed": False})
+
+    langfuse_on = os.environ.get("ATELIER_LANGFUSE_ENABLED", "").lower() in ("1", "true", "yes")
+    add(
+        "Integrations",
+        "langfuse",
+        {
+            "ok": True,
+            "optional": True,
+            "installed": langfuse_on,
+            "hint": None if langfuse_on else "disabled — enable: ATELIER_LANGFUSE_ENABLED=1",
+        },
+    )
 
     # External compactors (optional soft integrations, e.g. rtk). Absence is
     # never a failure -- Atelier falls back to the plain shell path.
@@ -770,39 +951,116 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 hint += f"; install: {compactor.install_hint}"
         elif not compactors_enabled:
             hint = "installed but disabled (ATELIER_BASH_EXTERNAL_COMPACTORS=0)"
-        checks[compactor.name] = {
-            "ok": True,  # optional -- absence never fails diagnostics
-            "optional": True,
-            "installed": resolution.available,
-            "enabled": compactors_enabled,
-            "path": str(resolution.path) if resolution.path else None,
-            "version": resolution.version,
-            "hint": hint,
-        }
+        add(
+            "Integrations",
+            compactor.name,
+            {
+                "ok": True,  # optional -- absence never fails diagnostics
+                "optional": True,
+                "installed": resolution.available,
+                "enabled": compactors_enabled,
+                "path": str(resolution.path) if resolution.path else None,
+                "version": resolution.version,
+                "hint": hint,
+            },
+        )
+
+    # ── Environment ─────────────────────────────────────────────────────
+    host_clis = (
+        ("claude", "claude"),
+        ("codex", "codex"),
+        ("opencode", "opencode"),
+        ("copilot", "copilot"),
+        ("antigravity", "agy"),
+    )
+    host_lines = [f"{name}: {'installed' if shutil.which(binary) else 'not installed'}" for name, binary in host_clis]
+    add("Environment", "host_clis", {"ok": True, "optional": True, "stats": host_lines})
+
+    tool_lines = []
+    for tool in ("git", "docker", "node", "npm", "uv", "gh"):
+        found = shutil.which(tool)
+        tool_lines.append(f"{tool}: {found or 'not found'}")
+    add("Environment", "external_tools", {"ok": True, "optional": True, "stats": tool_lines})
+
+    from importlib import metadata as _metadata
+
+    extras = (
+        ("mcp", "mcp"),
+        ("letta-client", "memory"),
+        ("ollama", "smart"),
+        ("openai", "cloud"),
+        ("psycopg", "postgres"),
+        ("pgvector", "vector"),
+        ("sentence-transformers", "semantic"),
+        ("litellm", "litellm"),
+        ("langfuse", "langfuse"),
+    )
+    extra_lines = []
+    for dist, extra in extras:
+        try:
+            extra_lines.append(f"{dist}: {_metadata.version(dist)}  [{extra}]")
+        except _metadata.PackageNotFoundError:
+            extra_lines.append(f"{dist}: not installed  (uv pip install 'atelier[{extra}]')")
+    add("Environment", "optional_packages", {"ok": True, "optional": True, "stats": extra_lines})
+
+    core_lines = []
+    for dist in ("pydantic", "click", "fastapi", "uvicorn", "tiktoken", "tree-sitter", "aiohttp", "rich"):
+        try:
+            core_lines.append(f"{dist}: {_metadata.version(dist)}")
+        except _metadata.PackageNotFoundError:
+            core_lines.append(f"{dist}: MISSING")
+    add("Environment", "core_libraries", {"ok": all("MISSING" not in line for line in core_lines), "stats": core_lines})
+
+    failed = [name for name, info in checks.items() if not info.get("ok") and not info.get("optional")]
 
     if as_json:
         _emit(checks, as_json=True)
+        if failed:
+            ctx.exit(1)
         return
 
     click.echo("Atelier diagnostics")
     click.echo("==================")
-    for name, info in checks.items():
-        if info.get("optional") and not info.get("installed"):
-            status = "○"  # optional and absent -- informational, not a failure
-        else:
-            status = "✓" if info.get("ok") else "✗"
-        click.echo(f"  {status} {name}")
-        if info.get("version"):
-            click.echo(f"       version: {info['version']}")
-        if info.get("path"):
-            click.echo(f"       path: {info['path']}")
-        if info.get("root"):
-            click.echo(f"       root: {info['root']}")
-        if info.get("hint"):
-            click.echo(f"       {info['hint']}")
-        if info.get("stats"):
-            for line in info["stats"]:
-                click.echo(f"       {line}")
+    for section, names in sections.items():
+        click.echo(f"\n{section}")
+        click.echo("-" * len(section))
+        for name in names:
+            info = checks[name]
+            if info.get("optional") and (not info.get("ok") or not info.get("installed", True)):
+                status = "○"  # optional and absent/failing -- informational, not a failure
+            else:
+                status = "✓" if info.get("ok") else "✗"
+            click.echo(f"  {status} {name}")
+            if info.get("version"):
+                click.echo(f"       version: {info['version']}")
+            if info.get("path"):
+                click.echo(f"       path: {info['path']}")
+            if info.get("root"):
+                click.echo(f"       root: {info['root']}")
+            if info.get("backend"):
+                click.echo(f"       backend: {info['backend']}")
+            if info.get("pid"):
+                click.echo(f"       pid: {info['pid']}")
+            if info.get("url"):
+                click.echo(f"       url: {info['url']}")
+            if info.get("count") is not None:
+                click.echo(f"       active: {info['count']}")
+            if info.get("last_tick_at"):
+                click.echo(f"       last_tick: {info['last_tick_at']}")
+            jq = info.get("job_queue")
+            if jq:
+                click.echo(
+                    f"       jobs: pending={jq.get('pending', 0)} running={jq.get('running', 0)}"
+                    f" failed={jq.get('failed', 0)} dead={jq.get('dead', 0)}"
+                )
+            if info.get("hint"):
+                click.echo(f"       {info['hint']}")
+            if info.get("stats"):
+                for line in info["stats"]:
+                    click.echo(f"       {line}")
+    if failed:
+        click.echo(f"\n  ✗ {len(failed)} required check(s) failed: {', '.join(failed)}")
+        ctx.exit(1)
 
 
 @click.command("reset")
@@ -1041,7 +1299,7 @@ def _auth_status(root: Path, as_json: bool) -> None:
 @click.option("--token", default=None, help="Credentials JSON, base64 payload, or refresh token.")
 @click.option("--anonymous", "anonymous", is_flag=True, help="Start a local anonymous trial.")
 @click.option("--status", "status_mode", is_flag=True, help="Show auth/subscription status and exit.")
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option("--dev", "dev_mode", is_flag=True, help="Login against local dev server (http://localhost:4321).")
 @click.pass_context
 def login_cmd(
@@ -1168,7 +1426,15 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
     server_ready.wait()
 
     click.secho("Opening browser to sign in...", fg="cyan", dim=True)
-    webbrowser.open(oauth_url)
+    click.echo(f"  or open: {oauth_url}")
+    opened = False
+    if sys.stdout.isatty():
+        try:
+            opened = webbrowser.open(oauth_url)
+        except Exception:  # noqa: BLE001
+            opened = False
+    if not opened:
+        click.echo("  Could not open a browser automatically — open the URL above to continue.")
 
     shutdown_event.wait(timeout=120)
     thread.join(timeout=5)
@@ -1178,12 +1444,14 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
 
     if not session_token:
         click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
+        click.echo("  Fallback: atelier login --token <token> (from your account page).", err=True)
         raise SystemExit(1)
 
     save_auth_token(session_token)
 
     # Best-effort: fetch plan + device_id from server
     plan = "free"
+    plan_verified = False
     device_id = session_token[:8]
     try:
         from atelier.core.capabilities.licensing.entitlements import USER_AGENT
@@ -1195,17 +1463,28 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data: dict[str, object] = json.loads(resp.read())
         plan = str(data.get("plan") or plan)
+        plan_verified = True
         device_id = str(data.get("device_id") or device_id)
         save_auth_user({**data, "_base": base})
         save_auth_base(base)
     except Exception:  # noqa: BLE001
         pass
 
+    plan_label = plan if plan_verified else "unknown (could not verify)"
     if as_json:
-        _emit({"email": email, "plan": plan, "device_id": device_id, "mode": "oauth"}, as_json=True)
+        _emit(
+            {
+                "email": email,
+                "plan": plan if plan_verified else "unknown",
+                "plan_verified": plan_verified,
+                "device_id": device_id,
+                "mode": "oauth",
+            },
+            as_json=True,
+        )
         return
-    click.secho(f"✓ Logged in as {email} ({plan}) · device {device_id}", fg="green")
-    if plan == "free":
+    click.secho(f"✓ Logged in as {email} ({plan_label}) · device {device_id}", fg="green")
+    if plan_verified and plan == "free":
         from atelier.core.capabilities.licensing import pro_url
 
         click.secho(
@@ -1341,9 +1620,10 @@ def _format_setting_value(value: object) -> str:
 
 @plugin_settings_group.command("show")
 @click.option("--category", "category", default=None, help="Filter to one category (e.g. service, retrieval, mcp).")
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def plugin_settings_show(ctx: click.Context, category: str | None, as_json: bool) -> None:
+    """Show persisted settings, grouped by category."""
     from atelier.core.settings import CATEGORIES, all_settings, load_settings
 
     if category is not None and category not in CATEGORIES:
@@ -1366,9 +1646,10 @@ def plugin_settings_show(ctx: click.Context, category: str | None, as_json: bool
 @plugin_settings_group.command("set")
 @click.argument("key")
 @click.argument("value")
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output the full settings payload as JSON after the write.")
 @click.pass_context
 def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool) -> None:
+    """Set setting KEY to VALUE (validated, coerced, persisted to plugin_settings.json)."""
     from atelier.core.reply_register import REPLY_REGISTER_LEVELS, TELEGRAPHIC_SETTING_KEY
     from atelier.core.settings import load_settings, write_setting
 

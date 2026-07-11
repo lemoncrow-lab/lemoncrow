@@ -247,8 +247,8 @@ def test_handle_dispatch_call_requires_server_and_tool(tmp_path: Path) -> None:
     )
 
     assert resp is not None
-    assert "error" in resp
-    assert "server" in resp["error"]["message"]
+    assert resp["result"]["isError"] is True
+    assert "server" in resp["result"]["content"][0]["text"]
 
 
 def test_handle_dispatch_spills_oversized_proxied_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

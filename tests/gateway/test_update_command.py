@@ -72,7 +72,7 @@ def test_release_check_only_reports_available(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(update_mod, "_update_via_release", _boom)
 
     res = _invoke(tmp_path, "--check")
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output  # --check: exit 1 when an update is available
     assert "Update available: 1.0.0 → 1.4.0" in res.output
 
 

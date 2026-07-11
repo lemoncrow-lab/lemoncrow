@@ -97,6 +97,46 @@ def test_update_managed_command_unknown_session_raises_keyerror() -> None:
         bx.update_managed_command("does-not-exist", timeout=5)
 
 
+def test_explicit_start_timeout_installs_floored_kill_deadline() -> None:
+    # timeout_explicit=True: real kill deadline at max(timeout, floor).
+    started = bx.start_managed_command("sleep 30", timeout=5, timeout_explicit=True)
+    sid = str(started["session_id"])
+    try:
+        managed = bx._MANAGED_COMMANDS[sid]
+        assert bx._effective_deadline_s(managed) == bx._EXPLICIT_TIMEOUT_KILL_FLOOR_S
+    finally:
+        bx.poll_managed_command(sid, cancel=True)
+
+
+def test_explicit_start_timeout_above_floor_is_honored_exactly() -> None:
+    started = bx.start_managed_command("sleep 30", timeout=90, timeout_explicit=True)
+    sid = str(started["session_id"])
+    try:
+        managed = bx._MANAGED_COMMANDS[sid]
+        assert bx._effective_deadline_s(managed) == 90.0
+    finally:
+        bx.poll_managed_command(sid, cancel=True)
+
+
+def test_implicit_start_timeout_still_floors_at_hard_cap() -> None:
+    started = bx.start_managed_command("sleep 30", timeout=5)
+    sid = str(started["session_id"])
+    try:
+        managed = bx._MANAGED_COMMANDS[sid]
+        assert bx._effective_deadline_s(managed) == bx._MANAGED_COMMAND_HARD_CAP_S
+    finally:
+        bx.poll_managed_command(sid, cancel=True)
+
+
+def test_explicit_start_timeout_actually_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bx, "_EXPLICIT_TIMEOUT_KILL_FLOOR_S", 0.3)
+    started = bx.start_managed_command('python3 -c "import time; time.sleep(30)"', timeout=0.2, timeout_explicit=True)
+    sid = str(started["session_id"])
+    result = _poll_until_done(sid, timeout_s=10.0)
+    assert result["status"] == "timed_out"
+    assert "timed out" in str(result["stderr"]).lower()
+
+
 def test_update_is_clamped_to_the_max_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bx, "_MAX_EXPLICIT_TIMEOUT_S", 2.0)
     started = bx.start_managed_command("sleep 5", timeout=5)

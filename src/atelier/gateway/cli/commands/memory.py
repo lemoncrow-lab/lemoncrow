@@ -133,7 +133,7 @@ def memory_list_cmd(ctx: click.Context, vendor: str | None, as_json: bool) -> No
         return
 
     if not facts:
-        click.echo("No memory facts found.", err=True)
+        click.echo("No memory facts found.")
         return
 
     by_vendor: dict[str, list[Any]] = {}

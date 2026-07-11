@@ -37,7 +37,7 @@ def recall_group() -> None:
     "--window-days", type=int, default=30, show_default=True, help="Only index sessions modified within N days."
 )
 @click.option("--max-sessions", type=int, default=80, show_default=True)
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def recall_index_cmd(ctx: click.Context, window_days: int, max_sessions: int, as_json: bool) -> None:
     """Incrementally index past session transcripts for recall."""
@@ -57,7 +57,7 @@ def recall_index_cmd(ctx: click.Context, window_days: int, max_sessions: int, as
 @recall_group.command("search")
 @click.argument("query")
 @click.option("--top-k", type=int, default=10, show_default=True)
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def recall_search_cmd(ctx: click.Context, query: str, top_k: int, as_json: bool) -> None:
     """Semantically search across all indexed sessions."""
@@ -81,7 +81,7 @@ def recall_search_cmd(ctx: click.Context, query: str, top_k: int, as_json: bool)
 @click.option("--auto-index/--no-auto-index", default=None, help="Enable the SessionStart background indexer.")
 @click.option("--embedder", type=click.Choice(["openai", "ollama"]), default=None, help="Embedder for indexing.")
 @click.option("--embed-model", default=None, help="Embedder model (e.g. an Ollama model name).")
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def recall_config_cmd(
     ctx: click.Context,

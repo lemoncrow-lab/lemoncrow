@@ -605,8 +605,10 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
 def test_empty_edits_returns_error(workspace: Path) -> None:
     """An empty edits array is a protocol error."""
     resp = _call("edit", {"edits": []})
-    # Either a JSON-RPC error or a result with failed containing the message
-    has_error = "error" in resp or ("result" in resp and _result(resp).get("failed"))
+    # An execution failure surfaces as an isError tool result (MCP spec), a
+    # JSON-RPC error, or a result with failed containing the message.
+    result = resp.get("result") or {}
+    has_error = "error" in resp or result.get("isError") is True or result.get("failed")
     assert has_error
 
 
@@ -625,7 +627,7 @@ def test_mixed_families_rejected(workspace: Path) -> None:
         },
     )
 
-    assert "error" in resp
+    assert resp["error"]["code"] == -32602
     assert "cannot mix" in resp["error"]["message"].lower()
     assert f.read_text(encoding="utf-8") == "hello\n"
 

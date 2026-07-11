@@ -64,11 +64,20 @@ def ingest_session_file(file_path: str, store: Any = None) -> dict[str, Any]:
             "message": f"Failed to reconstruct ledger from session file: {exc}",
         }
 
-    # TODO: Store reconstructed ledger events as traces.
+    # Persist the reconstructed ledger into the store's session layout
+    # (sessions/.../run.json) via RunLedger.persist -- the same artifact live
+    # runs write, so downstream surfaces can read it. Converting to a Trace
+    # would require task/domain/status detail the raw file does not carry.
+    try:
+        persisted_path = ledger.persist(store_root)
+    except (OSError, ValueError) as exc:
+        return {"status": "error", "message": f"Failed to persist reconstructed ledger: {exc}"}
+
     return {
         "status": "success",
         "session_id": session_id,
         "event_count": len(ledger.events),
+        "persisted_path": str(persisted_path),
         "ledger_summary": {
             "event_count": len(ledger.events),
             "created_at": ledger.created_at.isoformat(),

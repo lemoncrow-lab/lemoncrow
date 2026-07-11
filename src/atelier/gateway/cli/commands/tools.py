@@ -183,6 +183,10 @@ def tools_call_cmd(
         if "error" in response:
             raise click.ClickException(str(response["error"].get("message") or response["error"]))
         result_payload = response.get("result", {})
+        if result_payload.get("isError"):
+            content = result_payload.get("content", [])
+            text = str(content[0].get("text", "")) if content else "tool execution failed"
+            raise click.ClickException(text)
         structured = result_payload.get("structuredContent")
         if structured is not None:
             payload = structured

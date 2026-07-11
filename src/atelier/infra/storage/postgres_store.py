@@ -856,6 +856,17 @@ class PostgresStore:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_job(row) for row in rows]
 
+    def prune_jobs(self, *, older_than_days: int = 14) -> int:
+        """Delete terminal jobs (succeeded/failed/dead) older than the cutoff."""
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, older_than_days))).isoformat()
+        with self._connect() as conn:
+            res = conn.execute(
+                "DELETE FROM jobs WHERE status IN ('succeeded', 'failed', 'dead') AND updated_at < %s",
+                (cutoff,),
+            )
+            conn.commit()
+        return int(res.rowcount or 0)
+
     def job_queue_health(self) -> dict[str, int]:
         lease_raw = os.environ.get("ATELIER_JOB_LEASE_SECONDS", "")
         lease_seconds = int(lease_raw) if lease_raw.isdigit() and int(lease_raw) > 0 else 900

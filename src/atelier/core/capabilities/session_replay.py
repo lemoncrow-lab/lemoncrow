@@ -93,11 +93,13 @@ def _is_whole_file_read(turn: dict[str, Any]) -> bool:
     if turn.get("kind") != "tool_call" or _is_atelier_search(turn):
         return False
     n = _tool_name(turn).lower()
+    if "atelier" in n:
+        return False  # atelier read is batched/ranged by design — never a wasteful loop read
     if "read" not in n and n != "cat":
         return False
     args = turn.get("arguments") or {}
-    if isinstance(args, dict) and any(k in args for k in _RANGE_ARG_KEYS):
-        return False  # targeted read — not wasteful
+    if isinstance(args, dict) and (any(k in args for k in _RANGE_ARG_KEYS) or "files" in args or "symbol" in args):
+        return False  # targeted read (range / file batch / symbol) — not wasteful
     return True
 
 
@@ -461,9 +463,11 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
     )
 
 
-def _round_usage(replay: Replay) -> tuple[list[dict[str, Any]], list[int]]:
-    """Extract per-assistant-round token usage and the round indices touched by
-    collapsed loop calls, for the savings estimator.
+def _round_usage(replay: Replay) -> tuple[list[dict[str, Any]], list[list[int]]]:
+    """Extract per-assistant-round token usage and, PER EPISODE, the group of
+    round indices its collapsed loop calls touch, for the savings estimator
+    (which keeps one code_search stand-in per episode, so the per-episode
+    groups are passed through instead of one flattened round list).
 
     A round begins on the turn carrying the round's usage (the parser puts usage
     on the first block of each assistant message; later blocks carry {}). This is
@@ -479,8 +483,12 @@ def _round_usage(replay: Replay) -> tuple[list[dict[str, Any]], list[int]]:
             cur += 1
             round_tokens.append(tok)
         round_of.append(cur)
-    loop_rounds = sorted({round_of[i] for i in replay.collapsed_indices if 0 <= i < len(round_of) and round_of[i] >= 0})
-    return round_tokens, loop_rounds
+    groups: list[list[int]] = []
+    for episode in replay.episodes:
+        rounds = sorted({round_of[i] for i in episode.turn_indices if 0 <= i < len(round_of) and round_of[i] >= 0})
+        if rounds:
+            groups.append(rounds)
+    return round_tokens, groups
 
 
 def estimate_savings(replay: Replay) -> dict[str, Any]:
@@ -538,6 +546,30 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             pass
 
     model = replay.model or "claude-sonnet-4-5"
+
+    # Per-turn parsed usage: drives the vanilla collapse estimate, and prices
+    # sessions the Claude-only transcript-stats reader cannot fold (codex /
+    # opencode would otherwise show a $0 cost).
+    round_tokens, loop_round_groups = _round_usage(replay)
+    rounds_cost = 0.0
+    try:
+        from atelier.core.capabilities.savings_summary import estimate_cost_usd
+
+        rounds_cost = sum(
+            estimate_cost_usd(
+                model_id=model,
+                input_tokens=int(tok.get("in", 0) or 0),
+                output_tokens=int(tok.get("out", 0) or 0),
+                cache_read_tokens=int(tok.get("cache_read", 0) or 0),
+                cache_write_tokens=int(tok.get("cache_write", 0) or 0),
+            )
+            for tok in round_tokens
+        )
+    except Exception:  # noqa: BLE001
+        rounds_cost = 0.0
+    if total_cost <= 0 and rounds_cost > 0:
+        total_cost = rounds_cost
+
     tr = replay.tool_results
     collapsed_chars = sum(
         len(tr.get(str(replay.turns[i].get("tool_use_id") or ""), ""))
@@ -566,10 +598,12 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         atelier_measured = True
         saved_measured = True
     elif ran_with_atelier:
-        # Ran with Atelier but has no per-node recorded savings -- e.g. a subagent,
-        # whose savings are billed to the PARENT session. Estimating "what Atelier
-        # would save" is meaningless here (it already used Atelier), so show
-        # neither an estimate nor a fake 0 -- the render surfaces "ran with Atelier".
+        # Ran with Atelier but has no per-node recorded savings -- a subagent
+        # (whose savings are billed to the PARENT session) or a top-level
+        # session with no recorded sidecar. Estimating "what Atelier would
+        # save" is meaningless here (it already used Atelier), so show neither
+        # an estimate nor a fake 0 -- the render says where the savings live
+        # (the parent for a subagent; "not recorded" for a top-level session).
         atelier_cost = total_cost
         saved = 0.0
         baseline_ref = total_cost
@@ -582,15 +616,18 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         # of the cost collapsing the grep/read loops would save (removed round-trips
         # + leaner surviving context). Applied to the canonical est_cost so 'Cost'
         # stays consistent with the dashboard/session-stats surfaces.
-        round_tokens, loop_rounds = _round_usage(replay)
         fraction = 0.0
         try:
             from atelier.core.capabilities.savings_summary import estimate_collapse_saving_fraction
 
-            fraction = estimate_collapse_saving_fraction(round_tokens, loop_rounds, model)
+            fraction = estimate_collapse_saving_fraction(round_tokens, loop_round_groups, model)
         except Exception:  # noqa: BLE001
             fraction = 0.0
-        saved = total_cost * fraction
+        # The fraction comes from MAIN-transcript rounds, while total_cost also
+        # bills the subagent transcripts -- apply it to the main-transcript cost
+        # only (each nested subagent replay carries its own estimate).
+        main_cost = min(total_cost, rounds_cost) if rounds_cost > 0 else total_cost
+        saved = main_cost * fraction
         atelier_cost = max(0.0, total_cost - saved)
         baseline_ref = total_cost
         try:

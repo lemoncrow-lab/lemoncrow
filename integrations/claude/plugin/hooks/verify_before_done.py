@@ -193,20 +193,29 @@ def scan_transcript(transcript_path: str | None) -> tuple[list[str], bool]:
 def scan_transcript_rich(
     transcript_path: str | None,
 ) -> tuple[list[str], bool, list[tuple[str, str, str]], str]:
-    """Return (edited code files, tests-run?, edit diffs, first issue-prompt text)."""
+    """Return (edited code files, tests-run?, edit diffs, first issue-prompt text).
+
+    A test run only counts as verification when it happened AFTER the last
+    code edit (a pre-edit run proves nothing about the change) and, when the
+    outcome is detectable via the tool_result ``is_error`` flag, only when it
+    succeeded. A run with no visible result is counted (fail-open).
+    """
     edited: list[str] = []
-    verified = False
     diffs: list[tuple[str, str, str]] = []
     prompt = ""
+    last_edit_idx = -1
+    test_runs: list[tuple[int, str]] = []  # (event order, tool_use id)
+    failed_ids: set[str] = set()
+    idx = 0
     if not transcript_path:
-        return edited, verified, diffs, prompt
+        return edited, False, diffs, prompt
     p = Path(transcript_path)
     if not p.exists():
-        return edited, verified, diffs, prompt
+        return edited, False, diffs, prompt
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return edited, verified, diffs, prompt
+        return edited, False, diffs, prompt
     for line in lines:
         line = line.strip()
         if not line:
@@ -217,8 +226,17 @@ def scan_transcript_rich(
             continue
         if not isinstance(entry, dict):
             continue
-        if entry.get("type") == "user" and not prompt:
-            prompt = _block_text(entry)
+        if entry.get("type") == "user":
+            if not prompt:
+                prompt = _block_text(entry)
+            message = entry.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
+                        tid = str(block.get("tool_use_id") or "")
+                        if tid:
+                            failed_ids.add(tid)
             continue
         if entry.get("type") != "assistant":
             continue
@@ -229,17 +247,22 @@ def scan_transcript_rich(
         for block in content:
             if not isinstance(block, dict) or block.get("type") != "tool_use":
                 continue
+            idx += 1
             name = str(block.get("name") or "").split("__")[-1].lower()
             tool_input = block.get("input")
             if not isinstance(tool_input, dict):
                 continue
             if _is_edit_tool(name):
-                edited.extend(t for t in _edit_targets(tool_input) if _is_code_path(t))
+                targets = [t for t in _edit_targets(tool_input) if _is_code_path(t)]
+                edited.extend(targets)
                 diffs.extend(d for d in _edit_diffs(tool_input) if _is_code_path(d[0]))
+                if targets:
+                    last_edit_idx = idx
             elif name in {"bash", "shell"}:
                 cmd = str(tool_input.get("command") or "")
                 if _TEST_RUN.search(cmd):
-                    verified = True
+                    test_runs.append((idx, str(block.get("id") or "")))
+    verified = any(i > last_edit_idx and (not tid or tid not in failed_ids) for i, tid in test_runs)
     return edited, verified, diffs, prompt
 
 
@@ -333,9 +356,29 @@ def detector_b(prompt: str, edited: list[str]) -> tuple[str, list[str]] | None:
 
 
 _SOURCE_SUFFIXES = {
-    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
-    ".rb", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".swift",
-    ".kt", ".scala", ".sh", ".bash", ".sql",
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".rb",
+    ".c",
+    ".h",
+    ".cc",
+    ".cpp",
+    ".hpp",
+    ".cs",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".bash",
+    ".sql",
 }
 
 
@@ -343,7 +386,9 @@ def _is_source_file(path: str) -> bool:
     return Path(path.split("#")[0]).suffix.lower() in _SOURCE_SUFFIXES
 
 
-_REASON = "FIXME (verify): edited {sample} but ran no tests -- run the tests covering it (or the suite) before finishing."
+_REASON = (
+    "FIXME (verify): edited {sample} but ran no tests -- run the tests covering it (or the suite) before finishing."
+)
 
 
 def _bench_mode_on() -> bool:
