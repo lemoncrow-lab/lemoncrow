@@ -6,8 +6,10 @@ and overlays what Atelier would have done differently: the grep→read loops the
 agent actually walked, marked and collapsed into the single ``code_search`` call
 that would have returned the answer in one turn.
 
-**No model is re-run.** This reads JSONL off disk (Claude / Codex / opencode via
-the shared :func:`parse_session_turns`), so it is deterministic, instant, and
+**No model is re-run.** This reads recorded sessions off disk — JSONL files
+(Claude / Codex / Copilot), SQLite stores (opencode / hermes), or normalized
+session artifacts in the Atelier store (cursor / antigravity) — via the shared
+:func:`parse_session_turns`, so it is deterministic, instant, and
 costs nothing. Savings are *inferred* from the loop structure (calls and turns
 eliminated) and labelled as such — they are not a re-measured A/B (that stays
 ``atelier benchmark local``).
@@ -25,7 +27,7 @@ from typing import Any
 from atelier.core.capabilities.prompt_compilation.tokens import estimate_tokens
 from atelier.gateway.hosts.session_parsers._session_parser import parse_session_turns
 
-SUPPORTED_HOSTS = ("claude", "codex", "opencode")
+SUPPORTED_HOSTS = ("claude", "codex", "opencode", "copilot", "hermes", "cursor", "antigravity")
 
 # Argument keys that indicate a *ranged* (targeted) read rather than a whole-file
 # read. A ranged read means the agent already knew where to look, so it is not
@@ -415,6 +417,28 @@ def _first_text(turns: list[dict[str, Any]], kind: str) -> str:
     return ""
 
 
+# Host-command noise a transcript records as "user messages" (slash commands,
+# caveat banners, command/system XML wrappers) — never the actual task.
+_TASK_NOISE_PREFIXES = (
+    "User ran command:",
+    "Caveat:",
+    "<command-name",
+    "<local-command",
+    "<task-notification",
+    "<system-reminder",
+)
+
+
+def _first_task_text(turns: list[dict[str, Any]]) -> str:
+    """First user message that reads as a task, skipping host-command noise."""
+    for turn in turns:
+        if turn.get("kind") == "user_message":
+            text = str(turn.get("content") or "").strip()
+            if text and not text.startswith(_TASK_NOISE_PREFIXES):
+                return text
+    return ""
+
+
 def _model_of(turns: list[dict[str, Any]]) -> str:
     for turn in turns:
         model = turn.get("model")
@@ -452,7 +476,7 @@ def build_replay(content: str, *, host: str, session_id: str) -> Replay:
         host=host,
         session_id=session_id,
         model=_model_of(turns),
-        task=_first_text(turns, "user_message"),
+        task=_first_task_text(turns),
         turns=turns,
         collapsed_indices=collapsed,
         episodes=episodes,
@@ -696,11 +720,17 @@ def locate_transcript(host: str, session_id: str) -> Path | None:
             return None
         return _match_by_id(sorted(root.rglob("*.jsonl")), session_id)
     if host == "opencode":
+        # Legacy layout only: old opencode builds wrote per-session *.jsonl
+        # files. Current builds store sessions in opencode.db (see load_replays).
         for root in _opencode_roots():
             hit = _match_by_id(sorted(root.rglob("*.jsonl")), session_id)
             if hit:
                 return hit
         return None
+    if host == "copilot":
+        from atelier.gateway.hosts.session_parsers.copilot import find_copilot_transcript_files
+
+        return _match_by_id(sorted(find_copilot_transcript_files()), session_id)
     return None
 
 
@@ -730,7 +760,12 @@ def recent_transcripts(host: str, limit: int) -> list[Path]:
         root = _codex_root()
         paths = list(root.rglob("*.jsonl")) if root.is_dir() else []
     elif host == "opencode":
+        # Legacy *.jsonl layout only; db-backed discovery lives in load_replays.
         paths = [p for root in _opencode_roots() for p in root.rglob("*.jsonl")]
+    elif host == "copilot":
+        from atelier.gateway.hosts.session_parsers.copilot import find_copilot_transcript_files
+
+        paths = list(find_copilot_transcript_files())
     else:
         paths = []
     paths = [p for p in paths if p.is_file() and "subagents" not in p.parts]
@@ -741,33 +776,185 @@ def _session_id_from_path(path: Path) -> str:
     return path.stem
 
 
+# One replay input: (session id, transcript content, source path for display).
+_ReplayEntry = tuple[str, str, str]
+
+
+def _opencode_db_path() -> Path | None:
+    """Current opencode session store (SQLite), or None when absent."""
+    candidates: list[Path] = []
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        candidates.append(Path(xdg) / "opencode" / "opencode.db")
+    candidates.append(Path.home() / ".local" / "share" / "opencode" / "opencode.db")
+    candidates.append(Path.home() / ".opencode" / "opencode.db")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def _opencode_db_entries(session_id: str | None, last: int) -> list[_ReplayEntry]:
+    """Enumerate opencode sessions from opencode.db (newest first)."""
+    db = _opencode_db_path()
+    if db is None:
+        return []
+    from atelier.gateway.hosts.session_parsers.opencode import (
+        find_opencode_sessions,
+        serialize_opencode_session,
+    )
+
+    rows = find_opencode_sessions(db)  # newest first
+    if session_id:
+        wanted = session_id.strip()
+        rows = [r for r in rows if wanted in str(r.get("id") or "")][:1]
+    else:
+        rows = rows[: max(1, last)]
+    entries: list[_ReplayEntry] = []
+    for row in rows:
+        sid = str(row.get("id") or "")
+        content = serialize_opencode_session(sid, db)
+        if content.strip():
+            entries.append((sid, content, str(db)))
+    return entries
+
+
+def _hermes_entries(session_id: str | None, last: int) -> list[_ReplayEntry]:
+    """Enumerate hermes sessions from ~/.hermes/state.db (newest first)."""
+    from atelier.gateway.hosts.session_parsers.hermes import (
+        find_hermes_db,
+        find_hermes_sessions,
+        serialize_hermes_session,
+    )
+
+    db = find_hermes_db()
+    if db is None:
+        return []
+    rows = find_hermes_sessions(db)  # newest first
+    if session_id:
+        wanted = session_id.strip()
+        rows = [r for r in rows if wanted in str(r.get("id") or "")][:1]
+    else:
+        rows = rows[: max(1, last)]
+    entries: list[_ReplayEntry] = []
+    for row in rows:
+        sid = str(row.get("id") or "")
+        content = serialize_hermes_session(row, db)
+        if content.strip():
+            entries.append((sid, content, str(db)))
+    return entries
+
+
+def _store_entries(host: str, session_id: str | None, last: int, store_root: Path | None) -> list[_ReplayEntry]:
+    """Enumerate normalized sessions (cursor / antigravity) imported into the
+    Atelier ContextStore: their importers persist the normalized JSONL as a
+    ``session.jsonl`` RawArtifact (see ``record_normalized_session``)."""
+    try:
+        from atelier.core.foundation.paths import default_store_root
+        from atelier.core.foundation.store import ContextStore
+
+        root = Path(store_root) if store_root is not None else default_store_root()
+        if not (root / "atelier.db").is_file():
+            return []
+        store = ContextStore(root)
+        artifacts = store.list_raw_artifacts(source=host, limit=max(1, last) * 5 + 50)
+    except Exception:  # noqa: BLE001 - a missing/foreign store means "no sessions", never a crash
+        return []
+    artifacts = [a for a in artifacts if a.kind == "session.jsonl"]
+    if session_id:
+        wanted = session_id.strip()
+        artifacts = [a for a in artifacts if wanted in str(a.source_session_id or "")][:1]
+    else:
+        artifacts = artifacts[: max(1, last)]
+    entries: list[_ReplayEntry] = []
+    for artifact in artifacts:
+        try:
+            content = store.read_raw_artifact_content(artifact)
+        except (OSError, ValueError):
+            continue
+        if content.strip():
+            entries.append((str(artifact.source_session_id or artifact.id), content, str(root / artifact.content_path)))
+    return entries
+
+
+def _path_entries(host: str, session_id: str | None, last: int) -> list[_ReplayEntry]:
+    """File-backed discovery (claude / codex / copilot / legacy opencode)."""
+    paths: list[Path] = []
+    if session_id:
+        hit = locate_transcript(host, session_id)
+        if hit is not None:
+            paths = [hit]
+    else:
+        paths = recent_transcripts(host, last)
+    entries: list[_ReplayEntry] = []
+    for path in paths:
+        sid = session_id if session_id else _session_id_from_path(path)
+        try:
+            entries.append((sid, path.read_text(encoding="utf-8", errors="replace"), str(path)))
+        except OSError:
+            continue
+    return entries
+
+
+# "hermes" stands in for every normalized-JSONL source (cursor, antigravity, …):
+# they share one parser, so the FORMAT is detectable but not the exact host.
+_DETECTABLE_SOURCES = ("claude", "codex", "opencode", "copilot", "hermes")
+
+
+def detect_transcript_host(content: str) -> tuple[str | None, int]:
+    """Best-guess parser source for a raw transcript file.
+
+    Tries every supported source and returns ``(source, turn_count)`` for the
+    one yielding the most turns — ``(None, 0)`` when nothing parses.
+    """
+    best: tuple[str | None, int] = (None, 0)
+    for source in _DETECTABLE_SOURCES:
+        try:
+            count = len(parse_session_turns(content, source))
+        except Exception:  # noqa: BLE001 - a foreign format may crash a stricter parser
+            count = 0
+        if count > best[1]:
+            best = (source, count)
+    return best
+
+
 def load_replays(
     *,
     host: str,
     session_id: str | None = None,
     file: Path | None = None,
     last: int = 1,
+    store_root: Path | None = None,
 ) -> list[Replay]:
-    """Load and build replays from an explicit file, a session id, or recents."""
-    sources: list[tuple[str, Path]] = []
+    """Load and build replays from an explicit file, a session id, or recents.
+
+    Per-host discovery: claude / codex / copilot read JSONL transcripts off
+    disk; opencode enumerates opencode.db (falling back to the legacy *.jsonl
+    layout); hermes reads ~/.hermes/state.db; cursor / antigravity read the
+    normalized session artifacts their importers stored in the Atelier store
+    (``store_root``, default ``~/.atelier``).
+    """
+    entries: list[_ReplayEntry]
     if file is not None:
-        sources.append((session_id or _session_id_from_path(file), file))
-    elif session_id:
-        hit = locate_transcript(host, session_id)
-        if hit is not None:
-            sources.append((session_id, hit))
-    else:
-        sources.extend((_session_id_from_path(p), p) for p in recent_transcripts(host, last))
+        try:
+            content = file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        entries = [(session_id or _session_id_from_path(file), content, str(file))]
+    elif host == "opencode":
+        entries = _opencode_db_entries(session_id, last) or _path_entries(host, session_id, last)
+    elif host == "hermes":
+        entries = _hermes_entries(session_id, last)
+    elif host in ("cursor", "antigravity"):
+        entries = _store_entries(host, session_id, last, store_root)
+    else:  # claude / codex / copilot: JSONL transcripts on disk
+        entries = _path_entries(host, session_id, last)
 
     replays: list[Replay] = []
-    for sid, path in sources:
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
+    for sid, content, source_path in entries:
         replay = build_replay(content, host=host, session_id=sid)
-        replay.source_path = str(path)
-        replay.subagent_replays = _load_subagents(path, host)
+        replay.source_path = source_path
+        replay.subagent_replays = _load_subagents(Path(source_path), host)
         replays.append(replay)
     return replays
 

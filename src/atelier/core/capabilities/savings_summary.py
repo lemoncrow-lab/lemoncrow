@@ -1959,7 +1959,11 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
     lines: list[str] = ["Atelier savings", "─" * 56]
 
     if spend30 > 0:
-        pct = saved / spend30 * 100
+        # Same-window ratio: 30-day saved over 30-day spend. The headline
+        # `saved` figure is lifetime, so dividing it by 30-day spend would
+        # inflate the percentage for any history longer than 30 days.
+        saved30 = float(d30.get("usd") or 0.0)
+        pct = saved30 / spend30 * 100
         lines.append(f"  Saved            {_fmt_usd(saved)}   ({_fmt_pct(pct)} of {_fmt_usd(spend30)} spend · 30d)")
     else:
         lines.append(f"  Saved            {_fmt_usd(saved)}")

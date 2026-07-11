@@ -698,6 +698,165 @@ def test_vanilla_savings_fraction_applies_to_main_cost_only(tmp_path: Path) -> N
     assert abs(sav_with_sub["saved_usd"] - sav_main["saved_usd"]) < 1e-6
 
 
+# --------------------------------------------------------------------------- #
+# opencode discovery from opencode.db (current layout)
+# --------------------------------------------------------------------------- #
+
+import sqlite3  # noqa: E402
+
+
+def _make_opencode_db(db: Path) -> None:
+    """Tiny opencode.db with the session/message/part schema serialize reads."""
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE session (id TEXT PRIMARY KEY, time_created INTEGER);
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created INTEGER);
+        CREATE TABLE part (id TEXT PRIMARY KEY, session_id TEXT, message_id TEXT, data TEXT, time_created INTEGER);
+        """)
+    conn.execute("INSERT INTO session VALUES ('ses_old', 100)")
+    conn.execute("INSERT INTO session VALUES ('ses_abc123', 200)")
+    conn.execute(
+        "INSERT INTO message VALUES ('m0', 'ses_old', ?, 101)",
+        (json.dumps({"role": "user", "text": "older session"}),),
+    )
+    conn.execute(
+        "INSERT INTO message VALUES ('m1', 'ses_abc123', ?, 201)",
+        (json.dumps({"role": "user", "text": "find the parser bug"}),),
+    )
+    conn.execute("INSERT INTO message VALUES ('m2', 'ses_abc123', ?, 202)", (json.dumps({"role": "assistant"}),))
+    parts = [
+        ("p1", "grep", {"pattern": "parse_session"}, 203),
+        ("p2", "read", {"filePath": "parser.py"}, 204),
+        ("p3", "read", {"filePath": "other.py"}, 205),
+        ("p4", "edit", {"filePath": "parser.py", "old_string": "x", "new_string": "y"}, 206),
+    ]
+    for pid, tool, inp, ts in parts:
+        conn.execute(
+            "INSERT INTO part VALUES (?, 'ses_abc123', 'm2', ?, ?)",
+            (pid, json.dumps({"type": "tool", "tool": tool, "state": {"input": inp}}), ts),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_load_replays_opencode_from_db(tmp_path: Path, monkeypatch) -> None:
+    import atelier.core.capabilities.session_replay as sr
+
+    db = tmp_path / "opencode.db"
+    _make_opencode_db(db)
+    monkeypatch.setattr(sr, "_opencode_db_path", lambda: db)
+
+    replays = load_replays(host="opencode", last=1)
+    assert len(replays) == 1
+    r = replays[0]
+    assert r.session_id == "ses_abc123"  # newest first
+    assert r.source_path == str(db)
+    assert r.summary is not None and r.summary.episode_count == 1
+    assert r.episodes[0].query == "parse_session"
+
+    # --session-id matches DB session ids (substring ok)
+    by_id = load_replays(host="opencode", session_id="abc123")
+    assert len(by_id) == 1 and by_id[0].session_id == "ses_abc123"
+
+    # --last respects newest-first ordering
+    both = load_replays(host="opencode", last=2)
+    assert [x.session_id for x in both] == ["ses_abc123", "ses_old"]
+
+
+def test_load_replays_opencode_no_db_no_crash(monkeypatch) -> None:
+    import atelier.core.capabilities.session_replay as sr
+
+    monkeypatch.setattr(sr, "_opencode_db_path", lambda: None)
+    monkeypatch.setattr(sr, "_opencode_roots", lambda: [])  # no legacy *.jsonl either
+    assert load_replays(host="opencode", last=1) == []
+
+
+# --------------------------------------------------------------------------- #
+# --file format autodetect
+# --------------------------------------------------------------------------- #
+
+
+def _codex_transcript() -> str:
+    lines = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "find the bug"}]},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "grep -rn foo ."})},
+        {"type": "function_call", "name": "read_file", "arguments": json.dumps({"path": "a.py"})},
+        {
+            "type": "message",
+            "role": "assistant",
+            "model": "gpt-5",
+            "usage": {"input_tokens": 900, "output_tokens": 40},
+            "content": [{"type": "text", "text": "found it"}],
+        },
+    ]
+    return "\n".join(json.dumps(x) for x in lines)
+
+
+def test_detect_transcript_host() -> None:
+    from atelier.core.capabilities.session_replay import detect_transcript_host
+
+    host, count = detect_transcript_host(_codex_transcript())
+    assert host == "codex" and count >= 3
+    host, count = detect_transcript_host(_claude_transcript())
+    assert host == "claude" and count > 0
+    assert detect_transcript_host("this is not a transcript\nnope\n") == (None, 0)
+
+
+# --------------------------------------------------------------------------- #
+# Task header skips host-command noise
+# --------------------------------------------------------------------------- #
+
+
+def test_first_task_text_skips_host_command_noise() -> None:
+    from atelier.core.capabilities.session_replay import _first_task_text
+
+    turns = [
+        {"kind": "user_message", "content": "User ran command: /model"},
+        {"kind": "user_message", "content": "<command-name>/clear</command-name>"},
+        {"kind": "user_message", "content": "Caveat: the messages below were generated locally"},
+        {"kind": "user_message", "content": "fix the flaky auth test"},
+    ]
+    assert _first_task_text(turns) == "fix the flaky auth test"
+    assert _first_task_text(turns[:3]) == ""  # all noise -> no task, never noise
+
+
+def test_build_replay_task_skips_command_noise() -> None:
+    lines = [
+        {"type": "user", "sessionId": "s1", "message": {"content": "User ran command: /model"}},
+        {"type": "user", "message": {"content": "find TokenRefresh and fix it"}},
+    ]
+    replay = build_replay("\n".join(json.dumps(x) for x in lines), host="claude", session_id="s1")
+    assert replay.task.startswith("find TokenRefresh")
+
+
+# --------------------------------------------------------------------------- #
+# Terminal polish: single summary line, money formatting, 0-turn warning
+# --------------------------------------------------------------------------- #
+
+
+def test_render_text_single_summary_line() -> None:
+    replay = build_replay(_claude_transcript(), host="claude", session_id="s1")
+    out = render_text(replay, color=False)
+    assert "tool calls 4 → 2 · 2 collapsed · 1 search loops · 0 batches" in out
+    assert "tool calls: " not in out  # the old duplicated pair is gone
+
+
+def test_money_formatting_rule() -> None:
+    from atelier.core.capabilities.session_replay_render import _money
+
+    assert _money(3.3034) == "$3.30"
+    assert _money(1.0) == "$1.00"
+    assert _money(0.0421) == "$0.0421"
+    assert _money(0.0) == "$0.0000"
+
+
+def test_render_text_zero_turns_warns() -> None:
+    replay = build_replay("", host="claude", session_id="empty")
+    out = render_text(replay, color=False)
+    assert "no turns parsed" in out
+
+
 def test_shell_grep_read_loop_collapses() -> None:
     turns = [
         {"kind": "shell_command", "tool_name": "Bash", "content": 'grep -rn "detect_episodes" .'},

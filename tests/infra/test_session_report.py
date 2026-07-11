@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from atelier.infra.runtime.session_report import (
     _derive_vendor,
@@ -460,6 +463,68 @@ def test_render_text_cost_values(tmp_path: Path) -> None:
     report = build_report(snap, tmp_path)
     text = render_text(report)
     assert "$1.23" in text
+
+
+def test_build_report_zero_total_uses_bucket_sum(tmp_path: Path) -> None:
+    """Regression (R2): per-call token data with total_cost_usd == 0 rendered
+    non-zero bucket rows above 'Total: $0.00'. The bucket sum becomes the
+    total instead."""
+    calls = [_llm_call(cost_usd=0.0, input_tokens=100_000, output_tokens=20_000)]
+    snap = _make_snapshot(calls=calls)
+    assert snap["cost"]["total_cost_usd"] == 0.0
+
+    report = build_report(snap, tmp_path)
+    bucket_sum = (
+        report.input_token_cost_usd
+        + report.output_token_cost_usd
+        + report.cache_read_cost_usd
+        + report.cache_write_cost_usd
+    )
+    assert bucket_sum > 0
+    assert report.total_cost_usd == pytest.approx(bucket_sum, abs=1e-6)
+
+
+def test_render_text_savings_components_sum_to_total(tmp_path: Path) -> None:
+    """Regression (R1): context compression (the dominant component) was never
+    rendered, so the listed items could not sum to 'Total saved this session'.
+    Read/output are subcomponents of compression and must render indented as
+    'of which', not as top-level items."""
+    snap = _make_snapshot()
+    report = build_report(snap, tmp_path)
+    report = dataclasses.replace(
+        report,
+        routing_downtiered_turns=2,
+        routing_savings_usd=1.0,
+        compact_events=1,
+        compact_savings_estimate_usd=0.12,
+        context_compression_savings_usd=44.0,
+        context_compression_tool_calls=120,
+        read_saved_usd=1.05,
+        output_saved_usd=0.10,
+        carry_usd=5.65,
+        carry_tokens=1_000,
+        total_atelier_savings_usd=round(1.0 + 0.12 + 44.0 + 5.65, 6),
+    )
+    text = render_text(report)
+
+    # Main compression line with call count.
+    assert "Context compression:" in text
+    assert "$44.00" in text
+    assert "(120 tool calls)" in text
+    # Subcomponents indented as informational "of which" items.
+    assert "of which read:" in text
+    assert "of which output:" in text
+    assert "Read savings:" not in text
+    assert "Output savings:" not in text
+    # Top-level items sum to the total: 1.00 + 0.12 + 44.00 + 5.65 = 50.77.
+    assert "$50.77" in text
+
+
+def test_render_text_no_compression_line_when_zero(tmp_path: Path) -> None:
+    snap = _make_snapshot()
+    report = build_report(snap, tmp_path)
+    text = render_text(report)
+    assert "Context compression:" not in text
 
 
 # --------------------------------------------------------------------------- #

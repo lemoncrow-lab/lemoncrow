@@ -391,6 +391,10 @@ class SessionReport:
     output_saved_usd: float = 0.0
     carry_usd: float = 0.0
     carry_tokens: int = 0
+    # True when the ledger recorded no total (total_cost_usd == 0) and
+    # total_cost_usd was backfilled from the pricing-derived bucket sum --
+    # i.e. the total is an estimate, not a recorded figure.
+    cost_estimated: bool = False
 
     @property
     def is_running(self) -> bool:
@@ -509,12 +513,20 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
 
     # Use total_cost from snapshot as ground truth; attribute remainder to input if needed
     cost_sum = in_cost + out_cost + cr_cost + cw_cost
+    cost_estimated = False
     if cost_sum > 0 and total_cost > 0:
         ratio = total_cost / cost_sum
         in_cost = round(in_cost * ratio, 6)
         out_cost = round(out_cost * ratio, 6)
         cr_cost = round(cr_cost * ratio, 6)
         cw_cost = round(cw_cost * ratio, 6)
+    elif cost_sum > 0:
+        # Per-call token data exists but the ledger never recorded a total
+        # (total_cost_usd == 0). Rendering non-zero bucket rows above
+        # "Total: $0.00" is inconsistent -- use the buckets' own sum, and
+        # flag the total as estimated (the buckets are pricing-derived).
+        total_cost = round(cost_sum, 6)
+        cost_estimated = True
 
     # --- routing savings ---
     routing_downtiered, routing_saved, lesson_applications, cost_cap_fired = _read_routing_savings(raw_events)
@@ -611,6 +623,7 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
         output_saved_usd=output_saved_usd,
         carry_usd=carry_usd,
         carry_tokens=carry_tokens,
+        cost_estimated=cost_estimated,
         top_tools_by_cost=top_tools[:5],
     )
 
@@ -727,10 +740,19 @@ def render_text(report: SessionReport, *, no_color: bool = False) -> str:
 
     # savings
     lines.append("Atelier savings")
-    if report.read_saved_usd > 0:
-        lines.append(f"  Read savings:            {_fmt_usd(report.read_saved_usd)}")
-    if report.output_saved_usd > 0:
-        lines.append(f"  Output savings:          {_fmt_usd(report.output_saved_usd)}")
+    if report.context_compression_savings_usd > 0 or report.context_compression_tool_calls > 0:
+        n_comp = report.context_compression_tool_calls
+        lines.append(
+            f"  Context compression:     {_fmt_usd(report.context_compression_savings_usd)}"
+            f"  ({n_comp} tool call{'s' if n_comp != 1 else ''})"
+        )
+        # read/output are informational subcomponents already folded inside
+        # context compression (see build_report's KNOWN DUPLICATION note) --
+        # indent them so the top-level items visibly sum to the total.
+        if report.read_saved_usd > 0:
+            lines.append(f"    of which read:         {_fmt_usd(report.read_saved_usd)}")
+        if report.output_saved_usd > 0:
+            lines.append(f"    of which output:       {_fmt_usd(report.output_saved_usd)}")
     if report.carry_usd > 0:
         lines.append(f"  Carry credit:            {_fmt_usd(report.carry_usd)}  ({_fmt_tok(report.carry_tokens)} tok)")
     if report.routing_downtiered_turns:

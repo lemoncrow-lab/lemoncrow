@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from click.testing import CliRunner, Result
@@ -355,3 +356,138 @@ def test_opencode_import_missing_db(tmp_path: Path) -> None:
     # Should either succeed with 0 imports or fail gracefully (no crash/traceback)
     assert "imported" in res.output or res.exit_code != 0
     assert "Traceback" not in res.output
+
+
+# --------------------------------------------------------------------------- #
+# session list / stats defect regressions                                     #
+# --------------------------------------------------------------------------- #
+
+
+def _make_trace(i: int = 0, *, host: str = "codex", **overrides: object) -> Any:
+    from atelier.core.foundation.models import Trace
+
+    kwargs: dict[str, object] = {
+        "id": f"trace-{host}-{i}",
+        "session_id": f"sess-{host}-{i}",
+        "agent": "test-agent",
+        "domain": "coding",
+        "task": "test task",
+        "status": "success",
+        "host": host,
+        "input_tokens": 10,
+        "model": "claude-haiku-4-5",
+    }
+    kwargs.update(overrides)
+    return Trace(**kwargs)  # type: ignore[arg-type]
+
+
+def test_session_row_adopts_routing_only_live_savings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression (B2): a session whose only live savings are routing dollars
+    (saved_usd > 0, tokens/calls/carry all 0) must not render $0 savings in
+    `session list`/`stats` while the statusline shows the saving."""
+    from atelier.core.foundation.store import ContextStore
+    from atelier.gateway.cli.commands import sessions as sessions_cmd
+
+    monkeypatch.setattr(sessions_cmd, "_claude_transcript_block", lambda sid: None)
+    monkeypatch.setattr(
+        sessions_cmd,
+        "_claude_live_savings_summary",
+        lambda sid, root: (0.42, 0, 0, 0.0, 0, 0.0, 0.0),
+    )
+    monkeypatch.setattr(sessions_cmd, "_claude_subagent_count", lambda sid: 0)
+    monkeypatch.setattr(sessions_cmd, "_claude_subagent_cost_usd", lambda sid: 0.0)
+
+    store = ContextStore(tmp_path)
+    store.init()
+    trace = _make_trace(host="claude")
+    row = sessions_cmd._build_session_row(trace, store, "claude", tmp_path)
+
+    assert row["saved_usd"] == pytest.approx(0.42)
+
+
+def test_trace_cost_breakdown_parts_sum_to_total_with_thinking(tmp_path: Path) -> None:
+    """Regression (B3): thinking tokens are priced into the estimated total
+    but were dropped from the 4-bucket breakdown, so the rendered parts did
+    not sum to the displayed cost."""
+    from atelier.gateway.cli.commands import sessions as sessions_cmd
+
+    trace = _make_trace(input_tokens=1_000, output_tokens=500, thinking_tokens=2_000)
+    total = sessions_cmd._estimated_trace_cost_usd(trace)
+    breakdown = sessions_cmd._estimated_trace_cost_breakdown(trace)
+
+    assert total > 0
+    assert sum(breakdown.values()) == pytest.approx(total, abs=1e-5)
+
+    # Thinking-only trace: the cost must land in the output bucket.
+    thinking_only = _make_trace(i=1, input_tokens=0, output_tokens=0, thinking_tokens=1_000)
+    bd = sessions_cmd._estimated_trace_cost_breakdown(thinking_only)
+    assert bd["output"] > 0
+    assert sum(bd.values()) == pytest.approx(sessions_cmd._estimated_trace_cost_usd(thinking_only), abs=1e-5)
+
+
+def test_session_stats_store_since_marks_truncation(tmp_path: Path) -> None:
+    """Regression (B4): --source store --since caps the query at 15/host but
+    never flagged truncation, so the header claimed the full window."""
+    from atelier.infra.storage.factory import create_store
+
+    root = tmp_path / ".atelier"
+    init_store_at(str(root))
+    store = create_store(root)
+    for i in range(15):
+        store.record_trace(_make_trace(i), write_json=False)
+
+    res = _invoke(root, "session", "stats", "--source", "store", "--since", "7d", "--host", "codex")
+    assert res.exit_code == 0
+    assert "capped at 15/host" in res.output
+
+
+def test_session_stats_store_since_no_truncation_under_cap(tmp_path: Path) -> None:
+    from atelier.infra.storage.factory import create_store
+
+    root = tmp_path / ".atelier"
+    init_store_at(str(root))
+    store = create_store(root)
+    for i in range(3):
+        store.record_trace(_make_trace(i), write_json=False)
+
+    res = _invoke(root, "session", "stats", "--source", "store", "--since", "7d", "--host", "codex")
+    assert res.exit_code == 0
+    assert "capped at" not in res.output
+
+
+def test_session_list_store_since_marks_truncation(tmp_path: Path) -> None:
+    """Regression (B4, list analogue): store query capped at --scan per host
+    must flag truncation in the footer label when --since is set."""
+    from atelier.infra.storage.factory import create_store
+
+    root = tmp_path / ".atelier"
+    init_store_at(str(root))
+    store = create_store(root)
+    for i in range(4):
+        store.record_trace(_make_trace(i), write_json=False)
+
+    res = _invoke(root, "session", "list", "--source", "store", "--since", "7d", "--host", "codex", "--scan", "4")
+    assert res.exit_code == 0
+    assert "capped at 4/host" in res.output
+
+
+def test_session_list_missing_path_warns_on_stderr(tmp_path: Path) -> None:
+    """Regression (R3): --path pointing at a nonexistent directory used to
+    print only 'No host sessions found' with no hint the path was wrong."""
+    root = tmp_path / ".atelier"
+    init_store_at(str(root))
+    missing = tmp_path / "does-not-exist"
+
+    res = _invoke(root, "session", "list", "--host", "claude", "--path", str(missing))
+    assert res.exit_code == 0
+    assert "does not exist" in res.stderr
+
+
+def test_session_stats_missing_path_warns_on_stderr(tmp_path: Path) -> None:
+    root = tmp_path / ".atelier"
+    init_store_at(str(root))
+    missing = tmp_path / "does-not-exist"
+
+    res = _invoke(root, "session", "stats", "--host", "claude", "--path", str(missing))
+    assert res.exit_code == 0
+    assert "does not exist" in res.stderr
