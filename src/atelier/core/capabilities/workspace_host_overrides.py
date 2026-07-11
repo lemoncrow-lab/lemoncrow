@@ -548,6 +548,58 @@ def _markdown_body(path: Path) -> str:
     return "\n".join(lines).rstrip()
 
 
+def format_native_names_and_verb(names: tuple[str, ...]) -> tuple[str, str]:
+    """Backtick-quote native tool names into a listed clause + matching verb
+    ("is" for one, "are" for two-plus, Oxford comma only at three-plus)."""
+    quoted = [f"`{name}`" for name in names]
+    if len(quoted) > 2:
+        return f"{', '.join(quoted[:-1])}, and {quoted[-1]}", "are"
+    if len(quoted) == 2:
+        return f"{quoted[0]} and {quoted[1]}", "are"
+    return quoted[0], "is"
+
+
+def swap_tool_discipline_lead_in(body: str, lead_in: str) -> str:
+    """Swap the lead-in of tool-discipline*.md's closing '<lead-in> — use
+    Atelier: ...' line for a host-specific one, keeping the '— use Atelier: ...'
+    clause verbatim (its bare tool names still get prefixed by
+    replace_inline_tool_names downstream, same as every other host).
+    """
+    bullets, _, tail = body.rpartition("\n\n")
+    _disabled_clause, _, use_clause = tail.partition(" — use Atelier:")
+    return f"{bullets}\n\n{lead_in} — use Atelier:{use_clause}"
+
+
+# Codex's real native tool-call names (session_parsers/codex.py's
+# function_call.name values) -- see plugin_runtime._codex_native_tool_replacement.
+# apply_patch is edit-only (dropped for read-only roles, which have no edit
+# tool to fall back to); exec_command applies to every role.
+CODEX_NATIVE_FALLBACK_NAMES: tuple[str, ...] = ("apply_patch", "exec_command")
+CODEX_NATIVE_FALLBACK_NAMES_READ: tuple[str, ...] = ("exec_command",)
+
+
+def codex_tool_discipline_body(
+    shared_dir: Path,
+    *,
+    source_name: str = "tool-discipline.md",
+    native_fallback_names: tuple[str, ...] = CODEX_NATIVE_FALLBACK_NAMES,
+) -> str:
+    """tool-discipline*.md, with its closing "Host tools disabled" line's lead-in
+    swapped for Codex's own native tool names -- "Host tools disabled" is generic
+    host-agnostic phrasing; Codex's actual native tools are apply_patch/
+    exec_command, and Codex has no tool-permission-deny mechanism to make that
+    phrasing literally true (see _codex_native_tool_replacement's reactive-only
+    PostToolUse nudge), so name them directly and say what happens instead.
+
+    Shared by both Codex render paths: sync_agent_context.py's SKILL.md
+    generation and this module's _render_codex_mode_body (the installed
+    agent TOMLs written by write_codex_agents), so the two can't drift.
+    """
+    body = _markdown_body(shared_dir / source_name)
+    names, verb = format_native_names_and_verb(native_fallback_names)
+    return swap_tool_discipline_lead_in(body, f"Native Codex {names} {verb} disallowed")
+
+
 def core_discipline_body(shared_dir: Path) -> str:
     """Expand ``{{CORE_DISCIPLINE}}``: core-discipline plus the telegraphic-default
     bullet (split into its own partial so the reply-register level machinery can
@@ -590,8 +642,10 @@ def _render_codex_mode_body(body: str, repo_root: Path) -> str:
         "{{DESTRUCTIVE_GUARD}}": _markdown_body(shared_dir / "destructive-guard.md"),
         "{{RESPONSE_ECONOMY}}": _markdown_body(shared_dir / "response-economy.md"),
         "{{CODING_GUIDELINES}}": _markdown_body(shared_dir / "coding-guidelines.md"),
-        "{{TOOL_DISCIPLINE}}": _markdown_body(shared_dir / "tool-discipline.md"),
-        "{{TOOL_DISCIPLINE_READ}}": _markdown_body(shared_dir / "tool-discipline-read.md"),
+        "{{TOOL_DISCIPLINE}}": codex_tool_discipline_body(shared_dir),
+        "{{TOOL_DISCIPLINE_READ}}": codex_tool_discipline_body(
+            shared_dir, source_name="tool-discipline-read.md", native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ
+        ),
         "{{REPLY_REGISTER}}": reply_register_body(shared_dir),
     }
     rendered = body.rstrip()
