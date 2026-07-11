@@ -33,6 +33,13 @@ def sync_usage(
     Large session lists are automatically chunked into multiple requests.
     Only successfully acknowledged chunks are marked as synced in the local DB.
     """
+    from atelier.core.service.telemetry.config import remote_enabled
+
+    if not remote_enabled():
+        # User opted out of remote telemetry -- nothing leaves the machine.
+        _logger.debug("sync_usage skipped: remote telemetry disabled")
+        return False
+
     url = os.environ.get("ATELIER_SYNC_URL", "https://atelier.beseam.com/api/sync")
     root_path = Path(root)
 
@@ -96,13 +103,24 @@ def sync_usage(
     return True
 
 
+def _sanitize_session(session: dict[str, Any]) -> dict[str, Any]:
+    """Strip user-content fields so only metrics/ids leave the machine.
+
+    ``task`` carries prompt-derived text (see ``get_session_stats_from_trace``
+    and per-session ``stats.json``) and must never be sent off-machine.
+    """
+    cleaned = dict(session)
+    cleaned.pop("task", None)
+    return cleaned
+
+
 def _send_chunk(url: str, sessions: list[dict[str, Any]]) -> bool:
     """Send a single chunk of sessions to the sync endpoint."""
     payload = {
         "machine_id": get_anon_id(),
         "timestamp": datetime.now(UTC).isoformat(),
         "atelier_version": atelier_version,
-        "sessions": sessions,
+        "sessions": [_sanitize_session(s) for s in sessions],
         "metadata": platform_payload(),
     }
 

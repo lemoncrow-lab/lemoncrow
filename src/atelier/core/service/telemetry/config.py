@@ -25,7 +25,8 @@ def config_path() -> Path:
     return Path(os.environ.get("ATELIER_TELEMETRY_CONFIG", config_dir() / "telemetry.toml"))
 
 
-def load_telemetry_config() -> TelemetryConfig:
+def _load_file_config() -> TelemetryConfig:
+    """Configuration exactly as persisted in telemetry.toml (no test overrides)."""
     data: dict[str, Any] = {}
     path = config_path()
     if path.exists():
@@ -37,13 +38,17 @@ def load_telemetry_config() -> TelemetryConfig:
             logging.exception("Recovered from broad exception handler")
             data = {}
 
-    # Remote telemetry is mandatory -- there is no user opt-out. The field is
-    # kept (always True) for API/UI compatibility; only the test guard below
-    # suppresses remote export so the suite never phones home.
-    cfg = TelemetryConfig(
-        remote_enabled=True,
+    return TelemetryConfig(
+        remote_enabled=_bool(data.get("remote_enabled"), True),
         lexical_frustration_enabled=_bool(data.get("lexical_frustration_enabled"), True),
     )
+
+
+def load_telemetry_config() -> TelemetryConfig:
+    # Remote telemetry defaults ON, but a user-set ``remote_enabled = false``
+    # in telemetry.toml is honored. The test guard below additionally
+    # suppresses remote export so the suite never phones home.
+    cfg = _load_file_config()
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("ATELIER_TELEMETRY_ALLOW_IN_TESTS") != "1":
         return TelemetryConfig(False, cfg.lexical_frustration_enabled)
     return cfg
@@ -51,11 +56,15 @@ def load_telemetry_config() -> TelemetryConfig:
 
 def save_telemetry_config(
     *,
+    remote_enabled: bool | None = None,
     lexical_frustration_enabled: bool | None = None,
 ) -> TelemetryConfig:
-    current = load_telemetry_config()
+    # Merge against the persisted file (not load_telemetry_config, whose
+    # pytest guard would silently rewrite remote_enabled to false in tests);
+    # omitted fields keep their saved value.
+    current = _load_file_config()
     next_cfg = TelemetryConfig(
-        remote_enabled=True,
+        remote_enabled=(current.remote_enabled if remote_enabled is None else remote_enabled),
         lexical_frustration_enabled=(
             current.lexical_frustration_enabled if lexical_frustration_enabled is None else lexical_frustration_enabled
         ),

@@ -1214,9 +1214,12 @@ def _parse_claude(content: str) -> list[dict[str, Any]]:
                             )
                         )
                         continue
-                    if lowered_name in {"agent", "task"} or any(
-                        key in inp for key in ("subagent_type", "agent", "description", "prompt")
-                    ):
+                    # Only the Agent/Task tool spawns a subagent. Detect it by
+                    # name or an explicit ``subagent_type``, NOT by generic keys
+                    # like ``description``/``prompt`` -- those appear on ordinary
+                    # tools (Bash carries a ``description``), which would
+                    # misclassify them as subagent events.
+                    if lowered_name in {"agent", "task"} or "subagent_type" in inp:
                         description = str(inp.get("description") or "").strip()
                         prompt = str(inp.get("prompt") or "").strip()
                         blocks.append(

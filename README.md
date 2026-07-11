@@ -17,8 +17,9 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
 [![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
+[![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
+[![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
 [![Cursor](https://img.shields.io/badge/Cursor-coming_soon-lightgray?style=flat-square)](integrations/cursor)
-[![Copilot](https://img.shields.io/badge/Copilot-coming_soon-lightgray?style=flat-square)](integrations/copilot)
 [![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
 [![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
@@ -29,11 +30,11 @@ Keep using Claude Code normally — Atelier sits underneath it and gives the age
 [![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://atelier.ws)
 [![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Fatelier.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://atelier.ws)
 
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](#pricing)
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://atelier.ws/pricing)
 
 [![Atelier running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://atelier.ws/#terminal)
 
-*Click for the full narrated walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
+*Click for the full walkthrough on [atelier.ws](https://atelier.ws/#terminal).*
 
 </div>
 
@@ -103,7 +104,7 @@ A bare MCP server is a library the model can call *if* it remembers to. A runtim
 | -------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | **Agents** — process isolation  | a "read-only" agent can still edit                | `explore`/`plan`/`research`/`review` hard-deny `edit`/`write` at the host-config level |
 | **Skills** — standard library   | multi-step procedures re-improvised every session | encoded once, invoked the same way every time                                          |
-| **Hooks** — interrupts          | wasteful re-reads; "done" without a check         | bad calls denied before they run; session close blocked until verification ran         |
+| **Hooks** — interrupts          | wasteful re-reads; "done" without a check         | bad calls denied before they run; on Claude Code, session close blocked until verification ran (advisory on other hosts today) |
 | **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — Atelier tools are the only surface for those jobs                     |
 
 ### The engine underneath — not just for code
@@ -258,7 +259,7 @@ Same model, tighter loop: more tasks solved in fewer turns and less wall-clock t
 
 ## What you get
 
-- Works with Claude Code, Codex, Copilot, Cursor, opencode, Hermes Agent, LangChain, the OpenAI SDK, Gemini ADK, and any other MCP-compatible agent.
+- Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.
 - Runs locally by default.
 - Open-core runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
 - No account needed to start.

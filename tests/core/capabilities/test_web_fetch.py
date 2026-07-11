@@ -188,7 +188,15 @@ def test_validate_url_rejects_malformed_port() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_assert_fetchable_ip_accepts_loopback() -> None:
+def test_assert_fetchable_ip_rejects_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
+    for ip in ("127.0.0.1", "127.23.45.67", "::1"):
+        with pytest.raises(ValueError, match="ATELIER_WEB_FETCH_ALLOW_LOOPBACK"):
+            web_fetch._assert_fetchable_ip(ip)
+
+
+def test_assert_fetchable_ip_allows_loopback_when_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", "1")
     web_fetch._assert_fetchable_ip("127.0.0.1")
     web_fetch._assert_fetchable_ip("127.23.45.67")
     web_fetch._assert_fetchable_ip("::1")
@@ -223,6 +231,8 @@ def test_assert_fetchable_ip_accepts_public_ipv6() -> None:
 
 
 def test_fetch_url_allows_loopback_on_non_standard_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", "1")
+
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             body = b"localhost fetch works"

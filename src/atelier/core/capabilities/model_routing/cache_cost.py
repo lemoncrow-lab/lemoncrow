@@ -5,7 +5,7 @@ from __future__ import annotations
 from math import isfinite
 
 from atelier.core.capabilities.prefix_cache.planner import PrefixCachePlan
-from atelier.core.capabilities.pricing import ModelPricing
+from atelier.core.capabilities.pricing import ModelPricing, fallback_cost_usd
 
 
 def cache_eviction_cost_usd(plan_a: PrefixCachePlan, plan_b: PrefixCachePlan, pricing: ModelPricing) -> float:
@@ -22,7 +22,7 @@ def cache_eviction_cost_usd(plan_a: PrefixCachePlan, plan_b: PrefixCachePlan, pr
     if input_cost > 0.0:
         return input_cost
 
-    return _finite_non_negative(round(tokens * 3.0 / 1_000_000, 8))
+    return _finite_non_negative(round(fallback_cost_usd(input_tokens=tokens), 8))
 
 
 def _finite_non_negative(value: float) -> float:

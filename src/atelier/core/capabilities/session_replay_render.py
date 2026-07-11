@@ -11,6 +11,7 @@ import html
 import re
 from typing import Any
 
+from atelier.core.capabilities.prompt_compilation.tokens import approx_tokens
 from atelier.core.capabilities.session_replay import (
     Episode,
     Replay,
@@ -33,11 +34,67 @@ def _arg_summary(turn: dict[str, Any]) -> str:
     if kind == "shell_command":
         return str(turn.get("content") or "").splitlines()[0][:120] if turn.get("content") else name
     if isinstance(args, dict):
+        # Prefer a human-meaningful scalar key.
         for key in ("pattern", "query", "content_regex", "file_path", "path", "command", "description"):
             val = args.get(key)
             if isinstance(val, str) and val.strip():
                 return f"{name}({val.strip()[:120]})"
+        # List-valued inputs (e.g. atelier read files=[...], edit edits=[...]).
+        for key in ("files", "edits", "symbol", "paths"):
+            val = args.get(key)
+            summ = _summarize_value(val)
+            if summ:
+                return f"{name}({summ})"
+        # Generic fallback: first non-empty value of any key.
+        for val in args.values():
+            summ = _summarize_value(val)
+            if summ:
+                return f"{name}({summ})"
     return f"{name}(…)"
+
+
+def _summarize_value(val: Any) -> str:
+    """Compact one-line string for a scalar or list arg value."""
+    if isinstance(val, str):
+        return val.strip()[:120]
+    if isinstance(val, (int, float, bool)):
+        return str(val)
+    if isinstance(val, dict):
+        path = val.get("path") or val.get("file_path")
+        return str(path)[:120] if path else ""
+    if isinstance(val, list) and val:
+        items = [_item_label(v) for v in val]
+        items = [i for i in items if i]
+        if not items:
+            return ""
+        shown = ", ".join(items[:3])
+        if len(items) > 3:
+            shown += f", +{len(items) - 3} more"
+        return shown[:120]
+    return ""
+
+
+def _item_label(v: Any) -> str:
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, dict):
+        return str(v.get("path") or v.get("file_path") or v.get("new_string") or "").strip()[:60]
+    return ""
+
+
+def _ann_tokens(a: dict[str, Any]) -> tuple[int, int, int]:
+    """(before, after, saved) token counts for a compaction annotation.
+
+    Prefers stored ``*_tokens`` keys; falls back to a ~4-chars/token estimate
+    from the ``*_chars`` counts so older annotations still read in tokens."""
+    if "before_tokens" in a or "after_tokens" in a:
+        b = int(a.get("before_tokens", 0) or 0)
+        af = int(a.get("after_tokens", 0) or 0)
+        saved = int(a.get("tokens_omitted", max(0, b - af)) or 0)
+        return b, af, saved
+    b = int(a.get("before_chars", 0) or 0) // 4
+    af = int(a.get("after_chars", 0) or 0) // 4
+    return b, af, max(0, b - af)
 
 
 def _episodes_after(replay: Replay) -> dict[int, Episode]:
@@ -107,12 +164,16 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         if sav["saved_is_measured"]:
             # Ran with Atelier and has its own recorded savings -> show them.
             head += "     " + c(_GREEN + _BOLD, f"saved ${sav['saved_usd']:.4f} ({sav['saved_pct']}%) measured")
-            head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
+            head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}") + c(_DIM, " est")
         elif sav["ran_with_atelier"]:
-            # Ran with Atelier, no per-node savings (subagent) -> point to parent.
-            head += (
-                "     " + c(_GREEN + _BOLD, "ran with Atelier") + c(_DIM, " — savings counted on the parent session")
+            # Ran with Atelier, no per-node savings. Only a subagent can point
+            # at a parent; a top-level session just has nothing recorded.
+            note = (
+                " — savings counted on the parent session"
+                if replay.is_subagent
+                else " — savings not recorded for this session"
             )
+            head += "     " + c(_GREEN + _BOLD, "ran with Atelier") + c(_DIM, note)
         else:
             # Vanilla session -> estimated Atelier cost.
             head += (
@@ -194,11 +255,8 @@ def _text_atelier(a: dict[str, Any]) -> list[str]:
         return [f"     ↳ atelier read: {a.get('note', '')}"]
     if tool == "bash":
         if a.get("mode") == "simulated":
-            saved = a.get("chars_omitted", 0)
-            return [
-                f"     ↳ atelier bash [output compacted, not re-run]: "
-                f"{a.get('before_chars', 0):,} → {a.get('after_chars', 0):,} chars (-{saved:,})"
-            ]
+            b, af, saved = _ann_tokens(a)
+            return [f"     ↳ atelier bash [output compacted, not re-run]: {b:,} → {af:,} tokens (-{saved:,})"]
         extra = f" → {a['rewrite']}" if a.get("rewrite") else ""
         return [f"     ↳ atelier bash [preview, not run]: {a.get('category') or 'classified'}{extra}"]
     if tool == "edit":
@@ -326,7 +384,7 @@ def _html_tool_call(turn: dict[str, Any], tool_results: dict[str, str]) -> str:
         trimmed = result if len(result) <= 4000 else result[:4000] + "\n… (truncated)"
         parts.append(
             '<details class="out"><summary>output · '
-            + f"{len(result):,} chars</summary><pre>{_esc(trimmed)}</pre></details>"
+            + f"{approx_tokens(result):,} tokens</summary><pre>{_esc(trimmed)}</pre></details>"
         )
     parts.append("</div>")
     atelier = turn.get("atelier")
@@ -454,9 +512,10 @@ def _html_atelier(a: dict[str, Any]) -> str:
             inner.append('<pre class="an-out">' + _esc("\n".join(a["outline"])) + "</pre>")
     elif a.get("tool") == "bash":
         if a.get("mode") == "simulated":
+            b, af, _ = _ann_tokens(a)
             inner.append(
-                f'<div class="an-note">output compacted {a.get("before_chars", 0):,} &rarr; '
-                f"{a.get('after_chars', 0):,} chars ({a.get('lines_omitted', 0)} lines omitted) &middot; not re-run</div>"
+                f'<div class="an-note">output compacted {b:,} &rarr; '
+                f"{af:,} tokens ({a.get('lines_omitted', 0)} lines omitted) &middot; not re-run</div>"
             )
             if a.get("output"):
                 inner.append(f'<pre class="an-out">{_esc(a["output"])}</pre>')
@@ -533,7 +592,7 @@ def _html_session(replay: Replay) -> str:
     if s:
         sav = estimate_savings(replay)
         cost_tile = f'<div class="tile hero"><div class="k">Cost</div><div class="v">${sav["total_cost_usd"]:.4f}</div><div class="d before">this session</div></div>'
-        time_tile = f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">measured</div></div>'
+        time_tile = f'<div class="tile hero good"><div class="k">Time saved</div><div class="v">{_dur(sav["time_saved_seconds"])}</div><div class="d">est</div></div>'
         # Three states: measured savings / ran-with-Atelier (savings on parent) /
         # vanilla estimate.
         if sav["saved_is_measured"]:
@@ -543,10 +602,15 @@ def _html_session(replay: Replay) -> str:
             )
             hero = f'<div class="tiles hero-row">{cost_tile}{mid_tile}{time_tile}</div>'
         elif sav["ran_with_atelier"]:
+            note = (
+                "savings counted on the parent session"
+                if replay.is_subagent
+                else "savings not recorded for this session"
+            )
             mid_tile = (
                 '<div class="tile hero good"><div class="k">Atelier</div>'
                 '<div class="v" style="font-size:16px">ran with Atelier</div>'
-                '<div class="d before">savings counted on the parent session</div></div>'
+                f'<div class="d before">{note}</div></div>'
             )
             hero = f'<div class="tiles hero-row two">{cost_tile}{mid_tile}</div>'
         else:
@@ -618,8 +682,36 @@ def _html_batch(batch: Any) -> str:
 
 
 def render_html(replays: list[Replay], *, title: str = "Atelier Session Replay") -> str:
-    body = "".join(_html_session(r) for r in replays) or '<p class="empty">No sessions found to replay.</p>'
+    if not replays:
+        body = '<p class="empty">No sessions found to replay.</p>'
+    elif len(replays) == 1:
+        body = _html_session(replays[0])
+    else:
+        body = _html_tabbed(replays)
     return _HTML_SHELL.replace("{{TITLE}}", _esc(title)).replace("{{BODY}}", body)
+
+
+def _html_tabbed(replays: list[Replay]) -> str:
+    """Render each session in its own tab when more than one is loaded."""
+    tabs, panels = [], []
+    for i, r in enumerate(replays):
+        s = r.summary
+        turns = s.total_turns if s else 0
+        label = f"{_esc(r.host)} · {_esc(r.session_id[:8])}"
+        active = " active" if i == 0 else ""
+        tabs.append(
+            f'<button class="tab-btn{active}" data-tab="{i}" onclick="selTab({i})">'
+            f'{label} <span class="tab-n">{turns}t</span></button>'
+        )
+        panels.append(f'<div class="tab-panel{active}" data-panel="{i}">{_html_session(r)}</div>')
+    return (
+        f'<div class="tabs" role="tablist">{"".join(tabs)}</div>'
+        f"{''.join(panels)}"
+        "<script>function selTab(i){"
+        "document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab==i));"
+        "document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.panel==i));"
+        "}</script>"
+    )
 
 
 _HTML_SHELL = """<!doctype html>
@@ -635,6 +727,13 @@ _HTML_SHELL = """<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:1.5;-webkit-font-smoothing:antialiased}
 .wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:22px 0 4px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab-btn{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 13px;cursor:pointer;margin-bottom:-1px}
+.tab-btn:hover{color:var(--text);background:var(--surface-2)}
+.tab-btn.active{color:var(--accent);background:var(--surface);border-color:var(--border);border-bottom:1px solid var(--surface)}
+.tab-btn .tab-n{color:var(--faint);font-weight:500}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
 h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .lede{color:var(--muted);font-size:13.5px;margin:0 0 26px;max-width:70ch}
 .lede code{font-family:var(--font-mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:4px}

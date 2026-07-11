@@ -22,7 +22,10 @@ from atelier.core.capabilities import web_fetch
 
 
 @pytest.fixture(autouse=True)
-def clear_cache() -> Iterator[None]:
+def clear_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    # Loopback fetches are denied by default; these tests run real loopback
+    # HTTP servers, so opt in explicitly.
+    monkeypatch.setenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", "1")
     web_fetch.clear_web_fetch_cache()
     yield
     web_fetch.clear_web_fetch_cache()
@@ -170,6 +173,16 @@ def test_async_resolver_allows_loopback_literal() -> None:
 
     results = asyncio.run(_run())
     assert results[0]["host"] == "127.0.0.1"
+
+
+def test_async_resolver_blocks_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATELIER_WEB_FETCH_ALLOW_LOOPBACK", raising=False)
+
+    async def _run() -> Any:
+        return await web_fetch._ValidatingResolver().resolve("127.0.0.1", 80, socket.AF_INET)
+
+    with pytest.raises(ValueError, match="ATELIER_WEB_FETCH_ALLOW_LOOPBACK"):
+        asyncio.run(_run())
 
 
 # --------------------------------------------------------------------------- #

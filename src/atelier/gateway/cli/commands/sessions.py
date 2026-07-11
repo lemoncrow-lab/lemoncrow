@@ -59,7 +59,7 @@ def trace_record(ctx: click.Context, input_path: Path | str) -> None:
 @click.option("--status", default=None, type=click.Choice(["success", "failed", "partial"]))
 @click.option("--agent", default=None, help="Filter by agent name.")
 @click.option("--limit", default=20, show_default=True, type=int)
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
 def trace_list(
     ctx: click.Context,

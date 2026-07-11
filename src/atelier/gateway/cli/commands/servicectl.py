@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -335,8 +336,23 @@ def servicectl_stop(ctx: click.Context, force: bool, as_json: bool) -> None:
     deadline = time.time() + 5
     while _pid_is_running(pid) and time.time() < deadline:
         time.sleep(0.1)
-    if _pid_is_running(pid) and force:
+    if _pid_is_running(pid):
+        if not force:
+            if as_json:
+                _emit(_servicectl_status_payload(root), as_json=True)
+            else:
+                click.echo(f"servicectl (pid {pid}) did not stop after SIGTERM; retry with --force", err=True)
+            ctx.exit(1)
         os.kill(pid, signal.SIGKILL)
+        kill_deadline = time.time() + 5
+        while _pid_is_running(pid) and time.time() < kill_deadline:
+            time.sleep(0.1)
+        if _pid_is_running(pid):
+            if as_json:
+                _emit(_servicectl_status_payload(root), as_json=True)
+            else:
+                click.echo(f"servicectl (pid {pid}) survived SIGKILL", err=True)
+            ctx.exit(1)
     _clear_servicectl_pid(root)
     state = _read_servicectl_state(root)
     state["last_exit_reason"] = "stopped"
@@ -352,16 +368,16 @@ def servicectl_stop(ctx: click.Context, force: bool, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def servicectl_status(ctx: click.Context, as_json: bool) -> None:
-    """Show background controller status."""
+    """Show background controller status. Exits 3 when not running (systemctl convention)."""
     root = ctx.obj["root"]
     payload = _servicectl_status_payload(root)
     if as_json:
         _emit(payload, as_json=True)
+        if not payload["running"]:
+            ctx.exit(3)
         return
 
-    if payload["running"]:
-        import subprocess
-
+    if payload["running"] and shutil.which("systemctl"):
         pid = payload["pid"]
         # Try to show system-level status for the PID
         for cmd in [
@@ -374,12 +390,8 @@ def servicectl_status(ctx: click.Context, as_json: bool) -> None:
                     click.echo(res.stdout)
                     click.echo("-" * 40)
                     break
-            except Exception:
-                logging.exception("Recovered from broad exception handler")
-                logger.warning(
-                    "Suppressed exception at cli.py:4346",
-                    exc_info=True,
-                )
+            except OSError:
+                logger.debug("systemctl status probe failed", exc_info=True)
 
     click.echo(f"running: {str(payload['running']).lower()}")
     click.echo(f"pid: {payload['pid']}")
@@ -398,6 +410,10 @@ def servicectl_status(ctx: click.Context, as_json: bool) -> None:
             f"dead={health.get('dead', 0)} "
             f"stuck_running={health.get('stuck_running', 0)}"
         )
+    if not payload["running"]:
+        ctx.exit(3)
+    if not payload["running"]:
+        ctx.exit(3)
 
 
 @servicectl_group.command("run", hidden=True)

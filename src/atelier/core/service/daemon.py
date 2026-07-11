@@ -53,15 +53,15 @@ def cli(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.option("--host", default=None, help="Bind host (default: ATELIER_HOST or 127.0.0.1)")
-@click.option("--port", default=None, type=int, help="Bind port (default: ATELIER_PORT or 8787)")
+@click.option("--host", default=None, help="Bind host (default: ATELIER_SERVICE_HOST or 127.0.0.1)")
+@click.option("--port", default=None, type=int, help="Bind port (default: ATELIER_SERVICE_PORT or 8787)")
 @click.option("--reload", is_flag=True, default=False, help="Enable uvicorn hot-reload (dev)")
 def start(host: str | None, port: int | None, reload: bool) -> None:
     """Start the Atelier HTTP service in the foreground."""
     if host:
-        os.environ["ATELIER_HOST"] = host
+        os.environ["ATELIER_SERVICE_HOST"] = host
     if port:
-        os.environ["ATELIER_PORT"] = str(port)
+        os.environ["ATELIER_SERVICE_PORT"] = str(port)
     from atelier.core.service.api import main
 
     main(host=host, port=port, reload=reload)
@@ -106,7 +106,7 @@ def status() -> None:
     """Show running status of the Atelier HTTP service."""
     import urllib.request
 
-    root_url = f"http://127.0.0.1:{os.environ.get('ATELIER_PORT', str(DEFAULT_STACK_SERVICE_PORT))}"
+    root_url = f"http://127.0.0.1:{os.environ.get('ATELIER_SERVICE_PORT', str(DEFAULT_STACK_SERVICE_PORT))}"
     try:
         with urllib.request.urlopen(f"{root_url}/health", timeout=2) as resp:
             data = resp.read().decode()

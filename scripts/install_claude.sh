@@ -54,13 +54,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --project)
             # Explicitly configure enforcement for a project directory.
-            if [ $# -lt 2 ]; then
-                echo "Missing value for --project" >&2
-                exit 1
+            # DIR is optional and defaults to the current directory.
+            if [ $# -ge 2 ] && [[ "$2" != -* ]]; then
+                PROJECT_ENFORCE="$2"
+                shift
+            else
+                PROJECT_ENFORCE="$PWD"
             fi
-            PROJECT_ENFORCE="$2"
             PROJECT_ENFORCE_SET=true
-            shift
             ;;
         --roles)
             if [ $# -lt 2 ]; then
@@ -100,7 +101,40 @@ CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 
 info()  { [[ "${ATELIER_VERBOSE:-0}" == "1" ]] && echo "[atelier:claude] $*" || true; }
 warn()  { echo "[atelier:claude] WARN: $*" >&2; }
-run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
+run()   { if $DRY_RUN; then echo "  [dry-run] $*"; else "$@"; fi; }
+
+# --print-only must not mutate anything (no staging rm/copy, no config writes),
+# so it runs before the staging section below. Snippets reference the source
+# plugin package, which is a valid install source for a manual setup.
+if $PRINT_ONLY; then
+    echo ""
+    echo "=== Atelier Claude Code - Install Steps ==="
+    echo ""
+    echo "Scope: ${INSTALL_SCOPE}"
+    echo ""
+    echo "Step 1 - Register the local Atelier plugin source:"
+    echo "  claude plugin marketplace add '${INSTALL_SOURCE_DIR}'"
+    echo ""
+    echo "Step 2 - Install the plugin:"
+    echo "  claude plugin install ${PLUGIN_REF}"
+    echo ""
+    if $WORKSPACE_SET; then
+        echo "Step 3 - Ensure project-level MCP and agent rules (run once per project):"
+        echo "  bash scripts/install_agents.sh --workspace '${WORKSPACE}'"
+        echo ""
+        echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
+    else
+        echo "Step 3 - Register MCP in Claude user scope:"
+        echo "  claude mcp add --scope user atelier -- atelier mcp --host claude"
+    fi
+    echo ""
+    echo "After install, in Claude Code: /atelier:explore"
+    # With --dry-run, fall through to the traced (no-op) staging so callers
+    # like install_hosts.sh can preview exactly what would be staged.
+    if ! $DRY_RUN; then
+        exit 0
+    fi
+fi
 
 # --------------------------------------------------------------------------- #
 # Atelier enforcement lists
@@ -115,8 +149,12 @@ if [[ "${ATELIER_ENFORCE_NATIVE_DENY:-0}" == "1" ]]; then
 else
     ATELIER_DENY_TOOLS_JSON='[]'
 fi
-ATELIER_MCP_TOOLS_JSON='["mcp__atelier__symbols", "mcp__atelier__node", "mcp__atelier__callers", "mcp__atelier__callees", "mcp__atelier__usages", "mcp__atelier__codemod", "mcp__atelier__code_search", "mcp__atelier__compact", "mcp__atelier__context", "mcp__atelier__edit", "mcp__atelier__grep", "mcp__atelier__memory", "mcp__atelier__read", "mcp__atelier__rescue", "mcp__atelier__route", "mcp__atelier__search", "mcp__atelier__bash", "mcp__atelier__sql", "mcp__atelier__trace", "mcp__atelier__verify"]'
-ATELIER_BASH_ALLOWS_JSON='["Bash(git *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run atelier *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
+# Only tools actually registered by the MCP server (@mcp_tool in
+# gateway/adapters/mcp_server.py) -- unregistered names in the allowlist are
+# dead entries that mask typos.
+ATELIER_MCP_TOOLS_JSON='["mcp__atelier__codemod", "mcp__atelier__code_search", "mcp__atelier__compact", "mcp__atelier__context", "mcp__atelier__edit", "mcp__atelier__grep", "mcp__atelier__memory", "mcp__atelier__read", "mcp__atelier__rescue", "mcp__atelier__search", "mcp__atelier__bash", "mcp__atelier__sql", "mcp__atelier__trace", "mcp__atelier__verify"]'
+# git: read/commit subset only -- push/reset/rebase still prompt.
+ATELIER_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run atelier *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
 
 # --------------------------------------------------------------------------- #
 # apply_enforcement_to_settings <path>
@@ -187,10 +225,10 @@ uv run python "$MODE_RENDERER" >/dev/null 2>&1 || python3 "$MODE_RENDERER" >/dev
 STAGING_DIR="${HOME}/.atelier/claude-plugin"
 # Start fresh — stale symlinks from prior installs (hooks → source dir)
 # will cause `cp -r` to error with "same file".
-run "rm -rf '$STAGING_DIR'"
-run "mkdir -p '$STAGING_DIR/.claude-plugin'"
-run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json' '$STAGING_DIR/.claude-plugin/'"
-run "cp '${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json' '$STAGING_DIR/.claude-plugin/'"
+run rm -rf "$STAGING_DIR"
+run mkdir -p "$STAGING_DIR/.claude-plugin"
+run cp "${SOURCE_PLUGIN_DIR}/.claude-plugin/plugin.json" "$STAGING_DIR/.claude-plugin/"
+run cp "${SOURCE_PLUGIN_DIR}/.claude-plugin/marketplace.json" "$STAGING_DIR/.claude-plugin/"
 if ! $DRY_RUN; then
     ATELIER_VERSION="$(atelier_resolve_version "$ATELIER_REPO")"
     PLUGIN_MANIFEST="${STAGING_DIR}/.claude-plugin/plugin.json" ATELIER_VERSION="$ATELIER_VERSION" python3 - <<'PYEOF'
@@ -206,28 +244,28 @@ PYEOF
 else
     echo "  [dry-run] stamp ${STAGING_DIR}/.claude-plugin/plugin.json with Atelier version"
 fi
-run "mkdir -p '$STAGING_DIR/agents'"
+run mkdir -p "$STAGING_DIR/agents"
 info "Staging Claude plugin"
 for agent in "${ROLES_ARR[@]}"; do
     atelier_write_managed_copy "${SOURCE_PLUGIN_DIR}/agents/${agent}.md" "$STAGING_DIR/agents/${agent}.md" "$DRY_RUN"
 done
-run "cp -r '${SOURCE_PLUGIN_DIR}/hooks' '$STAGING_DIR/'"
-run "cp -r '${SOURCE_PLUGIN_DIR}/scripts' '$STAGING_DIR/'"
-run "cp -r '${SOURCE_PLUGIN_DIR}/workflows' '$STAGING_DIR/'"
-SKILL_BUILDER_INCLUDE=""
+run cp -r "${SOURCE_PLUGIN_DIR}/hooks" "$STAGING_DIR/"
+run cp -r "${SOURCE_PLUGIN_DIR}/scripts" "$STAGING_DIR/"
+run cp -r "${SOURCE_PLUGIN_DIR}/workflows" "$STAGING_DIR/"
+SKILL_BUILDER_ARGS=(--host claude --dest "$STAGING_DIR/skills")
 if [[ -n "$INCLUDE_SKILLS" ]]; then
-    SKILL_BUILDER_INCLUDE=" --include-skills=$(printf %q "$INCLUDE_SKILLS")"
+    SKILL_BUILDER_ARGS+=("--include-skills=${INCLUDE_SKILLS}")
 fi
-run "bash '$SKILL_BUILDER' --host claude --dest '$STAGING_DIR/skills'${SKILL_BUILDER_INCLUDE}"
-run "cp '${SOURCE_PLUGIN_DIR}/settings.json' '$STAGING_DIR/'"
-run "cp '${SOURCE_PLUGIN_DIR}/.mcp.json' '$STAGING_DIR/'"
+run bash "$SKILL_BUILDER" "${SKILL_BUILDER_ARGS[@]}"
+run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"
+run cp "${SOURCE_PLUGIN_DIR}/.mcp.json" "$STAGING_DIR/"
 atelier_apply_reply_register_level "$STAGING_DIR" "$DRY_RUN"
 # Ensure runnable bits on hook + script entrypoints, even if source perms got
 # stripped (e.g. via `git stash`, fresh clone on some FS, or restore from tar).
 # Claude Code invokes statusline.sh via the `command` type and exec()s the
 # path directly; without +x the statusline silently disappears.
-run "chmod +x '$STAGING_DIR/scripts/'*.sh 2>/dev/null || true"
-run "chmod +x '$STAGING_DIR/hooks/'*.sh '$STAGING_DIR/hooks/'*.py 2>/dev/null || true"
+run chmod +x "$STAGING_DIR/scripts/"*.sh 2>/dev/null || true
+run chmod +x "$STAGING_DIR/hooks/"*.sh "$STAGING_DIR/hooks/"*.py 2>/dev/null || true
 PLUGIN_DIR="$STAGING_DIR"
 INSTALL_SOURCE_DIR="$STAGING_DIR"
 
@@ -265,32 +303,6 @@ if ! $DRY_RUN; then
         echo "${_ATELIER_PY}" > "${STAGING_DIR}/atelier-python"
         info "Stored atelier python: ${_ATELIER_PY}"
     fi
-fi
-
-if $PRINT_ONLY; then
-    echo ""
-    echo "=== Atelier Claude Code - Install Steps ==="
-    echo ""
-    echo "Scope: ${INSTALL_SCOPE}"
-    echo ""
-    echo "Step 1 - Register the local Atelier plugin source:"
-    echo "  claude plugin marketplace add '${INSTALL_SOURCE_DIR}'"
-    echo ""
-    echo "Step 2 - Install the plugin:"
-    echo "  claude plugin install ${PLUGIN_REF}"
-    echo ""
-    if $WORKSPACE_SET; then
-        echo "Step 3 - Ensure project-level MCP and agent rules (run once per project):"
-        echo "  bash scripts/install_agents.sh --workspace '${WORKSPACE}'"
-        echo ""
-        echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
-    else
-        echo "Step 3 - Register MCP in Claude user scope:"
-        echo "  claude mcp add --scope user atelier -- atelier mcp --host claude"
-    fi
-    echo ""
-    echo "After install, in Claude Code: /atelier:explore"
-    exit 0
 fi
 
 if ! command -v claude &>/dev/null; then
@@ -433,7 +445,7 @@ fi
 
 # ---- workspace-local Claude env --------------------------------------------
 if $WORKSPACE_SET; then
-    run "mkdir -p '$CLAUDE_SETTINGS_DIR'"
+    run mkdir -p "$CLAUDE_SETTINGS_DIR"
     if $DRY_RUN; then
         echo "  [dry-run] merge CLAUDE_WORKSPACE_ROOT into ${CLAUDE_LOCAL_SETTINGS}"
     else
@@ -491,18 +503,46 @@ if $DRY_RUN; then
 elif [ -f "${STATUSLINE_SCRIPT}" ]; then
     python3 - <<PYEOF2
 import json
+import shutil
+import time
 from pathlib import Path
+
 path = Path("${CLAUDE_SETTINGS}")
 if not path.exists():
     path.write_text("{}\n")
 data = json.loads(path.read_text(encoding="utf-8") or "{}")
-data["statusLine"] = {"type": "command", "command": "${STATUSLINE_CMD}", "padding": 1}
-data["subagentStatusLine"] = {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1}
-data["agent"] = "atelier:code"
-path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[atelier:claude] statusLine set → ${STATUSLINE_SCRIPT}")
-print("[atelier:claude] subagentStatusLine set → ${STATUSLINE_SCRIPT}")
-print("[atelier:claude] default agent set → atelier:code")
+
+def atelier_owned(value):
+    """True when the setting is unset or was written by an Atelier install."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.startswith("atelier:")
+    if isinstance(value, dict):
+        return "atelier" in str(value.get("command", ""))
+    return False
+
+desired = {
+    "statusLine": {"type": "command", "command": "${STATUSLINE_CMD}", "padding": 1},
+    "subagentStatusLine": {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1},
+    "agent": "atelier:code",
+}
+skipped = [k for k in desired if not atelier_owned(data.get(k))]
+changed = {k: v for k, v in desired.items() if k not in skipped and data.get(k) != v}
+if changed:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = path.with_name(path.name + ".bak." + stamp)
+    shutil.copy2(path, backup)
+    print(f"[atelier:claude] backed up settings → {backup}")
+    data.update(changed)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+for key in desired:
+    if key not in skipped:
+        print(f"[atelier:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
+if skipped:
+    print("[atelier:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
+    print("[atelier:claude] To switch them to Atelier, merge this into ${CLAUDE_SETTINGS}:")
+    print(json.dumps({k: desired[k] for k in skipped}, indent=2))
 PYEOF2
 else
     warn "statusline.sh not found at ${STATUSLINE_SCRIPT} — skipping statusLine"

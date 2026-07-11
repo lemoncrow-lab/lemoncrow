@@ -119,9 +119,7 @@ def register(cli: click.Group) -> None:
         from .servicectl import service_group, servicectl_group, worker_group
 
         cli.add_command(service_group)
-        _h(worker_group)
         cli.add_command(worker_group)
-        _h(servicectl_group)
         cli.add_command(servicectl_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True

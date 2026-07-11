@@ -204,7 +204,9 @@ def load_plugin_settings(root: str | Path) -> dict[str, bool]:
     if not isinstance(data, dict):
         data = {}
     nested = data.get("atelier") if isinstance(data.get("atelier"), dict) else None
-    raw = nested or data
+    # Merge nested over top-level — same semantics as settings._read_json, so
+    # both readers of plugin_settings.json agree on mixed-shape files.
+    raw = {**data, **nested} if nested else data
     settings = dict(PLUGIN_DEFAULT_SETTINGS)
     for key in settings:
         if key in raw:
@@ -222,7 +224,9 @@ def write_plugin_setting(root: str | Path, key: str, value: bool) -> dict[str, b
 
 
 def _iso_now() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    # Naive-UTC + "Z" kept byte-compatible with the old utcnow() output:
+    # savings_summary._row_epoch parses these stamps as naive UTC.
+    return datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat() + "Z"
 
 
 def _fingerprint(seed: str | None = None) -> str:
@@ -273,8 +277,9 @@ def parse_login_token(token: str) -> dict[str, Any]:
     for candidate in candidates:
         try:
             payload = json.loads(candidate)
-        except Exception:
-            logging.exception("Recovered from broad exception handler")
+        except ValueError:
+            # A plain refresh token is not JSON — normal control flow, not an error.
+            logger.debug("login token candidate is not JSON")
             continue
         if isinstance(payload, dict):
             if isinstance(payload.get("credentials"), dict):
@@ -708,19 +713,6 @@ def recall_constants() -> dict[str, Any]:
         "min_score_threshold": RECALL_MIN_SCORE_THRESHOLD,
         "rescan_debounce_ms": RECALL_RESCAN_DEBOUNCE_MS,
     }
-
-
-def chunk_transcript(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    kept: list[str] = []
-    for message in messages:
-        content = str(message.get("content", ""))
-        if not content or "task-notification:" in content:
-            continue
-        kept.append(content)
-    if not kept:
-        return {"chunks": []}
-    content = "\n".join(kept)
-    return {"chunks": [{"content": content[:RECALL_MAX_CHUNK_CHARS]}]}
 
 
 def status_line_choose_message(
@@ -2283,41 +2275,6 @@ def _codex_enrich_user_prompt(root: str | Path, payload: dict[str, Any]) -> None
     )
 
 
-def build_codex_savings_line(root: str | Path, session_id: str) -> str:
-    """Pipe-delimited savings line for the Codex command-backed statusline.
-
-    Uses the statusline pipe-field order (saved|tok|calls|status|routing|cost|
-    total|in|cache|out|carry$|carry_tok|carry%|saved%) so a shared statusline
-    parser works, but sources the figures from ``build_savings_report`` (the
-    Codex savings data model) instead of the Claude sidecar. Carry and
-    display-token fields are not tracked for Codex and report 0. Fail-open: any
-    error yields an all-zero line rather than raising into the statusline.
-    """
-    saved_usd = 0.0
-    routing_usd = 0.0
-    tokens_saved = 0
-    calls_saved = 0
-    total_calls = 0
-    # A fresh session has no stats sidecar yet; skip the report build entirely
-    # so the statusline never triggers the missing-file path on every refresh.
-    if session_id and session_stats_path(root, session_id).exists():
-        try:
-            report = build_savings_report(root, session_id=session_id)
-            session = report.get("session") or {}
-            cost = report.get("cost") or {}
-            saved_usd = float(cost.get("saved_usd", 0.0) or 0.0)
-            routing_usd = float(cost.get("routing_saved_usd", 0.0) or 0.0)
-            tokens_saved = int(report.get("tokens_saved", 0) or 0)
-            calls_saved = int(report.get("calls_avoided", 0) or 0)
-            total_calls = int(session.get("total_tool_calls", 0) or 0)
-        except (OSError, KeyError, ValueError, TypeError):
-            pass
-    status_text = f"{total_calls} tool calls" if total_calls else "ready"
-    return (
-        f"${saved_usd:.3f}|{tokens_saved}|{calls_saved}|{status_text}|${routing_usd:.3f}|0.000|0|0|0|0|$0.000|0|0%|0%"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Codex-exclusive surfaces (no Claude analog)
 # ---------------------------------------------------------------------------
@@ -2748,7 +2705,10 @@ def _codex_transcript_paths(payload: dict[str, Any], session_id: str) -> list[Pa
         matched = [path for path in paths if session_id in path.name]
         if matched:
             return matched
-    return paths[:100]
+    # No session-id match: cap the fallback parse tightly — newest-first mtime
+    # order puts the active session near the front and the caller stops on the
+    # first cwd match, so a large cap only burns Stop-hook time on stale files.
+    return paths[:20]
 
 
 def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
@@ -3325,31 +3285,18 @@ def get_session_stats_from_trace(trace: Any) -> dict[str, Any]:
     }
 
 
-def list_session_stats(root: str | Path, limit: int = 100) -> list[dict[str, Any]]:
-    sessions_dir = Path(root) / "sessions"
-    if not sessions_dir.exists():
-        return []
-
-    # Get the newest sessions first
-    files = sorted(sessions_dir.glob("*/stats.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    results: list[dict[str, Any]] = []
-    for file_path in files[:limit]:
-        try:
-            data = json.loads(file_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                results.append(data)
-        except Exception:
-            logging.exception("Recovered from broad exception handler")
-            continue
-    return results
-
-
 def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> dict[str, Any]:
     sessions_dir = Path(root) / "sessions"
+    # Both session layouts: legacy flat sessions/<sid>/ and the canonical dated
+    # sessions/YYYY/MM/DD/<host>/<sid>/ tree (mirrors _scan_savings_files).
     files = (
         [session_stats_path(root, session_id)]
         if session_id
-        else sorted(sessions_dir.glob("*/*/*/*/*/stats.json")) if sessions_dir.exists() else []
+        else (
+            sorted([*sessions_dir.glob("*/stats.json"), *sessions_dir.glob("*/*/*/*/*/stats.json")])
+            if sessions_dir.exists()
+            else []
+        )
     )
     aggregate: dict[str, Any] = {
         "session_count": 0,
@@ -3586,13 +3533,10 @@ def build_savings_report(
         tokens_saved = int(summary.ctx_saved)
         calls_avoided = int(summary.smart_calls)
         saved_usd = float(summary.saved_usd)
-        # SavingsSummary.routing_saved_usd is never populated by
-        # compute_savings_summary, so source the per-session routing savings
-        # from the live analytics log scoped to this session (same helper the
-        # all-sessions branch uses, with the session_id filter applied).
-        routing_saved_usd = float(
-            load_live_savings_summary(root_path, session_id=session_id).get("routing_saved_usd", 0.0) or 0.0
-        )
+        # compute_savings_summary reads routing rows from the per-session
+        # sidecar (folded into saved_usd, tracked separately for the
+        # breakdown) — no analytics-log scan needed here.
+        routing_saved_usd = float(summary.routing_saved_usd)
         carry_usd = float(summary.carry_usd)
         carry_tokens = int(summary.carry_tokens)
         output_saved_usd = float(summary.output_saved_usd)
@@ -3635,28 +3579,16 @@ def build_savings_report(
             "output_saved_tokens": output_saved_tokens,
         }
 
-    if session_id:
-        cost = {
-            "saved_usd": round(saved_usd, 6),
-            "live_saved_usd": round(saved_usd, 6),
-            "routing_saved_usd": round(routing_saved_usd, 6),
-            "carry_usd": round(carry_usd, 6),
-            "carry_tokens": carry_tokens,
-            "output_saved_usd": round(output_saved_usd, 6),
-            "output_saved_tokens": output_saved_tokens,
-            "total_calls": int(session.get("total_tool_calls", 0) or 0),
-        }
-    else:
-        cost = {
-            "saved_usd": round(saved_usd, 6),
-            "live_saved_usd": round(saved_usd, 6),
-            "routing_saved_usd": round(routing_saved_usd, 6),
-            "carry_usd": round(carry_usd, 6),
-            "carry_tokens": carry_tokens,
-            "output_saved_usd": round(output_saved_usd, 6),
-            "output_saved_tokens": output_saved_tokens,
-            "total_calls": int(session.get("total_tool_calls", 0) or 0),
-        }
+    cost = {
+        "saved_usd": round(saved_usd, 6),
+        "live_saved_usd": round(saved_usd, 6),
+        "routing_saved_usd": round(routing_saved_usd, 6),
+        "carry_usd": round(carry_usd, 6),
+        "carry_tokens": carry_tokens,
+        "output_saved_usd": round(output_saved_usd, 6),
+        "output_saved_tokens": output_saved_tokens,
+        "total_calls": int(session.get("total_tool_calls", 0) or 0),
+    }
 
     baseline = _read_json(baseline_estimate_path(root_path), {})
     if not isinstance(baseline, dict):

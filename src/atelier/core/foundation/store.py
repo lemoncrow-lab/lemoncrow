@@ -1355,7 +1355,10 @@ class ContextStore:
         lease_seconds = int(lease_raw) if lease_raw.isdigit() and int(lease_raw) > 0 else 900
         lease_cutoff = (datetime.now(UTC) - timedelta(seconds=lease_seconds)).isoformat()
         with self._transaction() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            if conn is not self._connection:
+                # batch_mode's shared connection already owns an open transaction;
+                # nesting BEGIN would raise and the batch owns the commit boundary.
+                conn.execute("BEGIN IMMEDIATE")
             # Reap orphaned jobs before claiming. A worker that crashes mid-job
             # leaves its row stuck in 'running' forever (the lease is never
             # released), and because the servicectl enqueue guard treats
@@ -1386,7 +1389,6 @@ class ContextStore:
                 LIMIT 1
                 """).fetchone()
             if row is None:
-                conn.commit()
                 return None
             conn.execute(
                 """
@@ -1402,7 +1404,6 @@ class ContextStore:
                 (claimed_by, now, now, row["id"]),
             )
             claimed = conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
-            conn.commit()
         return self._row_to_job(claimed) if claimed is not None else None
 
     def complete_job(self, job_id: str, result: dict[str, Any] | None = None) -> bool:
@@ -1825,7 +1826,6 @@ class ContextStore:
                     record.created_at.isoformat(),
                 ),
             )
-            conn.commit()
 
     def list_context_budgets(self, session_id: str) -> list[Any]:
         """List all ContextBudget records for a run.
