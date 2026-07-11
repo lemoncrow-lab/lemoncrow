@@ -26,7 +26,7 @@ def _session_state_path(cwd: str | None = None) -> Path:
     return _atelier_root() / "workspaces" / h / "session_state.json"
 
 
-def _write_session_state(session_id: str, cwd: str | None = None) -> None:
+def _write_session_state(session_id: str, cwd: str | None = None, model: str = "") -> None:
     p = _session_state_path(cwd)
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -34,6 +34,8 @@ def _write_session_state(session_id: str, cwd: str | None = None) -> None:
     except (json.JSONDecodeError, OSError):
         state = {}
     state["session_id"] = session_id
+    if model:
+        state["model"] = model
     # Stamp the writing host: the MCP server only trusts this workspace-shared
     # slot when the stamp matches its own host, so a sid written here can never
     # be adopted by an OpenCode/other-host server sharing the repo.
@@ -52,7 +54,7 @@ def main() -> int:
         session_id = str(payload.get("session_id") or "")
         cwd = str(payload.get("cwd") or "")
         if session_id:
-            _write_session_state(session_id, cwd or None)
+            _write_session_state(session_id, cwd or None, str(payload.get("model") or ""))
 
         # Check for update notification from daemon/MCP auto-update
         state_path = _atelier_root() / "update_state.json"

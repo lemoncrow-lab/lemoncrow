@@ -1470,15 +1470,38 @@ def _parse_codex(content: str) -> list[dict[str, Any]]:
 def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
     turns: list[dict[str, Any]] = []
     last_turn: dict[str, Any] | None = None
+    current_model = ""
+    mcp_call_counts: dict[str, int] = {}
+    for line in content.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        payload = event.get("payload") or {}
+        if event.get("type") != "event_msg" or payload.get("type") != "mcp_tool_call_end":
+            continue
+        invocation = _coerce_mapping(payload.get("invocation"))
+        server = str(invocation.get("server") or "").strip()
+        tool = str(invocation.get("tool") or "").strip()
+        if server and tool:
+            name = f"{server}.{tool}"
+            mcp_call_counts[name] = int(mcp_call_counts.get(name, 0) or 0) + 1
     for line in content.splitlines():
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
         ev_type = ev.get("type")
+        payload = ev.get("payload") or {}
+        if ev_type == "turn_context":
+            model = str(payload.get("model") or "").strip()
+            if model:
+                current_model = model
+            continue
         if ev_type not in {"event_msg", "response_item"}:
             continue
-        payload = ev.get("payload") or {}
+        if current_model and not ev.get("model"):
+            ev = {**ev, "model": current_model}
         pt = payload.get("type", "")
         at = ev.get("timestamp")
 
@@ -1557,10 +1580,38 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
                     diff=_diff,
                 )
                 turns.append(last_turn)
-        elif pt == "function_call":
-            name = str(payload.get("name") or "unknown")
-            args_raw = payload.get("arguments")
+        elif pt == "mcp_tool_call_end":
+            invocation = _coerce_mapping(payload.get("invocation"))
+            tool = str(invocation.get("tool") or "").strip()
+            server = str(invocation.get("server") or "").strip()
+            name = f"{server}.{tool}" if server and tool else tool or server
+            args_raw = invocation.get("arguments")
             args = _coerce_mapping(args_raw)
+            if name:
+                last_turn = _turn(
+                    "tool_call",
+                    f"{name}(...)",
+                    _text_from_value(args or {"raw": args_raw}),
+                    at=at,
+                    raw=ev,
+                    tool_name=name,
+                    arguments=args or args_raw,
+                )
+                turns.append(last_turn)
+        elif pt in {"function_call", "custom_tool_call"}:
+            name = str(payload.get("name") or "unknown")
+            args_raw = payload.get("arguments") or payload.get("input")
+            args = _coerce_mapping(args_raw)
+            if pt == "custom_tool_call" and isinstance(args_raw, str):
+                invoked = re.findall(r"tools\.([A-Za-z0-9_]+)", args_raw)
+                native = [tool for tool in invoked if not tool.startswith("mcp__")]
+                if len(native) == 1:
+                    name = native[0]
+                elif len(native) == 0 and len(invoked) == 1 and _is_atelier_mcp_tool(invoked[0]):
+                    mcp_name = f"atelier.{_normalize_tool_basename(invoked[0])}"
+                    if mcp_call_counts.get(mcp_name, 0) > 0:
+                        mcp_call_counts[mcp_name] -= 1
+                        continue
             todos = _extract_todos(args_raw)
             if todos:
                 last_turn = _turn(

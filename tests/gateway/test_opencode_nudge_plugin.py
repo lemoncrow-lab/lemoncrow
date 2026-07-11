@@ -120,3 +120,28 @@ def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path)
 
     output = json.loads(result.stdout)
     assert "Call 'rescue' before any retry" in output["parts"][0]["text"]
+
+
+def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["ATELIER_ROOT"] = str(tmp_path / ".atelier")
+    script = f"""
+    import {{ AtelierNudge }} from {json.dumps((PLUGINS / "atelier-nudge.js").as_uri())}
+    const toasts = []
+    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
+    const hooks = await AtelierNudge({{ client, directory: process.cwd() }})
+    await hooks['chat.message']({{ sessionID: 's1' }}, {{ parts: [{{ type: 'text', text: 'inspect it' }}] }})
+    await hooks['tool.execute.after']({{ tool: 'atelier_read', sessionID: 's1', args: {{ files: ['a.py'] }} }}, {{ output: 'ok', metadata: {{ exitCode: 0 }} }})
+    await hooks.event({{ event: {{ type: 'session.idle', properties: {{ sessionID: 's1' }} }} }})
+    console.log(JSON.stringify(toasts))
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    toasts = json.loads(result.stdout)
+    assert any(toast["body"]["title"] == "Atelier status" for toast in toasts)

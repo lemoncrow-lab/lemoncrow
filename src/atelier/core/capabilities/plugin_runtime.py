@@ -1079,7 +1079,7 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
 
     if lowered == "read":
         return ("mcp__atelier__read", "Use Atelier read for file reads and ranges.")
-    if lowered in {"edit", "write", "multiedit"}:
+    if lowered in {"edit", "write", "multiedit", "patch", "apply_patch", "replace"}:
         return (
             "mcp__atelier__edit",
             "Use Atelier edit for deterministic grouped writes and rollback.",
@@ -1283,7 +1283,8 @@ def _write_opencode_session_state(root: str | Path, payload: dict[str, Any]) -> 
             state = {}
     except (OSError, json.JSONDecodeError, TypeError):
         state = {}
-    if state.get("session_id") == session_id and state.get("host") == "opencode":
+    model = _codex_payload_model(payload)
+    if state.get("session_id") == session_id and state.get("host") == "opencode" and state.get("model") == model:
         return
     state["session_id"] = session_id
     # Stamp the writing host: the MCP server only trusts this workspace-shared
@@ -1291,6 +1292,8 @@ def _write_opencode_session_state(root: str | Path, payload: dict[str, Any]) -> 
     # ``_workspace_bridge_session_id``), so a sid written here can never be
     # adopted by a Codex/other-host server sharing the repo.
     state["host"] = "opencode"
+    if model:
+        state["model"] = model
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -1304,6 +1307,7 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, payload)
+    update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)
     try:
         stats = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -1319,6 +1323,56 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(updated, indent=2), encoding="utf-8")
     return output or {"no_output": True}
+
+
+def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Record an OpenCode tool completion and surface a replacement toast."""
+    normalized = dict(payload)
+    normalized["hook_event_name"] = "PostToolUse"
+    _write_opencode_session_state(root, normalized)
+    update_session_stats(root, normalized)
+    if _is_atelier_tool(str(normalized.get("tool_name") or "")):
+        return {"no_output": True}
+    nudge = _codex_native_tool_nudge(root, normalized)
+    message = str(nudge.get("message") or "").strip()
+    return {"uiMessage": message} if message else {"no_output": True}
+
+
+def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the OpenCode idle-session status toast from live session state."""
+    normalized = dict(payload)
+    normalized["hook_event_name"] = "Stop"
+    session_id = str(normalized.get("session_id") or "default")
+    _write_opencode_session_state(root, normalized)
+    state = update_session_stats(root, normalized)
+    report = build_savings_report(root, session_id=session_id)
+    session = _as_dict(report.get("session"))
+    cost = _as_dict(report.get("cost"))
+    calls_avoided = int(report.get("calls_avoided", 0) or 0)
+    tokens_saved = int(report.get("tokens_saved", 0) or 0)
+    saved_usd = float(cost.get("saved_usd", 0.0) or 0.0)
+    tools = _display_tool_counts(session.get("tools_used") or state.get("tools_used"))
+    total_tool_calls = int(session.get("total_tool_calls", 0) or state.get("total_tool_calls", 0) or 0)
+    prompt_turns = int(session.get("turns", 0) or state.get("turns", 0) or 0)
+    signature = f"{prompt_turns}:{total_tool_calls}:{tokens_saved}:{calls_avoided}:{saved_usd:.6f}"
+    if state.get("opencode_idle_report_signature") == signature:
+        return {"no_output": True}
+    if total_tool_calls <= 0 and prompt_turns <= 0 and tokens_saved <= 0 and calls_avoided <= 0:
+        return {"no_output": True}
+    state["opencode_idle_report_signature"] = signature
+    session_stats_path(root, session_id).write_text(json.dumps(state, indent=2), encoding="utf-8")
+    from atelier.core.capabilities.savings_summary import _fmt_usd, estimate_time_saved_seconds, fmt_duration
+
+    lines = [
+        "Atelier session idle.",
+        f"{prompt_turns} prompt turn{'s' if prompt_turns != 1 else ''} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''}",
+        f"savings: {_fmt_usd(saved_usd)} · {_codex_fmt_tokens(tokens_saved)} tokens saved · {calls_avoided} calls avoided",
+        f"tools: {_codex_tools_text(tools)}",
+    ]
+    faster = estimate_time_saved_seconds(calls_avoided=calls_avoided)
+    if faster >= 60:
+        lines[2] += f" · ~{fmt_duration(faster)} faster"
+    return {"uiMessage": "\n".join(lines), "report": report}
 
 
 def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1604,13 +1658,14 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     if compactions > 0:
         lines.append(f"compactions: {compactions}")
     lines.append(f"tools: {_codex_tools_text(session.get('tools_used'))}")
-    # Dynamic statusline messages (historical windows, status tip, login
-    # nudge): Codex statusline support is version-dependent, so fold the same
-    # rotating-frame content into the Stop summary where it always renders.
+    # Codex has no rotating statusline, so show only the frame selected for
+    # this Stop event; the permanent session-savings lines already cover frame 0.
     with suppress(Exception):
-        from atelier.core.capabilities.savings_summary import dynamic_status_lines
+        from atelier.core.capabilities.savings_summary import dynamic_status_line
 
-        lines.extend(dynamic_status_lines(session_id, atelier_root=root))
+        dynamic_line = dynamic_status_line(session_id, atelier_root=root)
+        if dynamic_line:
+            lines.append(dynamic_line)
     return {"systemMessage": "\n".join(lines), "report": report}
 
 
@@ -2244,6 +2299,9 @@ def _codex_enrich_user_prompt(root: str | Path, payload: dict[str, Any]) -> None
     stored = prompt[:8192]
     state = _read_codex_session_state(root, payload)
     state["last_user_prompt"] = stored
+    model = _codex_payload_model(payload)
+    if model:
+        state["model"] = model
     # Bank the one-time cache-read saving from a recent /compact (parity with the
     # Claude UserPromptSubmit hook). PreCompact recorded the pre-compaction
     # occupancy; now that a turn has run on the compacted window we read the new
