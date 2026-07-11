@@ -1261,16 +1261,29 @@ def _sized_cache_kb(floor_kb: int) -> int:
 _SEARCH_CONN_LOCAL = threading.local()
 
 
+# Maximum pooled connections per thread in _channel_connection().  Threads are
+# persistent (_SEARCH_CHANNEL_EXECUTOR), so uncapped accumulation across
+# different db_paths (e.g. test tmp dirs) blows past the host FD limit — each
+# SQLite connection holds ≥3 FDs (main + WAL + SHM).  Production workloads
+# alternate between at most 2 paths (main DB + fts.sqlite); 4 gives headroom
+# without wasting FDs.
+_CHANNEL_CONNECTION_SLOTS_MAX = 4
+
+
 def _channel_connection(db_path: Path) -> sqlite3.Connection:
     """Thread-local pooled read connection for search channels.
 
     _SEARCH_CHANNEL_EXECUTOR threads are persistent, so reopening a connection
     per channel call paid connect + pragma cost on every query AND threw away
     SQLite's page cache each time (~8% of query wall time under py-spy). One
-    slot per thread: repo-focused workloads (sessions, benchmarks) hit the same
+    slot per thread: repo-focused workflows (sessions, benchmarks) hit the same
     db_path repeatedly; a different db_path swaps the slot. The (dev, inode)
     key drops the pooled connection when the DB file is replaced on disk
     (workspace re-init), which a path-only key would silently miss.
+
+    Slots are capped at _CHANNEL_CONNECTION_SLOTS_MAX per thread; oldest
+    entries are evicted (closed) when the cap is exceeded so that test-time
+    accumulation of unique tmp paths never exhausts the FD limit.
     """
     try:
         st = os.stat(db_path)
@@ -1293,6 +1306,13 @@ def _channel_connection(db_path: Path) -> sqlite3.Connection:
         with contextlib.suppress(sqlite3.Error):
             slot[1].close()
         slots.pop(key[0], None)
+    # Evict oldest entries when the cap is exceeded so that unique paths
+    # (e.g. one per test tmp dir) don't accumulate without bound.
+    while len(slots) >= _CHANNEL_CONNECTION_SLOTS_MAX:
+        oldest_key = next(iter(slots))
+        with contextlib.suppress(sqlite3.Error):
+            slots[oldest_key][1].close()
+        slots.pop(oldest_key)
     conn = sqlite3.connect(
         f"file:{db_path}?mode=ro",
         uri=True,
