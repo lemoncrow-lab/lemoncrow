@@ -599,6 +599,7 @@ def eval_retrieval(
     """
     import json
     import subprocess
+    import sys
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     repo_root = Path.cwd().resolve()
@@ -627,6 +628,15 @@ def eval_retrieval(
     else:
         results_dir = repo_root / ".eval_retrieval_channels"
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Auto-provision: ensure workspaces + indexes exist ───────────────
+    golds_for_provision = _make_golds(pairs)
+    _repo_root_str = str(repo_root)
+    if _repo_root_str not in sys.path:
+        sys.path.insert(0, _repo_root_str)
+    from benchmarks.codebench.provision_repos import ensure_eval_workspaces as _ensure_ws
+
+    _ensure_ws(golds_for_provision)
 
     channel_results: dict[str, dict[str, Any]] = {}
     any_failed = False
