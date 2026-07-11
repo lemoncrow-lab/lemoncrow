@@ -66,10 +66,8 @@ if [[ -n "${FORCE_COLOR:-}${CLICOLOR_FORCE:-}" && -z "${NO_COLOR:-}" ]]; then
 fi
 C_FRAME="$C_DIM"
 ACTIVE_BAR="┃"
-LOCK_ICON="🔒︎"
 if [[ "${LC_ALL:-${LANG:-}}" != *"UTF-8"* && "${LC_ALL:-${LANG:-}}" != *"utf8"* ]]; then
     ACTIVE_BAR="|"
-    LOCK_ICON="lock"
 fi
 
 LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
@@ -722,7 +720,7 @@ render_multi_select() {
         if [[ "$is_cursor" == "1" ]]; then
             prefix="${C_PURPLE}❯${C_RESET}"
             if [[ "$is_locked" == "1" ]]; then
-                marker="${C_PURPLE}${LOCK_ICON}${C_RESET}"
+                marker="${C_PURPLE}◼${C_RESET}"
             elif [[ "$is_selected" == "1" ]]; then
                 marker="${C_PURPLE}◼${C_RESET}"
             else
@@ -731,7 +729,7 @@ render_multi_select() {
         else
             prefix=" "
             if [[ "$is_locked" == "1" ]]; then
-                marker="${C_DIM}${LOCK_ICON}${C_RESET}"
+                marker="${C_PURPLE}◼${C_RESET}"
             elif [[ "$is_selected" == "1" ]]; then
                 marker="${C_PURPLE}◼${C_RESET}"
             else
@@ -739,7 +737,7 @@ render_multi_select() {
             fi
         fi
         if [[ "$is_locked" == "1" ]]; then
-            _menu_line "  ${prefix} ${marker} ${name}${badge}"
+            _menu_line "  ${prefix} ${marker}  ${name}${badge}"
         else
             _menu_line "  ${prefix} ${marker}  ${name}${badge}"
         fi
