@@ -104,7 +104,7 @@ def _ps_proc_table() -> dict[int, tuple[int, int, str]]:
             timeout=5,
             env={**os.environ, "LC_ALL": "C"},
         )
-    except (OSError, subprocess.SubprocessError):
+    except Exception:  # noqa: BLE001 -- optional session probe must fail open.
         return {}
     table: dict[int, tuple[int, int, str]] = {}
     for line in proc.stdout.splitlines():

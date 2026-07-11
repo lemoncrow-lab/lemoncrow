@@ -155,11 +155,11 @@ def test_uninstall_command_failure(tmp_path: Path) -> None:
         uninstall_script = script_dir / "uninstall.sh"
         uninstall_script.touch()
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.CalledProcessError(1, ["bash"])
-        result = runner.invoke(cli, ["uninstall"])
-        assert result.exit_code != 0
-        assert "uninstall failed with code 1" in result.output
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(1, ["bash"])
+            result = runner.invoke(cli, ["uninstall"])
+            assert result.exit_code != 0
+            assert "uninstall failed with code 1" in result.output
 
 
 def _run_host_uninstall(
