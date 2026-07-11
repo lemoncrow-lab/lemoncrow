@@ -370,14 +370,13 @@ def _projection(surface: str, host: str, output_name: str, items: Iterable[tuple
 def _role_projections() -> dict[str, tuple[HostProjection, ...]]:
     projections: dict[str, tuple[HostProjection, ...]] = {}
     for role_id in SURFACED_ROLE_IDS:
-        opencode_name = "atelier" if role_id == "code" else role_id
         antigravity_name = "atelier-code" if role_id == "code" else f"atelier-{role_id}"
         copilot_name = f"atelier.{role_id}"
         projections[role_id] = (
             HostProjection(surface="shared_skill", host="shared", output_name=role_id),
             _projection("copilot_agent", "copilot", copilot_name, ()),
             _projection("claude_agent", "claude", role_id, CLAUDE_STABLE_FRONTMATTER[role_id]),
-            _projection("opencode_agent", "opencode", opencode_name, OPENCODE_FRONTMATTER[role_id]),
+            _projection("opencode_agent", "opencode", role_id, OPENCODE_FRONTMATTER[role_id]),
             _projection(
                 "antigravity_agent",
                 "antigravity",

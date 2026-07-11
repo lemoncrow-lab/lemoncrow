@@ -26,6 +26,10 @@ def load_script(path: Path, module_name: str) -> object:
     spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    # Register before exec: dataclasses (PEP 563 string annotations) resolve
+    # cls.__module__ via sys.modules during class creation and crash with
+    # AttributeError on None if the module isn't registered yet.
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -85,6 +89,24 @@ def test_managed_context_updates_only_existing_block() -> None:
     assert rendered.startswith("# Project rules\n\n<!-- ATELIER START -->")
     assert rendered.endswith("<!-- ATELIER END -->\n\nKeep this too.\n")
     assert "stale" not in rendered
+
+
+def test_opencode_agent_has_host_specific_tool_policy() -> None:
+    content = (ROOT / "integrations/opencode/agents/code.md").read_text(encoding="utf-8")
+    # `context` is in HIDDEN_LLM_TOOLS -- never advertised to any host's model,
+    # OpenCode included -- so it must never be named as something to call.
+    assert "atelier_context" not in content
+    # OpenCode keeps the same core workflow bullets as Codex/Copilot/Cursor
+    # (tool-discipline.md) -- only Claude drops them (its equivalent arrives via
+    # the MCP server's `instructions` field instead).
+    assert "One search → one bulk edit." in content
+    assert "Known path → `atelier_read`; `atelier_bash` = execution only." in content
+    assert "Batch independent calls." in content
+    assert "Large output → a file, never prose." in content
+    # The old "use atelier_code_search/read/edit/bash instead" bullet was dropped
+    # as pure duplication of the shared workflow bullets above.
+    assert "OpenCode host" not in content
+    assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:

@@ -65,6 +65,16 @@ def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
     assert plugin_runtime._normalize_codex_tool("web_search") == "other"
 
 
+def test_codex_native_tool_replacement_maps_apply_patch_to_atelier_edit() -> None:
+    # apply_patch is Codex's native patch tool -- must nudge to mcp__atelier__edit
+    # exactly like edit/write/multiedit, not fall through unmapped (regression for
+    # the gap where apply_patch calls went unnudged and landed as native patches).
+    for tool_name in ("apply_patch", "patch", "replace", "edit", "write", "multiedit"):
+        replacement = plugin_runtime._codex_native_tool_replacement({"tool_name": tool_name})
+        assert replacement is not None
+        assert replacement[0] == "mcp__atelier__edit"
+
+
 def test_session_tool_normalizers_use_generic_atelier_namespace() -> None:
     for name in (
         "mcp__atelier__read",

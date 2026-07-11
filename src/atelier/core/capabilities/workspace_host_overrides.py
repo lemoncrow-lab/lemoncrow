@@ -191,9 +191,10 @@ def write_opencode_agents(
     for both global installs (``$OPENCODE_CONFIG_HOME/agents``) and workspace
     installs (``<repo>/.opencode/agents``). ``model_workspace`` scopes
     explicit per-role host model overrides; absent pins inherit the OpenCode
-    session model. Stale legacy filenames (bare ``atelier.md``, bare role
-    names, and any current ``atelier.<role>.md``) are removed first so the set
-    always matches the current roles.
+    session model. Stale legacy filenames (bare ``atelier.md`` -- the code
+    role's pre-rename filename --, bare role names, and any current
+    ``atelier.<role>.md``) are removed first so the set always matches the
+    current roles.
     """
     root = _resolve_repo_root(repo_root)
     target = Path(target_dir).expanduser().resolve()
@@ -201,7 +202,7 @@ def write_opencode_agents(
     written: list[Path] = []
     ids = DEFAULT_ROLE_IDS if role_ids is None else tuple(role_ids)
 
-    for stale_name in ["atelier.md", *(f"{role_id}.md" for role_id in SURFACED_ROLE_IDS if role_id != "code")] + [
+    for stale_name in ["atelier.md", *(f"{role_id}.md" for role_id in SURFACED_ROLE_IDS)] + [
         f"atelier.{role_id}.md" for role_id in SURFACED_ROLE_IDS
     ]:
         stale_path = target / stale_name
@@ -210,7 +211,7 @@ def write_opencode_agents(
 
     source_dir = root / "integrations" / "opencode" / "agents"
     for source in sorted(source_dir.glob("*.md")):
-        role_id = "code" if source.name == "atelier.md" else source.stem
+        role_id = source.stem
         if role_id not in ids:
             continue
         out = target / f"atelier.{role_id}.md"
