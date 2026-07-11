@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: record edited file basenames.
+"""PostToolUse hook: record edited file paths.
 
 Runs on every PostToolUse and filters internally to the Atelier edit tool
-(name-agnostic across hosts). It records the basenames of files edited this
-session so the PreToolUse read-after-edit guard (pre_tool_discipline.py) can
-spot a redundant full re-read. Fail-open: any error exits 0 and prints nothing.
+(name-agnostic across hosts). It records the resolved paths of files edited
+this session (basename only when resolution fails) so the PreToolUse
+read-after-edit guard (pre_tool_discipline.py) can spot a redundant full
+re-read. Fail-open: any error exits 0 and prints nothing.
 
 The cycle-cap that previously lived here was removed: a soft nudge was ignored
 and a hard block backfired in benchmarks (task3 78 turns vs 55). Cost is
@@ -67,6 +68,25 @@ def _save(state: dict[str, Any]) -> None:
         p.write_text(json.dumps(state), encoding="utf-8")
 
 
+def _record_key(target: str) -> str:
+    """Resolved absolute path for an edit target; basename as last resort.
+
+    Strips '#fragment' and ':Lx-Ly' range suffixes (same pattern as
+    rich_edit._parse_target), then resolves workspace-relative so the
+    read-after-edit guard compares full paths -- utils.py in two different
+    packages must not collide on basename.
+    """
+    bare = re.sub(r":L?\d+(?:-L?\d+)?$", "", target.split("#")[0], flags=re.I)
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    try:
+        p = Path(bare).expanduser()
+        if not p.is_absolute():
+            p = Path(workspace) / p
+        return str(p.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return Path(bare).name
+
+
 def _is_edit(name: str, ti: dict[str, Any]) -> bool:
     return isinstance(ti.get("edits"), list) or name.endswith("__edit") or name == "edit"
 
@@ -100,10 +120,7 @@ def main() -> int:
         state = _load()
         edited = set(state.get("edited_paths") or [])
         for target in _edit_targets(ti):
-            # Strip '#fragment' and ':Lx-Ly' range suffixes (same pattern as
-            # rich_edit._parse_target) so ranged edits record the bare basename.
-            bare = re.sub(r":L?\d+(?:-L?\d+)?$", "", target.split("#")[0], flags=re.I)
-            edited.add(Path(bare).name)
+            edited.add(_record_key(target))
         state["edited_paths"] = sorted(edited)[-80:]
         _save(state)
     except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open

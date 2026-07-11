@@ -117,6 +117,94 @@ def test_classify_allows_existing_script_file(tmp_path: Path) -> None:
         assert decision.action != "block", cmd
 
 
+def test_classify_blocks_script_with_destructive_content(tmp_path: Path) -> None:
+    script = tmp_path / "cleanup.sh"
+    script.write_text("#!/bin/bash\necho starting\nrm -rf /important-data\n")
+    decision = classify_command(f"bash {script}")
+    assert decision.action == "block"
+    assert str(script) in decision.reason
+    assert "rm -rf" in decision.reason
+
+
+def test_classify_allows_script_with_comment_only_mentions(tmp_path: Path) -> None:
+    script = tmp_path / "ok.sh"
+    script.write_text("#!/bin/bash\n# this used to rm -rf the build dir\necho ok\n")
+    decision = classify_command(f"bash {script}")
+    assert decision.action != "block"
+
+
+def test_classify_script_scan_survives_mutual_recursion(tmp_path: Path) -> None:
+    a = tmp_path / "a.sh"
+    b = tmp_path / "b.sh"
+    a.write_text(f"bash {b}\necho a\n")
+    b.write_text(f"bash {a}\necho b\n")
+    decision = classify_command(f"bash {a}")
+    assert decision.action != "block"
+
+
+def test_classify_scans_script_run_through_chaining(tmp_path: Path) -> None:
+    script = tmp_path / "evil.sh"
+    script.write_text("rm -rf /important-data\n")
+    decision = classify_command(f"echo hi && bash {script}")
+    assert decision.action == "block"
+
+
+def test_classify_blocks_cat_write_outside_roots(tmp_path: Path) -> None:
+    decision = classify_command("cat > /etc/evil.conf", allowed_write_roots=[tmp_path])
+    assert decision.action == "block"
+    assert decision.category == "file-write"
+    assert "edit tool" in decision.reason
+
+
+def test_classify_allows_cat_write_inside_roots(tmp_path: Path) -> None:
+    decision = classify_command(f"cat > {tmp_path}/notes.txt", allowed_write_roots=[tmp_path])
+    assert decision.action != "block"
+
+
+def test_classify_blocks_inline_python_write_outside_roots(tmp_path: Path) -> None:
+    decision = classify_command("python3 -c \"open('/etc/evil.conf','w').write('x')\"", allowed_write_roots=[tmp_path])
+    assert decision.action == "block"
+    assert decision.category == "file-write"
+
+
+def test_classify_write_guard_fails_open_on_opaque_targets(tmp_path: Path) -> None:
+    # A .write_text receiver / variable path cannot be resolved statically:
+    # the guard must fail open (run) rather than block what it cannot parse.
+    for cmd in (
+        "python3 -c \"from pathlib import Path; Path(p).write_text('x')\"",
+        'cat > "$OUT_FILE"',
+    ):
+        decision = classify_command(cmd, allowed_write_roots=[tmp_path])
+        assert decision.action != "block", cmd
+
+
+def test_classify_write_guard_inert_without_roots() -> None:
+    assert classify_command("cat > /etc/evil.conf").action != "block"
+
+
+def test_classify_rewrites_plain_url_fetch() -> None:
+    decision = classify_command("curl -sL https://example.com/page")
+    assert decision.action == "rewrite"
+    assert decision.rewrite_target == "web_fetch"
+
+
+def test_classify_keeps_fetch_with_request_flags_as_is() -> None:
+    # Headers/method/auth/body flags would be silently dropped by the
+    # web_fetch rewrite -- these commands must run unmodified.
+    for cmd in (
+        "curl -H 'Authorization: Bearer x' https://api.example.com/v1",
+        "curl -X POST https://api.example.com/v1",
+        "curl -d 'a=b' https://api.example.com/v1",
+        "curl --header 'Accept: application/json' https://api.example.com",
+        "curl -u user:pass https://api.example.com",
+        "curl -F 'file=@notes.txt' https://api.example.com/upload",
+        "wget --header='X-Api-Key: k' https://example.com/data",
+    ):
+        decision = classify_command(cmd)
+        assert decision.action == "allow", cmd
+        assert decision.rewrite_target is None, cmd
+
+
 def test_run_via_mcp_handle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     from atelier.gateway.adapters.mcp_server import _handle

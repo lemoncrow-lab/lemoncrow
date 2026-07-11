@@ -134,7 +134,7 @@ def test_local_tool_route_enforcement_restores_model_after_error(
     response = _call("read", {"path": "/tmp/placeholder"})
     payload = _last_model_recommendation_payload()
 
-    assert "error" in response
+    assert response["result"]["isError"] is True
     assert seen["active_model"] == payload["model"]
     assert payload["wrapper_applied"] is True
     assert os.environ["ATELIER_MODEL"] == "claude-sonnet-4.6"

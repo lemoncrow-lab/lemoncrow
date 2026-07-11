@@ -123,6 +123,43 @@ def _fmt_age(ts: float) -> str:
     return f"{secs // 86400}d ago"
 
 
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
+    """Live Atelier MCP server registrations (PID-checked), oldest first.
+
+    Each MCP server process writes ``{root}/mcp_sessions/<id>.json`` at startup
+    and removes it on clean shutdown; stale files (dead PIDs) are skipped.
+    """
+    sessions_dir = root / "mcp_sessions"
+    if not sessions_dir.is_dir():
+        return []
+    sessions: list[dict[str, Any]] = []
+    for entry in sorted(sessions_dir.glob("*.json")):
+        try:
+            data = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        pid = data.get("pid")
+        if not isinstance(pid, int) or not _pid_is_running(pid):
+            continue
+        data["registration_file"] = str(entry)
+        sessions.append(data)
+    return sessions
+
+
 # ─── mcp group ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -156,6 +193,56 @@ def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     from atelier.gateway.adapters.mcp_server import main as _mcp_main
 
     _mcp_main()
+
+
+# ─── mcp list ─────────────────────────────────────────────────────────────────────────────
+
+
+@mcp_group.command("list")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def mcp_list(ctx: click.Context, as_json: bool) -> None:
+    """List all active Atelier MCP server processes.
+
+    Reads the live-session registry (``~/.atelier/mcp_sessions/``); entries
+    whose process has exited are ignored.
+    """
+    root: Path = ctx.obj["root"]
+    sessions = active_mcp_sessions(root)
+    if as_json:
+        _emit({"count": len(sessions), "servers": sessions}, as_json=True)
+        return
+
+    click.echo("")
+    click.echo(f"  Active Atelier MCP servers · {len(sessions)}")
+    click.echo("  " + "─" * 70)
+    if not sessions:
+        click.echo("  None running. Servers register on startup (atelier mcp) and unregister on exit.")
+        click.echo("")
+        return
+    home = str(Path.home())
+    for s in sessions:
+        ws = str(s.get("workspace") or "?")
+        if ws.startswith(home):
+            ws = "~" + ws[len(home) :]
+        age = ""
+        started = s.get("started_at") or ""
+        if started:
+            try:
+                from datetime import UTC, datetime
+
+                age = _fmt_age(datetime.fromisoformat(started).replace(tzinfo=UTC).timestamp())
+            except ValueError:
+                age = ""
+        sid = str(s.get("claude_session_id") or "")[:8]
+        model = str(s.get("model") or "")
+        parts = [f"  pid {s.get('pid'):<8}", f"{ws:<40}", f"started {age:<10}" if age else ""]
+        if sid:
+            parts.append(f"session={sid}")
+        if model:
+            parts.append(model)
+        click.echo(" ".join(p for p in parts if p))
+    click.echo("")
 
 
 # ─── mcp stats ────────────────────────────────────────────────────────────────────────────
