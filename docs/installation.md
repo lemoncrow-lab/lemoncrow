@@ -273,11 +273,9 @@ atelier init
 
 ### Telemetry
 
-| Variable            | Default | Description                               |
-| ------------------- | ------- | ----------------------------------------- |
-| `ATELIER_TELEMETRY` | enabled | Disable with `0`, `false`, `off`, or `no` |
-
-## Source Checkout and Contributor Install
+| Variable | Default | Description |
+| --- | --- | --- |
+| ATELIER_TELEMETRY | enabled | Disable with `0`, `false`, `off`, or `no` |
 
 If you are developing Atelier itself instead of using the installed product:
 

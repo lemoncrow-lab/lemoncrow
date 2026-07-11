@@ -196,6 +196,9 @@ def test_context_retrieval_trace_records_drop_reasons(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     monkeypatch.setenv("ATELIER_RETRIEVAL_TRACE", "1")
     runtime = _init_runtime(tmp_path)
     _ensure_eval_blocks_exist(runtime)

@@ -17,6 +17,9 @@ def test_report_cli_outputs_json_and_markdown(tmp_path: Path, monkeypatch: pytes
     # Run outside a git repo so `init` skips the ~30s code-index bootstrap and
     # project-setup writes; this test only needs an initialized store.
     monkeypatch.chdir(tmp_path)
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     runner = CliRunner()
     init = runner.invoke(cli, ["--root", str(root), "init"])
     assert init.exit_code == 0, init.output

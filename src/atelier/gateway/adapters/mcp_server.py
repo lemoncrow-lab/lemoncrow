@@ -2711,7 +2711,7 @@ def _get_mcp_model() -> str:
     # workspace could hand us a wrong model. The live transcript model (preferred
     # in _append_savings) covers the common case; this is a pre-first-turn fallback.
     sid, model = _read_workspace_session_bridge()
-    if sid and model and sid == _claude_session_id():
+    if sid and model and sid == _resolved_host_session_id():
         _cached_mcp_model = model
         return _cached_mcp_model
 
@@ -13224,6 +13224,65 @@ def _setup_file_logging(root: str | Path) -> None:
     mcp_logger.setLevel(logging.DEBUG)
 
 
+_account_gate_lock = threading.Lock()
+_account_gate_state: dict[str, bool] = {}
+_LOGIN_COOLDOWN_SECONDS = 3600.0
+
+
+def _try_seamless_login(atelier_root: Path) -> bool:
+    """Best-effort: open the browser once per cooldown window to activate a free account.
+
+    Runs inside a background daemon thread (never the stdio server's main
+    request-serving thread), so blocking here for the OAuth round-trip does
+    not delay tool responses. Debounced via a marker file so an unattended
+    session (offline, no browser, user ignores the tab) doesn't pop a new
+    browser tab on every workspace/session start.
+    """
+    marker = Path(atelier_root) / ".login_attempted_at"
+    try:
+        last = float(marker.read_text("utf-8").strip())
+        if time.time() - last < _LOGIN_COOLDOWN_SECONDS:
+            return False
+    except (OSError, ValueError):
+        pass
+    with contextlib.suppress(OSError):
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(time.time()), encoding="utf-8")
+
+    from atelier.core.capabilities.licensing.oauth_flow import run_oauth_login
+
+    result = run_oauth_login(timeout=120.0)
+    if result is None:
+        return False
+    with contextlib.suppress(OSError):
+        marker.unlink(missing_ok=True)
+    _log.info("Activated Atelier account: %s (%s plan)", result.email, result.plan)
+    return True
+
+
+def _ensure_account_activated(atelier_root: Path) -> bool:
+    """Gate for auto-provisioning: True once a free Atelier account token exists.
+
+    If no token is present, attempts the seamless browser OAuth login exactly
+    once per process (guarded by a lock so the several auto-init daemon
+    threads spawned at stdio startup share one attempt instead of each
+    popping its own browser tab).
+    """
+    from atelier.core.capabilities.licensing.store import load_auth_token
+
+    if load_auth_token():
+        return True
+    with _account_gate_lock:
+        if "ok" in _account_gate_state:
+            return _account_gate_state["ok"]
+        if load_auth_token():
+            _account_gate_state["ok"] = True
+            return True
+        ok = _try_seamless_login(atelier_root)
+        _account_gate_state["ok"] = ok
+        return ok
+
+
 def _auto_init_workspace() -> None:
     """One-time workspace bootstrap: seed playbooks, add .gitignore, write marker.
 
@@ -13257,6 +13316,10 @@ def _auto_init_workspace() -> None:
 
         marker = resolve_workspace_store_dir(atelier_root, ws_root) / ".workspace_inited"
         if marker.exists():
+            return
+
+        if not _ensure_account_activated(atelier_root):
+            _log.info("Atelier account required for workspace auto-init; skipping until `atelier login` completes.")
             return
 
         # --- Seed playbooks and rubrics ---
@@ -13317,6 +13380,9 @@ def _warm_stdio_code_index() -> None:
     ws_root = _workspace_root()
     if not is_recognized_workspace(ws_root):
         _log.debug("skipping stdio code-index warm: %s is not a recognized workspace", ws_root)
+        return
+    if not _ensure_account_activated(_atelier_root()):
+        _log.info("Atelier account required for code-index warm; skipping until `atelier login` completes.")
         return
     try:
         from atelier.core.service.code_warm import warm_stdio_workspace

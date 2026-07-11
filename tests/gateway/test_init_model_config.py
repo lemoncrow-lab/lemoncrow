@@ -4,11 +4,17 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from atelier.gateway.cli import cli
 from atelier.gateway.cli.commands import admin as admin_command
 from atelier.gateway.cli.commands import code as code_command
+
+
+@pytest.fixture(autouse=True)
+def _free_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATELIER_AUTH_TOKEN", "free-account-token")
 
 
 def test_init_can_configure_workspace_models_and_host_surfaces(tmp_path: Path, monkeypatch) -> None:

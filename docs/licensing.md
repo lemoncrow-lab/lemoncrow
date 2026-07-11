@@ -1,13 +1,11 @@
-# Licensing & Pro features (open-core)
+# Licensing & Pro features
 
-Atelier is open-core: the entire runtime is Apache-2.0 and runs locally. A small
-set of **paid ("Pro") control surfaces** are gated behind the signed-in
-account's plan. The split is designed so the Free tier is genuinely useful (and
-already delivers most of the token savings) while the incremental optimizer and
-the full savings dashboard are paid.
+Atelier is source-available and runs locally. Existing paid Pro control surfaces
+are gated behind the signed-in account's plan. Free remains genuinely useful;
+Pro beta covers the existing gated capabilities.
 
-> Looking for the customer-facing plan breakdown and prices? See
-> [**Plans & Pricing**](./pricing.md). This document is the technical design.
+> Customer-facing plans and prices: [Plans & Pricing](./pricing.md). This page
+> documents the technical entitlement design.
 
 - **Client (Apache-2.0):** `src/atelier/core/capabilities/licensing/` — holds
   the OAuth session and answers "is this feature unlocked?".
@@ -31,45 +29,33 @@ license keys, no device-bound leases, no local crypto, and no dev backdoor —
 the account's plan is the single source of truth, and every check fails closed
 to Free.
 
-**Honest threat model.** The runtime is open-source, so any client-side
-check can be edited out by a determined user — gating is friction for honest
-installs, not DRM. The server-anchored plan means every unmodified install
-converges on the truth within hours; the real moat is the closed auth/payments
-backend, updates, and being the maintainer.
+## Free vs Pro beta
 
-## Free vs Pro vs Enterprise
+| Capability | Free | Pro beta |
+| --- | :---: | :---: |
+| Code-nav MCP tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ |
+| Normal-size repo map and context engine | ✅ | ✅ |
+| Local savings estimate and session replay | ✅ | ✅ |
+| Large-repo search and indexing | — | ✅ |
+| Session recall and cross-vendor memory | — | ✅ |
+| Reasoning library | — | ✅ |
+| Savings engine, compression, and budget optimization | — | ✅ |
+| Model routing | — | ✅ |
+| Multi-worktree swarm | — | ✅ |
 
-| Capability                                                  | Free | Pro | Ent |
-| ----------------------------------------------------------- | :--: | :-: | :-: |
-| Code-nav MCP tools (`read`/`grep`/`search`/`edit`/…) |  ✅  | ✅  | ✅  |
-| Host packaging, agents, skills, `init`; benchmarks          |  ✅  | ✅  | ✅  |
-| Repo map + context engine (small repos)                     |  ✅  | ✅  | ✅  |
-| Headline savings number                                     |  ✅  | ✅  | ✅  |
-| Zoekt fast search; large-repo indexing; projection VFS      |  —   | ✅  | ✅  |
-| Session recall + cross-vendor memory                        |  —   | ✅  | ✅  |
-| Reasoning library (procedures, lessons, knowledge)          |  —   | ✅  | ✅  |
-| Savings engine: apply + full breakdown + compression/budget |  —   | ✅  | ✅  |
-| Model routing (daemon, cross-vendor, quality)               |  —   | ✅  | ✅  |
-| Multi-repo; multi-worktree swarm                            |  —   | ✅  | ✅  |
-| Very large repos (no caps); shared team context             |  —   | —   | ✅  |
-| Governance, audit export, retention, SSO                    |  —   | —   | ✅  |
+Feature keys remain in src/atelier/core/capabilities/licensing/features.py.
+Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
 
-The feature keys are in `src/atelier/core/capabilities/licensing/features.py`
-(`PRO_FEATURES`, with `ENTERPRISE_FEATURES` the Enterprise-only subset). For the
-customer-facing plans and prices see [Plans & Pricing](./pricing.md).
-
-## Signing in
+A free account is required to activate the official install:
 
 ```bash
 atelier login          # browser OAuth; stores the session token
-atelier login --status # show email, plan, and device slots
-atelier logout         # revert to Free (local anonymous trial)
+atelier init           # activates the official install
+atelier login --status # show account and plan
+atelier logout         # removes the local session
 ```
-
-A Pro account supports up to **three active CLI devices**; the auth server
-tracks the slots. `ATELIER_PRO_URL` overrides the "buy" link shown in
-upsells — point it straight at your Stripe Payment Link.
-
+A Pro beta account supports up to **three active CLI devices**; the auth server
+tracks the slots. ATELIER_PRO_URL overrides the buy link shown in upsells.
 ## The entitlement contract
 
 Every gate calls one tiny API:
