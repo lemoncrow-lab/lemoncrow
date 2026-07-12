@@ -1,6 +1,6 @@
 # Scratch/cache for mcp_tools benchmark runs: repo snapshots, external
 # indexer installs, per-shard raw artifacts and logs. Never commit -- the
-# committed results.csv/summary.csv for `atelier eval mcp` live at
+# committed results.csv/summary.csv for `lemoncrow eval mcp` live at
 # reports/benchmark/mcp/<run_id>/ instead (see benchmark.py:_workspace_dir).
 *
 !.gitignore
