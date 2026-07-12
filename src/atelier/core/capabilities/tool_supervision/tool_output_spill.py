@@ -121,7 +121,7 @@ class SpillRecord:
 
 
 def spill(
-    content: str,
+    content: str | bytes,
     *,
     tool_name: str,
     kind: str = "tool_output",
@@ -139,6 +139,13 @@ def spill(
         kind:      Logical tag encoded in the filename, e.g. ``tool_output`` or
                    ``original``.
     """
+    if isinstance(content, bytes):
+        # Defensive: this is a shared chokepoint fed by many callers (MCP
+        # dispatch text assembled from arbitrary tool results, bash/sql/
+        # web_fetch output) that occasionally hand us raw bytes despite the
+        # str contract. Normalize once here so `.encode("utf-8")` below and
+        # `write_text` operate on str, not bytes.
+        content = content.decode("utf-8", errors="replace")
     try:
         directory = _spill_dir()
         # Short name: it is quoted verbatim in every spill footer the model

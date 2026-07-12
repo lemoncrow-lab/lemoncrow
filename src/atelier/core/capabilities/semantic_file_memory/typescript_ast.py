@@ -77,7 +77,7 @@ def _strip_jsdoc(comment: str) -> str:
     return text[:200].split(".")[0].strip()
 
 
-def analyze_typescript(source: str) -> tuple[list[SymbolInfo], list[ImportInfo], str]:
+def analyze_typescript(source: str | bytes) -> tuple[list[SymbolInfo], list[ImportInfo], str]:
     """
     Analyze TypeScript/JavaScript source.
 
@@ -86,6 +86,11 @@ def analyze_typescript(source: str) -> tuple[list[SymbolInfo], list[ImportInfo],
         imports   - parsed import statements
         summary   - compact stat string
     """
+    if isinstance(source, bytes):
+        # Defensive: some callers hand us raw bytes despite the str contract.
+        # Normalize once here so both the tree-sitter and regex paths below
+        # (neither of which accepts bytes) get consistent str input.
+        source = source.decode("utf-8", errors="replace")
     symbols, imports, summary = _analyze_with_tree_sitter(source)
     if symbols or imports:
         return symbols, imports, summary
@@ -102,7 +107,11 @@ def _analyze_with_tree_sitter(source: str) -> tuple[list[SymbolInfo], list[Impor
 
     try:
         source_bytes = source.encode("utf-8", errors="replace")
-        tree = parser.parse(source_bytes)
+        try:
+            tree = parser.parse(source_bytes)
+        except TypeError:
+            # Some tree-sitter-language-pack grammars expect str, not bytes.
+            tree = parser.parse(source)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return [], [], "typescript_ast:fallback=regex"
@@ -347,15 +356,23 @@ def _is_export_node(node: Any, source_bytes: bytes) -> bool:
     return text.lstrip().startswith("export ")
 
 
-def outline(path: str, source: str, *, lang: str = "typescript") -> FileOutline:
+def outline(path: str, source: str | bytes, *, lang: str = "typescript") -> FileOutline:
     """Return a compact TS/JS outline (classes/functions/methods + imports)."""
+    if isinstance(source, bytes):
+        # Defensive: some callers hand us raw bytes despite the str contract.
+        source = source.decode("utf-8", errors="replace")
+
     parser = _get_ts_parser()
     if parser is None:
         return _outline_with_regex(path, source, lang=lang)
 
     try:
         source_bytes = source.encode("utf-8", errors="replace")
-        tree = parser.parse(source_bytes)
+        try:
+            tree = parser.parse(source_bytes)
+        except TypeError:
+            # Some tree-sitter-language-pack grammars expect str, not bytes.
+            tree = parser.parse(source)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return _outline_with_regex(path, source, lang=lang)
