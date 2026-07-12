@@ -34,9 +34,9 @@ The MCP config registers LemonCrow as a stdio server:
 ```json
 {
   "servers": {
-    "lemon": {
+    "lc": {
       "type": "stdio",
-      "command": "lemon mcp",
+      "command": "lc mcp",
       "args": ["--host", "antigravity"]
     }
   }
@@ -46,7 +46,7 @@ The MCP config registers LemonCrow as a stdio server:
 Global installs also try:
 
 ```bash
-antigravity --add-mcp '{"name":"lemon","command":"lemon mcp","args":["--host","antigravity"]}'
+antigravity --add-mcp '{"name":"lc","command":"lc mcp","args":["--host","antigravity"]}'
 ```
 
 ## Verify

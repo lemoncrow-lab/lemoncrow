@@ -178,7 +178,7 @@ def _is_implicit_tmp_index_blocked(repo_root: Path) -> bool:
     """True when *repo_root* is under /tmp and implicit first-time auto-indexing
     of it has not been explicitly allowed.
 
-    Explicit indexing (the ``lemon code index --reindex`` CLI path, used by
+    Explicit indexing (the ``lc code index --reindex`` CLI path, used by
     benchmark/eval scripts) is a different call path entirely and is never
     affected by this -- this only gates the *implicit* build a plain tool call
     (e.g. ``code_search``) would otherwise trigger on an unindexed /tmp dir.
@@ -868,7 +868,7 @@ class IndexLockTimeout(RuntimeError):
     """A required index-write lock could not be acquired before the timeout.
 
     Raised only when a caller passes ``require_lock=True`` (e.g. the CLI
-    ``lemon code index`` prewarm), so a contended/failed build fails loudly
+    ``lc code index`` prewarm), so a contended/failed build fails loudly
     instead of silently returning a stale snapshot.
     """
 
@@ -2294,7 +2294,7 @@ def _resolve_autosync_index_max_workers() -> int:
     """Worker count for background autosync indexing.
 
     Autosync is opportunistic background work, so default it to half the CPU
-    budget while leaving explicit ``lemon code index`` runs fully parallel.
+    budget while leaving explicit ``lc code index`` runs fully parallel.
     """
     override = os.environ.get("LEMONCROW_AUTOSYNC_INDEX_MAX_WORKERS", "").strip()
     if override.isdigit() and int(override) > 0:
@@ -3529,7 +3529,7 @@ class CodeContextEngine:
     def _index_write_lock(self, *, block: bool) -> Iterator[bool]:
         """Serialize index writes across separate processes sharing this DB.
 
-        ``_db_lock`` only guards threads inside one process; multiple ``lemon``
+        ``_db_lock`` only guards threads inside one process; multiple ``lc``
         processes (MCP servers, background service, CLI) each hold their own. This
         advisory ``flock`` ensures only one of them rebuilds the index at a time.
         Yields ``True`` when the lock was acquired (always so when ``block`` is
@@ -10854,7 +10854,7 @@ class CodeContextEngine:
                     "implicit indexing of /tmp paths is off by default so a stray query against an "
                     "unindexed scratch/benchmark directory can't silently kick off a large background "
                     "index job. Set LEMONCROW_ALLOW_TMP_AUTOINDEX=1 to opt in, or index explicitly via "
-                    "`lemon code index --repo-root %s --reindex`.",
+                    "`lc code index --repo-root %s --reindex`.",
                     self.repo_root,
                     self.repo_root,
                 )
@@ -14037,7 +14037,7 @@ class CodeContextEngine:
 
         Keeps the ProcessPoolExecutor and its gigabytes of CoW-forked heap out
         of the MCP / servicectl parent process. The subprocess runs
-        ``lemon code index``, acquires the SQLite write-lock independently,
+        ``lc code index``, acquires the SQLite write-lock independently,
         and exits — releasing all indexing memory on completion.
 
         Returns True on success, False on error (caller retries on next poll).
@@ -14306,7 +14306,7 @@ class CodeContextEngine:
         except Exception:
             logging.exception("Failed to start background warmup")
         # Background-owned initial build: if nothing has populated the index yet
-        # (no external prewarm / `lemon code index`), build it here so the
+        # (no external prewarm / `lc code index`), build it here so the
         # first tool call hits a warm index instead of paying a cold build on the
         # request path.
         if not self.index_ready():

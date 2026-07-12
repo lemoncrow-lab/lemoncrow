@@ -1,4 +1,4 @@
-"""Thin ``lemon stack`` command group (Phase 25-03, QBL-CLI-02).
+"""Thin ``lc stack`` command group (Phase 25-03, QBL-CLI-02).
 
 The optional visualization-stack process lifecycle lives in
 ``infra/runtime/stack_lifecycle.py``. These callbacks are thin wrappers; the
@@ -55,7 +55,7 @@ def stack_group() -> None:
 
 
 @stack_group.command("start")
-@click.option("--with-docs", is_flag=True, help="Deprecated; docs are no longer managed by lemon stack.")
+@click.option("--with-docs", is_flag=True, help="Deprecated; docs are no longer managed by lc stack.")
 @click.pass_context
 def stack_start(ctx: click.Context, with_docs: bool) -> None:
     """Start the optional visualization stack with native processes."""
@@ -63,7 +63,7 @@ def stack_start(ctx: click.Context, with_docs: bool) -> None:
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
-            "Prefer using 'lemon systemd restart' or 'systemctl --user restart lemoncrow-stack'."
+            "Prefer using 'lc systemd restart' or 'systemctl --user restart lemoncrow-stack'."
         )
     if with_docs:
         click.echo("Notice: docs are no longer part of the managed stack; starting service + frontend only.")
@@ -126,7 +126,7 @@ def stack_stop(ctx: click.Context, force: bool) -> None:
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         click.echo(
             f"Notice: {STACK_UNIT} is installed. "
-            "Prefer using 'lemon systemd uninstall' or 'systemctl --user stop lemoncrow-stack'."
+            "Prefer using 'lc systemd uninstall' or 'systemctl --user stop lemoncrow-stack'."
         )
     payload = _stop_stack_processes(root, force=force)
     if payload["running"]:

@@ -9,7 +9,7 @@ export const LONG_OUTPUT_THRESHOLD = 400; // chars
 // --- Host detection ---
 
 export const HOST_COLORS: Record<string, string> = {
-  lemon: "bg-brand-900/40 text-brand-300 border-brand-700/50",
+  lc: "bg-brand-900/40 text-brand-300 border-brand-700/50",
   claude: "bg-violet-900/40 text-violet-300 border-violet-700/50",
   gemini: "bg-blue-900/40 text-blue-300 border-blue-700/50",
   copilot: "bg-sky-900/40 text-sky-300 border-sky-700/50",
@@ -29,7 +29,7 @@ export function extractHost(trace: Trace | string): string {
   if (i.startsWith("codex-") || a === "codex") return "codex";
   if (i.startsWith("copilot-") || a === "copilot") return "copilot";
   if (i.startsWith("opencode-") || a === "opencode") return "opencode";
-  if (a.startsWith("lemon:")) return "lemon";
+  if (a.startsWith("lc:")) return "lc";
   return "unknown";
 }
 

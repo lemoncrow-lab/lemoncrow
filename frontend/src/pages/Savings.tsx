@@ -291,7 +291,7 @@ export default function Savings() {
           description={
             <>
               Run any task with{" "}
-              <code className="bg-neutral-900 px-1">lemon mcp</code> enabled
+              <code className="bg-neutral-900 px-1">lc mcp</code> enabled
               to start collecting savings telemetry.
             </>
           }

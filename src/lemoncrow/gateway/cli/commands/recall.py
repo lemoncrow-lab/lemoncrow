@@ -1,4 +1,4 @@
-"""``lemon session recall`` — semantic recall over ALL past sessions."""
+"""``lc session recall`` — semantic recall over ALL past sessions."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ class _RecallGroup(click.Group):
 def recall_group() -> None:
     """Index past sessions and semantically recall across all of them.
 
-    A bare query defaults to search: ``lemon session recall "<q>"`` is
-    shorthand for ``lemon session recall search "<q>"``.
+    A bare query defaults to search: ``lc session recall "<q>"`` is
+    shorthand for ``lc session recall search "<q>"``.
     """
 
 
@@ -70,7 +70,7 @@ def recall_search_cmd(ctx: click.Context, query: str, top_k: int, as_json: bool)
         _emit(results, as_json=True)
         return
     if not results:
-        click.echo("No matches yet — run `lemon recall index` first, or try a different query.")
+        click.echo("No matches yet — run `lc recall index` first, or try a different query.")
         return
     for item in results:
         host = next((t.split(":", 1)[1] for t in item.get("tags", []) if t.startswith("host:")), "unknown")

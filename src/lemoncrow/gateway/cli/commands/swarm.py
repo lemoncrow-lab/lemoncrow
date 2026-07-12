@@ -1,4 +1,4 @@
-"""Thin ``lemon swarm`` command group for isolated multi-worktree attempts."""
+"""Thin ``lc swarm`` command group for isolated multi-worktree attempts."""
 
 from __future__ import annotations
 
@@ -93,12 +93,12 @@ def _resolve_run_id(root: Path, run_id: str | None, command_name: str) -> str:
     running = _list_running_swarms(root)
     if len(running) == 0:
         raise click.ClickException(
-            f"No run_id given and no running swarms found.  Usage: lemon swarm {command_name} <RUN_ID>"
+            f"No run_id given and no running swarms found.  Usage: lc swarm {command_name} <RUN_ID>"
         )
     if len(running) == 1:
         return running[0].run_id
     lines = ["Multiple running swarms — specify one:\n", *_format_swarm_run_rows(running)]
-    lines.append(f"\nUsage: lemon swarm {command_name} <RUN_ID>")
+    lines.append(f"\nUsage: lc swarm {command_name} <RUN_ID>")
     raise click.ClickException("\n".join(lines))
 
 
@@ -604,7 +604,7 @@ def swarm_apply(
     else:
         # Show the user how to actually apply the changes
         click.echo("\nTo apply these changes to your current repository, run:")
-        click.echo(f"  uv run lemon --root {ctx.obj['root']} swarm apply {run_id} --execute")
+        click.echo(f"  uv run lc --root {ctx.obj['root']} swarm apply {run_id} --execute")
         click.echo(
             "\nThis will execute the git cherry-pick and git apply commands sequentially in your current repository."
         )

@@ -205,7 +205,7 @@ def test_discover_excludes_lemoncrow_self_entry_from_plugin_config(monkeypatch, 
     plugin_dir = tmp_path / "plugins_cache" / "lemoncrow" / "lemoncrow" / "0.1.0"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"lemon": {"command": "lemon", "args": ["mcp", "--host", "claude"]}}}),
+        json.dumps({"mcpServers": {"lc": {"command": "lc", "args": ["mcp", "--host", "claude"]}}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_CLAUDE_PLUGINS_CACHE_DIR", tmp_path / "plugins_cache")
@@ -219,7 +219,7 @@ def test_discover_excludes_lemoncrow_self_entry_from_claude_json_user_scope(monk
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [tmp_path / "missing.json"])
     claude_json = tmp_path / ".claude.json"
     claude_json.write_text(
-        json.dumps({"mcpServers": {"lemon": {"command": "lemon", "args": ["mcp", "--host", "claude"]}}}),
+        json.dumps({"mcpServers": {"lc": {"command": "lc", "args": ["mcp", "--host", "claude"]}}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_CLAUDE_JSON_PATH", claude_json)

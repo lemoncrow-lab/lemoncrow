@@ -1,5 +1,5 @@
 {
-  "agent": "lemon:code",
+  "agent": "lemoncrow:code",
   "subagentStatusLine": {
     "type": "command",
     "command": "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.sh",

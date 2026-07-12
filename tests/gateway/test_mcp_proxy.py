@@ -89,7 +89,7 @@ def _write_mcp_json(tmp_path: Path, *, include_self: bool = False) -> Path:
         "fake": {"command": sys.executable, "args": [str(script)]},
     }
     if include_self:
-        servers["lemoncrow"] = {"command": "lemon", "args": ["mcp", "--host", "test"]}
+        servers["lemoncrow"] = {"command": "lc", "args": ["mcp", "--host", "test"]}
     config_path = tmp_path / ".mcp.json"
     config_path.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
     return config_path
@@ -178,15 +178,15 @@ def test_self_exclusion_hides_lemoncrow_own_server(tmp_path: Path) -> None:
 
 def test_is_self_matches_real_cursor_merge_shape_without_mcp_token() -> None:
     """Cursor's config-merge path (an existing ~/.cursor/mcp.json) registers
-    LemonCrow as {"command": "lemon", "args": ["--host", "cursor"]} -- no
+    LemonCrow as {"command": "lc", "args": ["--host", "cursor"]} -- no
     "mcp"/"serve" token in command or args at all. Name-based matching must
     still catch this real installed shape."""
-    config = MCPServerConfig(name="lemon", command="lemon", args=["--host", "cursor"])
+    config = MCPServerConfig(name="lc", command="lc", args=["--host", "cursor"])
     assert mcp_proxy._is_self(config)
 
 
 def test_is_self_matches_plugin_namespaced_name() -> None:
-    config = MCPServerConfig(name="plugin_lemoncrow_lemon", command="/some/venv/bin/python3", args=["-m", "something"])
+    config = MCPServerConfig(name="plugin_lemoncrow_lc", command="/some/venv/bin/python3", args=["-m", "something"])
     assert mcp_proxy._is_self(config)
 
 
@@ -273,7 +273,7 @@ def test_handle_dispatch_spills_oversized_proxied_result(tmp_path: Path, monkeyp
     assert len(text) <= mcp_server._spill_result_chars("mcp")
     assert "HEAD" in text
     assert "TAIL" in text
-    assert "[lemon: shrunk" in text
+    assert "[lc: shrunk" in text
     import re
 
     spill_path = re.search(r"read (\S+\.txt)\]", text)

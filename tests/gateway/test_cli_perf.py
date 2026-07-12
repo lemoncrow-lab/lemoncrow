@@ -1,4 +1,4 @@
-"""Tests for `lemon perf` (MCP tool latency profiling).
+"""Tests for `lc perf` (MCP tool latency profiling).
 
 The actual latency measurement (run_profile -> _handle) is a real-system probe and
 is not unit-tested; everything around it -- drift detection, the noise floor, the

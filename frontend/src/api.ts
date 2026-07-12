@@ -730,7 +730,7 @@ export interface SavingsBenchmark {
   model: string;
   n_prompts: number;
   total_tokens_baseline: number;
-  total_tokens_lemon: number;
+  total_tokens_lc: number;
   tokens_saved: number;
   reduction_pct: number;
   total_cost_baseline_usd: number;

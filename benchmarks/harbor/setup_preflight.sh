@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Zero-LLM setup preflight (bundle variant). Replicates the agent install using
-# the prebuilt LemonCrow bundle and verifies claude + lemon AS ROOT -- the agent
+# the prebuilt LemonCrow bundle and verifies claude + lc AS ROOT -- the agent
 # now runs as root with IS_SANDBOX=1 (matches the verifier's user). NEVER invokes
 # the agent/LLM -> zero AI credits.
-#   docker run --rm -v <repo>:/lemon:ro -v <bundle>:/lemoncrow-bundle.tar.gz:ro <IMAGE> \
+#   docker run --rm -v <repo>:/lc:ro -v <bundle>:/lemoncrow-bundle.tar.gz:ro <IMAGE> \
 #       bash /lemoncrow/benchmarks/harbor/setup_preflight.sh <LABEL>
 set +e
 LABEL="${1:-image}"
@@ -24,7 +24,7 @@ command -v claude >/dev/null || fail claude_bin
 
 # Optional: rtk external compactor (github.com/rtk-ai/rtk). LemonCrow's bash tool
 # soft-detects it on PATH at run time (external_compactors.py); absence is
-# never a failure there (`lemon doctor` reports it as optional), so it must
+# never a failure there (`lc doctor` reports it as optional), so it must
 # not be one here either -- record status in the final RESULT line, never fail.
 RTK_STATUS=missing
 i=0; while [ $i -lt 3 ]; do
@@ -37,7 +37,7 @@ command -v rtk >/dev/null 2>&1 && RTK_STATUS="ok:$(rtk --version 2>&1 | head -c 
 export LEMONCROW_ROOT=/root/.lemoncrow
 cd /root && /opt/lemoncrow-venv/bin/lemoncrow init >/dev/null 2>&1 || fail lemoncrow_init
 
-# Static plugin/agent check: the bench loads --plugin-dir + --agent lemon:auto.
+# Static plugin/agent check: the bench loads --plugin-dir + --agent lc:auto.
 test -f /lemoncrow/integrations/claude/plugin/agents/auto.md || fail auto_agent_missing
 grep -q 'name: auto' /lemoncrow/integrations/claude/plugin/agents/auto.md || fail auto_agent_name
 
@@ -53,14 +53,14 @@ PROBE=$(IS_SANDBOX=1 CLAUDE_CONFIG_DIR=/tmp/cfgprobe CLAUDE_CODE_OAUTH_TOKEN= ti
   --model "${LEMONCROW_BENCH_MODEL:-claude-opus-4-8}" --effort high \
   --output-format stream-json --verbose \
   --permission-mode bypassPermissions \
-  --disallowedTools AskUserQuestion ExitPlanMode WebFetch WebSearch mcp__lemon__web_fetch Workflow ScheduleWakeup \
+  --disallowedTools AskUserQuestion ExitPlanMode WebFetch WebSearch mcp__lc__web_fetch Workflow ScheduleWakeup \
   < /dev/null 2>&1 | head -c 4000)
 echo "$PROBE" | grep -qi 'root/sudo privileges' && fail cmdprobe_root_guard
 echo "$PROBE" | grep -q '"subtype":"init"' || fail "cmdprobe_no_init:$(printf '%s' "$PROBE" | tr '\n' ' ' | head -c 160)"
 echo "$PROBE" | grep -qE '"(AskUserQuestion|WebFetch|WebSearch|Workflow|ScheduleWakeup)"' && fail cmdprobe_disallow_not_applied
 CMDPROBE=ok
 
-# Prewarm path (the run-time `lemon code index` step). Exercises tree-sitter
+# Prewarm path (the run-time `lc code index` step). Exercises tree-sitter
 # native parsing on this image's glibc. The FTS index grep reads must build for
 # (a) a git repo, (b) a NON-git dir with files (many TB workdirs are not git),
 # and (c) an empty dir must not abort (exit 0). On a non-git dir the git-history

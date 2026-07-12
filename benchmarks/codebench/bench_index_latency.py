@@ -2,7 +2,7 @@
 """Index-build latency benchmark: lexical vs zoekt vs semantic, one row per repo.
 
 Each phase is timed as a COLD full rebuild of one repo:
-  - lexical : ``lemon code index --reindex`` with the semantic embedder OFF
+  - lexical : ``lc code index --reindex`` with the semantic embedder OFF
               (parse -> tree-sitter symbols -> FTS5 + trigram symbol index).
   - zoekt   : ``zoekt-git-index`` over the repo's committed git tree (trigram).
   - semantic: embed every indexed symbol with BGE-Code-v1 (FP16 on GPU).
@@ -110,7 +110,7 @@ def bench_repo(prefix: str, meta: dict, *, bge_py: str, zoekt: str | None) -> di
     # 1) Lexical index (embedder OFF so we time only parse + FTS/trigram).
     env = {**os.environ, "LEMONCROW_CODE_EMBEDDER": "null", "LEMONCROW_ZOEKT_MODE": "off"}
     lex_s, rc, err = _run(
-        ["lemon", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
+        ["lc", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
         env=env,
     )
     row["lexical_s"] = lex_s if rc == 0 else None

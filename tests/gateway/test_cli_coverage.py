@@ -155,7 +155,7 @@ def test_env_validate_known_env(tmp_path: Path) -> None:
 
     root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    # lemon init no longer seeds built-in rubrics; env validate resolves
+    # lc init no longer seeds built-in rubrics; env validate resolves
     # user-supplied rubrics, so the known-env success path seeds its own.
     store = create_store(root)
     store.upsert_rubric(

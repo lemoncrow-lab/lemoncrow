@@ -131,7 +131,7 @@ def _has_delivery_signal(trace: Trace) -> bool:
     if trace.files_touched:
         return True
     tool_names = _tool_names(trace)
-    if tool_names & {"edit", "write", "multiedit", "apply_patch", "mcp__lemon__edit"}:
+    if tool_names & {"edit", "write", "multiedit", "apply_patch", "mcp__lc__edit"}:
         return True
     for command in trace.commands_run:
         text = command.command if hasattr(command, "command") else str(command)

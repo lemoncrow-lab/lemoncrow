@@ -98,7 +98,7 @@ def _prebuild_overlays(instances: list[Any], arms: list[str]) -> None:
             seen.add(key)
             print(f"[overlay] ensuring {arm} overlay for {inst.image}", flush=True)
             try:
-                incontainer.ensure_overlay(inst.image, lemon=(arm == "lemoncrow"))
+                incontainer.ensure_overlay(inst.image, lc=(arm == "lemoncrow"))
             except Exception as exc:
                 print(f"[overlay] FAILED for {arm}/{inst.image}: {exc} -- skipping, will error at run time", flush=True)
 

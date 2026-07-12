@@ -223,7 +223,7 @@ def _trace_has_delivery_signal(trace: Trace) -> bool:
     if any(bool(getattr(result, "passed", False)) for result in trace.validation_results):
         return True
     tool_names = {tool.name.lower() for tool in trace.tools_called}
-    return bool(tool_names & {"edit", "write", "multiedit", "apply_patch", "mcp__lemon__edit"})
+    return bool(tool_names & {"edit", "write", "multiedit", "apply_patch", "mcp__lc__edit"})
 
 
 def _trace_signature(trace: Trace) -> str:

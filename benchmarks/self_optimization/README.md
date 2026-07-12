@@ -22,7 +22,7 @@ cheaper/cleaner behavior.
 
 - **`health`** (default, free): tests must pass (hard gate), then
   `score = -(mypy_errors + ruff_issues)` — no API spend.
-- **`mini`** (paid): cost-per-accepted-patch from `lemon benchmark mini --json`.
+- **`mini`** (paid): cost-per-accepted-patch from `lc benchmark mini --json`.
 - **`swe`** (paid): runs the lemoncrow arm on `tasks/iterate.txt` or
   `tasks/holdout.txt`, compares $ cost and solve-rate against the frozen
   baseline. Target: ≥50% cheaper with correctness same-or-better.
@@ -33,7 +33,7 @@ the lemoncrow arm for one run (a controlled, single-variable experiment).
 ## Wiring it into a swarm run
 
 ```bash
-uv run lemon swarm start \
+uv run lc swarm start \
     --fitness-cmd "uv run python benchmarks/self_optimization/eval.py --objective health" \
     --metric-parse "regex:^score: (-?[\d.]+)"
 ```

@@ -1,4 +1,4 @@
-"""CLI plumbing tests for `lemon optimize compress-context` (LLM monkeypatched)."""
+"""CLI plumbing tests for `lc optimize compress-context` (LLM monkeypatched)."""
 
 from __future__ import annotations
 

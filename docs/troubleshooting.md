@@ -2,12 +2,12 @@
 
 This page starts with installed-product issues first. Source-checkout and contributor issues are lower down.
 
-## `lemon` Is Not Found After Install
+## `lc` Is Not Found After Install
 
 **Symptom:**
 
 ```text
-bash: lemon: command not found
+bash: lc: command not found
 ```
 
 **Cause:** `~/.local/bin` is not on `PATH` yet.
@@ -18,24 +18,24 @@ bash: lemon: command not found
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## `lemon background status` Shows Services Are Not Running
+## `lc background status` Shows Services Are Not Running
 
 LemonCrow background services should start automatically. If they are stopped or failed:
 
 **Fix:** Restart them using your background manager:
 
 ```bash
-lemon background restart
-lemon background status
+lc background restart
+lc background status
 ```
 
 If you want to inspect what the controller is doing:
 
 ```bash
-lemon background logs controller
+lc background logs controller
 ```
 
-## `lemon background install` Fails on macOS
+## `lc background install` Fails on macOS
 
 **Cause:** `launchd` requires the target directory to exist and might have permission issues.
 
@@ -43,10 +43,10 @@ lemon background logs controller
 
 ```bash
 mkdir -p ~/Library/LaunchAgents
-lemon background install --with-stack
+lc background install --with-stack
 ```
 
-## `lemon stack start` Fails
+## `lc stack start` Fails
 
 **Common causes:** npm dependencies are not installed, `npm` is missing from `PATH`, or ports are already in use.
 
@@ -61,7 +61,7 @@ If ports `3125` or `8787` are already busy, inspect what owns them first:
 
 ```bash
 # Check if the managed background service is already running
-lemon background status
+lc background status
 
 # Check network ports
 ss -ltnp | grep -E ':3125|:8787'
@@ -70,7 +70,7 @@ ss -ltnp | grep -E ':3125|:8787'
 Then stop or reconfigure the conflicting process, or reset the LemonCrow stack:
 
 ```bash
-lemon background restart
+lc background restart
 ```
 
 ## The UI Loads but API Calls Fail With Auth Errors
@@ -78,18 +78,18 @@ lemon background restart
 For local no-auth service usage, start the service explicitly like this:
 
 ```bash
-LEMONCROW_REQUIRE_AUTH=false lemon service start --host 0.0.0.0 --port 8787
+LEMONCROW_REQUIRE_AUTH=false lc service start --host 0.0.0.0 --port 8787
 ```
 
 If you want auth enabled, set `LEMONCROW_API_KEY` and configure the client that is calling the service.
 
-## `lemon mcp` Is Not Found
+## `lc mcp` Is Not Found
 
 If you used the install script, re-run it and verify both commands:
 
 ```bash
-lemon --version
-lemon mcp --version
+lc --version
+lc mcp --version
 ```
 
 If you are on a source checkout instead of an installed setup:
@@ -99,7 +99,7 @@ cd lemoncrow
 uv sync --all-extras
 ```
 
-## `lemon tools call context`, `rescue`, or `verify` Returns `noop`
+## `lc tools call context`, `rescue`, or `verify` Returns `noop`
 
 Those tools are developer-mode surfaces.
 
@@ -108,7 +108,7 @@ Those tools are developer-mode surfaces.
 **Fix:**
 
 ```bash
-lemon tools call context --dev --args '{"task":"Describe the task","domain":"coding"}' --json
+lc tools call context --dev --args '{"task":"Describe the task","domain":"coding"}' --json
 ```
 
 For host integrations, set `LEMONCROW_DEV_MODE=1` in the MCP server environment if
@@ -118,9 +118,9 @@ If the command still behaves unexpectedly, reinitialize the store and verify the
 runtime is healthy:
 
 ```bash
-lemon init
-lemon background status
-lemon worker list
+lc init
+lc background status
+lc worker list
 ```
 
 ## Antigravity MCP Tool Not Available
@@ -156,14 +156,14 @@ session-level “primary model”.
 If you changed importer or pricing logic, rebuild imported traces first:
 
 ```bash
-lemon import --force
+lc import --force
 ```
 
 If the services are already running, restart them to pick up new code or configuration:
 
 ```bash
-lemon background restart
-lemon background status
+lc background restart
+lc background status
 ```
 
 When comparing totals, keep these rules in mind:

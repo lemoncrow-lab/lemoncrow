@@ -83,7 +83,7 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
     )
     assert result.lines_omitted > 0
     assert "line 100: all good" not in result.stdout  # dropped from the summary
-    assert "[lemon: shrunk" in result.spill_hint
+    assert "[lc: shrunk" in result.spill_hint
     match = re.search(r"read (\S+\.txt)\]", result.spill_hint)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")

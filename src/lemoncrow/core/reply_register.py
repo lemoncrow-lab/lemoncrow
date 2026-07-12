@@ -12,7 +12,7 @@ installed agent persona:
 
 Resolution order: ``LEMONCROW_TELEGRAPHIC`` env var → persisted
 ``cli.telegraphic`` key in ``<root>/plugin_settings.json`` (written by
-``lemon settings set cli.telegraphic <level>``) → ``ultra``. The same
+``lc settings set cli.telegraphic <level>``) → ``ultra``. The same
 logic is mirrored (self-contained, no import) in
 ``scripts/lib/managed_context.sh::lemoncrow_apply_reply_register_level`` for
 install scripts that stage pre-rendered files — keep the two in sync.

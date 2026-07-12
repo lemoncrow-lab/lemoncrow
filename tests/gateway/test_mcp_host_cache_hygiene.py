@@ -33,7 +33,7 @@ def test_compact_result_text_compacts_oversized_keeping_head_and_tail(
     assert out.startswith("HEAD")  # head preserved
     assert "TAIL" in out  # tail preserved -- the win over head-only truncation
     assert "omitted" in out  # omission marker from compress_tool_output
-    assert "[lemon: compacted" in out  # recovery footer
+    assert "[lc: compacted" in out  # recovery footer
 
 
 def test_compact_result_text_disabled_with_env_zero(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,7 +64,7 @@ def test_compact_result_text_spills_full_text_when_enabled(tmp_path: Path, monke
     out = mcp_server._compact_result_text(text, "bash")
 
     assert middle_marker not in out  # the summary still drops the middle
-    assert "[lemon: compacted" in out
+    assert "[lc: compacted" in out
     match = re.search(r"read (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")

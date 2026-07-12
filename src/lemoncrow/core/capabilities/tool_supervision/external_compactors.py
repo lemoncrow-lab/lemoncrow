@@ -52,7 +52,7 @@ class ExternalCompactor:
     # to read-only/idempotent commands -- a compactor invocation must never be
     # the thing that decides whether a side-effecting command runs twice.
     safe_prefixes: frozenset[tuple[str, ...]]
-    # How a user installs the binary -- surfaced by `lemon doctor` and the
+    # How a user installs the binary -- surfaced by `lc doctor` and the
     # install script when the binary is absent.
     install_hint: str = ""
 

@@ -1,6 +1,6 @@
 """MCP tool latency profiling with history + drift detection.
 
-Backing logic for ``lemon perf``. Drives the MCP dispatch (``_handle``) for a
+Backing logic for ``lc perf``. Drives the MCP dispatch (``_handle``) for a
 representative set of tool calls against a target repo, measures cold + warm
 latency per tool AND the handler-vs-pipeline split, and compares a run against
 the last recorded one so drift is visible -- including *where* a regression is

@@ -14,7 +14,7 @@ Then initialize or refresh each project with the globally installed LemonCrow CL
 
 ```bash
 cd /path/to/project
-lemon init
+lc init
 ```
 
 If project initialization already runs automatically in your workflow, no separate
@@ -27,29 +27,29 @@ or after plugin changes.
 | --- | --- | --- |
 | Plugin source | `~/.codex/plugins/lemoncrow/` | Skills, hooks, bundled MCP config, and plugin metadata |
 | Marketplace | `~/.agents/plugins/marketplace.json` | Makes `lemoncrow@lemoncrow-local` discoverable by Codex |
-| Main-session instructions | `~/.codex/AGENTS.md` | Makes Codex `Main [default]` operate as `lemon:code` |
+| Main-session instructions | `~/.codex/AGENTS.md` | Makes Codex `Main [default]` operate as `lc:code` |
 | Custom agents | `~/.codex/agents/lemoncrow.*.toml` | Seven globally available custom subagents |
 
 The plugin's `.mcp.json` launches:
 
 ```text
-lemon mcp --host codex
+lc mcp --host codex
 ```
 
 The installer attempts non-interactive plugin activation. Some Codex builds require
 a restart and manual activation through `/plugins`; pending activation is reported as
 a warning and does not invalidate the successfully installed instructions or agents.
 
-## What `lemon init` syncs into a project
+## What `lc init` syncs into a project
 
-When Codex is installed or the project already contains `.codex/`, `lemon init`:
+When Codex is installed or the project already contains `.codex/`, `lc init`:
 
 - creates or refreshes the managed LemonCrow block in `<project>/AGENTS.md` using the generic, host-neutral `integrations/AGENTS.lemoncrow.md` guide;
 - writes seven standalone files under `<project>/.codex/agents/`;
 - applies project-specific model overrides when configured;
 - removes obsolete LemonCrow-owned `[agents.lemoncrow_*]` registration tables from `<project>/.codex/config.toml` while preserving unrelated Codex settings.
 
-`lemon init` does not need to duplicate the global plugin or add a second MCP
+`lc init` does not need to duplicate the global plugin or add a second MCP
 registration. The globally installed plugin provides the Codex-specific tool surface;
 the project files provide local instructions and locally refreshed agent definitions.
 
@@ -72,7 +72,7 @@ Each file contains `name`, `description`, optional `model`, and
 is written.
 
 Codex keeps the root thread label `Main [default]`; that root session receives the
-`lemon:code` behavior from `~/.codex/AGENTS.md`. Custom agents are spawned by name,
+`lc:code` behavior from `~/.codex/AGENTS.md`. Custom agents are spawned by name,
 for example:
 
 ```text
@@ -93,7 +93,7 @@ has been spawned.
 ```bash
 codex --version
 ls ~/.codex/agents/lemoncrow.*.toml
-grep -n "You are operating as.*lemon:code" ~/.codex/AGENTS.md
+grep -n "You are operating as.*lc:code" ~/.codex/AGENTS.md
 python -m json.tool ~/.codex/plugins/lemoncrow/.mcp.json >/dev/null
 ```
 
@@ -107,7 +107,7 @@ Enable `lemoncrow@lemoncrow-local` if it is staged but not yet active.
 
 ## Verify project synchronization
 
-From the project root after `lemon init`:
+From the project root after `lc init`:
 
 ```bash
 grep -n "LEMONCROW:CODE START" AGENTS.md
@@ -127,18 +127,18 @@ For a project that must not use the global installation, the installer still sup
 bash scripts/install_codex.sh --workspace /path/to/project
 ```
 
-Do not run both installation modes for the normal global-plus-`lemon init` workflow.
+Do not run both installation modes for the normal global-plus-`lc init` workflow.
 
 ## Troubleshooting
 
 | Problem | Check |
 | --- | --- |
 | Plugin not visible | Restart Codex, open `/plugins`, and enable `lemoncrow@lemoncrow-local`; verify `~/.agents/plugins/marketplace.json` and `~/.codex/plugins/lemoncrow/` exist |
-| Main does not behave as LemonCrow code mode | Verify `~/.codex/AGENTS.md` contains `You are operating as *lemon:code*.` and start a new Codex session |
-| Agents are missing | Run `lemon init` in the repository and verify `.codex/agents/lemoncrow.*.toml` contains seven files |
+| Main does not behave as LemonCrow code mode | Verify `~/.codex/AGENTS.md` contains `You are operating as *lc:code*.` and start a new Codex session |
+| Agents are missing | Run `lc init` in the repository and verify `.codex/agents/lemoncrow.*.toml` contains seven files |
 | `/agent` shows only Main | Spawn a custom agent by name first; `/agent` lists active threads, not every installed definition |
 | LemonCrow tools are missing | Confirm the plugin is enabled in `/plugins` and inspect `~/.codex/plugins/lemoncrow/.mcp.json` |
-| Old config tables remain | Re-run `lemon init`; it removes only LemonCrow-owned legacy `[agents.lemoncrow_*]` sections |
+| Old config tables remain | Re-run `lc init`; it removes only LemonCrow-owned legacy `[agents.lemoncrow_*]` sections |
 
 ## Uninstall
 

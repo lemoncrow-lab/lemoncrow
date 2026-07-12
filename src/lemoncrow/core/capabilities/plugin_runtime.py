@@ -362,7 +362,7 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     """Price trailing-window usage against the plan's monthly limit.
 
     Realized spend and savings come from :func:`aggregate_window_savings` (the
-    same per-session ledger that drives the statusline and ``lemon savings``),
+    same per-session ledger that drives the statusline and ``lc savings``),
     so the meter always reconciles with those surfaces. Returns the subscription
     dict enriched with live billing fields (``monthlySpendInUsd``,
     ``monthlySavingsInUsd``, ``remainingUsd``, ``usageFraction``, ``warning``,
@@ -1019,7 +1019,7 @@ def _codex_session_start_tool_policy() -> dict[str, Any]:
         "additionalContext": "\n".join(
             [
                 "Codex LemonCrow tool policy:",
-                "- Call `context` before exploratory reads or edits on coding tasks. Use the host-displayed handle if it adds an `mcp__lemon__` prefix.",
+                "- Call `context` before exploratory reads or edits on coding tasks. Use the host-displayed handle if it adds an `mcp__lc__` prefix.",
                 "- Prefer LemonCrow read/search/edit/code-intel tools; use native Codex tools only when the LemonCrow equivalent is hidden, unavailable, or returned noop.",
                 "- Keep replies concise and delivery-focused unless the user explicitly asks for a walkthrough.",
             ]
@@ -1063,7 +1063,7 @@ _LEMONCROW_TOOL_NAMES: frozenset[str] = frozenset(
 
 def _is_lemoncrow_tool(tool_name: str) -> bool:
     lowered = tool_name.lower()
-    if "lemon" in lowered:
+    if "lc" in lowered:
         return True
     # Bare tool name from hosts that strip the MCP server prefix
     return lowered in _LEMONCROW_TOOL_NAMES
@@ -1078,14 +1078,14 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
     normalized = " ".join(command.strip().split()).lower()
 
     if lowered == "read":
-        return ("mcp__lemon__read", "Use LemonCrow read for file reads and ranges.")
+        return ("mcp__lc__read", "Use LemonCrow read for file reads and ranges.")
     if lowered in {"edit", "write", "multiedit", "patch", "apply_patch", "replace"}:
         return (
-            "mcp__lemon__edit",
+            "mcp__lc__edit",
             "Use LemonCrow edit for deterministic grouped writes and rollback.",
         )
     if lowered in {"grep", "glob"}:
-        return ("mcp__lemon__grep", "Use LemonCrow grep/search for text and path discovery.")
+        return ("mcp__lc__grep", "Use LemonCrow grep/search for text and path discovery.")
     if lowered in {"bash", "shell", "exec_command", "run_command"}:
         if (
             normalized.startswith(("rg ", "grep ", "find "))
@@ -1093,13 +1093,13 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
             or " grep " in f" {normalized} "
         ):
             return (
-                "mcp__lemon__grep",
+                "mcp__lc__grep",
                 "Use LemonCrow grep/search instead of shell rg/grep/find loops.",
             )
         if normalized.startswith(("cat ", "sed ", "head ", "tail ")):
-            return ("mcp__lemon__read", "Use LemonCrow read instead of shell file-print commands.")
+            return ("mcp__lc__read", "Use LemonCrow read instead of shell file-print commands.")
         return (
-            "mcp__lemon__bash",
+            "mcp__lc__bash",
             "Use LemonCrow bash so command execution stays compact and supervised.",
         )
     return None
@@ -1135,7 +1135,7 @@ def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[
         "additionalContext": "\n".join(
             [
                 rationale,
-                "For coding tasks, call mcp__lemon__context first if you have not already.",
+                "For coding tasks, call mcp__lc__context first if you have not already.",
                 "Keep native Codex tools as fallback only when the LemonCrow equivalent is hidden, unavailable, or returned noop.",
             ]
         ),
@@ -1464,12 +1464,12 @@ def _lemoncrow_tool_segment(name: Any) -> str:
     if not text:
         return ""
     lowered_text = text.lower()
-    if lowered_text.startswith("lemon_"):
-        return text[len("lemon_") :]
+    if lowered_text.startswith("lc_"):
+        return text[len("lc_") :]
     if lowered_text.startswith("lemoncrow_"):
         return text[len("lemoncrow_") :]
     parts = [part for part in re.split(r"__|::|\.", text) if part]
-    if any("lemon" in part.lower() for part in parts) and len(parts) > 1:
+    if any(part.lower() == "lc" for part in parts) and len(parts) > 1:
         return parts[-1]
     return text
 
@@ -1494,10 +1494,10 @@ def _is_lemoncrow_qualified_tool_name(name: Any) -> bool:
     text = str(name or "").strip()
     if not text:
         return False
-    if text.lower().startswith(("lemon_", "lemoncrow_")):
+    if text.lower().startswith(("lc_", "lemoncrow_")):
         return True
     parts = [part for part in re.split(r"__|::|\.", text) if part]
-    return any("lemon" in part.lower() for part in parts) and len(parts) > 1
+    return any(part.lower() == "lc" for part in parts) and len(parts) > 1
 
 
 def _display_tool_counts(raw: Any) -> dict[str, int]:
@@ -3069,7 +3069,7 @@ def optional_usage_log_path(root: str | Path) -> Path:
 
     One JSON line per use: ``{"kind": "agent"|"skill", "name": ..., "at_ms": ...}``.
     Backs the staleness nudge (Claude statusline tip, OpenCode prompt-time
-    plugin, `lemon stale-nudge`): the only durable record of "when was this
+    plugin, `lc stale-nudge`): the only durable record of "when was this
     last used" -- session stats are per-session and don't survive across
     sessions, and nothing else in the codebase tracks this granularity.
     """

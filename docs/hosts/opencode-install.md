@@ -34,7 +34,7 @@ bash scripts/run_opencode_with_lemoncrow.sh --workspace /path/to/workspace
 
 The installer merges:
 
-1. `mcp.lemoncrow` for `lemon mcp`
+1. `mcp.lemoncrow` for `lc mcp`
 2. `provider.lemoncrow` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`)
 3. A local `chat.message` plugin that injects LemonCrow guidance before a user prompt is sent
 
@@ -43,9 +43,9 @@ MCP entry:
 ```json
 &#123;
   "mcp": &#123;
-    "lemon": &#123;
+    "lc": &#123;
       "type": "local",
-      "command": ["lemon mcp", "--host", "opencode"],
+      "command": ["lc mcp", "--host", "opencode"],
       "environment": {
         "LEMONCROW_WORKSPACE_ROOT": "<workspace>"
       }

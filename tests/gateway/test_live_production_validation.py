@@ -237,7 +237,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
         status, block = _request_json(
             "POST",
             f"{base_url}/v1/memory/blocks",
-            {"agent_id": "lemon:code", "label": "race", "value": "v1", "actor": "test"},
+            {"agent_id": "lc:code", "label": "race", "value": "v1", "actor": "test"},
         )
         assert status == 200
         version = int(block["version"])
@@ -247,7 +247,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
                 "POST",
                 f"{base_url}/v1/memory/blocks",
                 {
-                    "agent_id": "lemon:code",
+                    "agent_id": "lc:code",
                     "label": "race",
                     "value": value,
                     "expected_version": version,
@@ -263,7 +263,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
 
         status, final_block = _request_json(
             "GET",
-            f"{base_url}/v1/memory/blocks?agent_id=lemon:code&label=race",
+            f"{base_url}/v1/memory/blocks?agent_id=lc:code&label=race",
         )
         assert status == 200
         assert final_block["value"] in {"winner-a", "winner-b"}

@@ -12,7 +12,7 @@ session artifacts in the LemonCrow store (cursor / antigravity) — via the shar
 :func:`parse_session_turns`, so it is deterministic, instant, and
 costs nothing. Savings are *inferred* from the loop structure (calls and turns
 eliminated) and labelled as such — they are not a re-measured A/B (that stays
-``lemon benchmark local``).
+``lc benchmark local``).
 """
 
 from __future__ import annotations
@@ -95,8 +95,8 @@ def _is_whole_file_read(turn: dict[str, Any]) -> bool:
     if turn.get("kind") != "tool_call" or _is_lemoncrow_search(turn):
         return False
     n = _tool_name(turn).lower()
-    if "lemon" in n:
-        return False  # lemon read is batched/ranged by design — never a wasteful loop read
+    if "lc" in n:
+        return False  # lc read is batched/ranged by design — never a wasteful loop read
     if "read" not in n and n != "cat":
         return False
     args = turn.get("arguments") or {}
@@ -146,7 +146,7 @@ class Episode:
     read_count: int
     query: str
     after_index: int  # render the collapse card right after this turn index
-    lemon: dict[str, Any] | None = None  # real code_search output (attached by live enrichment)
+    live_result: dict[str, Any] | None = None  # real code_search output (attached by live enrichment)
 
     @property
     def calls_saved(self) -> int:
@@ -161,7 +161,7 @@ class Episode:
             "query": self.query,
             "after_index": self.after_index,
             "calls_saved": self.calls_saved,
-            "lemoncrow": self.lemon,
+            "lemoncrow": self.live_result,
         }
 
 
@@ -232,7 +232,7 @@ class Batch:
     kind: str  # "read" | "edit"
     turn_indices: list[int]
     after_index: int
-    lemon: dict[str, Any] | None = None
+    live_result: dict[str, Any] | None = None
 
     @property
     def calls_saved(self) -> int:
@@ -245,7 +245,7 @@ class Batch:
             "turn_indices": list(self.turn_indices),
             "after_index": self.after_index,
             "calls_saved": self.calls_saved,
-            "lemoncrow": self.lemon,
+            "lemoncrow": self.live_result,
         }
 
 
@@ -606,9 +606,9 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             collapsed_chars += int(a.get("chars_omitted", 0) or 0)
     calls_saved = replay.summary.calls_saved if replay.summary else 0
 
-    # Did this session RUN with LemonCrow (used code_search / an mcp__lemon tool)?
+    # Did this session RUN with LemonCrow (used code_search / an mcp__lc__ tool)?
     ran_with_lemoncrow = any(
-        "lemon" in str(t.get("tool_name") or "").lower() or "code_search" in str(t.get("tool_name") or "").lower()
+        "lc" in str(t.get("tool_name") or "").lower() or "code_search" in str(t.get("tool_name") or "").lower()
         for t in replay.turns
     )
 

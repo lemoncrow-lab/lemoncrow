@@ -80,7 +80,7 @@ vector = [
 # Local code-embedding semantic search (BGE-Code-v1 via SentenceTransformers).
 # sentence-transformers 5.x regresses bge-code-v1 loading (AutoProcessor error) --
 # pin <5. Heavy (torch); opt-in only. accelerate + datasets back the per-repo
-# finetuner behind `lemon code train --name=embedding`.
+# finetuner behind `lc code train --name=embedding`.
 semantic = [
     "sentence-transformers>=3,<5",
     "torch>=2.2",
@@ -106,9 +106,10 @@ dev = [
 ]
 
 [project.scripts]
-lemon = "lemoncrow.gateway.cli:main"
+lemoncrow = "lemoncrow.gateway.cli:main"
 lc = "lemoncrow.gateway.cli:main"
-lemond = "lemoncrow.core.service.daemon:main"
+lemoncrowd = "lemoncrow.core.service.daemon:main"
+lcd = "lemoncrow.core.service.daemon:main"
 
 [build-system]
 requires = ["hatchling", "setuptools", "mypy>=1.10"]

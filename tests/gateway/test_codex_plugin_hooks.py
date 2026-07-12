@@ -68,7 +68,7 @@ def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path)
 
     result = _run_statusline(tmp_path / ".lemoncrow", native)
 
-    assert result.stdout.strip() == ("❯ lemon | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
+    assert result.stdout.strip() == ("❯ lc | gpt-5.5 xhigh ctx 1.1M $0.00(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_statusline_recovers_session_from_workspace_state(tmp_path: Path) -> None:
@@ -108,7 +108,7 @@ def test_codex_statusline_renders_json_token_fields_in_claude_format(tmp_path: P
 
     result = _run_statusline(tmp_path / ".lemoncrow", json.dumps(payload))
 
-    assert result.stdout.strip() == ("❯ lemon | gpt-5.5 xhigh ctx 1.1M 12% $1.23(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
+    assert result.stdout.strip() == ("❯ lc | gpt-5.5 xhigh ctx 1.1M 12% $1.23(I:19.40M C:0 O:61.1k) ↓ $0.00(I:0)")
 
 
 def test_codex_multi_file_prompt_emits_no_runtime_context(tmp_path: Path) -> None:
@@ -161,7 +161,7 @@ def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> Non
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lemon__read",
+            "tool_name": "mcp__lc__read",
             "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
             "cwd": str(tmp_path),
         },
@@ -184,7 +184,7 @@ def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__plugin_lemoncrow_lemon__Edit",
+            "tool_name": "mcp__plugin_lemoncrow_lc__Edit",
             "tool_input": {"edits": [{"file_path": "a.py"}, {"file_path": "b.py"}]},
         },
     )
@@ -192,7 +192,7 @@ def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
     stats = json.loads((session_dir(root, "codex", "c1") / "stats.json").read_text(encoding="utf-8"))
     assert result.stdout == ""
     assert stats["total_tool_calls"] == 1
-    assert stats["tools_used"]["mcp__plugin_lemoncrow_lemon__Edit"] == 1
+    assert stats["tools_used"]["mcp__plugin_lemoncrow_lc__Edit"] == 1
     assert stats["event_counts"]["PostToolUse"] == 1
 
 
@@ -205,7 +205,7 @@ def test_codex_savings_reporter_is_quiet_after_repeated_searches(tmp_path: Path)
             {
                 "hook_event_name": "PostToolUse",
                 "session_id": "c1",
-                "tool_name": "mcp__plugin_lemoncrow_lemon__Search",
+                "tool_name": "mcp__plugin_lemoncrow_lc__Search",
                 "tool_input": {},
                 "now_ms": now_ms,
             },
@@ -233,7 +233,7 @@ def test_codex_savings_reporter_records_loop_state_without_output(tmp_path: Path
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__plugin_lemoncrow_lemon__Search",
+            "tool_name": "mcp__plugin_lemoncrow_lc__Search",
             "tool_input": {},
             "now_ms": 2_000,
         },
@@ -267,13 +267,13 @@ def test_codex_subagent_hook_tracks_start_and_stop(tmp_path: Path) -> None:
         "hook_event_name": "SubagentStart",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lemon:explore",
+        "agent_type": "lc:explore",
     }
     stop_payload = {
         "hook_event_name": "SubagentStop",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lemon:explore",
+        "agent_type": "lc:explore",
     }
 
     start = _run_hook("subagent.py", root, start_payload)
@@ -316,7 +316,7 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
         {
             "hook_event_name": "PostToolUse",
             "session_id": "c1",
-            "tool_name": "mcp__lemon__edit",
+            "tool_name": "mcp__lc__edit",
             "tool_input": {"edits": [{"file_path": "a.py"}, {"file_path": "b.py"}]},
         },
     )
@@ -343,7 +343,7 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     assert "savings: $0.00 · 500 tokens saved · 2 calls avoided" in message
     assert "routing $0.00" not in message
     assert "carry $0.00" not in message
-    assert "tools: mcp__lemon__edit×1" in message
+    assert "tools: mcp__lc__edit×1" in message
 
 
 def test_codex_tool_summary_merges_lemoncrow_mcp_aliases(tmp_path: Path) -> None:
@@ -358,13 +358,13 @@ def test_codex_tool_summary_merges_lemoncrow_mcp_aliases(tmp_path: Path) -> None
             "hook_event_name": "StatuslineUpdate",
             "session_id": "c-tools",
             "tools_used": {
-                "lemon.bash": 26,
+                "lc.bash": 26,
                 "bash": 26,
-                "lemon.read": 23,
+                "lc.read": 23,
                 "read": 23,
-                "lemon.code_search": 15,
+                "lc.code_search": 15,
                 "code_search": 15,
-                "lemon.edit": 14,
+                "lc.edit": 14,
                 "edit": 15,
             },
             "total_tool_calls": 157,
@@ -376,7 +376,7 @@ def test_codex_tool_summary_merges_lemoncrow_mcp_aliases(tmp_path: Path) -> None
     result = plugin_runtime.build_codex_stop_output(root, {"hook_event_name": "Stop", "session_id": "c-tools"})
 
     message = result["systemMessage"]
-    assert "tools: lemon.bash×26 · lemon.read×23 · lemon.code_search×15 · lemon.edit×14 · edit×1" in message
+    assert "tools: lc.bash×26 · lc.read×23 · lc.code_search×15 · lc.edit×14 · edit×1" in message
     assert " · bash×26" not in message
     assert " · read×23" not in message
     assert " · code_search×15" not in message
@@ -680,7 +680,7 @@ def test_codex_savings_reporter_is_fail_open_on_unwritable_root(tmp_path: Path) 
             {
                 "hook_event_name": "PostToolUse",
                 "session_id": "c1",
-                "tool_name": "mcp__lemon__edit",
+                "tool_name": "mcp__lc__edit",
                 "tool_input": {"file_path": "a.py"},
             }
         ),

@@ -1,5 +1,5 @@
 """_run_hook.sh: the cached hook-interpreter resolution must self-heal when a
-reinstall (make dev / make prod / install.sh) moves `lemon` to a new venv.
+reinstall (make dev / make prod / install.sh) moves `lc` to a new venv.
 
 Regression for a real bug: the cache used to be keyed only on "does `import
 lemoncrow` still succeed", which a stale-but-still-valid old install always
@@ -34,7 +34,7 @@ def _make_fake_install(root: Path, marker: str) -> Path:
     )
     python_path.chmod(python_path.stat().st_mode | stat.S_IEXEC)
 
-    lemoncrow_path = bin_dir / "lemon"
+    lemoncrow_path = bin_dir / "lc"
     lemoncrow_path.write_text(f"#!{python_path}\n", encoding="utf-8")
     lemoncrow_path.chmod(lemoncrow_path.stat().st_mode | stat.S_IEXEC)
     return bin_dir
@@ -70,7 +70,7 @@ def test_switches_interpreter_after_reinstall_moves_lemoncrow(tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     assert (
         "RAN:new" in result.stdout
-    ), f"stale interpreter cache was reused after lemon moved on PATH (stdout={result.stdout!r})"
+    ), f"stale interpreter cache was reused after lc moved on PATH (stdout={result.stdout!r})"
 
     # Third run with the new install still on PATH: cache now matches new, no
     # flip-flopping.

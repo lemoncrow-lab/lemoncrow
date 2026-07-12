@@ -2,7 +2,7 @@
 
 PID/state files, status payloads, host-status refresh, host-session import,
 external-analytics collection, git auto-update, and the periodic tick loop for
-the ``lemon servicectl`` daemon. Moved verbatim from ``gateway/cli/app.py``.
+the ``lc servicectl`` daemon. Moved verbatim from ``gateway/cli/app.py``.
 """
 
 from __future__ import annotations
@@ -256,7 +256,7 @@ def _run_tick_subprocess(
 
 
 def _servicectl_import_sessions(root: Path, *, timeout: int = _SESSION_IMPORT_TIMEOUT_SECONDS) -> dict[str, int] | None:
-    """Import host sessions by delegating to the ``lemon import`` CLI subprocess.
+    """Import host sessions by delegating to the ``lc import`` CLI subprocess.
 
     Running import out-of-process keeps JSON parsing, importer-level dedup, and
     the ``sync_usage`` upload out of the daemon's heap. ``sync_usage`` is called
@@ -290,7 +290,7 @@ def _servicectl_import_sessions(root: Path, *, timeout: int = _SESSION_IMPORT_TI
 
 
 def _servicectl_index_recall(root: Path, *, timeout: int = _RECALL_INDEX_TIMEOUT_SECONDS) -> dict[str, int] | None:
-    """Index recent session transcripts via the ``lemon session recall index`` CLI subprocess.
+    """Index recent session transcripts via the ``lc session recall index`` CLI subprocess.
 
     Keeps embedding work and SQLite writes out of the daemon's heap. The subprocess
     is incremental by default (unchanged sessions are skipped).
@@ -571,7 +571,7 @@ def _update_via_release() -> bool:
     if os.environ.get("LEMONCROW_AUTO_UPDATE_RELEASE", "").strip().lower() not in ("1", "true", "yes", "on"):
         logger.info(
             "Auto-update: release auto-update is disabled (opt in with LEMONCROW_AUTO_UPDATE_RELEASE=1). "
-            "Run 'lemon update' manually to update."
+            "Run 'lc update' manually to update."
         )
         return False
     if not shutil.which("bash"):

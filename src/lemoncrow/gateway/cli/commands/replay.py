@@ -1,4 +1,4 @@
-"""``lemon session replay`` — counterfactual session replay (reconstruct, no re-run).
+"""``lc session replay`` — counterfactual session replay (reconstruct, no re-run).
 
 Replays a recorded coding session (claude / codex / opencode / copilot /
 hermes / cursor / antigravity) as a full transcript timeline and marks the
@@ -83,11 +83,11 @@ def replay_cmd(
 
     \b
     Examples:
-      lemon session replay --last 1
-      lemon session replay --session-id <id>
-      lemon session replay --session-id <id> --host codex
-      lemon session replay --host opencode --last 3
-      lemon session replay --file ./session.jsonl --html replay.html
+      lc session replay --last 1
+      lc session replay --session-id <id>
+      lc session replay --session-id <id> --host codex
+      lc session replay --host opencode --last 3
+      lc session replay --file ./session.jsonl --html replay.html
     """
     if file_path is not None and ctx.get_parameter_source("host") == ParameterSource.DEFAULT:
         content = file_path.read_text(encoding="utf-8", errors="replace")

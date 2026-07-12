@@ -352,7 +352,7 @@ def _cell_spill_hint(full_text: str, *, kept_chars: int) -> str:
     silently discarded. Mirrors ``bash_exec._spill_hint`` /
     ``web_fetch._truncate_with_spill``: persists the untouched original to the
     shared T7 spill store and names the path in the canonical
-    ``[lemon: ...]`` footer when spill is enabled and the write succeeds;
+    ``[lc: ...]`` footer when spill is enabled and the write succeeds;
     falls back to the spill-failed shape (no recovery path) otherwise -- always
     returns a non-empty, informative footer.
     """

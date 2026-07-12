@@ -11,7 +11,7 @@ from lemoncrow.core.foundation.identity import config_dir
 
 BANNER_TEXT = (
     "LemonCrow collects anonymous usage telemetry to improve the product.\n"
-    "What's collected:  lemon telemetry show  (or open the Insights tab)\n"
+    "What's collected:  lc telemetry show  (or open the Insights tab)\n"
     "Privacy details:   https://lemoncrow.dev/telemetry\n"
 )
 

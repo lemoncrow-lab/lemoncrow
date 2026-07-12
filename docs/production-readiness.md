@@ -7,7 +7,7 @@ This checklist is the release gate for LemonCrow Phase D hardening.
 - `uv sync --all-extras` completed in a clean environment.
 - `make verify` passes (ruff, black --check, mypy --strict, pytest, runtime smoke tests, host checks).
 - `make benchmark` passes when benchmark evidence is required for the release.
-- Service config reviewed with `lemon service config`.
+- Service config reviewed with `lc service config`.
 - `LEMONCROW_REQUIRE_AUTH=true` for non-local environments.
   Local development defaults to `false`.
 - `LEMONCROW_API_KEY` set for service environments.
@@ -34,9 +34,9 @@ This checklist is the release gate for LemonCrow Phase D hardening.
   - `/health`
   - `/config` (authenticated)
 - Run ledger persistence verified in `.lemoncrow/runs/`.
-- Trace ingestion verified via `lemon runs record` and `/v1/traces`.
+- Trace ingestion verified via `lc runs record` and `/v1/traces`.
 - Analytics summary checked via `/analytics/summary` or the dashboard summary endpoint.
-- Background controller status reviewed with `lemon background status`.
+- Background controller status reviewed with `lc background status`.
 
 ## Logging
 
@@ -75,9 +75,9 @@ This checklist is the release gate for LemonCrow Phase D hardening.
 ## Knowledge Bundle Governance
 
 - Built-in seed blocks under `src/lemoncrow/infra/seed_playbooks/` and built-in rubrics under `src/lemoncrow/core/rubrics/` remain source-controlled artifacts.
-- Domain bundle metadata exposed through `lemon domain list` and `lemon domain info` should match the shipped content.
-- New or updated knowledge artifacts require a clean `lemon init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
-- `lemon benchmark packs` remains the benchmark-only coverage surface; there is no public `lemon pack install` workflow on the current CLI.
+- Domain bundle metadata exposed through `lc domain list` and `lc domain info` should match the shipped content.
+- New or updated knowledge artifacts require a clean `lc init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
+- `lc benchmark packs` remains the benchmark-only coverage surface; there is no public `lc pack install` workflow on the current CLI.
 - Runtime-learned Playbooks are review/promote candidates, not auto-published governance records.
 
 ## Release Sign-Off

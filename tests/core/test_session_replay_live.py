@@ -72,7 +72,7 @@ def test_code_search_real_hits_and_endpoint_match(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(live, "_build_engine", lambda root: _FakeEngine(hits))
     replay = _replay_with_edit()
     live.enrich_replay(replay, tmp_path)
-    lemoncrow = replay.episodes[0].lemon
+    lemoncrow = replay.episodes[0].live_result
     assert lemoncrow is not None
     assert lemoncrow["mode"] == "real"
     assert lemoncrow["hits"][0]["path"] == "foo.py"
@@ -183,6 +183,6 @@ def test_edit_batch_enriched(tmp_path: Path, monkeypatch) -> None:
     live.enrich_replay(replay, tmp_path)
     batch = replay.batches[0]
     assert batch.kind == "edit"
-    assert batch.lemon["mode"] == "batch"
-    assert batch.lemon["count"] == 3
-    assert "a.yaml" in batch.lemon["files"]
+    assert batch.live_result["mode"] == "batch"
+    assert batch.live_result["count"] == 3
+    assert "a.yaml" in batch.live_result["files"]

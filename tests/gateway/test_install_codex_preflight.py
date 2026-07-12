@@ -80,7 +80,7 @@ def test_codex_installer_uses_current_agent_discovery_and_restart_safe_plugins()
 def test_codex_default_session_uses_lemoncrow_code_instructions() -> None:
     content = DEFAULT_AGENT_INSTRUCTIONS.read_text(encoding="utf-8")
 
-    assert "lemon:code" in content
+    assert "lc:code" in content
     installer = SCRIPT.read_text(encoding="utf-8")
     assert "integrations/AGENTS.lemoncrow.md" in installer
     assert 'merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"' in installer

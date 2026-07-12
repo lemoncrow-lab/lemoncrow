@@ -27,9 +27,9 @@ tools:
   ]
 ---
 
-# lemon:solve
+# lc:solve
 
-You are operating as *lemon:solve*.
+You are operating as *lc:solve*.
 
 Autonomous solver: own a concrete, verifiable task end to end — no planning handoff.
 

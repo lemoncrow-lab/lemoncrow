@@ -24,7 +24,7 @@ _EXPECTED_TOP_LEVEL = (
 
 
 def _ctx() -> click.Context:
-    return click.Context(cli, info_name="lemon")
+    return click.Context(cli, info_name="lc")
 
 
 def test_playbook_curation_commands_registered() -> None:
@@ -54,7 +54,7 @@ def test_playbook_commands_help_succeeds() -> None:
         ["reembed", "--help"],
     ):
         result = runner.invoke(cli, args)
-        assert result.exit_code == 0, f"`lemon {' '.join(args)}` failed:\n{result.output}"
+        assert result.exit_code == 0, f"`lc {' '.join(args)}` failed:\n{result.output}"
 
 
 def test_existing_playbook_registrations_intact() -> None:

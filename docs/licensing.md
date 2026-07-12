@@ -16,7 +16,7 @@ Pro beta covers the existing gated capabilities.
 
 ## How entitlement works
 
-`lemon login` runs a browser OAuth flow against the auth server and stores a
+`lc login` runs a browser OAuth flow against the auth server and stores a
 session token at `~/.lemoncrow/auth_token` (mode `0600`; override with the
 `LEMONCROW_AUTH_TOKEN` env var — handy for CI). Entitlement checks read the plan
 from `/api/auth/me`, cached on disk for 6 hours (`~/.lemoncrow/auth_user.json`),
@@ -24,7 +24,7 @@ so normal operation makes a handful of auth calls a day. If the server is
 unreachable and no fresh cache exists, gated surfaces stay locked and the check
 retries hourly; Free surfaces are never affected.
 
-`lemon logout` deletes the session and reverts to Free. There are no offline
+`lc logout` deletes the session and reverts to Free. There are no offline
 license keys, no device-bound leases, no local crypto, and no dev backdoor —
 the account's plan is the single source of truth, and every check fails closed
 to Free.
@@ -49,10 +49,10 @@ Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
 A free account is required to activate the official install:
 
 ```bash
-lemon login          # browser OAuth; stores the session token
-lemon init           # activates the official install
-lemon login --status # show account and plan
-lemon logout         # removes the local session
+lc login          # browser OAuth; stores the session token
+lc init           # activates the official install
+lc login --status # show account and plan
+lc logout         # removes the local session
 ```
 A Pro beta account supports up to **three active CLI devices**; the auth server
 tracks the slots. LEMONCROW_PRO_URL overrides the buy link shown in upsells.
@@ -81,7 +81,7 @@ Both check the signed-in account's **plan** — nothing else. Use
    **write/apply/activate** action, not read-only previews — let users measure
    the value before they pay for it.
 
-Current gates (reference): `lemon optimize apply`, `lemon savings --deep`,
+Current gates (reference): `lc optimize apply`, `lc savings --deep`,
 and the `require_pro` CLI gates (recall, router, zoekt, knowledge, swarm,
 memory).
 

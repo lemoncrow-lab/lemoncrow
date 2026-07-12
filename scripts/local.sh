@@ -67,7 +67,7 @@ install_console_scripts() {
         UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
         uv tool uninstall lemoncrow >/dev/null 2>&1 || true
     
-    # Editable tool install: the on-PATH `lemon` (the MCP server Claude Code
+    # Editable tool install: the on-PATH `lc` (the MCP server Claude Code
     # launches) imports straight from this checkout, so a source edit goes live
     # on the next server/session restart -- no `make dev` re-run needed. Prod
     # (bundle.sh) installs a built wheel instead; only dev is editable.

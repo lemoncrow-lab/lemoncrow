@@ -19,7 +19,7 @@ bash scripts/install_copilot.sh --workspace /path/to/workspace
 To configure project-specific role models after the global install, run:
 
 ```bash
-uv run lemon init --configure-models
+uv run lc init --configure-models
 ```
 
 Inside a git workspace, the init wizard writes `<workspace>/.lemoncrow/settings.json`
@@ -48,7 +48,7 @@ The MCP config registers LemonCrow as a stdio server:
 The intended flow is:
 
 1. Install LemonCrow globally so Copilot can see the MCP server and default instructions.
-2. Run `uv run lemon init --configure-models` inside a repository.
+2. Run `uv run lc init --configure-models` inside a repository.
 3. Let the wizard write `.lemoncrow/settings.json` plus a workspace-local
    `.github/agents/lemoncrow.code.agent.md` and the other `lemoncrow.<role>.agent.md` files.
 
@@ -56,9 +56,9 @@ The intended flow is:
 write the selected model directly into the workspace agent frontmatter.json
 &#123;
   "servers": &#123;
-    "lemon": {
+    "lc": {
       "type": "stdio",
-      "command": "lemon mcp",
+      "command": "lc mcp",
       "args": ["--host", "copilot"],
       "env": {
         "LEMONCROW_WORKSPACE_ROOT": "<workspace>"
@@ -93,7 +93,7 @@ Additional workspace helpers:
 
 - Copilot Chat can invoke LemonCrow MCP tools through the local LemonCrow MCP wrapper
 - `copilot-instructions.md` provides LemonCrow context to every Copilot session
-- `lemon` agent is available from the agent picker
+- `lc` agent is available from the agent picker
 - The installed Copilot instructions and agent explicitly map native `search/codebase`, `search`, `edit/editFiles`, and `execute/runInTerminal` back to LemonCrow MCP equivalents
 - `LemonCrow: Copilot Preflight` runs the shell-based preflight before you continue in Copilot Chat
 - `LemonCrow: Worktree Bootstrap` makes local stacks easier to boot from multiple worktrees
@@ -105,7 +105,7 @@ Additional workspace helpers:
 
 Copilot's MCP support applies to chat/tool calls inside the Copilot session. VS Code
 `tasks.json` entries are shell tasks, so the preflight task has to spawn the
-`lemon` CLI rather than invoke MCP directly. The MCP server remains the primary
+`lc` CLI rather than invoke MCP directly. The MCP server remains the primary
 integration surface for in-chat `context`, `trace`, `memory`, and related LemonCrow tools.
 
 ## Projection Workflow

@@ -8,14 +8,14 @@ rescue, trace recording, rubric gates, memory, and code-aware helper tools.
 ### Installed product
 
 ```bash
-lemon mcp
+lc mcp
 ```
 
 ### Source checkout
 
 ```bash
 cd lemoncrow
-uv run lemon mcp
+uv run lc mcp
 ```
 
 ### Remote service-backed mode
@@ -78,8 +78,8 @@ Installed-product config:
 ```json
 {
   "mcpServers": {
-    "lemon": {
-      "command": "lemon mcp",
+    "lc": {
+      "command": "lc mcp",
       "env": {
         "LEMONCROW_ROOT": "~/.lemoncrow",
         "LEMONCROW_WORKSPACE_ROOT": "."
@@ -94,9 +94,9 @@ Source-checkout config:
 ```json
 {
   "mcpServers": {
-    "lemon": {
+    "lc": {
       "command": "uv",
-      "args": ["run", "lemon mcp"],
+      "args": ["run", "lc mcp"],
       "cwd": "/abs/path/to/lemoncrow",
       "env": {
         "LEMONCROW_ROOT": "~/.lemoncrow",

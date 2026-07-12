@@ -1,4 +1,4 @@
-"""``lemond`` — LemonCrow HTTP service daemon CLI logic."""
+"""``lemoncrowd``/``lcd`` — LemonCrow HTTP service daemon CLI logic."""
 
 from __future__ import annotations
 
@@ -41,12 +41,12 @@ def _launchctl_available() -> bool:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]}, invoke_without_command=True)
-@click.version_option(prog_name="lemond")
+@click.version_option(prog_name="lemoncrowd")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """LemonCrow service daemon — manage the LemonCrow HTTP service.
 
-    Run with no arguments to show service status (same as ``lemond status``).
+    Run with no arguments to show service status (same as ``lemoncrowd status``).
     """
     if ctx.invoked_subcommand is None:
         ctx.invoke(status)
@@ -87,7 +87,7 @@ def stop() -> None:
         except (ValueError, ProcessLookupError, OSError):
             pass
     if not killed:
-        click.echo("No running lemond process found (try: systemctl --user stop lemoncrow-stack)", err=True)
+        click.echo("No running lemoncrowd process found (try: systemctl --user stop lemoncrow-stack)", err=True)
         sys.exit(1)
 
 
@@ -97,7 +97,7 @@ def restart() -> None:
     if _systemctl_available():
         ret = _run_systemctl("restart", _service_unit())
         sys.exit(ret)
-    click.echo("systemctl not available; use 'lemond stop && lemond start'", err=True)
+    click.echo("systemctl not available; use 'lcd stop && lcd start'", err=True)
     sys.exit(1)
 
 
@@ -110,9 +110,9 @@ def status() -> None:
     try:
         with urllib.request.urlopen(f"{root_url}/health", timeout=2) as resp:
             data = resp.read().decode()
-        click.echo(f"● lemond  running  {root_url}  {data.strip()}")
+        click.echo(f"● lcd  running  {root_url}  {data.strip()}")
     except Exception:  # noqa: BLE001
-        click.echo(f"● lemond  stopped  (not reachable at {root_url}/health)")
+        click.echo(f"● lcd  stopped  (not reachable at {root_url}/health)")
 
     if _systemctl_available():
         click.echo("")
@@ -147,12 +147,12 @@ def logs(follow: bool, lines: int) -> None:
 def install(enable: bool) -> None:
     """Install systemd unit for the LemonCrow HTTP service."""
     if not _systemctl_available():
-        click.echo("systemctl not available. On macOS use 'lemond install --launchd'.", err=True)
+        click.echo("systemctl not available. On macOS use 'lcd install --launchd'.", err=True)
         sys.exit(1)
 
-    # Note: when running via 'lemon background service install', sys.argv[0] is 'lemon'
-    # but we want the service to point to 'lemon background service start'
-    lemoncrow_bin = shutil.which("lemon") or sys.argv[0]
+    # Note: when running via 'lc background service install', sys.argv[0] is 'lc'
+    # but we want the service to point to 'lc background service start'
+    lemoncrow_bin = shutil.which("lc") or sys.argv[0]
     service_start_cmd = f"{lemoncrow_bin} background service start"
 
     project_root = os.getcwd()
@@ -263,8 +263,8 @@ def frontend_install(enable: bool) -> None:
         click.echo(f"Frontend directory not found: {fdir}", err=True)
         sys.exit(1)
 
-    # We use 'lemon background service' as the proxy for the daemon logic
-    lemoncrow_bin = shutil.which("lemon") or sys.argv[0]
+    # We use 'lc background service' as the proxy for the daemon logic
+    lemoncrow_bin = shutil.which("lc") or sys.argv[0]
     service_start_cmd = f"{lemoncrow_bin} background service"
 
     unit_dir = SYSTEMD_USER_DIR
@@ -295,5 +295,5 @@ WantedBy=default.target
 
 
 def main() -> None:
-    """Entry point for the ``lemond`` console script."""
+    """Entry point for the ``lemoncrowd``/``lcd`` console scripts."""
     cli()

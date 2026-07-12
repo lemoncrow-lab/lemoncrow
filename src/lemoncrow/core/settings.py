@@ -11,7 +11,7 @@ directly from it.
 ``apply_settings_env`` is called once, as early as possible, from
 ``lemoncrow/__init__.py``: it seeds ``os.environ`` from any persisted
 overrides via ``setdefault``, so an explicitly-exported environment variable
-always wins over a value stored via ``lemon settings set``.
+always wins over a value stored via ``lc settings set``.
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ def apply_settings_env(root: str | Path | None = None, *, env: dict[str, str] | 
     """Seed process env vars from persisted settings.
 
     Only fills in vars not already present in *env* — an explicit environment
-    variable always takes precedence over a value persisted via ``lemon
+    variable always takes precedence over a value persisted via ``lc
     settings set``. Safe to call repeatedly; never raises (settings must never
     block a plain ``import lemoncrow``).
     """

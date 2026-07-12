@@ -47,7 +47,7 @@ def test_install_script_exists(host: str) -> None:
     assert is_executable(script), f"Not executable: scripts/install_{host}.sh"
 
 
-# lemoncrow-status was folded into `lemon status` — its test moved to the CLI test suite.
+# lemoncrow-status was folded into `lc status` — its test moved to the CLI test suite.
 
 # ---------------------------------------------------------------------------
 # 3. Unified scripts
@@ -143,7 +143,7 @@ def test_codex_plugin_prompt_uses_real_discovery_path() -> None:
     prompt = "\n".join(data["interface"]["defaultPrompt"])
     assert "lemoncrow_code" in prompt
     assert all(len(item) <= 128 for item in data["interface"]["defaultPrompt"])
-    assert "mcp__lemon__context" not in manifest_text
+    assert "mcp__lc__context" not in manifest_text
     assert "context first" not in manifest_text
 
 
@@ -315,7 +315,7 @@ def test_opencode_example_has_mcp_key() -> None:
         pytest.skip("opencode example config not found")
     data = json.loads(example.read_text())
     assert "mcp" in data, "opencode example must have 'mcp' key"
-    assert "lemon" in data["mcp"], "opencode example must have 'mcp.lemoncrow' key"
+    assert "lc" in data["mcp"], "opencode example must have 'mcp.lemoncrow' key"
 
 
 ANTIGRAVITY_INTEGRATION = INTEGRATIONS / "antigravity"
@@ -329,9 +329,9 @@ def test_antigravity_mcp_template_exists() -> None:
     template = ANTIGRAVITY_INTEGRATION / "mcp.lemoncrow.template.json"
     assert template.exists(), "integrations/antigravity/mcp.lemoncrow.template.json must exist"
     data = json.loads(template.read_text())
-    assert "lemon" in data.get("servers", {}), "Antigravity template must have 'servers.lemoncrow'"
-    assert data["servers"]["lemon"]["command"] == "lemon"
-    assert data["servers"]["lemon"]["args"] == ["mcp", "--host", "antigravity"]
+    assert "lc" in data.get("servers", {}), "Antigravity template must have 'servers.lemoncrow'"
+    assert data["servers"]["lc"]["command"] == "lc"
+    assert data["servers"]["lc"]["args"] == ["mcp", "--host", "antigravity"]
 
 
 def test_copilot_example_has_servers_key() -> None:
@@ -340,7 +340,7 @@ def test_copilot_example_has_servers_key() -> None:
         pytest.skip("copilot mcp example config not found")
     data = json.loads(example.read_text())
     assert "servers" in data, "copilot example must have 'servers' key"
-    assert "lemon" in data["servers"], "copilot example must have 'servers.lemoncrow'"
+    assert "lc" in data["servers"], "copilot example must have 'servers.lemoncrow'"
 
 
 CODEX_PLUGIN = INTEGRATIONS / "codex" / "plugin"
@@ -363,8 +363,8 @@ def test_codex_plugin_mcp_template_exists() -> None:
     mcp_json = CODEX_PLUGIN / ".mcp.json"
     assert mcp_json.exists(), "integrations/codex/plugin/.mcp.json must exist"
     data = json.loads(mcp_json.read_text())
-    lemoncrow = data.get("lemon", {})
-    assert lemoncrow.get("command") == "lemon", "Codex plugin template must call lemon directly"
+    lemoncrow = data.get("lc", {})
+    assert lemoncrow.get("command") == "lc", "Codex plugin template must call lc directly"
 
 
 def test_codex_hooks_bundle_exists() -> None:
@@ -439,14 +439,14 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert "${HOME}/.opencode" not in opencode
 
     claude = (SCRIPTS / "install_claude.sh").read_text()
-    assert "claude mcp add --scope user lemon" in claude
+    assert "claude mcp add --scope user lc" in claude
     assert '.mcp.json"' in claude
-    assert '"lemon mcp"' in claude or "lemon" in claude
+    assert '"lc mcp"' in claude or "lc" in claude
 
     antigravity = (SCRIPTS / "install_antigravity.sh").read_text()
     assert "antigravity --add-mcp" in antigravity
     assert "mcp.json" in antigravity
-    assert "lemon" in antigravity
+    assert "lc" in antigravity
 
 
 def test_opencode_install_passes_config_path_via_env_not_source_interpolation() -> None:
@@ -571,10 +571,10 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight")
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
-    assert any("lemon tools call context" in arg for arg in args)
+    assert any("lc tools call context" in arg for arg in args)
 
     summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Session Summary")
-    assert summary_task.get("command") == "lemon"
+    assert summary_task.get("command") == "lc"
     assert summary_task.get("args") == ["session", "report", "--no-color"]
 
 
@@ -637,7 +637,7 @@ def test_new_claude_plugin_json_has_no_commands_key() -> None:
     data = json.loads(plugin_json.read_text())
     assert (
         "commands" not in data
-    ), "plugin.json must not have 'commands' key — use 'skills' for /lemon:name namespacing"
+    ), "plugin.json must not have 'commands' key — use 'skills' for /lc:name namespacing"
 
 
 def test_new_claude_plugin_json_author_is_object() -> None:
@@ -720,8 +720,8 @@ def test_new_claude_plugin_mcp_is_valid() -> None:
     assert mcp_json.exists(), "integrations/claude/plugin/.mcp.json must exist"
     data = json.loads(mcp_json.read_text())
     assert "mcpServers" in data
-    assert "lemon" in data["mcpServers"]
-    assert data["mcpServers"]["lemon"]["command"] == "lemon"
+    assert "lc" in data["mcpServers"]
+    assert data["mcpServers"]["lc"]["command"] == "lc"
 
 
 def test_new_claude_plugin_hooks_enabled() -> None:
@@ -758,9 +758,11 @@ def test_new_claude_plugin_settings_uses_supported_keys() -> None:
     allowed = {"agent", "subagentStatusLine"}
     extra = set(data.keys()) - allowed
     assert not extra, f"settings.json contains unsupported keys: {extra}. Only {allowed} are honored by Claude Code."
-    assert (
-        data.get("agent") == "lemon:code"
-    ), "settings.json must set `agent` to 'lemon:code' so it appears as the default agent for the lemoncrow plugin."
+    assert data.get("agent") == "lemoncrow:code", (
+        "settings.json must set `agent` to 'lemoncrow:code' — Claude Code namespaces plugin "
+        "agents as '<plugin-name>:<agent-name>' (plugin name is 'lemoncrow'), so this is what "
+        "resolves to a real agent and what the host displays as the default agent."
+    )
 
 
 def test_new_claude_plugin_subagent_statusline_wired() -> None:
@@ -896,7 +898,7 @@ def test_install_claude_stages_workflow_assets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 19. Docs use correct /lemon:skill namespacing (not /lemoncrow-skill)
+# 19. Docs use correct /lc:skill namespacing (not /lemoncrow-skill)
 # ---------------------------------------------------------------------------
 
 
@@ -905,7 +907,7 @@ def test_docs_use_lemoncrow_colon_not_dash_for_skills() -> None:
     if not doc.exists():
         pytest.skip("claude-code-install.md not found")
     content = doc.read_text()
-    assert "/lemon:code" in content, "claude-code-install.md must document /lemon:code (colon, not dash)"
+    assert "/lemoncrow:code" in content, "claude-code-install.md must document /lemoncrow:code (colon, not dash)"
     # Ensure the wrong form is not present (unless it's mentioned as a legacy note)
     # We allow it if explicitly labelled as deprecated/old
     bad_uses = [
@@ -948,14 +950,14 @@ def test_agents_lemoncrow_md_has_persona() -> None:
     f = INTEGRATIONS / "AGENTS.lemoncrow.md"
     assert f.exists(), "Missing: integrations/AGENTS.lemoncrow.md"
     content = f.read_text()
-    assert "lemon:code" in content, "AGENTS.lemoncrow.md must declare lemon:code persona"
+    assert "lc:code" in content, "AGENTS.lemoncrow.md must declare lc:code persona"
 
 
 def test_opencode_lemoncrow_agent_exists() -> None:
     f = INTEGRATIONS / "opencode" / "agents" / "code.md"
     assert f.exists(), "Missing: integrations/opencode/agents/code.md"
     text = f.read_text()
-    assert "lemon:code" in text
+    assert "lc:code" in text
     assert "---" in text, "opencode agent must have frontmatter"
 
 
@@ -965,7 +967,7 @@ def test_copilot_lemoncrow_agents_exist() -> None:
     assert code_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.code.agent.md"
     assert execute_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.execute.agent.md"
     text = code_agent.read_text()
-    assert "lemon:code" in text
+    assert "lc:code" in text
     assert "description:" in text, "agent must have description: frontmatter"
     assert "model: gpt-5.4" in text, "Copilot agent must pin the model in frontmatter"
 

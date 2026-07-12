@@ -69,7 +69,7 @@ Order every pitch by strength of proof — this is what the trend can't copy:
 | Interactive proof | `curl \| bash` savings estimator on user's own logs | README, landing |
 | Star CTA | "Cut 2,626 turns and ~$69. A star costs zero tokens. Fair trade. ⭐" | README footer |
 | Star-history chart | `api.star-history.com` embed | README footer |
-| Tweetable receipts | `lemon savings --json` / a `--share` one-liner (see §7) | CLI + statusline |
+| Tweetable receipts | `lc savings --json` / a `--share` one-liner (see §7) | CLI + statusline |
 | Social proof strip | Live badges now; HN/Trending/press logos as earned (never faked) | landing |
 | Ecosystem gravity | One coherent "workshop" family, not five separate tools | landing, docs |
 
@@ -93,7 +93,7 @@ Keep it light. The metaphor should reward attention, never block comprehension �
 
 1. **Ship the rewritten `README.md`** (done in this branch) — the hero, before/after, receipts chart, star CTA.
 2. **Landing page** — see `docs/marketing/landing-copy.md`; build the hero + live-metering demo + interactive-savings CTA first.
-3. **`lemon savings --share`** — emit a copy-paste tweet line: _"LemonCrow saved my last week of agent work $X across N tool calls. Same model. → lemoncrow.com"_. This is the free viral loop — users become the ad.
+3. **`lc savings --share`** — emit a copy-paste tweet line: _"LemonCrow saved my last week of agent work $X across N tool calls. Same model. → lemoncrow.com"_. This is the free viral loop — users become the ad.
 4. **The losing-row blog post** — "The benchmark where LemonCrow doesn't win (and why we published it)." Honesty content outperforms hype content in dev communities.
 5. **Launch sequence** — Show HN ("LemonCrow — same model, +12pp on SWE-bench, all raw runs published"), then r/LocalLLaMA / r/ChatGPTCoding, then submit to Trendshift/GitHub-trending-adjacent lists once stars build. Lead every post with the reproducible number, not the tagline.
 6. **Statusline receipt** — show `[LemonCrow] ◈ saved $X` in supported hosts. Passive, per-session, tweetable.

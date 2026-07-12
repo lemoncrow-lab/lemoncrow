@@ -576,7 +576,7 @@ class ClaudeImporter:
         trace = Trace(
             id=artifact_id,
             session_id=actual_session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="claude",
             domain="coding",
             task=task,

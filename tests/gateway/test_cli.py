@@ -428,7 +428,7 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
     def _which(name: str) -> str | None:
         mapping = {
             "systemctl": "/bin/systemctl",
-            "lemon": "/usr/bin/lemon",
+            "lc": "/usr/bin/lc",
             "git": "/usr/bin/git",
             "docker": "/usr/bin/docker",
             "make": "/usr/bin/make",
@@ -748,4 +748,4 @@ def test_servicectl_surfaces_job_queue_health(
     assert status_after_payload["job_queue_health"] == tick_payload["job_queue_health"]
 
 
-# `lemon task` command removed — cut in CLI consolidation.
+# `lc task` command removed — cut in CLI consolidation.

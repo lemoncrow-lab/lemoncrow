@@ -65,15 +65,15 @@ def test_get_context_injects_same_agent_memory(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-lemoncrow-code",
-        agent_id="lemon:code",
+        agent_id="lc:code",
         text="Scoped recall context injection should append durable memory for lemoncrow code.",
-        tags=["agent:lemon:code"],
+        tags=["agent:lc:code"],
     )
 
     payload = _call_context(
         {
             "task": "scoped recall context injection for lemoncrow code",
-            "agent_id": "lemon:code",
+            "agent_id": "lc:code",
         }
     )
 
@@ -94,7 +94,7 @@ def test_get_context_does_not_leak_other_agent_memory(memory_root: Path) -> None
     payload = _call_context(
         {
             "task": "scoped recall context injection for lemoncrow code",
-            "agent_id": "lemon:code",
+            "agent_id": "lc:code",
         }
     )
 
@@ -106,15 +106,15 @@ def test_get_context_can_disable_recall(memory_root: Path) -> None:
     _insert_passage(
         memory_root,
         passage_id="pas-disabled",
-        agent_id="lemon:code",
+        agent_id="lc:code",
         text="Disabled recall passage should stay out of injected context.",
-        tags=["agent:lemon:code"],
+        tags=["agent:lc:code"],
     )
 
     payload = _call_context(
         {
             "task": "disabled recall passage",
-            "agent_id": "lemon:code",
+            "agent_id": "lc:code",
             "recall": False,
         }
     )

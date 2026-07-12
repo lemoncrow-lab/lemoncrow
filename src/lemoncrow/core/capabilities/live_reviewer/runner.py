@@ -167,7 +167,7 @@ def run_review(
             mode="explicit",
             provider=provider,
             model=model_id,
-            host_agent="lemon:review",
+            host_agent="lc:review",
         )
         allow_fallback = False
     else:
@@ -177,7 +177,7 @@ def run_review(
             mode="auto",
             budget="best" if mode == "deep" else "cheap",
             model=model_id,
-            host_agent="lemon:review",
+            host_agent="lc:review",
         )
         allow_fallback = True
 
@@ -188,7 +188,7 @@ def run_review(
         tool_name="agent",
         task_text=prompt,
         decision=decision,
-        host_agent="lemon:review",
+        host_agent="lc:review",
         allow_fallback=allow_fallback,
     )
     verdict = parse_verdict(result.output)
