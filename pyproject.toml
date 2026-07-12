@@ -107,7 +107,6 @@ dev = [
 
 [project.scripts]
 lemoncrow = "lemoncrow.gateway.cli:main"
-lc = "lemoncrow.gateway.cli:main"
 lemoncrowd = "lemoncrow.core.service.daemon:main"
 lcd = "lemoncrow.core.service.daemon:main"
 

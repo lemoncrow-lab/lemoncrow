@@ -7,7 +7,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "lc tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\" --json",
+        "lemoncrow tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\\\" --json",
         "bash",
         "${input:lemoncrowTask}",
         "${input:lemoncrowStep1}",
@@ -21,7 +21,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "lc tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\" --json",
+        "lemoncrow tools call context --args \"{\\\"task\\\":\\\"$1\\\"}\\\" --json",
         "bash",
         "${input:lemoncrowTask}",
         "${input:lemoncrowStep1}",
@@ -32,14 +32,14 @@
     {
       "label": "LemonCrow: Record Trace",
       "type": "shell",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["runs", "record", "--task", "${input:lemoncrowTask}", "--status", "partial", "--json"],
       "problemMatcher": []
     },
     {
       "label": "LemonCrow: Session Summary",
       "type": "shell",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["session", "report", "--no-color"],
       "problemMatcher": []
     },

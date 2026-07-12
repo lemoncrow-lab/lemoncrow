@@ -137,7 +137,7 @@ allow = perms.get("allow", [])
 deny = perms.get("deny", [])
 lc_bash_allows = {
     "Bash(git *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)",
-    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lc *)",
+    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemoncrow *)",
     "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)",
     "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)",
     "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)",

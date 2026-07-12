@@ -15,7 +15,7 @@ lc mcp
 
 ```bash
 cd lemoncrow
-uv run lc mcp
+uv run lemoncrow mcp
 ```
 
 ### Remote service-backed mode

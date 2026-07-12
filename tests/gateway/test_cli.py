@@ -428,7 +428,7 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
     def _which(name: str) -> str | None:
         mapping = {
             "systemctl": "/bin/systemctl",
-            "lc": "/usr/bin/lc",
+            "lemoncrow": "/usr/bin/lemoncrow",
             "git": "/usr/bin/git",
             "docker": "/usr/bin/docker",
             "make": "/usr/bin/make",

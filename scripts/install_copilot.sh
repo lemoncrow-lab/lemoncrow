@@ -103,7 +103,7 @@ if $WORKSPACE_SET; then
   "servers": {
       "lemoncrow": {
         "type": "stdio",
-        "command": "lc",
+        "command": "lemoncrow",
         "args": ["mcp", "--host", "copilot"],
         "env": {
           "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
@@ -119,7 +119,7 @@ else
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "copilot"]
     }
   }

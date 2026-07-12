@@ -604,7 +604,7 @@ def swarm_apply(
     else:
         # Show the user how to actually apply the changes
         click.echo("\nTo apply these changes to your current repository, run:")
-        click.echo(f"  uv run lc --root {ctx.obj['root']} swarm apply {run_id} --execute")
+        click.echo(f"  uv run lemoncrow --root {ctx.obj['root']} swarm apply {run_id} --execute")
         click.echo(
             "\nThis will execute the git cherry-pick and git apply commands sequentially in your current repository."
         )

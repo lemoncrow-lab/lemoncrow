@@ -21,7 +21,7 @@ Or manually — add to ``~/.cursor/mcp.json``::
       "mcpServers": {
         "lc": {
           "type": "stdio",
-          "command": "lc",
+          "command": "lemoncrow",
           "args": ["mcp"]
         }
       }
@@ -140,7 +140,7 @@ class CursorAdapter(AgentAdapter):
             '   { "mcpServers": {\n'
             '       "lc": {\n'
             '           "type": "stdio",\n'
-            '           "command": "lc",\n'
+            '           "command": "lemoncrow",\n'
             '           "args": []\n'
             "       }\n"
             "   }}\n"

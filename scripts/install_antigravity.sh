@@ -100,7 +100,7 @@ if $WORKSPACE_SET; then
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "antigravity"],
       "env": {
         "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
@@ -116,7 +116,7 @@ else
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "antigravity"]
     }
   }
@@ -126,7 +126,7 @@ JSON
 fi
 
 ADD_MCP_JSON=$(cat <<'JSON'
-{"name":"lemoncrow","command":"lc","args":["mcp","--host","antigravity"]}
+{"name":"lemoncrow","command":"lemoncrow","args":["mcp","--host","antigravity"]}
 JSON
 )
 

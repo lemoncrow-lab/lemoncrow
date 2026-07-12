@@ -19,7 +19,7 @@ bash scripts/install_copilot.sh --workspace /path/to/workspace
 To configure project-specific role models after the global install, run:
 
 ```bash
-uv run lc init --configure-models
+uv run lemoncrow init --configure-models
 ```
 
 Inside a git workspace, the init wizard writes `<workspace>/.lemoncrow/settings.json`
@@ -48,7 +48,7 @@ The MCP config registers LemonCrow as a stdio server:
 The intended flow is:
 
 1. Install LemonCrow globally so Copilot can see the MCP server and default instructions.
-2. Run `uv run lc init --configure-models` inside a repository.
+2. Run `uv run lemoncrow init --configure-models` inside a repository.
 3. Let the wizard write `.lemoncrow/settings.json` plus a workspace-local
    `.github/agents/lemoncrow.code.agent.md` and the other `lemoncrow.<role>.agent.md` files.
 

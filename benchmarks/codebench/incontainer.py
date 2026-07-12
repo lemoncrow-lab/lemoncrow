@@ -73,7 +73,7 @@ rm -rf /var/lib/apt/lists/*
 
 # LemonCrow arm only: install the LemonCrow CLI from the mounted repo (skip mypyc
 # for a fast pure-Python build) onto PATH so the plugin's MCP server
-# (`lc mcp --host claude`) resolves exactly as it does on the host.
+# (`lemoncrow mcp --host claude`) resolves exactly as it does on the host.
 # Extras go on the path requirement; UV_TOOL_BIN_DIR puts the entrypoints on PATH.
 _LEMONCROW_INSTALL = r"""
 set -e
@@ -444,7 +444,7 @@ def _docker_run_cmd(
         # reasons over. callers/callees/usages are already hidden by default
         # (folded into `explore`), so they need not be repeated here. Visible
         # surface after this: read, edit, code_search, bash (verified via
-        # `lc tools list` under this env) -- ~1k tokens of schema total.
+        # `lemoncrow tools list` under this env) -- ~1k tokens of schema total.
         env["LEMONCROW_HIDE_TOOLS"] = "sql,memory,web_fetch"
         # Point at the pre-installed binary so discover_astgrep_binary() finds it
         # immediately via the env-var path (no runtime download attempt through proxy).

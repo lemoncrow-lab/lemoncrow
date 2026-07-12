@@ -336,7 +336,7 @@ PYEOF
 
 patch_plugin_mcp() {
     if $DRY_RUN; then
-        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run lc mcp --host codex"
+        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run lemoncrow mcp --host codex"
         return
     fi
     PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'

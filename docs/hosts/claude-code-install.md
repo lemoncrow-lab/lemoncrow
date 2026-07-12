@@ -30,7 +30,7 @@ The script is idempotent — safe to run again after updates.
 To configure project-specific role models after the global install, run:
 
 ```bash
-uv run lc init --configure-models
+uv run lemoncrow init --configure-models
 ```
 
 The init wizard writes `<workspace>/.lemoncrow/settings.json` and materializes
@@ -114,7 +114,7 @@ bash scripts/install_claude.sh --print-only
 The intended flow is:
 
 1. Install the shared Claude plugin globally.
-2. Run `uv run lc init --configure-models` inside a repository.
+2. Run `uv run lemoncrow init --configure-models` inside a repository.
 3. Let the wizard write `.lemoncrow/settings.json`, `.claude/settings.local.json`,
    `.claude/agents/`, and `.claude/skills/`.
 

@@ -2,7 +2,7 @@
   "mcpServers": {
     "lc": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "cursor"],
       "alwaysAllow": [
         "code",

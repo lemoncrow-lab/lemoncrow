@@ -9,7 +9,7 @@ import pytest
 def test_mcp_stdio_smoke() -> None:
     """
     MCP stdio protocol smoke test.
-    Sends JSON-RPC messages over stdin/stdout to lc mcp and asserts correct responses.
+    Sends JSON-RPC messages over stdin/stdout to lemoncrow mcp and asserts correct responses.
     """
     # Build the JSON-RPC batch
     messages = [
@@ -55,11 +55,11 @@ def test_mcp_stdio_smoke() -> None:
 
     input_str = "\n".join(json.dumps(m) for m in messages) + "\n"
 
-    # Run lc mcp via uv run to ensure dependencies
+    # Run lemoncrow mcp via uv run to ensure dependencies
     env = os.environ.copy()
 
     result = subprocess.run(
-        ["uv", "run", "lc", "mcp"],
+        ["uv", "run", "lemoncrow", "mcp"],
         input=input_str,
         text=True,
         capture_output=True,

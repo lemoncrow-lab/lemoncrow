@@ -119,7 +119,7 @@ if $WORKSPACE_SET; then
   "mcp": {
       "lc": {
         "type": "local",
-        "command": ["lc", "mcp", "--host", "opencode"],
+        "command": ["lemoncrow", "mcp", "--host", "opencode"],
         "environment": {
           "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
         }
@@ -148,7 +148,7 @@ else
   "mcp": {
     "lc": {
       "type": "local",
-      "command": ["lc", "mcp", "--host", "opencode"]
+      "command": ["lemoncrow", "mcp", "--host", "opencode"]
     }
   }
 }
