@@ -61,13 +61,13 @@ from lemoncrow.core.capabilities.workflow_runtime_state import (
 )
 from lemoncrow.core.foundation.models import Trace, coerce_trace_json, to_jsonable
 from lemoncrow.core.foundation.paths import resolve_session_state_path, resolve_workspace_root
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.service.auth import verify_api_key
 from lemoncrow.core.service.config import cfg
 from lemoncrow.core.service.schemas import (
     ContextRequest,
     ContextResponse,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 if TYPE_CHECKING:
     from lemoncrow.core.capabilities.optimization.optimizer import Candidate, OptimizationResult
@@ -113,7 +113,7 @@ _HOST_ORDER: tuple[str, ...] = (
 )
 
 
-def _host_import_stats(store: ContextStore) -> dict[str, dict[str, Any]]:
+def _host_import_stats(store: StoreBundle) -> dict[str, dict[str, Any]]:
     """Per-host last-import time and imported-session count for /hosts.
 
     ``Trace.created_at`` (the ``traces.created_at`` column) is seeded from
@@ -131,7 +131,7 @@ def _host_import_stats(store: ContextStore) -> dict[str, dict[str, Any]]:
     pydantic parse, and not RawArtifact.model_validate per artifact -- so
     this stays cheap regardless of history size.
     """
-    with sqlite3.connect(store.db_path) as conn:
+    with sqlite3.connect(store.history.db_path) as conn:
         session_counts = dict(
             conn.execute(
                 "SELECT host, COUNT(*) FROM traces "
@@ -177,7 +177,7 @@ def _build_trace_fts_query(query: str) -> str:
 
 
 def _list_traces_filtered(
-    store: ContextStore,
+    store: StoreBundle,
     *,
     domain: str | None,
     status: str | None,
@@ -198,7 +198,7 @@ def _list_traces_filtered(
     the store's own Trace-parsing/fallback logic instead of duplicating it.
     """
     if not workspace:
-        return store.list_traces(
+        return store.history.list_traces(
             domain=domain,
             status=status,
             agent=agent,
@@ -233,14 +233,14 @@ def _list_traces_filtered(
     params.append(limit)
     params.append(offset)
 
-    with sqlite3.connect(store.db_path) as conn:
+    with sqlite3.connect(store.history.db_path) as conn:
         ids = [row[0] for row in conn.execute(sql, params).fetchall()]
-    traces = [store.get_trace(trace_id) for trace_id in ids]
+    traces = [store.history.get_trace(trace_id) for trace_id in ids]
     return [trace for trace in traces if trace is not None]
 
 
 def _distinct_workspaces(
-    store: ContextStore,
+    store: StoreBundle,
     *,
     domain: str | None,
     agent: str | None,
@@ -269,12 +269,12 @@ def _distinct_workspaces(
     if since:
         sql += " AND created_at >= ?"
         params.append(since.isoformat())
-    with sqlite3.connect(store.db_path) as conn:
+    with sqlite3.connect(store.history.db_path) as conn:
         rows = conn.execute(sql, params).fetchall()
     return sorted({row[0] for row in rows if row[0]})
 
 
-def _bulk_raw_artifact_fingerprints(store: ContextStore, artifact_ids: set[str]) -> dict[str, tuple[str, int]]:
+def _bulk_raw_artifact_fingerprints(store: StoreBundle, artifact_ids: set[str]) -> dict[str, tuple[str, int]]:
     """(source_file_mtime_iso, byte_count_original) for many artifacts in one query.
 
     ContextStore.get_raw_artifact() opens a fresh sqlite3 connection per call
@@ -286,7 +286,7 @@ def _bulk_raw_artifact_fingerprints(store: ContextStore, artifact_ids: set[str])
     if not artifact_ids:
         return {}
     placeholders = ",".join("?" for _ in artifact_ids)
-    with sqlite3.connect(store.db_path) as conn:
+    with sqlite3.connect(store.history.db_path) as conn:
         rows = conn.execute(
             f"SELECT id, source_file_mtime, byte_count_original FROM raw_artifacts WHERE id IN ({placeholders})",
             list(artifact_ids),
@@ -1374,16 +1374,16 @@ def _trace_cache_leverage(trace: Trace) -> float:
     return round(int(trace.cached_input_tokens or 0) / effective_input, 4)
 
 
-def _recent_traces(store: ContextStore, *, window_days: int) -> list[Trace]:
+def _recent_traces(store: StoreBundle, *, window_days: int) -> list[Trace]:
     cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
-    traces = store.list_traces(limit=5000)
+    traces = store.history.list_traces(limit=5000)
     recent = [trace for trace in traces if _trace_created_at(trace) >= cutoff]
     return sorted(recent, key=_trace_created_at)
 
 
-def _tracked_saved_tokens(store: ContextStore, trace: Trace) -> tuple[int, int]:
+def _tracked_saved_tokens(store: StoreBundle, trace: Trace) -> tuple[int, int]:
     try:
-        rows = store.list_context_budgets(_trace_run_key(trace))
+        rows = store.telemetry.list_context_budgets(_trace_run_key(trace))
     except Exception as exc:
         logging.exception("Recovered from broad exception handler")
         logger.warning("Failed to load context budgets for trace %s: %s", trace.id, exc)
@@ -1408,7 +1408,7 @@ def _tracked_saved_tokens(store: ContextStore, trace: Trace) -> tuple[int, int]:
     return saved_tokens, tracked_turns
 
 
-def _window_metrics(store: ContextStore, traces: list[Trace]) -> dict[str, Any]:
+def _window_metrics(store: StoreBundle, traces: list[Trace]) -> dict[str, Any]:
     from lemoncrow.core.capabilities.session_optimizer import trace_cost_usd
 
     entries: list[dict[str, Any]] = []
@@ -1488,7 +1488,7 @@ def _impact_verdict(tokens_delta: float, cost_delta: float, cache_delta: float) 
 
 
 def _build_impact_validation(
-    store: ContextStore,
+    store: StoreBundle,
     traces: list[Trace],
     *,
     window_days: int,
@@ -2036,7 +2036,7 @@ def _savings_summary_payload(
     root: Path,
     *,
     window_days: int,
-    store: ContextStore | None = None,
+    store: StoreBundle | None = None,
 ) -> dict[str, Any]:
     from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
     from lemoncrow.infra.runtime.cost_tracker import CostTracker, load_cost_history
@@ -2258,14 +2258,14 @@ def _savings_summary_payload(
         if isinstance(event.get("model"), str) and event.get("model"):
             bucket["model"] = str(event["model"])
 
-    traces = store.list_traces(limit=5000)
+    traces = store.history.list_traces(limit=5000)
     recent_traces = [trace for trace in traces if _trace_created_at(trace).date() >= start_day]
     trace_by_session = {_trace_run_key(trace): trace for trace in recent_traces}
 
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     proof_rows: list[dict[str, Any]] = []
-    with sqlite3.connect(store.db_path) as conn:
+    with sqlite3.connect(store.telemetry.db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
@@ -3022,7 +3022,7 @@ def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candi
     return potential_savings_breakdown(candidate, advisor.baseline_weekly_cost_usd, total_saved_usd)
 
 
-def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_days: int) -> dict[str, Any]:
+def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_days: int) -> dict[str, Any]:
     from lemoncrow.core.capabilities.optimization import (
         load_current_policy,
         load_history,
@@ -3035,7 +3035,7 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
     )
 
     savings = _savings_summary_payload(root, window_days=window_days)
-    traces = store.list_traces(limit=5000)
+    traces = store.history.list_traces(limit=5000)
     recent_traces = _recent_traces(store, window_days=window_days)
     live_events = _iter_live_savings_events(root)
     recommendations = build_trace_optimization_report(traces, days=window_days)
@@ -3060,8 +3060,8 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
 
     context_audit = build_context_audit(
         project_root=project_root_candidate,
-        blocks_dir=getattr(store, "blocks_dir", None),
-        rubrics_dir=getattr(store, "rubrics_dir", None),
+        blocks_dir=getattr(store.knowledge, "blocks_dir", None),
+        rubrics_dir=getattr(store.knowledge, "rubrics_dir", None),
     )
     quality_score = build_session_quality_summary(traces, window_days=window_days, context_audit=context_audit)
     runtime_coverage = _optimization_runtime_coverage()
@@ -3142,7 +3142,7 @@ def _optimizations_summary_payload(root: Path, store: ContextStore, *, window_da
 # --------------------------------------------------------------------------- #
 
 
-def create_app(store_root: str | Path | None = None, store: ContextStore | None = None) -> Any:
+def create_app(store_root: str | Path | None = None, store: StoreBundle | None = None) -> Any:
     """Construct the FastAPI instance."""
     from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
@@ -3166,10 +3166,13 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     )
 
     # Late load store
+    from lemoncrow.infra.storage.factory import create_store
+
     store_path = Path(store_root or cfg.lemoncrow_root)
-    runtime_store = store or ContextStore(store_path)
+    runtime_store = store or create_store(store_path)
     store = runtime_store
     _store_init_lock = threading.Lock()
+    _store_initialized = False
 
     # Daemon-owned savings-aggregate reconciliation (code_warm pattern): keep
     # the persisted day-bucketed savings aggregate folded up to date so MCP
@@ -3178,11 +3181,13 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 
     start_savings_reconciler(store_path)
 
-    def get_store() -> ContextStore:
-        if not runtime_store._initialized:
+    def get_store() -> StoreBundle:
+        nonlocal _store_initialized
+        if not _store_initialized:
             with _store_init_lock:
-                if not runtime_store._initialized:  # double-checked locking
+                if not _store_initialized:  # double-checked locking
                     runtime_store.init()
+                    _store_initialized = True
         return runtime_store
 
     # ------------------------------------------------------------------ #
@@ -3208,7 +3213,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     )
     def evaluate_claude_code_router(payload: HostRouterEvaluateRequest) -> dict[str, Any]:
         return evaluate_host_router_request(
-            root=store.root,
+            root=store.knowledge.root,
             path=payload.path,
             model=payload.model,
             messages=payload.messages,
@@ -3232,7 +3237,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         total_raw_tokens = 0
         total_cost_usd = 0.0
 
-        with sqlite3.connect(store.db_path) as conn:
+        with sqlite3.connect(store.history.db_path) as conn:
             sql = """
                 SELECT 
                     SUM(json_extract(payload, '$.input_tokens')),
@@ -3301,7 +3306,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             offset=offset,
         )
         # Fetch global metrics for the current domain/agent/host filters
-        metrics = store.get_traces_metrics(domain=domain, agent=agent, host=host, since=since)
+        metrics = store.history.get_traces_metrics(domain=domain, agent=agent, host=host, since=since)
         # Distinct workspace values across full history (not just this page)
         # so the frontend's workspace filter dropdown is complete.
         metrics["workspaces"] = _distinct_workspaces(store, domain=domain, agent=agent, host=host, since=since)
@@ -3310,7 +3315,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 
     @app.get("/v1/traces/{trace_id}", tags=["traces"], dependencies=[Depends(verify_api_key)])
     def get_trace(trace_id: str) -> dict[str, Any]:
-        trace = get_store().get_trace(trace_id)
+        trace = get_store().history.get_trace(trace_id)
         if not trace:
             raise HTTPException(status_code=404, detail=f"Trace not found: {trace_id}")
         return to_jsonable(trace)
@@ -3378,7 +3383,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         rubric_id = str(payload.get("rubric_id") or "")
         if not rubric_id:
             raise HTTPException(status_code=400, detail="rubric_id is required")
-        rubric = get_store().get_rubric(rubric_id)
+        rubric = get_store().knowledge.get_rubric(rubric_id)
         if rubric is None:
             raise HTTPException(status_code=404, detail=f"Rubric not found: {rubric_id}")
         checks = payload.get("checks") or {}
@@ -3565,7 +3570,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             payload["id"] = Trace.make_id(payload.get("task", "untitled"), payload.get("agent", "agent"))
         normalized_payload, event_recorded = _normalize_trace_payload(payload)
         trace = Trace.model_validate(normalized_payload)
-        get_store().record_trace(trace)
+        get_store().history.record_trace(trace)
         response: dict[str, Any] = {"id": trace.id, "event_recorded": event_recorded}
         if trace.session_id:
             response["session_id"] = trace.session_id
@@ -3986,7 +3991,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         Calculated on the fly from the JSON payloads in the traces table
         to ensure 100% lossless session-level accuracy.
         """
-        db_path = store.db_path
+        db_path = store.history.db_path
         rows = _query_analytics_rows(db_path, grouped=grouped, days=days, limit=limit)
         return _filter_analytics_rows(rows, agent=agent, category=category)
 
@@ -4000,7 +4005,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         grouped: bool = Query(True),
         days: int | None = Query(None),
     ) -> dict[str, Any]:
-        rows = _query_analytics_rows(store.db_path, grouped=grouped, days=days, limit=limit)
+        rows = _query_analytics_rows(store.history.db_path, grouped=grouped, days=days, limit=limit)
         filtered = _filter_analytics_rows(rows, agent=agent, model=model, category=category, search=search)
         return _build_analytics_summary(filtered, days=days)
 
@@ -4014,7 +4019,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         Returns daily activity, per-domain, per-host, per-model breakdowns,
         top sessions, and tool-type distributions in one call.
         """
-        db_path = store.db_path
+        db_path = store.history.db_path
         start_day = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
         host_filter = "AND COALESCE(host, agent) = ?" if host else ""
         sql = f"""
@@ -4420,7 +4425,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     @app.get("/plans", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_plans(limit: int = 50) -> list[dict[str, Any]]:
         """Compatibility: GET /plans -> derives plan records from traces."""
-        traces = get_store().list_traces(limit=limit)
+        traces = get_store().history.list_traces(limit=limit)
         result = []
         for t in traces:
             if t.session_id:
@@ -4882,7 +4887,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     def get_raw_artifact(artifact_id: str) -> dict[str, Any]:
         """Return metadata for a stored raw artifact."""
         store_inst = get_store()
-        artifact = store_inst.get_raw_artifact(artifact_id)
+        artifact = store_inst.history.get_raw_artifact(artifact_id)
         if not artifact:
             raise HTTPException(status_code=404, detail=f"Raw artifact not found: {artifact_id}")
         return artifact.model_dump(mode="json")
@@ -4900,11 +4905,11 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         from fastapi.responses import HTMLResponse, PlainTextResponse
 
         store_inst = get_store()
-        artifact = store_inst.get_raw_artifact(artifact_id)
+        artifact = store_inst.history.get_raw_artifact(artifact_id)
         if not artifact:
             raise HTTPException(status_code=404, detail=f"Raw artifact not found: {artifact_id}")
         try:
-            content = store_inst.read_raw_artifact_content(artifact)
+            content = store_inst.history.read_raw_artifact_content(artifact)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Content file not found on disk") from exc
 
@@ -4980,7 +4985,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         store_inst = get_store()
 
         # 1. Try direct ID match (high performance)
-        trace = store_inst.get_trace(session_id)
+        trace = store_inst.history.get_trace(session_id)
 
         # 2. Try host-prefixed IDs (standard for imported sessions)
         if trace is None:
@@ -4989,13 +4994,13 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             )
 
             for host in SUPPORTED_SESSION_IMPORT_HOSTS:
-                trace = store_inst.get_trace(f"{host}-{session_id}")
+                trace = store_inst.history.get_trace(f"{host}-{session_id}")
                 if trace:
                     break
 
         # 3. Slower fallback: search for the session_id inside payloads
         if trace is None:
-            with sqlite3.connect(store_inst.db_path) as conn:
+            with sqlite3.connect(store_inst.history.db_path) as conn:
                 # Use json_extract for efficient searching
                 row = conn.execute(
                     "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?",
@@ -5012,7 +5017,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             if trace.raw_artifact_ids:
                 # Reconstruct from all raw artifacts (main session + subagents)
                 for art_id in trace.raw_artifact_ids:
-                    artifact = store_inst.get_raw_artifact(art_id)
+                    artifact = store_inst.history.get_raw_artifact(art_id)
                     if artifact:
                         scope = "subagent" if "subagents/" in str(artifact.relative_path).replace("\\", "/") else "main"
                         if artifact.source_path:
@@ -5021,7 +5026,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                                 source_files.append({"path": artifact.source_path, "artifact_id": artifact.id})
                                 seen_source_files.add(source_file_key)
                         try:
-                            raw_content = store_inst.read_raw_artifact_content(artifact)
+                            raw_content = store_inst.history.read_raw_artifact_content(artifact)
                             from lemoncrow.gateway.hosts.session_parsers._session_parser import (
                                 parse_session_turns,
                             )
@@ -5182,7 +5187,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         import yaml
 
         store = get_store()
-        seen_hosts = set(store.get_traces_metrics()["hosts"])
+        seen_hosts = set(store.history.get_traces_metrics()["hosts"])
         import_stats = _host_import_stats(store)
         root = Path(__file__).parent.parent.parent.parent.parent
         configs_dir = root / "src" / "lemoncrow" / "gateway" / "hosts" / "configs"
@@ -5320,11 +5325,11 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 
     @app.get("/v1/rubrics", tags=["rubrics"], dependencies=[Depends(verify_api_key)])
     def list_rubrics(domain: str | None = Query(None)) -> list[dict[str, Any]]:
-        return [to_jsonable(r) for r in get_store().list_rubrics(domain=domain)]
+        return [to_jsonable(r) for r in get_store().knowledge.list_rubrics(domain=domain)]
 
     @app.get("/v1/rubrics/{rubric_id}", tags=["rubrics"], dependencies=[Depends(verify_api_key)])
     def get_rubric(rubric_id: str) -> dict[str, Any]:
-        rubric = get_store().get_rubric(rubric_id)
+        rubric = get_store().knowledge.get_rubric(rubric_id)
         if rubric is None:
             raise HTTPException(status_code=404, detail=f"Rubric not found: {rubric_id}")
         return to_jsonable(rubric)
@@ -5335,11 +5340,11 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
 
     @app.get("/blocks", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_blocks() -> list[dict[str, Any]]:
-        return [to_jsonable(b) for b in get_store().list_blocks()]
+        return [to_jsonable(b) for b in get_store().knowledge.list_blocks()]
 
     @app.get("/blocks/{block_id}", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_block(block_id: str) -> dict[str, Any]:
-        block = get_store().get_block(block_id)
+        block = get_store().knowledge.get_block(block_id)
         if block is None:
             raise HTTPException(status_code=404, detail=f"Block not found: {block_id}")
         return to_jsonable(block)
@@ -5497,7 +5502,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         # json_extract fallback scan on miss).
         candidate_ids = [session_id, *(f"{host}-{session_id}" for host in SUPPORTED_SESSION_IMPORT_HOSTS)]
         placeholders = ",".join("?" for _ in candidate_ids)
-        with sqlite3.connect(store.db_path) as conn:
+        with sqlite3.connect(store.history.db_path) as conn:
             rows = conn.execute(
                 f"SELECT id, payload FROM traces WHERE id IN ({placeholders})",
                 candidate_ids,
@@ -5525,7 +5530,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     def _reconstruct_trace_conversations(
         session_id: str,
         trace: Trace,
-        store_inst: Any | None = None,
+        store_inst: StoreBundle | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         store_inst = store_inst or get_store()
         conversations: list[dict[str, Any]] = []
@@ -5556,7 +5561,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         )
 
         for art_id in trace.raw_artifact_ids:
-            artifact = store_inst.get_raw_artifact(art_id)
+            artifact = store_inst.history.get_raw_artifact(art_id)
             if artifact is None:
                 continue
             scope = "subagent" if "subagents/" in str(artifact.relative_path).replace("\\", "/") else "main"
@@ -5569,7 +5574,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 # Single read of the raw artifact backs both the turn-by-turn
                 # conversation reconstruction and the usage summary below —
                 # avoids parsing every transcript twice per request.
-                raw_content = store_inst.read_raw_artifact_content(artifact)
+                raw_content = store_inst.history.read_raw_artifact_content(artifact)
                 artifact_turns = parse_session_turns(raw_content, artifact.source)
                 # Join host sidecar (real per-call savings written by the MCP
                 # server) onto LemonCrow MCP tool turns. Claude Code strips the
@@ -5669,7 +5674,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     def _imported_session_fingerprint(
         session_id: str,
         trace: Trace,
-        store_inst: Any,
+        store_inst: StoreBundle,
         root: Path | None,
         artifact_fp_lookup: dict[str, tuple[str, int]] | None = None,
     ) -> tuple[Any, ...]:
@@ -5692,7 +5697,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
             if artifact_fp_lookup is not None:
                 artifact_fp.append(artifact_fp_lookup.get(art_id, ("", -1)))
                 continue
-            artifact = store_inst.get_raw_artifact(art_id)
+            artifact = store_inst.history.get_raw_artifact(art_id)
             if artifact is None:
                 artifact_fp.append(("", -1))
                 continue
@@ -5727,7 +5732,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
     def _build_imported_session_payload(
         session_id: str,
         trace: Trace,
-        store_inst: Any | None = None,
+        store_inst: StoreBundle | None = None,
         root: Path | None = None,
         artifact_fp_lookup: dict[str, tuple[str, int]] | None = None,
     ) -> dict[str, Any]:
@@ -5839,7 +5844,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                     or (
                         "assistant"
                         if turn.get("kind") == "agent_message"
-                        else "shell" if turn.get("kind") == "shell_command" else turn.get("kind") or "session"
+                        else "shell"
+                        if turn.get("kind") == "shell_command"
+                        else turn.get("kind") or "session"
                     )
                 )
                 bucket = tool_costs.setdefault(tool_name, {"calls": 0.0, "cost_usd": 0.0})
@@ -5987,7 +5994,9 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
         total_turns = (
             authoritative_total_turns
             if authoritative_total_turns > 0
-            else trace_total_turns if trace_total_turns > 0 else reconstructed_total_turns
+            else trace_total_turns
+            if trace_total_turns > 0
+            else reconstructed_total_turns
         )
 
         input_token_cost_usd = (
@@ -6292,7 +6301,7 @@ def create_app(store_root: str | Path | None = None, store: ContextStore | None 
                 logging.exception("Recovered from broad exception handler")
                 continue
         store_inst = get_store()
-        imported_traces = store_inst.list_traces(since=cutoff, limit=max(limit * 5, limit))
+        imported_traces = store_inst.history.list_traces(since=cutoff, limit=max(limit * 5, limit))
         # Batch every imported session's raw-artifact staleness fingerprints
         # in one query up front instead of one store.get_raw_artifact() call
         # (and hence one fresh sqlite3 connection) per artifact per session.

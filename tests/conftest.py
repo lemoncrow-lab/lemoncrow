@@ -10,8 +10,8 @@ from unittest.mock import patch
 import pytest
 
 if TYPE_CHECKING:
-    from lemoncrow.core.foundation.store import ContextStore
     from lemoncrow.core.runtime import LemonCrowRuntimeCore
+    from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 @pytest.fixture(autouse=True)
@@ -108,10 +108,15 @@ def retrieval_eval_runtime(tmp_path_factory: pytest.TempPathFactory) -> LemonCro
 
 
 @pytest.fixture()
-def store(tmp_path: Path) -> ContextStore:
-    from lemoncrow.core.foundation.store import ContextStore
+def store(tmp_path: Path) -> StoreBundle:
+    """A StoreBundle over six fresh, physically-split SQLite files.
+
+    Access the store you need explicitly: ``store.history``, ``store.knowledge``,
+    ``store.lessons``, ``store.jobs``, ``store.memory``, ``store.telemetry``.
+    """
+    from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
     root = tmp_path / "lemoncrow"
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     store.init()
     return store

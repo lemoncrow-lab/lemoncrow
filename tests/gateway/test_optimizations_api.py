@@ -11,8 +11,8 @@ pytest.importorskip("fastapi", reason="FastAPI API tests require the api extra")
 from fastapi.testclient import TestClient
 
 from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.service.api import create_app
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def _write_cost_history(path: Path) -> None:
@@ -62,7 +62,7 @@ def _write_cost_history(path: Path) -> None:
 
 
 def _record_traces(root: Path) -> None:
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     store.init()
     created_at = datetime.now(UTC)
     traces = [
@@ -107,7 +107,7 @@ def _record_traces(root: Path) -> None:
         ),
     ]
     for trace in traces:
-        store.record_trace(trace)
+        store.history.record_trace(trace)
 
 
 def _write_live_savings_events(path: Path) -> None:

@@ -19,16 +19,16 @@ from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
 from lemoncrow.core.foundation.extractor import extract_candidate
 from lemoncrow.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from lemoncrow.core.foundation.models import Rubric, Trace
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.embeddings.base import Embedder
 from lemoncrow.infra.embeddings.factory import get_embedder
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.vector import cosine_similarity
 
 _log = logging.getLogger(__name__)
 
 
-def ingest_failed_trace(store: ContextStore, trace: Trace) -> None:
+def ingest_failed_trace(store: StoreBundle, trace: Trace) -> None:
     """Best-effort: feed a failed trace into the lesson inbox from any trace-record
     path (SDK, MCP tool, runtime session). Never raises -- lesson extraction must
     not break trace recording. Call after the trace is persisted so the
@@ -46,7 +46,7 @@ class LessonPromoterCapability:
 
     def __init__(
         self,
-        store: ContextStore,
+        store: StoreBundle,
         *,
         now: Callable[[], datetime] | None = None,
         embedder: Embedder | None = None,
@@ -55,7 +55,9 @@ class LessonPromoterCapability:
         self.store = store
         self._now = now or (lambda: datetime.now(UTC))
         self._embedder = embedder or get_embedder()
-        self._cluster_threshold = cluster_threshold or float(os.environ.get("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.85"))
+        self._cluster_threshold = cluster_threshold or float(
+            os.environ.get("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.85")
+        )
         self._trace_embedding_cache: dict[str, list[float]] = {}
 
     def _trace_text(self, trace: Trace) -> str:
@@ -95,7 +97,7 @@ class LessonPromoterCapability:
     def _recent_inbox(self, domain: str, days: int = 30) -> list[LessonCandidate]:
         cutoff = self._now() - timedelta(days=days)
         out: list[LessonCandidate] = []
-        for item in self.store.list_lesson_candidates(domain=domain, status="inbox", limit=500):
+        for item in self.store.lessons.list_lesson_candidates(domain=domain, status="inbox", limit=500):
             if item.created_at >= cutoff:
                 out.append(item)
         return out
@@ -139,7 +141,7 @@ class LessonPromoterCapability:
         limit: int = 8,
     ) -> list[Trace]:
         scored: list[tuple[float, Trace]] = []
-        for trace in self.store.list_traces(domain=domain, status="failed", limit=500):
+        for trace in self.store.history.list_traces(domain=domain, status="failed", limit=500):
             if trace.id == current_trace_id:
                 continue
             if not trace.errors_seen:
@@ -197,14 +199,14 @@ class LessonPromoterCapability:
             for trace_id in neighbor.evidence_trace_ids[:1]:
                 if trace_id in seen_trace_ids:
                     continue
-                found = self.store.get_trace(trace_id)
+                found = self.store.history.get_trace(trace_id)
                 if found is not None:
                     traces.append(found)
                     seen_trace_ids.add(trace_id)
 
         traces = traces[:8]
 
-        existing_blocks = self.store.list_blocks(domain=trace.domain, include_deprecated=False)
+        existing_blocks = self.store.knowledge.list_blocks(domain=trace.domain, include_deprecated=False)
         candidate = draft_lesson_candidate(
             traces=traces,
             domain=trace.domain,
@@ -223,11 +225,11 @@ class LessonPromoterCapability:
             # Refresh the existing cluster candidate in place (ON CONFLICT(id) DO
             # UPDATE) instead of inserting a near-duplicate for every recurrence.
             candidate.id = existing_id
-        self.store.upsert_lesson_candidate(candidate)
+        self.store.lessons.upsert_lesson_candidate(candidate)
         return candidate
 
     def inbox(self, *, domain: str | None = None, limit: int = 25) -> list[LessonCandidate]:
-        return self.store.list_lesson_candidates(domain=domain, status="inbox", limit=limit)
+        return self.store.lessons.list_lesson_candidates(domain=domain, status="inbox", limit=limit)
 
     def decide(
         self,
@@ -237,7 +239,7 @@ class LessonPromoterCapability:
         reviewer: str,
         reason: str,
     ) -> dict[str, Any]:
-        candidate = self.store.get_lesson_candidate(lesson_id)
+        candidate = self.store.lessons.get_lesson_candidate(lesson_id)
         if candidate is None:
             raise ValueError(f"lesson not found: {lesson_id}")
 
@@ -251,7 +253,7 @@ class LessonPromoterCapability:
 
         if decision == "reject":
             candidate.status = "rejected"
-            self.store.upsert_lesson_candidate(candidate)
+            self.store.lessons.upsert_lesson_candidate(candidate)
             return {"lesson": candidate.model_dump(mode="json"), "promotion": None}
 
         # Build everything that can fail (promotion, typed lesson) BEFORE
@@ -263,10 +265,10 @@ class LessonPromoterCapability:
             typed_lesson = self._typed_lesson_from_candidate(candidate)
 
         candidate.status = "approved"
-        self.store.upsert_lesson_candidate(candidate)
-        self.store.upsert_lesson_promotion(promotion)
+        self.store.lessons.upsert_lesson_candidate(candidate)
+        self.store.lessons.upsert_lesson_promotion(promotion)
         if typed_lesson is not None:
-            TypedLessonStore(self.store.root).upsert_lesson(typed_lesson)
+            TypedLessonStore(self.store.lessons.root).upsert_lesson(typed_lesson)
         return {
             "lesson": candidate.model_dump(mode="json"),
             "promotion": promotion.model_dump(mode="json"),
@@ -281,31 +283,31 @@ class LessonPromoterCapability:
             if block is None:
                 # Fallback to the existing extractor path from evidence traces.
                 trace_id = candidate.evidence_trace_ids[0]
-                trace = self.store.get_trace(trace_id)
+                trace = self.store.history.get_trace(trace_id)
                 if trace is None:
                     raise ValueError("missing evidence trace for new_block promotion")
                 block = extract_candidate(trace).block
-            self.store.upsert_block(block, write_markdown=False)
+            self.store.knowledge.upsert_block(block, write_markdown=False)
             return LessonPromotion(lesson_id=candidate.id, published_block_id=block.id)
 
         if kind == "edit_block":
             if not candidate.target_id:
                 raise ValueError("edit_block promotion requires target_id")
-            block = self.store.get_block(candidate.target_id)
+            block = self.store.knowledge.get_block(candidate.target_id)
             if block is None:
                 raise ValueError(f"target block not found: {candidate.target_id}")
             dead_end = candidate.cluster_fingerprint
             if dead_end and dead_end not in block.dead_ends:
                 block.dead_ends.append(dead_end)
                 block.updated_at = self._now()
-                self.store.upsert_block(block, write_markdown=False)
+                self.store.knowledge.upsert_block(block, write_markdown=False)
             return LessonPromotion(lesson_id=candidate.id, edited_block_id=block.id)
 
         if kind in {"new_rubric_check", "rubric_check"}:
             check = candidate.proposed_rubric_check
             if not check:
                 raise ValueError("new_rubric_check promotion requires proposed_rubric_check")
-            rubrics = self.store.list_rubrics(domain=candidate.domain)
+            rubrics = self.store.knowledge.list_rubrics(domain=candidate.domain)
             if rubrics:
                 rubric = rubrics[0]
             else:
@@ -319,7 +321,7 @@ class LessonPromoterCapability:
                 rubric.required_checks.append(check)
             if check not in rubric.block_if_missing:
                 rubric.block_if_missing.append(check)
-            self.store.upsert_rubric(rubric, write_yaml=False)
+            self.store.knowledge.upsert_rubric(rubric, write_yaml=False)
             return LessonPromotion(lesson_id=candidate.id)
 
         if kind in {"route-preference", "cost-cap"}:

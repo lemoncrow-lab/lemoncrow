@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
@@ -28,6 +27,7 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     make_user_message,
     record_normalized_session,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def _tool_calls_from_row(raw: Any) -> list[dict[str, Any]]:
 def serialize_hermes_session(session_row: dict[str, Any], db_path: Path) -> str:
     """Serialize one hermes session into normalized JSONL.
 
-    Module-level so recall indexing can reuse it without a ContextStore.
+    Module-level so recall indexing can reuse it without a StoreBundle.
     Per-message rows carry prose/tool-calls/reasoning but no per-call token
     split, so token accounting is emitted as ONE trailing usage rollup taken
     from the authoritative ``sessions`` row totals.
@@ -221,7 +221,7 @@ def serialize_hermes_session(session_row: dict[str, Any], db_path: Path) -> str:
 class HermesImporter:
     """Hermes Agent session importer (state.db -> normalized sessions)."""
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, db_path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:

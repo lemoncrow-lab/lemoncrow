@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.infra.storage.bundle import StoreBundle
 
 # Module-level Prometheus Counter singletons. Counters register against the
 # default CollectorRegistry by metric name, so they must be created exactly
@@ -73,10 +73,10 @@ class ContextBudgetRecorder:
     """Records per-turn context budget and token savings.
 
     Attributes:
-        store: The ContextStore instance for persistence.
+        store: The StoreBundle instance for persistence.
     """
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
         self._prometheus_enabled = self._check_prometheus()
 
@@ -134,7 +134,7 @@ class ContextBudgetRecorder:
         )
 
         # Persist to the store
-        self.store.persist_context_budget(record)
+        self.store.telemetry.persist_context_budget(record)
 
         # Emit Prometheus metrics if available
         if self._prometheus_enabled:
@@ -215,7 +215,7 @@ class ContextBudgetRecorder:
         Returns:
             A RunSavings object with totals and per-lever breakdowns.
         """
-        records = self.store.list_context_budgets(session_id)
+        records = self.store.telemetry.list_context_budgets(session_id)
 
         result = RunSavings(session_id)
         result.turn_count = len(records)

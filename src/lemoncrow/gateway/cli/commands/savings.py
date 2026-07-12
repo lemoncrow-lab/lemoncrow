@@ -130,7 +130,7 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
                     rubric_failures += 1
     payload = build_savings_report(ctx.obj["root"])
     store = _load_store(ctx.obj["root"])
-    payload["optimization"] = build_trace_optimization_report(store.list_traces(limit=5000), days=7)
+    payload["optimization"] = build_trace_optimization_report(store.history.list_traces(limit=5000), days=7)
     payload["bad_plans_blocked"] = bad_plans_blocked
     payload["rescue_events"] = rescue_events
     payload["rubric_failures_caught"] = rubric_failures
@@ -146,7 +146,7 @@ def _legacy_optimize_report(ctx: click.Context, host: str | None, days: int, lim
     from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
 
     store = _load_store(ctx.obj["root"])
-    return build_trace_optimization_report(store.list_traces(limit=5000), days=days, host=host, limit=limit)
+    return build_trace_optimization_report(store.history.list_traces(limit=5000), days=days, host=host, limit=limit)
 
 
 def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
@@ -154,7 +154,9 @@ def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
 
     store = _load_store(ctx.obj["root"])
     current_policy = load_current_policy(ctx.obj["root"])
-    return optimize_from_traces(store.list_traces(limit=5000), current_policy=current_policy, days=days, host=host)
+    return optimize_from_traces(
+        store.history.list_traces(limit=5000), current_policy=current_policy, days=days, host=host
+    )
 
 
 def _benchmark_evidence_from_options(

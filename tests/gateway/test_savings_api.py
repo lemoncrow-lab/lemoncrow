@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.core.foundation.models import Trace
 from lemoncrow.core.foundation.savings_models import ContextBudget
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.service.api import create_app
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.factory import create_store
 
 
@@ -148,11 +148,11 @@ def _write_context_budget(
     output_tokens: int,
     lever_savings: dict[str, int] | None = None,
     turn_index: int = 0,
-) -> ContextStore:
+) -> StoreBundle:
     store = create_store(root)
     store.init()
     saved_tokens = naive_input_tokens - output_tokens
-    store.persist_context_budget(
+    store.telemetry.persist_context_budget(
         ContextBudget(
             session_id=session_id,
             turn_index=turn_index,
@@ -166,7 +166,7 @@ def _write_context_budget(
             tool_calls=1,
         )
     )
-    return cast(ContextStore, store)
+    return cast(StoreBundle, store)
 
 
 def _write_run_ledger_snapshot(root: Path, *, session_id: str, tool_name: str) -> None:
@@ -607,7 +607,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
     root = tmp_path / ".lemoncrow"
     store = create_store(root)
     store.init()
-    store.persist_context_budget(
+    store.telemetry.persist_context_budget(
         ContextBudget(
             session_id="run-live-agent",
             turn_index=0,
@@ -621,7 +621,7 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
             tool_calls=1,
         )
     )
-    store.persist_context_budget(
+    store.telemetry.persist_context_budget(
         ContextBudget(
             session_id="run-live-agent",
             turn_index=1,
@@ -669,7 +669,7 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
     root = tmp_path / ".lemoncrow"
     store = create_store(root)
     store.init()
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="copilot-gap",
             session_id="copilot-gap",

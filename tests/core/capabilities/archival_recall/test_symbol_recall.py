@@ -5,9 +5,9 @@ from pathlib import Path
 
 from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
 from lemoncrow.core.capabilities.code_context import CodeContextEngine
+from lemoncrow.core.foundation.history_store import HistoryStore
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
@@ -73,7 +73,7 @@ def _seed_symbol_recall(tmp_path: Path) -> tuple[SymbolRecallCapability, str]:
         )
     )
 
-    trace_store = ContextStore(lemoncrow_root)
+    trace_store = HistoryStore(lemoncrow_root)
     trace_store.init()
     trace_store.record_trace(
         Trace(

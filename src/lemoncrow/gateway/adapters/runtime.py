@@ -48,7 +48,6 @@ from lemoncrow.core.foundation.retriever import (
 )
 from lemoncrow.core.foundation.routing_models import RouteDecision, StepType, TaskType
 from lemoncrow.core.foundation.rubric_gate import run_rubric
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.foundation.watchdog_profiles import active_watchdog_weights
 from lemoncrow.core.foundation.watchdogs import (
     SessionState,
@@ -59,6 +58,7 @@ from lemoncrow.core.foundation.watchdogs import (
     run_watchdogs,
 )
 from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 def _load_domain_playbooks(store_root: Path) -> list[Playbook]:
@@ -78,7 +78,7 @@ def _load_domain_playbooks(store_root: Path) -> list[Playbook]:
 
 
 def _retrieve_with_pack_context(
-    store: ContextStore,
+    store: StoreBundle,
     ctx: TaskContext,
     *,
     limit: int,
@@ -95,7 +95,7 @@ def _retrieve_with_pack_context(
     )
     merged: dict[str, ScoredBlock] = {entry.block.id: entry for entry in learned}
 
-    for block in _load_domain_playbooks(store.root):
+    for block in _load_domain_playbooks(store.knowledge.root):
         if block.status == "deprecated":
             continue
         scored = score_block(block, ctx)
@@ -126,7 +126,7 @@ class RuntimeSession:
     files: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     state: SessionState = field(default_factory=SessionState)
-    store: ContextStore | None = None
+    store: StoreBundle | None = None
     trace_id: str | None = None
     watchdogs: list[Any] = field(default_factory=default_watchdogs)
     core_runtime: LemonCrowRuntimeCore | None = None
@@ -233,7 +233,7 @@ class RuntimeSession:
 
     def verify(self, checks: dict[str, bool | None], rubric_id: str) -> RubricResult:
         assert self.store is not None
-        rubric = self.store.get_rubric(rubric_id)
+        rubric = self.store.knowledge.get_rubric(rubric_id)
         if rubric is None:
             raise KeyError(f"rubric not found: {rubric_id}")
         result = run_rubric(rubric, checks)
@@ -318,7 +318,7 @@ class RuntimeSession:
             output_summary=redact(output_summary),
             validation_results=validation_results or [],
         )
-        self.store.record_trace(trace)
+        self.store.history.record_trace(trace)
         from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
 
         ingest_failed_trace(self.store, trace)
@@ -331,7 +331,7 @@ class RuntimeSession:
         assert self.store is not None
         if not self.trace_id:
             return None
-        trace = self.store.get_trace(self.trace_id)
+        trace = self.store.history.get_trace(self.trace_id)
         if trace is None:
             return None
         return reflect(trace)
@@ -374,7 +374,7 @@ class ContextRuntime:
             files=files or [],
             tools=tools or [],
             store=self.store,
-            watchdogs=default_watchdogs(active_watchdog_weights(self.store.root)),
+            watchdogs=default_watchdogs(active_watchdog_weights(self.store.knowledge.root)),
             core_runtime=self.core_runtime,
         )
         try:

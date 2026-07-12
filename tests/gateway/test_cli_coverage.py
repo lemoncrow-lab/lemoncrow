@@ -158,7 +158,7 @@ def test_env_validate_known_env(tmp_path: Path) -> None:
     # lc init no longer seeds built-in rubrics; env validate resolves
     # user-supplied rubrics, so the known-env success path seeds its own.
     store = create_store(root)
-    store.upsert_rubric(
+    store.knowledge.upsert_rubric(
         Rubric(id="rubric_state_change_safety", domain="state_change_safety"),
         write_yaml=False,
     )
@@ -385,8 +385,8 @@ def test_session_row_adopts_routing_only_live_savings(tmp_path: Path, monkeypatc
     """Regression (B2): a session whose only live savings are routing dollars
     (saved_usd > 0, tokens/calls/carry all 0) must not render $0 savings in
     `session list`/`stats` while the statusline shows the saving."""
-    from lemoncrow.core.foundation.store import ContextStore
     from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
+    from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
     monkeypatch.setattr(sessions_cmd, "_claude_transcript_block", lambda sid: None)
     monkeypatch.setattr(
@@ -397,10 +397,10 @@ def test_session_row_adopts_routing_only_live_savings(tmp_path: Path, monkeypatc
     monkeypatch.setattr(sessions_cmd, "_claude_subagent_count", lambda sid: 0)
     monkeypatch.setattr(sessions_cmd, "_claude_subagent_cost_usd", lambda sid: 0.0)
 
-    store = ContextStore(tmp_path)
+    store = build_sqlite_store_bundle(tmp_path)
     store.init()
     trace = _make_trace(host="claude")
-    row = sessions_cmd._build_session_row(trace, store, "claude", tmp_path)
+    row = sessions_cmd._build_session_row(trace, store.history, "claude", tmp_path)
 
     assert row["saved_usd"] == pytest.approx(0.42)
 
@@ -434,7 +434,7 @@ def test_session_stats_store_since_marks_truncation(tmp_path: Path) -> None:
     init_store_at(str(root))
     store = create_store(root)
     for i in range(15):
-        store.record_trace(_make_trace(i), write_json=False)
+        store.history.record_trace(_make_trace(i), write_json=False)
 
     res = _invoke(root, "session", "stats", "--source", "store", "--since", "7d", "--host", "codex")
     assert res.exit_code == 0
@@ -448,7 +448,7 @@ def test_session_stats_store_since_no_truncation_under_cap(tmp_path: Path) -> No
     init_store_at(str(root))
     store = create_store(root)
     for i in range(3):
-        store.record_trace(_make_trace(i), write_json=False)
+        store.history.record_trace(_make_trace(i), write_json=False)
 
     res = _invoke(root, "session", "stats", "--source", "store", "--since", "7d", "--host", "codex")
     assert res.exit_code == 0
@@ -464,7 +464,7 @@ def test_session_list_store_since_marks_truncation(tmp_path: Path) -> None:
     init_store_at(str(root))
     store = create_store(root)
     for i in range(4):
-        store.record_trace(_make_trace(i), write_json=False)
+        store.history.record_trace(_make_trace(i), write_json=False)
 
     res = _invoke(root, "session", "list", "--source", "store", "--since", "7d", "--host", "codex", "--scan", "4")
     assert res.exit_code == 0

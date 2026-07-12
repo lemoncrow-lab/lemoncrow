@@ -18,11 +18,11 @@ from lemoncrow.core.capabilities.style_import.prompts import (
 )
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.embeddings.base import Embedder
 from lemoncrow.infra.embeddings.factory import get_embedder
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 from lemoncrow.infra.internal_llm import chat
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.vector import cosine_similarity
 
 _HEADING_RE = re.compile(r"^#{2,3}\s+(.+?)\s*$")
@@ -46,7 +46,7 @@ def import_files(
     paths: Sequence[Path | str],
     domain: str | None = None,
     *,
-    store: ContextStore | None = None,
+    store: StoreBundle | None = None,
     write: bool = True,
     limit: int = 25,
     chat_func: ChatFn = chat,
@@ -65,7 +65,7 @@ def import_files(
     resolved_domain = domain or _DEFAULT_DOMAIN
     files = collect_markdown_files(paths)
     active_embedder = embedder or get_embedder()
-    existing_blocks = store.list_blocks(domain=resolved_domain, include_deprecated=True) if store else []
+    existing_blocks = store.knowledge.list_blocks(domain=resolved_domain, include_deprecated=True) if store else []
     existing_vectors = _embed_existing_blocks(existing_blocks, active_embedder)
     candidates: list[LessonCandidate] = []
 
@@ -92,7 +92,7 @@ def import_files(
                 continue
             candidates.append(candidate)
             if write and store is not None:
-                store.upsert_lesson_candidate(candidate)
+                store.lessons.upsert_lesson_candidate(candidate)
         if len(candidates) >= limit:
             break
 

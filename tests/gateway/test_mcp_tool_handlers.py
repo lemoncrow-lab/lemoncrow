@@ -237,7 +237,7 @@ def test_memory_tool_call_works_without_dev_mode(store_root: Path, monkeypatch: 
         "memory",
         {
             "op": "store_fact",
-            "agent_id": "lc:non-dev",
+            "agent_id": "lemoncrow:non-dev",
             "subject": "test",
             "fact": "Memory should be active in non-dev mode.",
             "citations": 'Test: "direct"',
@@ -468,7 +468,7 @@ def test_context_enqueues_single_bootstrap_job_for_cold_repo(
     store.init()
     jobs = [
         job
-        for job in store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+        for job in store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
         if job["status"] in {"pending", "running"}
     ]
 
@@ -524,7 +524,7 @@ def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
 
     store = create_store(store_root)
     store.init()
-    jobs = store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+    jobs = store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
 
     assert len(jobs) == 1
     assert payload["bootstrap"]["status"] in {"warm", "warming"}
@@ -547,7 +547,7 @@ def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
 
     store = create_store(store_root)
     store.init()
-    assert store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) == []
+    assert store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) == []
     assert payload["bootstrap"]["status"] == "warm"
     assert "architecture-sketch" in payload["context"]
 
@@ -1095,7 +1095,6 @@ def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monk
                 "edits": [
                     {
                         "path": str(target),
-                        "op": "replace",
                         "old_string": "world",
                         "new_string": "lemoncrow",
                     }
@@ -1123,9 +1122,9 @@ def test_smart_edit_compacts_hunks_by_path(store_root: Path, tmp_path: Path, mon
         {
             "post_edit_hooks": False,
             "edits": [
-                {"path": str(first), "op": "replace", "old_string": "one", "new_string": "ONE"},
-                {"path": str(first), "op": "replace", "old_string": "three", "new_string": "THREE"},
-                {"path": str(second), "op": "replace", "old_string": "alpha\nbeta", "new_string": "ALPHA\nBETA"},
+                {"path": str(first), "old_string": "one", "new_string": "ONE"},
+                {"path": str(first), "old_string": "three", "new_string": "THREE"},
+                {"path": str(second), "old_string": "alpha\nbeta", "new_string": "ALPHA\nBETA"},
             ],
         }
     )
@@ -1151,9 +1150,9 @@ def test_smart_edit_same_file_hunks_credit_no_calls(
         {
             "post_edit_hooks": False,
             "edits": [
-                {"path": str(target), "op": "replace", "old_string": "one", "new_string": "ONE"},
-                {"path": str(target), "op": "replace", "old_string": "two", "new_string": "TWO"},
-                {"path": str(target), "op": "replace", "old_string": "three", "new_string": "THREE"},
+                {"path": str(target), "old_string": "one", "new_string": "ONE"},
+                {"path": str(target), "old_string": "two", "new_string": "TWO"},
+                {"path": str(target), "old_string": "three", "new_string": "THREE"},
             ],
         }
     )
@@ -1177,7 +1176,7 @@ def test_smart_edit_cross_file_credit_matches_distinct_files(
     payload = tool_smart_edit(
         {
             "post_edit_hooks": False,
-            "edits": [{"path": str(f), "op": "replace", "old_string": "target", "new_string": "DONE"} for f in files],
+            "edits": [{"path": str(f), "old_string": "target", "new_string": "DONE"} for f in files],
         }
     )
 
@@ -1489,32 +1488,7 @@ def test_smart_edit_does_not_flag_new_regression_test(
     assert "FIXME" not in payload
 
 
-def test_smart_edit_rejects_mixed_descriptor_families(store_root: Path, tmp_path: Path) -> None:
-    _ = store_root
-    target = tmp_path / "mixed.txt"
-    target.write_text("hello world", encoding="utf-8")
-
-    resp = _call(
-        "edit",
-        {
-            "edits": [
-                {
-                    "path": str(target),
-                    "op": "replace",
-                    "old_string": "world",
-                    "new_string": "legacy",
-                },
-                {"file_path": str(target), "old_string": "hello", "new_string": "rich"},
-            ]
-        },
-    )
-
-    assert "error" in resp
-    assert "cannot mix legacy" in resp["error"]["message"]
-    assert target.read_text(encoding="utf-8") == "hello world"
-
-
-def test_smart_edit_legacy_rejects_protected_paths(store_root: Path, tmp_path: Path) -> None:
+def test_smart_edit_rejects_protected_paths(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     protected = tmp_path / ".lemoncrow" / "state.txt"
     protected.write_text("hello world", encoding="utf-8")
@@ -1526,7 +1500,6 @@ def test_smart_edit_legacy_rejects_protected_paths(store_root: Path, tmp_path: P
                 "edits": [
                     {
                         "path": str(protected),
-                        "op": "replace",
                         "old_string": "world",
                         "new_string": "lemoncrow",
                     }
@@ -1922,6 +1895,47 @@ def test_tool_code_search_response_includes_saved_section_retrieval(
     assert saved["tokens"] > 0
     assert saved["calls"] == 1  # single whole-source Read avoided; symbol map stays in-file
     assert appended == [("code_search", saved["tokens"], 1)]
+
+
+def test_resolve_query_as_existing_file_pins_verbatim_and_prefixed_paths(tmp_path: Path) -> None:
+    (tmp_path / "benchmarks" / "harbor").mkdir(parents=True)
+    target = tmp_path / "benchmarks" / "harbor" / "rebuild_bundle.sh"
+    target.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+
+    # Verbatim relpath.
+    assert (
+        mcp_server._resolve_query_as_existing_file(tmp_path, "benchmarks/harbor/rebuild_bundle.sh")
+        == "benchmarks/harbor/rebuild_bundle.sh"
+    )
+    # A bogus leading segment (e.g. a phantom repo-name prefix) is stripped once and retried.
+    assert (
+        mcp_server._resolve_query_as_existing_file(tmp_path, "/lemoncrow/benchmarks/harbor/rebuild_bundle.sh")
+        == "benchmarks/harbor/rebuild_bundle.sh"
+    )
+    # Path traversal out of the workspace never resolves.
+    assert mcp_server._resolve_query_as_existing_file(tmp_path, "../../etc/passwd") is None
+    # A prose query (whitespace) is never treated as a path.
+    assert mcp_server._resolve_query_as_existing_file(tmp_path, "how does rebuild_bundle work") is None
+    # A bare symbol name with no path shape and no matching file resolves to nothing.
+    assert mcp_server._resolve_query_as_existing_file(tmp_path, "OrderService") is None
+
+
+def test_tool_code_search_fast_paths_a_literal_file_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "benchmarks" / "harbor").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "harbor" / "rebuild_bundle.sh").write_text(
+        "#!/bin/sh\necho rebuilding\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._workspace_root", lambda: tmp_path)
+
+    response = _call("code_search", {"query": "/lemoncrow/benchmarks/harbor/rebuild_bundle.sh"})
+
+    # code_search renders to compact markdown (no code renderer applies to a
+    # shell script), so assert on that text rather than parsed JSON.
+    payload = _result(response)
+    assert isinstance(payload, str)
+    assert "no exact match" not in payload
+    assert "benchmarks/harbor/rebuild_bundle.sh" in payload
+    assert "echo rebuilding" in payload
 
 
 def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
@@ -2358,20 +2372,6 @@ def test_path_safety_module_is_importable_and_has_protected_parts() -> None:
     assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"
 
 
-def test_batch_edit_and_rich_edit_share_path_safety_constant() -> None:
-    """Both edit modules must reference the same PROTECTED_PARTS set (no local forks)."""
-    from lemoncrow.core.capabilities.tool_supervision import batch_edit, rich_edit
-    from lemoncrow.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
-
-    # Neither module should define its own _PROTECTED_PARTS
-    assert not hasattr(batch_edit, "_PROTECTED_PARTS"), "batch_edit still has local _PROTECTED_PARTS"
-    assert not hasattr(rich_edit, "_PROTECTED_PARTS"), "rich_edit still has local _PROTECTED_PARTS"
-
-    # Both modules reference the shared path_safety.PROTECTED_PARTS constant
-    assert batch_edit._resolve_path.__globals__["PROTECTED_PARTS"] is PROTECTED_PARTS
-    assert rich_edit._resolve.__globals__["PROTECTED_PARTS"] is PROTECTED_PARTS
-
-
 def test_trace_compact_receipt_always_present(store_root: Path) -> None:
     """tool_record_trace must always return trace_id and event_recorded — the compact receipt."""
     _ = store_root
@@ -2379,7 +2379,7 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
         _call(
             "trace",
             {
-                "agent": "lc:code",
+                "agent": "lemoncrow:code",
                 "domain": "mcp-server",
                 "task": "Verify compact receipt",
                 "status": "success",
@@ -2387,9 +2387,9 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
         )
     )
     assert payload.get("event_recorded") is True, f"'event_recorded' missing or False in trace receipt: {payload}"
-    assert (
-        isinstance(payload.get("trace_id"), str) and payload["trace_id"]
-    ), f"'trace_id' missing or empty in trace receipt: {payload}"
+    assert isinstance(payload.get("trace_id"), str) and payload["trace_id"], (
+        f"'trace_id' missing or empty in trace receipt: {payload}"
+    )
 
 
 def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2587,12 +2587,12 @@ def test_render_bash_text_includes_spill_hint_in_truncation_notice() -> None:
             "exit_code": 0,
             "truncated": True,
             "lines_omitted": 50,
-            "spill_hint": "[lc: shrunk 5000→123; full: read /tmp/x.txt]",
+            "spill_hint": "[lc: shrunk 5000→123; full: /tmp/x.txt]",
         }
     )
     # The spill notice subsumes the bare truncation marker -- exactly one
     # truncation footer ships, never both.
-    assert "[lc: shrunk 5000→123; full: read /tmp/x.txt]" in text
+    assert "[lc: shrunk 5000→123; full: /tmp/x.txt]" in text
     assert "[output truncated: 50 lines omitted]" not in text
 
 
@@ -2822,7 +2822,7 @@ def test_render_bash_text_tail_braces_shared_log_prefix() -> None:
             "log_file_stderr": "/tmp/lemoncrow-bash/abc.stderr.txt",
         }
     )
-    assert "[tail: last 5 lines; full: read /tmp/lemoncrow-bash/abc.{stdout.txt, stderr.txt}]" in text
+    assert "[tail: last 5 lines; full: /tmp/lemoncrow-bash/abc.{stdout.txt, stderr.txt}]" in text
 
 
 def test_shell_mcp_call_returns_managed_session_for_background_command(
