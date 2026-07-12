@@ -59,7 +59,7 @@ def workspace_claude_agent_text(
         agent_path.read_text(encoding="utf-8"), _integration_resource(repo_root, "agents", "shared")
     )
     model = _claude_explicit_host_model(role_id, workspace_root)
-    return rewrite_agent_name(rewrite_agent_model(text, model), f"lc:{role_id}")
+    return rewrite_agent_name(rewrite_agent_model(text, model), f"lemoncrow:{role_id}")
 
 
 def write_workspace_copilot_agents(
@@ -171,7 +171,7 @@ def write_workspace_claude_overrides(
     env = raw_env if isinstance(raw_env, dict) else {}
     current["env"] = env
     env["CLAUDE_WORKSPACE_ROOT"] = str(workspace)
-    current["agent"] = "lc:code"
+    current["agent"] = "lemoncrow:code"
     settings_local.parent.mkdir(parents=True, exist_ok=True)
     settings_local.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     written.append(settings_local)

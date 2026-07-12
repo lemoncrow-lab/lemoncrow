@@ -104,8 +104,8 @@ PLUGIN_MCP_JSON="${PLUGIN_DIR}/.mcp.json"
 CODEX_MARKETPLACE="${MARKETPLACE_ROOT}/.agents/plugins/marketplace.json"
 USER_CODEX_CONFIG="${USER_CODEX_HOME}/config.toml"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:codex] $*" || true; }
-warn()  { echo "[lc:codex] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:codex] $*" || true; }
+warn()  { echo "[lemoncrow:codex] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 print_manual_steps() {
@@ -138,7 +138,7 @@ fi
 
 if ! command -v codex &>/dev/null; then
     if $STRICT; then
-        echo "[lc:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
+        echo "[lemoncrow:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
         exit 1
     fi
     if $DRY_RUN; then
@@ -172,9 +172,9 @@ PYEOF
 
 resolve_lemoncrow_runtime_python() {
     local lemoncrow_launcher lemoncrow_python
-    lemoncrow_launcher="$(command -v lc || true)"
+    lemoncrow_launcher="$(command -v lemoncrow || command -v lc || true)"
     if [ -z "$lemoncrow_launcher" ]; then
-        echo "[lc:codex] ERROR: cannot resolve LemonCrow Python interpreter: 'lc' is not on PATH" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter: neither 'lemoncrow' nor 'lc' is on PATH" >&2
         exit 1
     fi
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
@@ -185,7 +185,7 @@ resolve_lemoncrow_runtime_python() {
     lemoncrow_python="$(head -n 1 "$lemoncrow_launcher")"
     lemoncrow_python="${lemoncrow_python#\#!}"
     if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
-        echo "[lc:codex] ERROR: cannot resolve LemonCrow Python interpreter from $lemoncrow_launcher" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter from $lemoncrow_launcher" >&2
         exit 1
     fi
     printf '%s\n' "$lemoncrow_python"
@@ -194,9 +194,9 @@ resolve_lemoncrow_runtime_python() {
 resolve_lemoncrow_hook_python() {
     local lemoncrow_launcher
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
-        lemoncrow_launcher="$(command -v lc || true)"
+        lemoncrow_launcher="$(command -v lemoncrow || command -v lc || true)"
         if [ -z "$lemoncrow_launcher" ]; then
-            echo "[lc:codex] ERROR: cannot resolve LemonCrow launcher: 'lc' is not on PATH" >&2
+            echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow launcher: neither 'lemoncrow' nor 'lc' is on PATH" >&2
             exit 1
         fi
         resolve_real_path "$lemoncrow_launcher"
@@ -315,7 +315,7 @@ patch_plugin_hooks() {
     local lemoncrow_python
     lemoncrow_python="$(resolve_lemoncrow_hook_python)"
     if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
-        echo "[lc:codex] ERROR: cannot resolve LemonCrow hook runtime from $lemoncrow_python" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow hook runtime from $lemoncrow_python" >&2
         exit 1
     fi
     HOOKS_PATH="${PLUGIN_DIR}/hooks/hooks.json" LEMONCROW_PYTHON="$lemoncrow_python" LEMONCROW_REPO_SRC="${LEMONCROW_REPO}/src" python3 - <<'PYEOF'
@@ -392,7 +392,7 @@ if text:
     text += "\n"
 if text != original:
     path.write_text(text, encoding="utf-8")
-    print(f"[lc:codex] removed obsolete LemonCrow config entries from {path}")
+    print(f"[lemoncrow:codex] removed obsolete LemonCrow config entries from {path}")
 PYEOF
 }
 
@@ -467,7 +467,7 @@ for path in cache_root.iterdir():
         if path.lstat().st_mtime > cutoff:
             continue
         path.unlink()
-        print(f"[lc:codex] pruned old plugin cache alias: {path}")
+        print(f"[lemoncrow:codex] pruned old plugin cache alias: {path}")
     except FileNotFoundError:
         pass
 PYEOF
@@ -498,7 +498,7 @@ for raw in snapshot.read_text(encoding="utf-8").splitlines():
         continue
     try:
         old.symlink_to(target, target_is_directory=True)
-        print(f"[lc:codex] preserved running-session plugin cache path: {old} -> {target}")
+        print(f"[lemoncrow:codex] preserved running-session plugin cache path: {old} -> {target}")
     except FileExistsError:
         pass
 PYEOF
@@ -545,7 +545,7 @@ repo_root = Path(os.environ["LEMONCROW_REPO_VALUE"])
 workspace = Path(os.environ["LEMONCROW_WORKSPACE_VALUE"]) if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1" else None
 role_ids = tuple(r for r in os.environ["LEMONCROW_ROLES_VALUE"].split(",") if r)
 written = write_codex_agents(agents_dir, model_workspace=workspace, repo_root=repo_root, role_ids=role_ids)
-print(f"[lc:codex] projected {len(written)} custom Codex agents into {agents_dir}")
+print(f"[lemoncrow:codex] projected {len(written)} custom Codex agents into {agents_dir}")
 PYEOF
 }
 
@@ -581,7 +581,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:codex] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:codex] FAIL: $*" >&2; VFAIL=1; }
 vwarn() { warn "$*"; }
 
 [ -f "${PLUGIN_DIR}/.codex-plugin/plugin.json" ] && vpass "Codex plugin manifest installed" || vfail "Codex plugin manifest missing"
@@ -630,7 +630,7 @@ else
     vfail "Codex plugin lifecycle hooks missing"
 fi
 
-[ -f "$AGENTS_FILE" ] && grep -q "lc:code" "$AGENTS_FILE" 2>/dev/null && vpass "AGENTS.md contains LemonCrow instructions" || vfail "AGENTS.md missing or has no lc:code persona"
+[ -f "$AGENTS_FILE" ] && grep -q "lemoncrow:code" "$AGENTS_FILE" 2>/dev/null && vpass "AGENTS.md contains LemonCrow instructions" || vfail "AGENTS.md missing or has no lemoncrow:code persona"
 
 # EXPECTED_AGENT_IDS mirrors whatever --roles requested (default: code only).
 IFS=',' read -ra EXPECTED_AGENT_IDS <<< "$ROLES"
@@ -646,7 +646,7 @@ if $WORKSPACE_SET; then [ -d "$TASKS_DEST_DIR" ] && [ -f "$TASKS_DEST_DIR/prefli
 command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1 && vpass "lc status command is available" || vfail "lc status command unavailable"
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:codex] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:codex] ERROR: post-install verification failed." >&2
     exit 1
 fi
 if $PLUGIN_INSTALL_PENDING; then warn "Installation succeeded; plugin activation will complete after Codex restart or manual enablement in /plugins."; fi

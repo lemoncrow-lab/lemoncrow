@@ -263,9 +263,9 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
                 "  ]",
                 "---",
                 "",
-                f"# lc:{role.role_id}",
+                f"# lemoncrow:{role.role_id}",
                 "",
-                f"You are operating as *lc:{role.role_id}*.",
+                f"You are operating as *lemoncrow:{role.role_id}*.",
                 "",
                 render_mode_body(mode_doc),
             ]
@@ -309,7 +309,7 @@ def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
 
 def _already_active_guard(skill_name: str) -> str:
     """One-line blockquote that tells the model the skill is already loaded."""
-    return f'> **Active** — do not call `Skill("lc:{skill_name}")` again.'
+    return f'> **Active** — do not call `Skill("lemoncrow:{skill_name}")` again.'
 
 
 def _inject_active_guard(content: str, skill_name: str) -> str:
@@ -401,7 +401,7 @@ def render_claude_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostPr
 
 
 def render_simple_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostProjection) -> str:
-    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemoncrow:code*.", ""] if role.role_id == "code" else []
     return (
         "\n".join(
             [
@@ -429,7 +429,7 @@ def render_agent(
     host's prefix so agents know the exact tool names to call.
     """
     p = profile.tool_prefix
-    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemoncrow:code*.", ""] if role.role_id == "code" else []
     body = replace_inline_tool_names(render_mode_body(mode_doc, profile.overrides), p)
     if profile.native_fallback_names:
         names, _verb = format_native_names_and_verb(profile.native_fallback_names)

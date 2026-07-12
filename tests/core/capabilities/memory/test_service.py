@@ -22,7 +22,7 @@ def test_store_list_and_get_fact(tmp_path: Path) -> None:
     service = _service(tmp_path)
 
     stored = service.store_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         subject="workflow preference",
         fact="Prefer canonical memory operations.",
         citations='User input: "canonical"',
@@ -32,21 +32,21 @@ def test_store_list_and_get_fact(tmp_path: Path) -> None:
 
     assert stored.fact == "Prefer canonical memory operations."
     assert stored.scope == "user"
-    assert service.list_facts(agent_id="lc:code") == [stored]
-    assert service.get_fact(agent_id="lc:code", fact_id=stored.id) == stored
+    assert service.list_facts(agent_id="lemoncrow:code") == [stored]
+    assert service.get_fact(agent_id="lemoncrow:code", fact_id=stored.id) == stored
 
 
 def test_vote_fact_preserves_response_shape(tmp_path: Path) -> None:
     service = _service(tmp_path)
     service.store_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         subject="workflow preference",
         fact="Prefer canonical memory operations.",
         scope="repository",
     )
 
     voted = service.vote_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         fact="Prefer canonical memory operations.",
         direction="upvote",
         reason="Useful across hosts.",
@@ -62,20 +62,20 @@ def test_share_fact_uses_visibility_scope_without_overwriting_fact_scope(tmp_pat
     store = SqliteMemoryStore(tmp_path / "lemoncrow")
     service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: value)
     stored = service.store_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         subject="testing",
         fact="Repository facts are not workspace visibility metadata.",
         scope="repository",
     )
 
     shared = service.share_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         fact_id=stored.id,
         workspace_id="workspace-1",
         shared_by_user_id="admin@example.com",
     )
 
-    block = next(block for block in store.list_blocks("lc:code") if block.id == shared.id)
+    block = next(block for block in store.list_blocks("lemoncrow:code") if block.id == shared.id)
     assert shared.scope == "repository"
     assert block.metadata["scope"] == "repository"
     assert block.metadata["fact_scope"] == "repository"
@@ -88,11 +88,11 @@ def test_upsert_ignores_target_block_id_outside_candidate_set(tmp_path: Path, mo
     service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: value)
     victim = store.upsert_block(
         MemoryBlock(
-            agent_id="lc:code",
+            agent_id="lemoncrow:code",
             label="victim",
             value="unrelated protected fact",
         ),
-        actor="agent:lc:code",
+        actor="agent:lemoncrow:code",
     )
 
     # The arbiter showed no candidates, but returns a DELETE pointing at the
@@ -106,11 +106,11 @@ def test_upsert_ignores_target_block_id_outside_candidate_set(tmp_path: Path, mo
     )
 
     service.store_fact(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         subject="new",
         fact="totally different topic with no token overlap whatsoever",
         scope="repository",
     )
 
-    survivors = {block.id for block in store.list_blocks("lc:code")}
+    survivors = {block.id for block in store.list_blocks("lemoncrow:code")}
     assert victim.id in survivors

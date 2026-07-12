@@ -42,7 +42,7 @@ def build_codebench_manifest(
             "treatment_arms": treatment_arms,
             "reps": reps,
             "arm_agents": {
-                arm: "lc:code" if arm == "lemoncrow" and cli_driver == "claude" else "host-default" for arm in arms
+                arm: "lemoncrow:code" if arm == "lemoncrow" and cli_driver == "claude" else "host-default" for arm in arms
             },
             "matched_fields": {
                 "model": model,

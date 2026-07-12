@@ -4,7 +4,7 @@ argument-hint: <what to benchmark, e.g. "compare this repo" or specific coding t
 description: "Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark."
 ---
 
-> **Active** — do not call `Skill("lc:benchmark")` again.
+> **Active** — do not call `Skill("lemoncrow:benchmark")` again.
 
 # LemonCrow benchmark
 
