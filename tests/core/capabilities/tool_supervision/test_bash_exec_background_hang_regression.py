@@ -251,3 +251,85 @@ def test_normal_foreground_command_unaffected_by_the_fix(tmp_path: Path) -> None
     assert elapsed < 1.0  # nowhere near the join-grace bound -- genuinely instant
     assert result["stdout"] == "hello world"
     assert "still be running" not in str(result["stderr"])
+
+
+def test_wedged_pipe_with_other_persistent_sessions_alive_is_still_bounded(tmp_path: Path) -> None:
+    """terminal-bench install-windows-3.11 in production: the agent starts qemu,
+    then websockify, then nginx (via `(nginx || service nginx start)`, no trailing
+    `&` -- nginx daemonizes itself). With qemu/websockify already tracked as live
+    managed sessions, the nginx-shaped command hung for the task's full 3600s
+    hard cap, not just the reader-join grace window.
+
+    Root cause: `_close_managed_process_pipes` called `stream.close()` on the
+    proc's TextIOWrapper to force-unwedge a reader thread stuck in `readline()`
+    on a leaked pipe fd. `read()`/`readline()` and `close()` on the same
+    BufferedReader/TextIOWrapper serialize on one internal lock -- the reader
+    holds it while blocked in the underlying syscall, so `close()` from the
+    watcher/poll thread blocks waiting for the same lock. The cleanup meant to
+    unwedge the reader deadlocked against the reader instead. A single isolated
+    wedged command (see test_explicitly_wedged_pipe_via_lingering_fork_is_bounded
+    above) didn't surface this: only concurrent live sessions expose the ordering
+    that puts the watcher thread on the same lock at the same time.
+
+    Fix: neutralize the raw fd (dup2 /dev/null) instead of the wrapper's
+    .close() -- the wrapper's close deadlocks on the reader's lock, and a bare
+    os.close(fd) avoids the deadlock but double-closes a possibly-recycled fd
+    when the wrapper later finalizes. See _neutralize_pipe_fds.
+    """
+    # Two persistent "servers" left running, like qemu + websockify -- their
+    # own output is redirected to a file, so they don't leak anything
+    # themselves; they're here purely to keep _MANAGED_COMMANDS non-empty.
+    server_ids = []
+    for i in range(2):
+        log = tmp_path / f"server{i}.log"
+        cmd = f"nohup sleep 3600 > {log} 2>&1 &\nsleep 0.2; echo server{i}-up"
+        started = bx.start_managed_command(cmd, timeout=5)
+        server_ids.append(str(started["session_id"]))
+    for sid in server_ids:
+        result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
+        assert "up" in str(result["stdout"])
+
+    # Third command: nginx stand-in -- forks a grandchild that inherits the
+    # pipe and never closes it, wrapping command exits promptly (no trailing &).
+    wedge_script = tmp_path / "nginx_standin.py"
+    wedge_script.write_text(
+        "import os, sys, time\nif os.fork() == 0:\n    time.sleep(3600)\n    sys.exit(0)\nsys.exit(0)\n"
+    )
+    command = f"echo configuring; {sys.executable} {wedge_script}\nsleep 0.2; echo nginx-check-done"
+    started = bx.start_managed_command(command, timeout=5)
+    sid = str(started["session_id"])
+    start = time.monotonic()
+    result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
+    elapsed = time.monotonic() - start
+    assert elapsed < _BOUND_S + 2.0  # was: ran to the full task budget in production
+    assert "nginx-check-done" in str(result["stdout"])
+    assert "still be running" in str(result["stderr"])
+
+
+def test_run_command_self_daemonizing_foreground_is_bounded(tmp_path: Path) -> None:
+    """Synchronous run_command() path (CLI / in-process runtime / plugin bash),
+    NOT the MCP managed path: a foreground command (no trailing `&`) whose child
+    forks a grandchild that inherits and holds the stdout/stderr pipe open must
+    not hang.
+
+    The wrapping bash exits in ~0.2s, but run_command's success-branch
+    `for reader in readers: reader.join()` was unbounded -- with a grandchild
+    keeping the pipe open the `_drain` thread stayed blocked in `readline()` and
+    the whole synchronous call hung forever (this path has no session handle and
+    no hard-cap watcher, so nothing ever unblocked it). Only the TimeoutExpired
+    branch killed the group first; a child that exits cleanly slipped straight
+    into the unbounded join. Bounded now the same way the managed path is
+    (_join_readers_within(_READER_JOIN_GRACE_S) + os.close of the raw fd on
+    wedge), shipping whatever was captured before the wrapper exited.
+    """
+    wedge = tmp_path / "wedge.py"
+    wedge.write_text("import os, sys, time\nif os.fork() == 0:\n    time.sleep(3600)\n    sys.exit(0)\nsys.exit(0)\n")
+    command = f"echo configuring; {sys.executable} {wedge}\nsleep 0.2; echo run-cmd-done"
+    try:
+        start = time.monotonic()
+        result = bx.run_command(command, timeout=30)
+        elapsed = time.monotonic() - start
+        assert elapsed < _BOUND_S  # bounded by the join grace, not the grandchild's 3600s hold
+        assert "run-cmd-done" in result.stdout
+    finally:
+        _kill_stray(str(wedge))

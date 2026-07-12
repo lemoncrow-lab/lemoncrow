@@ -137,7 +137,11 @@ def _parse_error_for_path(path: Path) -> list[Counterexample]:
         parser = tree_sitter_parser(grammar)
         if parser is None:
             return []  # grammar unavailable -> fail-open
-        tree = parser.parse(source.encode("utf-8"))
+        try:
+            tree = parser.parse(source.encode("utf-8"))
+        except TypeError:
+            # Some tree-sitter-language-pack grammars expect str, not bytes.
+            tree = parser.parse(source)
         root = _node_attr(tree, "root_node")
         if root is None:
             return []
