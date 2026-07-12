@@ -2737,7 +2737,7 @@ run_setup() {
     # `lc init` would deterministically hit the non-interactive error path on
     # every fresh install and never actually offer the login flow.
     if [[ -n "$index_target" ]]; then
-        printf "%b🔑 Activating this project:%b\n\n" "$C_PURPLE" "$C_RESET"
+        printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
             echo "[dry-run] $lemoncrow_cli init"
         elif [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && "$LEMONCROW_NON_INTERACTIVE" != "1" ]]; then
