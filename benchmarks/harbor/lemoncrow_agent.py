@@ -43,8 +43,8 @@ _DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-opus-4-8")
 def _host_lemoncrow_auth_token() -> str:
     """Host's activated LemonCrow account token (env wins, then ~/.lemoncrow/auth_token).
 
-    `lemoncrow init` / `lc init` inside the container needs an activated free
-    account or it exits nonzero asking for an interactive `lc login` -- not
+    `lemoncrow init` inside the container needs an activated free
+    account or it exits nonzero asking for an interactive `lemoncrow login` -- not
     viable in a headless container. Forwarding the host's already-activated
     token lets init succeed non-interactively, mirroring how
     CLAUDE_CODE_OAUTH_TOKEN is forwarded for Claude auth.
@@ -310,14 +310,14 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
-        # Forward the host's activated LemonCrow account token so `lc init`
-        # doesn't need an interactive `lc login` inside the container.
+        # Forward the host's activated LemonCrow account token so `lemoncrow init`
+        # doesn't need an interactive `lemoncrow login` inside the container.
         lemoncrow_token = _host_lemoncrow_auth_token()
         if lemoncrow_token:
             env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
         return env
 
-    # ── Lifecycle ───────────────────────────────────────────────────────────
+    # ── Lifecycle ────────────────────────────────────────────────────────────────────────
 
     async def install(self, environment: BaseEnvironment) -> None:
         """Install lemoncrow and initialise the runtime store in the container."""
@@ -341,7 +341,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         # Initialise the runtime store (creates ~/.lemoncrow/ layout)
         await self.exec_as_agent(
             environment,
-            command="lc init",
+            command="lemoncrow init",
             env=self._agent_env,
         )
         await _install_rtk(self, environment)
@@ -356,9 +356,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         """Run LemonCrow on the task instruction and stream results to the log."""
         escaped = shlex.quote(instruction)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
-        cmd = (
-            f"lc run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
-        )
+        cmd = f"lemoncrow run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
         await self.exec_as_agent(
             environment,
             command=cmd,
@@ -366,7 +364,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         )
 
     def populate_context_post_run(self, context: AgentContext) -> None:
-        """Parse the lc run start --output-format stream-json log for token/cost.
+        """Parse the lemoncrow run start --output-format stream-json log for token/cost.
 
         The CLI emits one JSON object per run with a top-level ``receipt`` key
         whose ``totals`` sub-object carries the aggregated token counts and cost.
@@ -467,8 +465,8 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-        # Forward the host's activated LemonCrow account token so `lc init`
-        # doesn't need an interactive `lc login` inside the container.
+        # Forward the host's activated LemonCrow account token so `lemoncrow init`
+        # doesn't need an interactive `lemoncrow login` inside the container.
         lemoncrow_token = _host_lemoncrow_auth_token()
         if lemoncrow_token:
             env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
@@ -521,7 +519,6 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "tar -C /opt -xzf /lemoncrow-bundle.tar.gz && "
                 "chmod -R a+rX /opt/lemoncrow-venv /opt/uvpy && "
                 "ln -sf /opt/lemoncrow-venv/bin/lemoncrow /usr/local/bin/lemoncrow && "
-                "ln -sf /opt/lemoncrow-venv/bin/lc /usr/local/bin/lc && "
                 "/opt/lemoncrow-venv/bin/python -c 'import lemoncrow'"
             ),
         )
@@ -601,7 +598,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         )
         # LemonCrow arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental
-        # build (the empty-first-grep bug). `lc code index` is fully
+        # build (the empty-first-grep bug). `lemoncrow code index` is fully
         # synchronous for the FTS symbol/file store grep reads, and the CLI engine
         # runs with autosync disabled (no background worker). Both `code index`
         # and the MCP server key the db as sha256(resolved repo-root)[:12]; the
@@ -625,7 +622,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             else (
                 'export LEMONCROW_WORKSPACE_ROOT="$PWD" CLAUDE_WORKSPACE_ROOT="$PWD" '
                 'LEMONCROW_INDEX_LOCK_TIMEOUT_S="${LEMONCROW_INDEX_LOCK_TIMEOUT_S:-300}"; '
-                "lc code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
+                "lemoncrow code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
                 '|| echo "LEMONCROW_PREWARM_INDEX_FAILED rc=$? (see agent/lemoncrow-index.log)"; '
             )
         )

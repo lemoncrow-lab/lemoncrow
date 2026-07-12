@@ -79,7 +79,7 @@ MCP_ENTRY=$(cat <<JSON
   "mcpServers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "cursor"],
       "alwaysAllow": ["code","compact","context","edit","grep","memory","read","rescue","route","search","shell","sql","trace","verify"]
     }

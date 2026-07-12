@@ -222,7 +222,7 @@ Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_08/`](benchmarks/co
 Run it:
 
 ```bash
-uv run lc benchmark telegraphic \
+uv run lemoncrow benchmark telegraphic \
   --arm baseline --arm lemoncrow --arm caveman \
   --model claude-opus-4-8 \
   --reps 5 \
@@ -259,7 +259,7 @@ Raw data and per-repo details: [`benchmarks/codebench/results/retrieval_2026_07_
 Run it:
 
 ```bash
-uv run lc eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
+uv run lemoncrow eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
 
 # quick smoke test
 lc eval retrieval

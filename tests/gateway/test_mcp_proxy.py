@@ -190,6 +190,19 @@ def test_is_self_matches_plugin_namespaced_name() -> None:
     assert mcp_proxy._is_self(config)
 
 
+def test_is_self_matches_lemoncrow_command_variant() -> None:
+    """Cursor/Antigravity/Copilot installers write {"command": "lemoncrow", ...}
+    (the guaranteed console-script, not the removable `lc` alias) under the
+    "lemoncrow" server name -- both the token check and the name-based
+    fallback must recognize this shape as self, or the proxy risks spawning
+    LemonCrow's own MCP server recursively."""
+    config = MCPServerConfig(name="lemoncrow", command="lemoncrow", args=["mcp", "--host", "cursor"])
+    assert mcp_proxy._is_self(config)
+
+    config_no_token = MCPServerConfig(name="lemoncrow", command="lemoncrow", args=["--host", "cursor"])
+    assert mcp_proxy._is_self(config_no_token)
+
+
 def test_is_self_does_not_false_positive_on_unrelated_server() -> None:
     config = MCPServerConfig(name="fake", command="fake-server", args=[])
     assert not mcp_proxy._is_self(config)

@@ -1558,6 +1558,38 @@ warn_on_foreign_cli_collision() {
     done
 }
 
+# Create the short `lc` alias as a symlink to the just-installed `lemoncrow`
+# binary. `lc` is NOT its own console_script entry point (pyproject.toml only
+# declares `lemoncrow`) -- there is nothing to drift or go missing
+# independently; `lc` is always exactly whatever `lemoncrow` resolves to,
+# guaranteed by construction rather than by two separately-generated scripts
+# staying in sync.
+#
+# Skipped entirely if a DIFFERENT (non-ours) `lc` is already on PATH -- never
+# clobber or shadow a tool the user already has installed under that name.
+# warn_on_foreign_cli_collision() already surfaced that case to the user;
+# this is the enforcement half.
+ensure_lc_alias() {
+    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
+    [[ -x "${lemoncrow_bin}" ]] || return 0
+
+    local found resolved dabs
+    found="$(command -v lc 2>/dev/null || true)"
+    if [[ -n "${found}" ]]; then
+        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found}")" 2>/dev/null || resolved="${found}"
+        dabs="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && pwd -P || echo "${LEMONCROW_BIN_DIR}")"
+        case "${resolved}" in
+            "${dabs}"/*) ;;  # already ours (a prior lc symlink here) -- fine to (re)link
+            *)
+                verbose "Skipping 'lc' alias -- a different 'lc' is already on PATH: ${found}"
+                return 0
+                ;;
+        esac
+    fi
+
+    ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/lc"
+}
+
 # Install uv (Python package/tool manager) via the official installer.
 # Shared by ALL entry points: local.sh (source install), bundle.sh (wheel
 # install), and install.sh via its bundle.sh delegation.
@@ -2722,11 +2754,11 @@ run_setup() {
     fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
 
-    # Deferred, un-spun on purpose: `lc init` requires a LemonCrow account and
+    # Deferred, un-spun on purpose: `lemoncrow init` requires a LemonCrow account and
     # opens an interactive browser login when none is found. Running it earlier
     # under `spin` (which captures stdout via command substitution) breaks TTY
     # detection, so login could never actually open — it just failed straight
-    # to the "run lc login" error. Installation succeeds independent of this;
+    # to the "run lemoncrow login" error. Installation succeeds independent of this;
     # only project activation needs it, so it only runs when a repo was
     # detected, after the install is already reported complete.
     #

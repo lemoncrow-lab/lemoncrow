@@ -9,10 +9,10 @@ got str", "dict object expected; got str", ...).  ``mcp_server._handle`` even
 carries a comment naming this exact failure mode.
 
 Every other MCP test runs the editable ``.py`` path only:
-  * ``test_mcp_stdio_smoke`` drives ``uv run lc mcp`` (editable install)
+  * ``test_mcp_stdio_smoke`` drives ``uv run lemoncrow mcp`` (editable install)
   * ``test_mcp_jsonrpc_e2e`` calls ``_handle`` in-process (editable import)
 Neither can catch compiled-only failures.  This module builds the *real* mypyc
-wheel, installs it into an isolated venv, and drives the shipped ``lc mcp``
+wheel, installs it into an isolated venv, and drives the shipped ``lemoncrow mcp``
 stdio server over JSON-RPC -- the only faithful way to exercise the ``.so``.
 
 For every registered tool we send a ``tools/call`` with native-typed arguments
@@ -150,7 +150,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
         pytest.skip(f"`uv venv` failed:\n{create.stderr[-2000:]}")
 
     venv_python = venv_dir / "bin" / "python"
-    lemoncrow_bin = venv_dir / "bin" / "lc"
+    lemoncrow_bin = venv_dir / "bin" / "lemoncrow"
 
     # The coercion layer lives in the core server modules, so a minimal extra set
     # is enough to start the server and dispatch every tool; tools whose optional
@@ -171,7 +171,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
     if install.returncode != 0:
         pytest.skip(f"compiled wheel install failed:\n{install.stderr[-2000:]}")
     if not lemoncrow_bin.exists():
-        pytest.skip("lc console script missing from venv after install")
+        pytest.skip("lemoncrow console script missing from venv after install")
 
     # Confirm the installed package is actually compiled (.so present, not .py).
     so_files = list(venv_dir.rglob("mcp_server*.so"))
@@ -222,7 +222,7 @@ _INITIALIZE = {
 def _run_server(
     server: _CompiledServer, calls: list[dict[str, Any]], timeout: int = 120
 ) -> tuple[dict[Any, dict[str, Any]], subprocess.CompletedProcess[str]]:
-    """Spawn ``lc mcp``, feed initialize + ``calls``, return {id: response}.
+    """Spawn ``lemoncrow mcp``, feed initialize + ``calls``, return {id: response}.
 
     Strict framing gate (matches test_mcp_stdio_smoke): every non-empty stdout
     line MUST be a JSON object, else the server printed something off-protocol.
@@ -405,9 +405,9 @@ def test_compiled_tool_handles_stringified_args(compiled_server: _CompiledServer
         pytest.skip(f"{tool}: server did not return within timeout (likely real execution)")
 
     assert 2 in responses, f"{tool}: no response to native call (server died?).\nstderr:\n{proc.stderr[-1500:]}"
-    assert (
-        3 in responses
-    ), f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
+    assert 3 in responses, (
+        f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
+    )
     native_resp = responses[2]
     str_resp = responses[3]
 
@@ -442,9 +442,9 @@ def _assert_not_mypyc_error(label: str, response: dict[str, Any]) -> None:
     """A response may be a result or a graceful app error -- never a mypyc crash."""
     if "error" in response:
         message = str(response["error"].get("message", ""))
-        assert not _MYPYC_TYPE_ERROR.search(
-            message
-        ), f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
+        assert not _MYPYC_TYPE_ERROR.search(message), (
+            f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
+        )
 
 
 def test_compiled_server_accepts_arguments_as_json_string(
@@ -513,9 +513,9 @@ def test_compiled_server_unknown_tool_and_method_are_graceful(
             {"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}},
         ],
     )
-    assert {2, 3, 4} <= set(
-        responses
-    ), f"missing responses {{2,3,4}} - {set(responses)}; stderr:\n{proc.stderr[-1500:]}"
+    assert {2, 3, 4} <= set(responses), (
+        f"missing responses {{2,3,4}} - {set(responses)}; stderr:\n{proc.stderr[-1500:]}"
+    )
     assert responses[2]["error"]["code"] == -32601, responses[2]
     assert responses[3]["error"]["code"] == -32601, responses[3]
     assert "result" in responses[4], f"server unresponsive after bad calls: {responses[4]}"
@@ -537,9 +537,9 @@ def test_compiled_server_notification_does_not_break_session(
         ],
     )
     assert None not in responses, f"server wrongly responded to a notification: {responses.get(None)}"
-    assert (
-        2 in responses and "result" in responses[2]
-    ), f"session broken after notification; stderr:\n{proc.stderr[-1500:]}"
+    assert 2 in responses and "result" in responses[2], (
+        f"session broken after notification; stderr:\n{proc.stderr[-1500:]}"
+    )
 
 
 def test_compiled_server_handles_concurrent_calls(
