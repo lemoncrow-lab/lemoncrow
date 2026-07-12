@@ -53,11 +53,11 @@ def _events(root: Path, session_id: str) -> list[dict]:
 # --------------------------------------------------------------------------
 def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
     assert plugin_runtime._normalize_codex_tool("apply_patch") == "edit"
-    assert plugin_runtime._normalize_codex_tool("mcp__lemon__edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("mcp__plugin_lemoncrow_lemon__Edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("lemon.edit") == "edit"
-    assert plugin_runtime._normalize_codex_tool("lemon.bash") == "bash"
-    assert plugin_runtime._normalize_codex_tool("lemon::bash") == "bash"
+    assert plugin_runtime._normalize_codex_tool("mcp__lc__edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("mcp__plugin_lemoncrow_lc__Edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("lc.edit") == "edit"
+    assert plugin_runtime._normalize_codex_tool("lc.bash") == "bash"
+    assert plugin_runtime._normalize_codex_tool("lc::bash") == "bash"
     assert plugin_runtime._normalize_codex_tool("mcp__anything_lemoncrow_anything__read") == "read"
     assert plugin_runtime._normalize_codex_tool("shell") == "bash"
     assert plugin_runtime._normalize_codex_tool("local_shell") == "bash"
@@ -65,23 +65,23 @@ def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
     assert plugin_runtime._normalize_codex_tool("web_search") == "other"
 
 
-def test_codex_native_tool_replacement_maps_apply_patch_to_lemon_edit() -> None:
-    # apply_patch is Codex's native patch tool -- must nudge to mcp__lemon__edit
+def test_codex_native_tool_replacement_maps_apply_patch_to_lc_edit() -> None:
+    # apply_patch is Codex's native patch tool -- must nudge to mcp__lc__edit
     # exactly like edit/write/multiedit, not fall through unmapped (regression for
     # the gap where apply_patch calls went unnudged and landed as native patches).
     for tool_name in ("apply_patch", "patch", "replace", "edit", "write", "multiedit"):
         replacement = plugin_runtime._codex_native_tool_replacement({"tool_name": tool_name})
         assert replacement is not None
-        assert replacement[0] == "mcp__lemon__edit"
+        assert replacement[0] == "mcp__lc__edit"
 
 
 def test_session_tool_normalizers_use_generic_lemoncrow_namespace() -> None:
     for name in (
-        "mcp__lemon__read",
-        "mcp__plugin_lemoncrow_lemon__read",
-        "lemon.read",
-        "lemon::read",
-        "lemon_read",
+        "mcp__lc__read",
+        "mcp__plugin_lemoncrow_lc__read",
+        "lc.read",
+        "lc::read",
+        "lc_read",
         "mcp__anything_lemoncrow_anything__read",
     ):
         assert session_commands._is_lemoncrow_tool_name(name)
@@ -113,7 +113,7 @@ def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lemon__read",
+            "tool_name": "mcp__lc__read",
             "tool_input": {"files": ["src/a.py:full"]},
             "cwd": str(tmp_path),
         },
@@ -144,7 +144,7 @@ def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lemon__read",
+            "tool_name": "mcp__lc__read",
             "tool_input": {"files": ["src/a.py:L1-L20"]},
             "cwd": str(tmp_path),
         },
@@ -154,7 +154,7 @@ def test_pre_tool_use_allows_ranges_and_unedited_files(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "session_id": session_id,
-            "tool_name": "mcp__lemon__read",
+            "tool_name": "mcp__lc__read",
             "tool_input": {"files": ["src/b.py:full"]},
             "cwd": str(tmp_path),
         },

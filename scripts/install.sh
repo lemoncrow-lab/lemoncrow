@@ -377,17 +377,17 @@ fi
 
 # ---- done --------------------------------------------------------------------
 echo ""
-if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lemon >/dev/null 2>&1 || ( command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q "^lemoncrow" ); then
-    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || lemon --version 2>/dev/null || echo '') ready!"
+if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lc >/dev/null 2>&1 || ( command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q "^lemoncrow" ); then
+    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || lc --version 2>/dev/null || echo '') ready!"
     echo ""
-    echo "  Quick start:  lemon --help"
-    echo "  Init runtime: lemon init"
+    echo "  Quick start:  lc --help"
+    echo "  Init runtime: lc init"
     echo "  Docs:         https://github.com/lemoncrowhq/lemoncrow"
 else
     info "LemonCrow installed to ${LEMONCROW_BIN_DIR}"
     echo ""
     echo "  Restart your shell or run:"
     echo "    export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
-    echo "    lemon --help"
+    echo "    lc --help"
 fi
 echo ""

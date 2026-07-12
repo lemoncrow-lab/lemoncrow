@@ -5,13 +5,13 @@ LemonCrow's service exposes a standards-compliant `/v1/chat/completions` streami
 ## Start the gateway
 
 ```bash
-lemon service start --port 8787
+lc service start --port 8787
 ```
 
 Optional standalone mode (legacy):
 
 ```bash
-lemon serve-openai --port 8787
+lc serve-openai --port 8787
 ```
 
 Options for standalone mode:
@@ -33,7 +33,7 @@ Options for standalone mode:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "lemon": {
+    "lc": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LemonCrow",
       "options": {
@@ -57,7 +57,7 @@ Options for standalone mode:
 {
   "$schema": "https://charm.land/crush.json",
   "providers": {
-    "lemon": {
+    "lc": {
       "type": "openai-compat",
       "base_url": "http://localhost:8787/v1",
       "api_key": "local",
@@ -91,13 +91,13 @@ Set `LEMONCROW_API_KEY=local` (or any non-empty value) in your shell.
 
 ### Claude Code (MCP — zero configuration)
 
-LemonCrow already ships `lemon mcp`. Add to `~/.claude.json`:
+LemonCrow already ships `lc mcp`. Add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
-    "lemon": {
-      "command": "lemon mcp",
+    "lc": {
+      "command": "lc mcp",
       "env": { "LEMONCROW_SERVICE_URL": "http://127.0.0.1:8787" }
     }
   }
@@ -161,7 +161,7 @@ cp ~/.lemoncrow/providers.json.example ~/.lemoncrow/providers.json
 nano ~/.lemoncrow/providers.json
 
 # 3. Restart the service
-lemon service start   # or kill the old process first
+lc service start   # or kill the old process first
 
 # 4. Verify model list
 curl http://localhost:8787/v1/models | jq '.data[].id'

@@ -2,7 +2,7 @@
 
 PID files, status payloads, process-group signalling, and stack-stop logic for
 the optional native visualization stack. Moved verbatim from
-``gateway/cli/app.py``; the thin ``lemon stack`` command callbacks call these.
+``gateway/cli/app.py``; the thin ``lc stack`` command callbacks call these.
 Domain errors surface as ``click.ClickException`` only where the original code
 already did (frontend-dependency preflight).
 """

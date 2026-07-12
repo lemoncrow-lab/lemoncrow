@@ -70,13 +70,13 @@ MODEL="${CODEBENCH_MODEL:-opus}"
 # the run (which --resume retries) instead of silently degrading: an empty index
 # makes grep return nothing, and the agent burns turns falling back to shell.
 if [ "$ARM" = "lemoncrow" ]; then
-  idx_json="$(lemon code index --repo-root "$REPO" --reindex --json 2>/tmp/lemoncrow-index.log)"
+  idx_json="$(lc code index --repo-root "$REPO" --reindex --json 2>/tmp/lemoncrow-index.log)"
   files_indexed="$(printf '%s' "$idx_json" | grep -o '"files_indexed"[^,}]*' | grep -o '[0-9][0-9]*' | head -1)"
   files_indexed="${files_indexed:-0}"
   if [ "$files_indexed" -gt 0 ] 2>/dev/null; then
-    echo "lemon code index: prewarm OK ($files_indexed files)" >&2
+    echo "lc code index: prewarm OK ($files_indexed files)" >&2
   else
-    echo "FATAL: lemon code index built 0 files for $REPO -- aborting so the run is retried instead of over-searching on an empty index." >&2
+    echo "FATAL: lc code index built 0 files for $REPO -- aborting so the run is retried instead of over-searching on an empty index." >&2
     tail -n 20 /tmp/lemoncrow-index.log >&2 || true
     exit 4
   fi
@@ -92,9 +92,9 @@ if [ "$ARM" = "lemoncrow" ]; then
   # call returns results immediately instead of paying the build cost on the
   # tool-call path. Failure is non-fatal: search falls back to SQLite FTS5.
   if [ "${LEMONCROW_ZOEKT_MODE:-off}" != "off" ] && command -v zoekt-index >/dev/null 2>&1; then
-    lemon zoekt up 2>/tmp/lemoncrow-zoekt.log \
-      && echo "lemon zoekt up: prewarm OK" >&2 \
-      || { echo "[warn] lemon zoekt up failed -- falling back to FTS5" >&2; tail -n 5 /tmp/lemoncrow-zoekt.log >&2 || true; }
+    lc zoekt up 2>/tmp/lemoncrow-zoekt.log \
+      && echo "lc zoekt up: prewarm OK" >&2 \
+      || { echo "[warn] lc zoekt up failed -- falling back to FTS5" >&2; tail -n 5 /tmp/lemoncrow-zoekt.log >&2 || true; }
   fi
 fi
 
@@ -108,7 +108,7 @@ if [ "$ARM" = "lemoncrow" ]; then
   # sees "lemoncrow still connecting", has no tools/instructions, and falls back to
   # Explore subagents (measured 2026-07-06 rep3: 10/10 sessions raced, 267 vs 125
   # turns, +$1.67/run). Plugin-embedded servers load before turn 1. Costs the
-  # long mcp__plugin_lemoncrow_lemon__* names (~5 tok/call vs mcp__lemon__*);
+  # long mcp__plugin_lemoncrow_lc__* names (~5 tok/call vs mcp__lc__*);
   # revisit when #43298 is fixed.
   args+=(--plugin-dir /mnt/plugin)
 else
@@ -127,7 +127,7 @@ fi
 # agent enter plan mode and plan instead of execute. The flag is variadic, so it
 # MUST stay last in args. Denying a tool an arm doesn't have is a harmless no-op
 # (e.g. baseline has no mcp__* tools).
-disallowed=(AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch mcp__lemon__web_fetch mcp__plugin_lemoncrow_lemon__web_fetch Workflow ScheduleWakeup)
+disallowed=(AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch mcp__lc__web_fetch mcp__plugin_lemoncrow_lc__web_fetch Workflow ScheduleWakeup)
 args+=(--disallowedTools "${disallowed[@]}")
 
 claude "${args[@]}"

@@ -40,7 +40,7 @@ As of 0.125.0 only the **`shell`**, **`unified_exec`**, **`apply_patch`**, and
 Tools that do **not** fire hooks today: `web_search`, `plan`/`update_plan`,
 `list_dir`, `view_image`, and the `multi_agents` family. Consequences for LemonCrow:
 
-- Edit (`apply_patch` / `mcp__lemon__edit`), shell, and MCP-tool telemetry and
+- Edit (`apply_patch` / `mcp__lc__edit`), shell, and MCP-tool telemetry and
   proof-gating **work**.
 - Telemetry is **blind** to web-search/plan/multi-agent tool calls. The
   `codex exec --json` collector (headless runs) backfills part of this gap.

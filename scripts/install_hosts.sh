@@ -149,7 +149,7 @@ run_host_installer() {
         }
 
         local $SIG{ALRM} = sub {
-            print STDERR "[lemon:install] ERROR: host installer timed out after ${timeout}s\n";
+            print STDERR "[lc:install] ERROR: host installer timed out after ${timeout}s\n";
             kill "TERM", $pid;
             sleep 2;
             kill "KILL", $pid;

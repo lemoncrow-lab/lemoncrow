@@ -441,7 +441,7 @@ def _install_attribution_hook(git_root: Path) -> str | None:
         "#!/usr/bin/env bash\n"
         "\n"
         f"{marker}\n"
-        "# Managed by LemonCrow (lemon init). Appends the co-author trailer unless already present.\n"
+        "# Managed by LemonCrow (lc init). Appends the co-author trailer unless already present.\n"
         "# Skips merge/squash commit messages.\n"
         f'LEMONCROW_TRAILER="{trailer}"\n'
         'case "$2" in\n'
@@ -525,7 +525,7 @@ def _index_stats_pretty(repo_root: Path) -> list[str]:
     """Return human-readable index stats lines for a repo."""
     db_path = _code_index_db_path(repo_root)
     if not db_path.exists():
-        return ["(no index — run `lemon code index` first)"]
+        return ["(no index — run `lc code index` first)"]
     lines: list[str] = []
     try:
         conn = sqlite3.connect(str(db_path))
@@ -623,18 +623,18 @@ def init(
     if not load_auth_token():
         if not _is_interactive_terminal():
             raise click.ClickException(
-                "A free LemonCrow account is required to activate this install. Run lemon login, then retry lemon init."
+                "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
             )
         click.echo("No LemonCrow account found — starting login...")
         _oauth_login(as_json=False)
         if not load_auth_token():
-            raise click.ClickException("Login did not complete. Run lemon login, then retry lemon init.")
+            raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
     # ContextStore resolves the active workspace root internally (for its
     # blocks/rubrics mirror dir under the store root), which now requires cwd
-    # to be either a git repo or already `lemon init`-registered. Without
+    # to be either a git repo or already `lc init`-registered. Without
     # this, the very first `init` run in a fresh non-git directory would
     # raise WorkspaceNotRegisteredError from inside `create_store` before this
     # command ever gets a chance to register the directory itself below.
@@ -707,7 +707,7 @@ def init(
         _ensure_gitignore(Path.cwd())
         click.echo(f"registered {Path.cwd()} as an LemonCrow workspace (no git repository detected)")
     # Hidden for now (needs more work) — no longer auto-prompts on a bare
-    # `lemon init`; only runs when explicitly requested via --configure-models.
+    # `lc init`; only runs when explicitly requested via --configure-models.
     should_offer_model_config = bool(git_root is not None and _is_interactive_terminal())
     if configure_models and not should_offer_model_config:
         raise click.ClickException("--configure-models requires an interactive terminal inside a git repository.")
@@ -734,7 +734,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
       Core              python, lemoncrow version, git repo, store
       Code intelligence code index, zoekt search backend
       Services          servicectl, stack (backend + frontend), backend API
-      MCP               active LemonCrow MCP server processes (see also: lemon mcp list)
+      MCP               active LemonCrow MCP server processes (see also: lc mcp list)
       Integrations      letta, openmemory, langfuse, external compactors
       Environment       host CLIs, external tools, optional python packages, core libraries
     """
@@ -828,7 +828,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "pid": sc["pid"],
                 "last_tick_at": sc.get("last_tick_at"),
                 "job_queue": qh or None,
-                "hint": None if sc["running"] else "not running — start: lemon servicectl start",
+                "hint": None if sc["running"] else "not running — start: lc servicectl start",
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -849,7 +849,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "installed": bool(st["service_running"]),
                 "pid": st["service_pid"],
                 "url": st.get("service_url"),
-                "hint": None if st["service_running"] else "not running — start: lemon stack start",
+                "hint": None if st["service_running"] else "not running — start: lc stack start",
             },
         )
         add(
@@ -861,7 +861,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "installed": bool(st["frontend_running"]),
                 "pid": st["frontend_pid"],
                 "url": st.get("frontend_url"),
-                "hint": None if st["frontend_running"] else "not running — start: lemon stack start",
+                "hint": None if st["frontend_running"] else "not running — start: lc stack start",
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -901,7 +901,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "installed": bool(servers),
                 "count": len(servers),
                 "stats": lines or None,
-                "hint": None if servers else "no active servers — full list: lemon mcp list",
+                "hint": None if servers else "no active servers — full list: lc mcp list",
             },
         )
     except Exception:  # noqa: BLE001
@@ -916,7 +916,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
         with _urllib_request.urlopen(f"{letta_url}/v1/health", timeout=1.5) as resp:
             letta_info["installed"] = resp.status == 200
     except Exception:  # noqa: BLE001
-        letta_info["hint"] = "unreachable — start: lemon letta up"
+        letta_info["hint"] = "unreachable — start: lc letta up"
     add("Integrations", "letta", letta_info)
 
     try:
@@ -931,7 +931,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "optional": True,
                 "installed": om_dir.exists(),
                 "path": str(om_dir) if om_dir.exists() else None,
-                "hint": None if om_dir.exists() else "not set up — start: lemon openmemory up",
+                "hint": None if om_dir.exists() else "not set up — start: lc openmemory up",
             },
         )
     except Exception:  # noqa: BLE001
@@ -1308,7 +1308,7 @@ def _auth_status(root: Path, as_json: bool) -> None:
             if as_json:
                 _emit({"mode": "none", "status": "not logged in"}, as_json=True)
                 return
-            click.secho("✗ Not logged in — run: lemon login", fg="red")
+            click.secho("✗ Not logged in — run: lc login", fg="red")
 
 
 @click.command("login")
@@ -1368,7 +1368,7 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
 
     if result is None:
         click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
-        click.echo("  Fallback: lemon login --token <token> (from your account page).", err=True)
+        click.echo("  Fallback: lc login --token <token> (from your account page).", err=True)
         raise SystemExit(1)
 
     plan_label = result.plan if result.plan_verified else "unknown (could not verify)"
@@ -1445,7 +1445,7 @@ def status_cmd(
 
     Default view: runs dashboard (overview of recent runs, totals, savings).
 
-    Use --index for index stats; `lemon login --status` for auth status.
+    Use --index for index stats; `lc login --status` for auth status.
     """
     root: Path = ctx.obj["root"]
 

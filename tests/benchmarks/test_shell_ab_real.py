@@ -90,5 +90,5 @@ def test_shell_ab_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _append_row(row)
 
-    assert "[lemon: shrunk" in payload or "[output truncated:" in payload
+    assert "[lc: shrunk" in payload or "[output truncated:" in payload
     assert lemoncrow_tokens < native_tokens

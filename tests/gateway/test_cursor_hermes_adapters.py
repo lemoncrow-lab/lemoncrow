@@ -122,7 +122,7 @@ class TestCursorAdapter:
         instructions = CursorAdapter.install()
         assert isinstance(instructions, str)
         assert "Cursor" in instructions
-        assert "lemon" in instructions
+        assert "lc" in instructions
         assert ".cursor/mcp.json" in instructions
 
     def test_host_label(self, cursor_adapter: CursorAdapter) -> None:
@@ -209,7 +209,7 @@ class TestHermesAdapter:
         instructions = HermesAdapter.install()
         assert isinstance(instructions, str)
         assert "Hermes" in instructions
-        assert "lemon" in instructions
+        assert "lc" in instructions
         assert "config.yaml" in instructions or "HERMES_HOME" in instructions
 
     def test_host_label(self, hermes_adapter: HermesAdapter) -> None:

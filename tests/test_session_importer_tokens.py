@@ -962,7 +962,7 @@ class TestCopilotImporterTokens:
             Trace(
                 id="copilot-transcript-orphan-transcript",
                 session_id="orphan-transcript",
-                agent="lemon:code",
+                agent="lc:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",
@@ -1118,7 +1118,7 @@ class TestCopilotImporterTokens:
             Trace(
                 id="copilot-transcript-stale-transcript",
                 session_id="stale-transcript",
-                agent="lemon:code",
+                agent="lc:code",
                 host="copilot",
                 domain="coding",
                 task="legacy standalone transcript",

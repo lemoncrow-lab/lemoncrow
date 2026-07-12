@@ -105,7 +105,7 @@ Host install entrypoints are under `scripts/install_<host>.sh`.
 All hosts ultimately invoke the same LemonCrow MCP server, but packaged hosts now carry their own host-specific wrapper surfaces:
 
 ```text
-lemon mcp
+lc mcp
 ```
 
 That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex packages that same runtime behavior behind a plugin-local wrapper, while Antigravity uses workspace or user MCP configuration plus a generated host surface.
@@ -125,6 +125,6 @@ All hosts ultimately use the same LemonCrow stdio MCP server.
 
 ## Uninstalling
 
-Use `lemon uninstall` to remove the main LemonCrow install and managed host
+Use `lc uninstall` to remove the main LemonCrow install and managed host
 integrations. Host-specific uninstall scripts remain available when you only want
 to remove one host surface.

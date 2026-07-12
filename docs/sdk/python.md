@@ -80,6 +80,6 @@ When using `LemonCrowClient.mcp()`, the client mirrors the current MCP tool
 surface documented in [mcp.md](mcp.md), including `context`, `route`, `rescue`,
 `record`, `verify`, `memory`, `read`, `edit`, `search`, and `compact`.
 
-Use the CLI for operational workflows such as `lemon report`, `lemon
-benchmark ...`, `lemon service ...`, `lemon background ...`, and `lemon
+Use the CLI for operational workflows such as `lc report`, `lc
+benchmark ...`, `lc service ...`, `lc background ...`, and `lc
 domain ...`.

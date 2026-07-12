@@ -8,7 +8,7 @@
 #
 # Tries, in order:
 #   1. $LEMONCROW_PYTHON env override
-#   2. resolve lemon on PATH → its sibling venv bin/python
+#   2. resolve lc on PATH → its sibling venv bin/python
 #   3. ~/.local/share/uv/tools/lemoncrow/bin/python (uv tool default)
 #   4. path stored in ../lemoncrow-python (written by install_claude.sh)
 #   5. system python3 (silent no-op fallback, matches old behavior)
@@ -17,9 +17,9 @@ set -u
 
 _PYTHON_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/lemoncrow/hook_python"
 
-# Cheap fingerprint of "where would lemon resolve right now" -- a PATH
+# Cheap fingerprint of "where would lc resolve right now" -- a PATH
 # lookup, no python subprocess. A reinstall (make dev / make prod /
-# install.sh) can move lemon to a new venv without removing the old one
+# install.sh) can move lc to a new venv without removing the old one
 # (e.g. ~/.local/...uv/tools vs ~/.lemoncrow/uv-tools); the old interpreter
 # still happily satisfies "import lemoncrow" (it's a real, just stale, install),
 # so that check alone never notices the switch. Pin the cache to this
@@ -27,7 +27,7 @@ _PYTHON_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/lemoncrow/hook_python"
 _current_fingerprint() {
     local config_file
     config_file="$(dirname "$0")/../lemoncrow-python"
-    printf '%s\n%s\n%s\n' "${LEMONCROW_PYTHON:-}" "$(command -v lemon 2>/dev/null || true)" "$(cat "${config_file}" 2>/dev/null || true)"
+    printf '%s\n%s\n%s\n' "${LEMONCROW_PYTHON:-}" "$(command -v lc 2>/dev/null || true)" "$(cat "${config_file}" 2>/dev/null || true)"
 }
 
 resolve_lemoncrow_python() {
@@ -38,7 +38,7 @@ resolve_lemoncrow_python() {
     fi
 
     local wrapper py shebang
-    wrapper="$(command -v lemon 2>/dev/null || true)"
+    wrapper="$(command -v lc 2>/dev/null || true)"
     if [[ -n "${wrapper}" ]]; then
         # Modern uv tool wrappers are a python script whose shebang IS the venv
         # interpreter (e.g. "#!/Users/x/.lemoncrow/uv-tools/lemoncrow/bin/python").
@@ -50,7 +50,7 @@ resolve_lemoncrow_python() {
         fi
         # The wrapper exec's lemoncrow.real in the uv venv; the python lives next to it.
         local real venv_bin
-        real="$(grep -oE '"[^"]*lemon\.real"' "${wrapper}" 2>/dev/null | head -1 | tr -d '"')"
+        real="$(grep -oE '"[^"]*lc\.real"' "${wrapper}" 2>/dev/null | head -1 | tr -d '"')"
         if [[ -x "${real}" ]]; then
             venv_bin="$(dirname "${real}")"
             for py in "${venv_bin}/python" "${venv_bin}/python3"; do
@@ -70,7 +70,7 @@ resolve_lemoncrow_python() {
     done
 
     # Path written by install_claude.sh at install time (handles binary / dev installs
-    # where no uv-tool venv exists next to the lemon wrapper).
+    # where no uv-tool venv exists next to the lc wrapper).
     local config_file
     config_file="$(dirname "$0")/../lemoncrow-python"
     if [[ -f "${config_file}" ]]; then

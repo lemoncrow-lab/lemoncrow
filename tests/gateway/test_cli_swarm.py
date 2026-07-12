@@ -844,7 +844,7 @@ def test_read_swarm_child_activity_tails_live_transcript(monkeypatch: object, tm
                         "message": {
                             "role": "assistant",
                             "content": [
-                                {"type": "tool_use", "name": "mcp__lemon__bash", "input": {"command": "pytest -q"}}
+                                {"type": "tool_use", "name": "mcp__lc__bash", "input": {"command": "pytest -q"}}
                             ],
                         },
                     }
@@ -872,7 +872,7 @@ def test_read_swarm_child_activity_tails_live_transcript(monkeypatch: object, tm
     activity = read_swarm_child_activity(child, turns=2)
 
     assert "Investigating the ranking bug." in activity
-    assert "mcp__lemon__bash" in activity
+    assert "mcp__lc__bash" in activity
 
 
 def test_swarm_apply_prints_transplant_commands(monkeypatch: object, tmp_path: Path) -> None:

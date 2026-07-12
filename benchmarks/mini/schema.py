@@ -2,7 +2,7 @@
 
 Defines the case definition (:class:`MiniEvalCase`), the per-case result
 (:class:`MiniEvalCaseResult`), and the aggregate report (:class:`MiniEvalReport`)
-used by the deterministic, cheap mini benchmark that backs ``lemon benchmark mini``.
+used by the deterministic, cheap mini benchmark that backs ``lc benchmark mini``.
 """
 
 from __future__ import annotations

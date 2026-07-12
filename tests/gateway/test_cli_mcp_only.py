@@ -24,14 +24,14 @@ from lemoncrow.gateway.cli.app import MCP_TOOL_ONLY_COMMANDS, MCP_TOOL_ONLY_GROU
 
 # Dev-only subcommands of the suppressed @_dev_group("memory") / @_dev_group("route").
 # These have no live equivalent and must be absent from the resolvable tree.
-# NOTE: ``recall`` is a live user-facing command (`lemon memory recall <query>`),
+# NOTE: ``recall`` is a live user-facing command (`lc memory recall <query>`),
 # so it is intentionally excluded here -- only the raw MCP-block primitives are dev-only.
 _DEV_ONLY_MEMORY_SUBCOMMANDS = ("upsert", "get", "archive")
 _DEV_ONLY_ROUTE_SUBCOMMANDS = ("decide",)
 
 
 def _root_ctx() -> click.Context:
-    return click.Context(cli, info_name="lemon")
+    return click.Context(cli, info_name="lc")
 
 
 def test_mcp_only_commands_absent_from_top_level() -> None:
@@ -44,7 +44,7 @@ def test_mcp_only_commands_absent_from_top_level() -> None:
 
 
 def test_mcp_only_commands_absent_from_help_output() -> None:
-    """The suppressed commands must not appear in `lemon --help`."""
+    """The suppressed commands must not appear in `lc --help`."""
     result = CliRunner().invoke(cli, ["--help"])
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -67,7 +67,7 @@ def test_mcp_only_groups_have_live_equivalents() -> None:
     # The live groups are resolvable end-to-end via --help.
     for name in MCP_TOOL_ONLY_GROUPS:
         result = CliRunner().invoke(cli, [name, "--help"])
-        assert result.exit_code == 0, f"`lemon {name} --help` failed:\n{result.output}"
+        assert result.exit_code == 0, f"`lc {name} --help` failed:\n{result.output}"
 
 
 def test_dev_only_subcommands_suppressed_on_live_groups() -> None:

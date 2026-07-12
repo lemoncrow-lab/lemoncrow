@@ -22,7 +22,7 @@ class _MemoryStore:
 
 def test_arbitration_adds_when_no_similar_blocks() -> None:
     decision = arbitrate(
-        MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact patches"),
+        MemoryBlock(agent_id="lc:code", label="style", value="prefer compact patches"),
         _MemoryStore([]),
         NullEmbedder(),
     )
@@ -50,7 +50,7 @@ def test_arbitration_emits_per_op_metric(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
     arbitrate(
-        MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact patches"),
+        MemoryBlock(agent_id="lc:code", label="style", value="prefer compact patches"),
         _MemoryStore([]),
         NullEmbedder(),
     )
@@ -61,8 +61,8 @@ def test_arbitration_emits_per_op_metric(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_arbitration_uses_ollama_json_for_similar_blocks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact scoped patches")
-    new_fact = MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact scoped edits")
+    existing = MemoryBlock(agent_id="lc:code", label="style", value="prefer compact scoped patches")
+    new_fact = MemoryBlock(agent_id="lc:code", label="style", value="prefer compact scoped edits")
     seen_messages: list[dict[str, str]] = []
 
     def fake_chat(messages: list[dict[str, str]], json_schema: object | None = None) -> dict[str, str]:
@@ -99,8 +99,8 @@ def test_arbitration_uses_ollama_json_for_similar_blocks(
 def test_arbitration_degrades_when_base_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.infra.internal_llm.exceptions import InternalLLMError
 
-    existing = MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact scoped patches")
-    new_fact = MemoryBlock(agent_id="lemon:code", label="style", value="prefer compact scoped edits")
+    existing = MemoryBlock(agent_id="lc:code", label="style", value="prefer compact scoped patches")
+    new_fact = MemoryBlock(agent_id="lc:code", label="style", value="prefer compact scoped edits")
 
     def fake_chat(messages: list[dict[str, str]], json_schema: object | None = None) -> dict[str, str]:
         _ = (messages, json_schema)

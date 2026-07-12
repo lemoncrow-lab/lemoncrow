@@ -4,7 +4,7 @@ argument-hint: <what to benchmark, e.g. "compare this repo" or specific coding t
 description: "Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark."
 ---
 
-> **Active** — do not call `Skill("lemon:benchmark")` again.
+> **Active** — do not call `Skill("lc:benchmark")` again.
 
 # LemonCrow benchmark
 
@@ -14,15 +14,15 @@ Two modes:
 
 | Mode                                   | What it measures                                                            | Cost                             |
 | -------------------------------------- | --------------------------------------------------------------------------- | -------------------------------- |
-| **Offline** (`lemon eval sessions`)  | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
-| **Online** (`lemon benchmark local`) | Side-by-side A/B cost + quality delta on YOUR prompts                       | Real API spend                   |
+| **Offline** (`lc eval sessions`)  | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
+| **Online** (`lc benchmark local`) | Side-by-side A/B cost + quality delta on YOUR prompts                       | Real API spend                   |
 
 ---
 
 ## Offline mode — session history analysis
 
 Reads Claude Code session files from `~/.claude/projects/`, extracts every
-`mcp__lemon__grep`, `mcp__lemon__code_search`, and `ToolSearch` call, groups
+`mcp__lc__grep`, `mcp__lc__code_search`, and `ToolSearch` call, groups
 them into "search episodes" between prompts, shows:
 
 - Individual `grep` calls per episode
@@ -33,13 +33,13 @@ them into "search episodes" between prompts, shows:
 
 ```bash
 # Analyze your LemonCrow sessions and show savings
-uv run lemon eval sessions --repo-filter lemoncrow
+uv run lc eval sessions --repo-filter lemoncrow
 
 # Also run the retrieval benchmark on mined grep patterns
-uv run lemon eval sessions --repo-filter lemoncrow --run-eval --channel lexical
+uv run lc eval sessions --repo-filter lemoncrow --run-eval --channel lexical
 
 # Analyze all session files (no filter)
-uv run lemon eval sessions --run-eval --channel cg --full
+uv run lc eval sessions --run-eval --channel cg --full
 ```
 
 ---
@@ -55,8 +55,8 @@ not noise.
 the prompt to run through step 2, no matter how it's phrased — a task ("refactor X"), a
 question ("how do you compute token savings"), or a meta-question about LemonCrow itself ("is
 this worth it"). Do **not** answer it yourself by reading source/docs and replying in prose;
-that is never a substitute for actually invoking `lemon eval sessions` or
-`lemon benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
+that is never a substitute for actually invoking `lc eval sessions` or
+`lc benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
 skill") say so and point at this file — don't silently swap in a free-form explanation.
 
 ### 1. Gather inputs
@@ -78,7 +78,7 @@ through to the terminal (the Stop hook will intercept it).**
 **Phase A — estimate only:**
 
 ```bash
-uv run lemon benchmark local --repo . \
+uv run lc benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
   --estimate-only
 ```
@@ -95,7 +95,7 @@ Run as a background job so it doesn't hit the bash tool's 30-minute timeout:
 
 ```bash
 LOG="/tmp/lemoncrow-bench-$$.log"
-nohup uv run lemon benchmark local --repo . \
+nohup uv run lc benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
   -y > "$LOG" 2>&1 &
 echo "PID=$! log=$LOG"
@@ -128,19 +128,19 @@ For comparing retrieval accuracy across channels (no LLM cost):
 
 ```bash
 # LemonCrow lexical (FTS/trigram)
-uv run lemon eval retrieval --channel lexical
+uv run lc eval retrieval --channel lexical
 
 # LemonCrow lexical full (no sampling)
-uv run lemon eval retrieval --channel lexical --full
+uv run lc eval retrieval --channel lexical --full
 
 # CodeGraph (tree-sitter knowledge graph)
-uv run lemon eval retrieval --channel cg --full
+uv run lc eval retrieval --channel cg --full
 
 # Zoekt (trigram index, needs zoekt on PATH)
-LEMONCROW_ZOEKT_MODE=installed uv run lemon eval retrieval --channel zoekt
+LEMONCROW_ZOEKT_MODE=installed uv run lc eval retrieval --channel zoekt
 
 # Semantic (BGE embeddings, needs sentence-transformers)
-uv run lemon eval retrieval --channel semantic
+uv run lc eval retrieval --channel semantic
 ```
 
 ---
@@ -152,6 +152,6 @@ uv run lemon eval retrieval --channel semantic
 - Both arms share the same model and `--cli-driver` (default `claude`); the
   only A/B difference = LemonCrow's toolset and agents.
 - **Internal/dev** benchmarking of LemonCrow itself → the suite commands:
-  `lemon benchmark {codebench,lemoncrowbench,mcp,providers}`.
+  `lc benchmark {codebench,lemoncrowbench,mcp,providers}`.
 - Where savings came from on **recent sessions** (not a fresh run) → `/savings`
-  or `lemon savings --deep`.
+  or `lc savings --deep`.

@@ -14,7 +14,7 @@ health (default, free)
     to zero: ``score = -(mypy_errors + ruff_issues)`` (0 is best, higher is
     better). No API spend.
 mini (paid)
-    Runs ``lemon benchmark mini --json`` and optimizes cost-per-accepted
+    Runs ``lc benchmark mini --json`` and optimizes cost-per-accepted
     -patch. Spends API budget -- only run with explicit approval.
 
 Usage
@@ -133,8 +133,8 @@ def objective_health(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def objective_mini(args: argparse.Namespace) -> dict[str, Any]:
-    """Paid objective: cost/quality from ``lemon benchmark mini``."""
-    cmd = ["uv", "run", "lemon", "benchmark", "mini", "--json"]
+    """Paid objective: cost/quality from ``lc benchmark mini``."""
+    cmd = ["uv", "run", "lc", "benchmark", "mini", "--json"]
     if args.limit:
         cmd += ["--limit", str(args.limit)]
     p = _run(cmd, timeout=args.timeout)

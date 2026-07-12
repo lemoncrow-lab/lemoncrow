@@ -100,18 +100,18 @@ def test_opencode_agent_has_host_specific_tool_policy() -> None:
     # (tool-discipline.md) -- only Claude drops them (its equivalent arrives via
     # the MCP server's `instructions` field instead).
     assert "One search → one bulk edit." in content
-    assert "Known path → `lemon_read`; `lemon_bash` = execution only." in content
+    assert "Known path → `lc_read`; `lc_bash` = execution only." in content
     assert "Batch independent calls." in content
     assert "Large output → a file, never prose." in content
-    # The old "use lemon_code_search/read/edit/bash instead" bullet was dropped
+    # The old "use lc_code_search/read/edit/bash instead" bullet was dropped
     # as pure duplication of the shared workflow bullets above.
     assert "OpenCode host" not in content
     assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
     # Regression: native OpenCode tool names must stay bare (they name OpenCode's
     # own tools, not LemonCrow's) while the "use LemonCrow: ..." clause right after
     # them must be prefixed -- both directions have broken before.
-    assert "`lemon_read`, `grep`, `lemon_bash`" not in content
-    assert "— use LemonCrow: `lemon_bash`, `lemon_read`, `lemon_edit`, `lemon_code_search`." in content
+    assert "`lc_read`, `grep`, `lc_bash`" not in content
+    assert "— use LemonCrow: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
 
 
 def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
@@ -122,7 +122,7 @@ def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
     code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
     assert (
         "Native Codex `apply_patch` and `exec_command` are disallowed — use LemonCrow: "
-        "`lemon.bash`, `lemon.read`, `lemon.edit`, `lemon.code_search`."
+        "`lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`."
     ) in code_skill
     # Read-only roles have no edit tool to name apply_patch as a fallback from --
     # only exec_command applies, singular verb.

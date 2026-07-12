@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv run python -c "..."          # one-off Python
 uv run pytest ...               # tests
 uv run mypy src                 # type-check
-uv run lemon ...              # CLI
+uv run lc ...                   # CLI
 ```
 
 The `.venv` is at `.venv/bin/python3` if you need the path explicitly.

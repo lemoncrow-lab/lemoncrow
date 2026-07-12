@@ -236,13 +236,13 @@ def test_dynamic_status_line_rotates_only_dynamic_messages(lemoncrow_root: Path,
     monkeypatch.setattr(
         savings_summary,
         "dynamic_status_lines",
-        lambda *_args, **_kwargs: ["1d: ↓ $2.00", "/lemon:recall — past-session learning"],
+        lambda *_args, **_kwargs: ["1d: ↓ $2.00", "/lc:recall — past-session learning"],
     )
     (lemoncrow_root / "statusline_frame_state.json").write_text(json.dumps({"counter": 1, "ts": 9_000_000_000}))
 
     assert (
         savings_summary.dynamic_status_line("session", lemoncrow_root=lemoncrow_root)
-        == "/lemon:recall — past-session learning"
+        == "/lc:recall — past-session learning"
     )
 
 

@@ -52,7 +52,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Start service in background
-uv run lemon service start >"$LOG" 2>&1 &
+uv run lc service start >"$LOG" 2>&1 &
 SVC_PID=$!
 
 # Wait for service to be ready (up to 15s)

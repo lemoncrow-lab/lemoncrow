@@ -27,8 +27,8 @@ Env:
 Matcher: registered in hooks.json against ``mcp__.*`` (broad) -- this script
 filters out LemonCrow's own tools itself rather than relying on a matcher-side
 negative-lookahead regex, since the exact tool-name prefix depends on how the
-plugin is installed (bare ``mcp__lemon__*`` vs plugin-namespaced
-``mcp__plugin_lemoncrow_lemon__*``) and in-script filtering has to happen
+plugin is installed (bare ``mcp__lc__*`` vs plugin-namespaced
+``mcp__plugin_lemoncrow_lc__*``) and in-script filtering has to happen
 anyway for the fail-open contract -- a matcher-only exclusion would still need
 this same check as a backstop.
 """
@@ -43,13 +43,13 @@ from pathlib import Path
 from typing import Any
 
 # Known tool-name prefixes for LemonCrow's OWN MCP tools -- never shrink these.
-# "mcp__lemon__*" is the bare/dev install shape (server key "lemoncrow" in a
-# plain .mcp.json); "mcp__plugin_lemoncrow_lemon__*" is the plugin-namespaced
+# "mcp__lc__*" is the bare/dev install shape (server key "lemoncrow" in a
+# plain .mcp.json); "mcp__plugin_lemoncrow_lc__*" is the plugin-namespaced
 # shape Claude Code uses when LemonCrow is installed as a marketplace plugin
 # derived from the installed marketplace/plugin names -- verified against this repo's own
 # installed_plugins.json / live tool names, and already relied on elsewhere
 # (see mcp_proxy._is_self / SELF_SERVER_NAMES).
-_LEMONCROW_MCP_PREFIXES = ("mcp__lemon__", "mcp__plugin_lemoncrow_lemon__")
+_LEMONCROW_MCP_PREFIXES = ("mcp__lc__", "mcp__plugin_lemoncrow_lc__")
 
 # Default shrink threshold: ~8K tokens. Deliberately LOWER than the gateway's
 # own 256 KiB dispatch-layer bound (_DEFAULT_COMPACT_RESULT_CHARS): foreign MCP

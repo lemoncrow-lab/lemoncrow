@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
         --workspace)
             # Hermes Agent is global-only; a workspace-scoped install/verify
             # sweep (verify_agent_clis.sh --workspace DIR) must skip, not fail.
-            echo "[lemon:hermes] WARN: --workspace not supported (Hermes is global-only)" >&2
+            echo "[lc:hermes] WARN: --workspace not supported (Hermes is global-only)" >&2
             echo "=== SKIPPED (workspace mode unsupported) ==="
             exit 0
             ;;
@@ -41,8 +41,8 @@ done
 HERMES_HOME="${HERMES_HOME:-${HOME}/.hermes}"
 CONFIG_FILE="${HERMES_HOME}/config.yaml"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:hermes] $*" || true; }
-warn()  { echo "[lemon:hermes] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:hermes] $*" || true; }
+warn()  { echo "[lc:hermes] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 # PyYAML is not guaranteed in the system python; prefer the project env.
 if command -v uv >/dev/null 2>&1; then
@@ -68,8 +68,8 @@ if $PRINT_ONLY; then
     echo ""
     echo "Add to mcp_servers:"
     echo "  mcp_servers:"
-    echo "    lemon:"
-    echo "      command: lemon"
+    echo "    lc:"
+    echo "      command: lc"
     echo "      args:"
     echo "        - mcp"
     echo "        - --host"
@@ -89,7 +89,7 @@ fi
 # ---- check hermes installation ----------------------------------------------
 if [ ! -f "$CONFIG_FILE" ]; then
     if $STRICT; then
-        echo "[lemon:hermes] ERROR: Hermes config not found at $CONFIG_FILE" >&2
+        echo "[lc:hermes] ERROR: Hermes config not found at $CONFIG_FILE" >&2
         exit 1
     fi
     warn "Hermes config not found at $CONFIG_FILE - creating default config"
@@ -99,8 +99,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
 # Hermes Agent configuration
 
 mcp_servers:
-  lemon:
-    command: lemon
+  lc:
+    command: lc
     args:
       - mcp
       - --host
@@ -140,7 +140,7 @@ config = yaml.safe_load(content) or {}
 # Add MCP server entry
 config.setdefault('mcp_servers', {})
 config['mcp_servers']['lemoncrow'] = {
-    'command': 'lemon',
+    'command': 'lc',
     'args': ['mcp', '--host', 'hermes'],
     'timeout': 120,
     'connect_timeout': 60,
@@ -156,7 +156,7 @@ config['platform_toolsets']['cli'] = toolsets
 
 with path.open('w', encoding='utf-8') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-print("[lemon:hermes] merged LemonCrow into $CONFIG_FILE")
+print("[lc:hermes] merged LemonCrow into $CONFIG_FILE")
 PYEOF
 fi
 
@@ -169,8 +169,8 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vwarn() { echo "[lemon:hermes] WARN: $*" >&2; }
-vfail() { echo "[lemon:hermes] FAIL: $*" >&2; VFAIL=1; }
+vwarn() { echo "[lc:hermes] WARN: $*" >&2; }
+vfail() { echo "[lc:hermes] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$CONFIG_FILE" ]; then
     HAS=$("${PYTHON_CMD[@]}" - <<PYEOF
@@ -201,17 +201,17 @@ else
     vfail "Hermes config not found: $CONFIG_FILE"
 fi
 
-if command -v lemon &>/dev/null; then
-    vpass "lemon is available on PATH"
+if command -v lc &>/dev/null; then
+    vpass "lc is available on PATH"
 else
-    vfail "lemon NOT found on PATH"
+    vfail "lc NOT found on PATH"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lemon:hermes] ERROR: post-install verification failed." >&2
+    echo "[lc:hermes] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
 info "Done. Start a new Hermes session for MCP changes to take effect."
-info "Tip: run 'lemon status' in any shell to see the runs dashboard."
+info "Tip: run 'lc status' in any shell to see the runs dashboard."

@@ -1,4 +1,4 @@
-"""Tests for the on-demand agent/skill install CLI (`lemon agent|skill|install`).
+"""Tests for the on-demand agent/skill install CLI (`lc agent|skill|install`).
 
 Covers: list's installed/available split and token costs; install/remove at
 Claude/Codex/OpenCode workspace scope (direct Python calls, no real host CLI
@@ -239,7 +239,7 @@ def test_install_optionals_workspace_installs_every_role_and_skill(tmp_path: Pat
     agent_names = {p.stem for p in (ws / ".claude" / "agents").glob("lemoncrow.*.md")}
     assert agent_names == {f"lemoncrow.{r}" for r in m.INSTALLABLE_ROLE_IDS} | {"lemoncrow.code"}
     skill_names = {p.name for p in (ws / ".claude" / "skills").iterdir()}
-    # The always-on `lemon` discovery skill ships alongside every optional
+    # The always-on `lc` discovery skill ships alongside every optional
     # public skill; it isn't part of PUBLIC_SKILL_NAMES (it's not opt-in).
     assert skill_names == set(m.PUBLIC_SKILL_NAMES) | {"lemoncrow"}
 

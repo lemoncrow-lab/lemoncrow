@@ -1,4 +1,4 @@
-"""Thin ``lemon tool-mode`` and ``lemon tools`` command groups (QBL-CLI-02).
+"""Thin ``lc tool-mode`` and ``lc tools`` command groups (QBL-CLI-02).
 
 ``tool-mode`` reads/writes the smart-tool shadow-mode state; ``tools`` inspects
 and calls the LemonCrow MCP tool surface. The MCP CLI plumbing (``_mcp_cli_args``,

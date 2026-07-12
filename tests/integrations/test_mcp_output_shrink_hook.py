@@ -66,7 +66,7 @@ def test_large_string_tool_response_is_shrunk_and_spilled(tmp_path: Path) -> Non
     out = json.loads(proc.stdout)
     updated = out["hookSpecificOutput"]["updatedToolOutput"]
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-    assert "[lemon: shrunk" in updated
+    assert "[lc: shrunk" in updated
     assert len(updated) < len(big)
 
     spill_path = _spill_path_from_notice(updated)
@@ -103,14 +103,14 @@ def test_content_blocks_list_shape_tool_response_is_handled(tmp_path: Path) -> N
 
 
 def test_lemoncrow_bare_tool_name_is_skipped(tmp_path: Path) -> None:
-    payload = {"tool_name": "mcp__lemon__bash", "tool_response": "X" * 300_000}
+    payload = {"tool_name": "mcp__lc__bash", "tool_response": "X" * 300_000}
     proc = _run(payload, tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
 
 
 def test_lemoncrow_plugin_namespaced_tool_name_is_skipped(tmp_path: Path) -> None:
-    payload = {"tool_name": "mcp__plugin_lemoncrow_lemon__read", "tool_response": "X" * 300_000}
+    payload = {"tool_name": "mcp__plugin_lemoncrow_lc__read", "tool_response": "X" * 300_000}
     proc = _run(payload, tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
@@ -137,7 +137,7 @@ def test_threshold_env_override_shrinks_below_default_threshold(tmp_path: Path) 
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip()
     out = json.loads(proc.stdout)
-    assert "[lemon: shrunk" in out["hookSpecificOutput"]["updatedToolOutput"]
+    assert "[lc: shrunk" in out["hookSpecificOutput"]["updatedToolOutput"]
 
 
 def test_threshold_env_zero_disables_shrinking(tmp_path: Path) -> None:

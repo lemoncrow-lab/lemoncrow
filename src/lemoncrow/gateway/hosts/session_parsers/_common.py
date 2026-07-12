@@ -734,7 +734,7 @@ def _build_trace_from_normalized_content(
     trace = Trace(
         id=artifact.id,
         session_id=session_id,
-        agent="lemon:code",
+        agent="lc:code",
         host=source,
         domain="coding",
         task=task_text,

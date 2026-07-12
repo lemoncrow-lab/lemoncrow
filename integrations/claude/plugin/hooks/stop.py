@@ -1157,7 +1157,7 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
     """Return session savings summary for the Claude session.
 
     Delegates to ``compute_savings_summary`` — the same function behind the
-    statusline's ``lemon savings --segment`` — so the statusline
+    statusline's ``lc savings --segment`` — so the statusline
     figure and this stop-hook summary are always derived from the same
     source (``sessions/<session_id>/savings.jsonl``, priced per-row
     at the model captured when each row was written).
@@ -1211,7 +1211,7 @@ def _format_stats(
         )
     except ImportError:
         # This hook script is synced from the dev repo independently of the
-        # installed `lemon` package (uv tool / pip) -- an older installed
+        # installed `lc` package (uv tool / pip) -- an older installed
         # package predating these private helpers must not crash Stop on
         # every turn. Fall back to the same formatting inline.
         def _fmt_usd(v: float) -> str:
@@ -1330,7 +1330,7 @@ def _format_review_findings(session_id: str) -> str:
     needs_fix = [row for row in pending if row.get("verdict") == "NEEDS_FIX"]
     if not needs_fix:
         return ""
-    lines = ["", "Code review (Lemon) — NEEDS_FIX:"]
+    lines = ["", "Code review (lc) — NEEDS_FIX:"]
     for row in needs_fix[:5]:
         paths = ", ".join(str(p) for p in (row.get("paths") or []))
         missing = str(row.get("missing") or "").strip().replace("\n", " ")

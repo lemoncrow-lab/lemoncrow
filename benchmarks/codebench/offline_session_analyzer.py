@@ -44,12 +44,12 @@ import sys
 from pathlib import Path
 
 SEARCH_TOOLS = {
-    "mcp__lemon__grep",
-    "mcp__lemon__explore",
-    "mcp__lemon__code_search",
+    "mcp__lc__grep",
+    "mcp__lc__explore",
+    "mcp__lc__code_search",
     "ToolSearch",
     "Grep",
-    "mcp__plugin_lemoncrow_lemon__grep",
+    "mcp__plugin_lemoncrow_lc__grep",
 }
 
 # Regex for detecting grep/rg/ag etc. run via bash exec_command in Codex
@@ -252,7 +252,7 @@ def _resolve_codex_search_call(
     """Check if a Codex function_call is a search tool and extract query.
 
     Handles both Codex namespace+name format (``namespace="mcp__lemoncrow",
-    name="grep"``) and Claude Code dotted format (``name="mcp__lemon__grep"``).
+    name="grep"``) and Claude Code dotted format (``name="mcp__lc__grep"``).
 
     Returns a call dict with ``tool``, ``id``, ``query``, and ``file_pattern``,
     or ``None`` if this is not a search call.
@@ -303,7 +303,7 @@ def _scan_codex_format_a(
     """Process a single Codex Format A line (event_msg wrapper).
 
     Handles:
-    - LemonCrow MCP search tools (mcp__lemon__grep etc.) via function_call + function_call_output
+    - LemonCrow MCP search tools (mcp__lc__grep etc.) via function_call + function_call_output
     - Bash grep/rg/ag via exec_command + exec_command_end
     """
     ev_type = ev.get("type", "")

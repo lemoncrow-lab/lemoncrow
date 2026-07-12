@@ -568,7 +568,7 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
     metavar="N",
     help="Parallel repo workers within each channel (1 = sequential). Each worker "
     "spawns its own provider subprocess so repos with independent per-repo "
-    "start/stop (lemon, rg, etc.) benefit. Default: $EVAL_WORKERS or 1.",
+    "start/stop (lc, rg, etc.) benefit. Default: $EVAL_WORKERS or 1.",
 )
 @click.option(
     "--json/--no-json",
@@ -595,7 +595,7 @@ def eval_retrieval(
 
     Pass --channel multiple times for a side-by-side comparison table::
 
-        lemon eval retrieval --channel lexical --channel lexical+zoekt --full
+        lc eval retrieval --channel lexical --channel lexical+zoekt --full
     """
     import json
     import subprocess
@@ -920,7 +920,7 @@ def eval_fitness(
     if r3.returncode != 0:
         click.echo("[eval fitness] building code index for semantic pairs ...", err=True)
         index_cmd = [
-            "lemon",
+            "lc",
             "code",
             "index",
             "--repo-root",
@@ -964,7 +964,7 @@ def eval_fitness(
             )
             active_channels.remove("lexical+zoekt+semantic")
 
-    eval_cmd = ["lemon", "eval", "retrieval"]
+    eval_cmd = ["lc", "eval", "retrieval"]
     for pair_path in split_pairs:
         eval_cmd += ["--pairs", str(pair_path)]
     for ch in active_channels:

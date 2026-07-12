@@ -1,4 +1,4 @@
-"""Unit tests for the SWE-bench (Python) backend folded into ``lemon benchmark swe``.
+"""Unit tests for the SWE-bench (Python) backend folded into ``lc benchmark swe``.
 
 No Docker / network: the loader reads a local JSONL (swebench supports it) and
 the grader's harness subprocess is stubbed.

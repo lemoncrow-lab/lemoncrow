@@ -1,7 +1,7 @@
 {
-  "model": "lemon/lemoncrow",
+  "model": "lc/lemoncrow",
   "provider": {
-    "lemon": {
+    "lc": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LemonCrow",
       "options": {
@@ -11,9 +11,9 @@
     }
   },
   "mcp": {
-    "lemon": {
+    "lc": {
       "type": "local",
-      "command": ["lemon", "mcp", "--host", "opencode"],
+      "command": ["lc", "mcp", "--host", "opencode"],
       "environment": {
         "LEMONCROW_WORKSPACE_ROOT": "<WORKSPACE_ROOT>"
       }

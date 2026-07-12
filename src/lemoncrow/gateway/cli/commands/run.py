@@ -194,8 +194,8 @@ def _run_owned_session(
             cache_policy=cache_policy_cast,
             phase_linear=phase_linear,
         )
-        click.echo(f"[lemon run] session={session.session_id}  provider={decision.provider}  model={litellm_model}")
-        click.echo("[lemon run] --dry-run: planning only, no edits will be applied")
+        click.echo(f"[lc run] session={session.session_id}  provider={decision.provider}  model={litellm_model}")
+        click.echo("[lc run] --dry-run: planning only, no edits will be applied")
         receipt = (
             run_phase_linear(session, task, dry_run=True)
             if phase_linear
@@ -210,7 +210,7 @@ def _run_owned_session(
             root=root,
         )
         session.cache_policy = cache_policy_cast
-        click.echo(f"[lemon run] session={session.session_id}  provider={decision.provider}  model={litellm_model}")
+        click.echo(f"[lc run] session={session.session_id}  provider={decision.provider}  model={litellm_model}")
 
     if max_cost is not None and receipt.cost_usd() > max_cost:
         click.echo(
@@ -466,7 +466,7 @@ def run_resume(obj: dict[str, Any], session_id: str, task: str) -> None:
         click.echo(f"Error: session {session_id!r} not found in {root / 'runs'}", err=True)
         sys.exit(1)
 
-    click.echo(f"[lemon run resume] session={session.session_id}  provider={session.provider}  model={session.model}")
+    click.echo(f"[lc run resume] session={session.session_id}  provider={session.provider}  model={session.model}")
     click.echo(f"  Restoring {len(session.messages)} turns from previous session")
 
     if not task:

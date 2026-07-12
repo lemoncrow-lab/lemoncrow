@@ -1,4 +1,4 @@
-"""``lemon update`` — manually check for and apply LemonCrow updates.
+"""``lc update`` — manually check for and apply LemonCrow updates.
 
 LemonCrow is distributed in exactly two ways, so updates have exactly two paths:
 
@@ -325,7 +325,7 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
             )
         elif update_available:
             click.echo(f"\n  ◇ Update available: {current_version} → {remote_version}")
-            click.echo("  ◇ Run `lemon update` to apply.")
+            click.echo("  ◇ Run `lc update` to apply.")
         else:
             click.echo("\n  ✓ Already up-to-date.")
         if update_available:

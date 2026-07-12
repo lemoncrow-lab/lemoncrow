@@ -30,9 +30,9 @@ The installer merges a `lemoncrow` entry into the `mcpServers` key:
 ```json
 {
   "mcpServers": {
-    "lemon": {
+    "lc": {
       "type": "stdio",
-      "command": "lemon mcp",
+      "command": "lc mcp",
       "args": ["--host", "cursor"]
     }
   }
@@ -71,7 +71,7 @@ make verify
 Or manually:
 
 ```bash
-lemon mcp --host cursor --version
+lc mcp --host cursor --version
 ```
 
 ---
@@ -90,7 +90,7 @@ lemon mcp --host cursor --version
 
 | Problem                           | Fix                                                                                |
 | --------------------------------- | ---------------------------------------------------------------------------------- |
-| "lemon mcp: command not found"  | Run `pip install lemoncrow` or reinstall via `make install`                       |
+| "lc mcp: command not found"  | Run `pip install lemoncrow` or reinstall via `make install`                       |
 | MCP tools not showing up          | Restart Cursor completely (Cmd+Shift+P → "Developer: Reload Window")               |
 | Tools fail with "host not cursor" | Check `~/.cursor/mcp.json` has `--host cursor` in args                             |
 | Cursor workspace not detected     | For global installs, ensure you open a folder/workspace in Cursor before using MCP |
@@ -100,7 +100,7 @@ lemon mcp --host cursor --version
 ## Uninstall
 
 ```bash
-lemon uninstall
+lc uninstall
 ```
 
 Or manually remove the `lemoncrow` entry from `~/.cursor/mcp.json` and delete

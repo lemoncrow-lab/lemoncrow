@@ -109,8 +109,8 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
                     "model": "claude-sonnet-4-6",
                     "usage": {"input_tokens": 10, "output_tokens": 4},
                     "content": [
-                        {"type": "tool_use", "id": "tu-1", "name": "mcp__lemon__read", "input": {"path": "a.py"}},
-                        {"type": "tool_use", "id": "tu-2", "name": "mcp__lemon__grep", "input": {"q": "x"}},
+                        {"type": "tool_use", "id": "tu-1", "name": "mcp__lc__read", "input": {"path": "a.py"}},
+                        {"type": "tool_use", "id": "tu-2", "name": "mcp__lc__grep", "input": {"q": "x"}},
                     ],
                 },
             },
@@ -139,7 +139,7 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     traces = [t for t in store.list_traces(limit=10) if t.session_id == filename_session_id]
     assert len(traces) == 1
     tool_counts = {c.name: c.count for c in traces[0].tools_called}
-    assert tool_counts == {"mcp__lemon__read": 1, "mcp__lemon__grep": 1, "Bash": 1}
+    assert tool_counts == {"mcp__lc__read": 1, "mcp__lc__grep": 1, "Bash": 1}
 
 
 def test_claude_parallel_coverage_matrix_doc_exists_and_has_required_rows() -> None:

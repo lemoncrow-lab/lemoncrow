@@ -9,10 +9,10 @@ got str", "dict object expected; got str", ...).  ``mcp_server._handle`` even
 carries a comment naming this exact failure mode.
 
 Every other MCP test runs the editable ``.py`` path only:
-  * ``test_mcp_stdio_smoke`` drives ``uv run lemon mcp`` (editable install)
+  * ``test_mcp_stdio_smoke`` drives ``uv run lc mcp`` (editable install)
   * ``test_mcp_jsonrpc_e2e`` calls ``_handle`` in-process (editable import)
 Neither can catch compiled-only failures.  This module builds the *real* mypyc
-wheel, installs it into an isolated venv, and drives the shipped ``lemon mcp``
+wheel, installs it into an isolated venv, and drives the shipped ``lc mcp``
 stdio server over JSON-RPC -- the only faithful way to exercise the ``.so``.
 
 For every registered tool we send a ``tools/call`` with native-typed arguments
@@ -150,7 +150,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
         pytest.skip(f"`uv venv` failed:\n{create.stderr[-2000:]}")
 
     venv_python = venv_dir / "bin" / "python"
-    lemoncrow_bin = venv_dir / "bin" / "lemon"
+    lemoncrow_bin = venv_dir / "bin" / "lc"
 
     # The coercion layer lives in the core server modules, so a minimal extra set
     # is enough to start the server and dispatch every tool; tools whose optional
@@ -171,7 +171,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
     if install.returncode != 0:
         pytest.skip(f"compiled wheel install failed:\n{install.stderr[-2000:]}")
     if not lemoncrow_bin.exists():
-        pytest.skip("lemon console script missing from venv after install")
+        pytest.skip("lc console script missing from venv after install")
 
     # Confirm the installed package is actually compiled (.so present, not .py).
     so_files = list(venv_dir.rglob("mcp_server*.so"))
@@ -222,7 +222,7 @@ _INITIALIZE = {
 def _run_server(
     server: _CompiledServer, calls: list[dict[str, Any]], timeout: int = 120
 ) -> tuple[dict[Any, dict[str, Any]], subprocess.CompletedProcess[str]]:
-    """Spawn ``lemon mcp``, feed initialize + ``calls``, return {id: response}.
+    """Spawn ``lc mcp``, feed initialize + ``calls``, return {id: response}.
 
     Strict framing gate (matches test_mcp_stdio_smoke): every non-empty stdout
     line MUST be a JSON object, else the server printed something off-protocol.

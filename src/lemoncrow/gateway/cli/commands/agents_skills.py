@@ -179,7 +179,7 @@ def _validate_installable_role(role_id: str) -> None:
 
 def _validate_removable_role(role_id: str) -> None:
     if role_id in DEFAULT_ROLE_IDS:
-        raise click.ClickException(f"{role_id} is always installed, use `lemon uninstall` to remove LemonCrow entirely")
+        raise click.ClickException(f"{role_id} is always installed, use `lc uninstall` to remove LemonCrow entirely")
     if role_id not in SURFACED_ROLE_IDS:
         raise click.ClickException(f"unknown role: {role_id} (choices: {', '.join(INSTALLABLE_ROLE_IDS)})")
 
@@ -249,7 +249,7 @@ def _apply_agent_role_set(host: str, workspace: Path | None, role_ids: tuple[str
     # registration stays consistent (it recomputes the staged bundle from
     # scratch every run). Thread through the currently-installed skill set too
     # (claude/codex only) so an agent-only change doesn't wipe skills that were
-    # added via a separate `lemon skill install` call.
+    # added via a separate `lc skill install` call.
     script = repo_root / "scripts" / f"install_{host}.sh"
     if not script.exists():
         raise click.ClickException(f"install script not found: {script}")
@@ -295,7 +295,7 @@ def _apply_skill_name_set(host: str, workspace: Path | None, names: tuple[str, .
 def reapply_installed_agents(repo_root: Path | None = None) -> int:
     """Re-render installed agent personas for every wired global host.
 
-    Used by ``lemon settings set cli.telegraphic`` — the reply-register
+    Used by ``lc settings set cli.telegraphic`` — the reply-register
     level is baked into the persona files, so a level change must re-stage
     them. Returns the number of hosts regenerated. Cursor/antigravity have no
     global agent-dir marker here; they pick the level up on their next install.
@@ -319,7 +319,7 @@ def reapply_installed_agents(repo_root: Path | None = None) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lemon agent list/install/remove
+# CLI: lc agent list/install/remove
 # --------------------------------------------------------------------------- #
 
 
@@ -404,7 +404,7 @@ def agent_remove_cmd(role_id: str, host: str | None, workspace: Path | None, yes
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lemon skill list/install/remove
+# CLI: lc skill list/install/remove
 # --------------------------------------------------------------------------- #
 
 
@@ -494,7 +494,7 @@ def skill_remove_cmd(name: str, host: str | None, workspace: Path | None, yes: b
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lemon install optionals
+# CLI: lc install optionals
 # --------------------------------------------------------------------------- #
 
 
@@ -585,7 +585,7 @@ def install_optionals_cmd(host: str | None, workspace: Path | None, yes: bool) -
 # exact _role_cost/_skill_cost standing-cost calculation `list` already shows
 # (never recomputed independently) and the usage log
 # plugin_runtime.record_optional_use writes to on every optional agent/skill
-# invocation. `code` and the `lemon` skill never appear here: they're
+# invocation. `code` and the `lc` skill never appear here: they're
 # excluded by construction (INSTALLABLE_ROLE_IDS / PUBLIC_SKILL_NAMES already
 # omit them).
 # --------------------------------------------------------------------------- #

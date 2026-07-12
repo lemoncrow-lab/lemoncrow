@@ -1,4 +1,4 @@
-"""CLI tests for ``lemon replay`` (session reconstruction, no model run).
+"""CLI tests for ``lc replay`` (session reconstruction, no model run).
 
 Builds a synthetic Claude transcript with a grep->read loop and drives the CLI.
 """

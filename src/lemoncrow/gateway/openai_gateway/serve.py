@@ -1,4 +1,4 @@
-"""Entry point for ``lemon serve-openai``.
+"""Entry point for ``lc serve-openai``.
 
 Starts the LemonCrow OpenAI-compatible HTTP server via uvicorn.
 """

@@ -217,7 +217,7 @@ def test_summary_on_spill_file_uses_log_tier_and_single_footer(tmp_path: Path, m
     result = mcp_server._smart_read_single(str(record.path), summary=True)
     assert result["mode"] == "summary"
     body = result["summary"]
-    assert body.count("[lemon: summarized:") == 1
+    assert body.count("[lc: summarized:") == 1
     assert "summarized:heuristic" in body
     assert "ValueError: unexpected sentinel value 42" in body
     assert str(record.path) in body

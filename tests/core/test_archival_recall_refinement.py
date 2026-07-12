@@ -23,7 +23,7 @@ class _MemoryStore:
 def test_archival_recall_retries_with_widened_query(monkeypatch: pytest.MonkeyPatch) -> None:
     passage = ArchivalPassage(
         id="pas-checkout",
-        agent_id="lemon:code",
+        agent_id="lc:code",
         text="checkout retry handling",
         tags=["eval"],
         source="user",
@@ -46,7 +46,7 @@ def test_archival_recall_retries_with_widened_query(monkeypatch: pytest.MonkeyPa
     capability = ArchivalRecallCapability(store, NullEmbedder(), redactor=lambda text: text)
 
     passages, recall = capability.recall(
-        agent_id="lemon:code",
+        agent_id="lc:code",
         query="checkout AND retry",
         tags=["eval"],
     )

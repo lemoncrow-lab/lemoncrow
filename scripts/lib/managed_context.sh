@@ -77,12 +77,12 @@ PYEOF
 )"
     fi
 
-    if [[ -z "$version" ]] && command -v lemon >/dev/null 2>&1; then
-        version="$(lemon --version 2>/dev/null | sed -n 's/^lemon, version //p' | head -n 1)"
+    if [[ -z "$version" ]] && command -v lc >/dev/null 2>&1; then
+        version="$(lc --version 2>/dev/null | sed -n 's/^lc, version //p' | head -n 1)"
     fi
 
     if [[ -z "$version" ]]; then
-        echo "[lemon] ERROR: could not resolve LemonCrow version" >&2
+        echo "[lc] ERROR: could not resolve LemonCrow version" >&2
         return 1
     fi
 
@@ -191,7 +191,7 @@ for p in files:
     p.write_text(out, encoding="utf-8")
     changed += 1
 if changed:
-    print(f"[lemon] reply-register level '{level}' applied to {changed} file(s)")
+    print(f"[lc] reply-register level '{level}' applied to {changed} file(s)")
 PYEOF
 }
 

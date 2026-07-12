@@ -48,7 +48,7 @@ _GREEN = "\033[38;2;80;200;120m"
 _RED = "\033[38;2;255;80;80m"
 _YELLOW = "\033[38;2;255;200;60m"
 _BRAND = "\033[1;38;2;155;117;217m"
-_BADGE = "\033[1;48;2;155;117;217;38;2;255;255;255m lemon:code \033[0m"
+_BADGE = "\033[1;48;2;155;117;217;38;2;255;255;255m lc:code \033[0m"
 _SEP = "\033[2;38;2;180;180;180m │\033[0m"
 _W = 72
 
@@ -208,8 +208,8 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
 
     if window.session_count or rows_added:
         lines.append("")
-        lines.append("  → drill into a run:  lemon session report <id>")
-        lines.append("    open in browser:   lemon dashboard open")
+        lines.append("  → drill into a run:  lc session report <id>")
+        lines.append("    open in browser:   lc dashboard open")
     else:
         lines.append("")
         lines.append("  No sessions yet — run any AI command, then check back.")
@@ -265,7 +265,7 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
         ledger_path = "NONE"
 
     # Load savings from the canonical per-session ledger (store A) — the same
-    # source the statusline, `lemon savings` CLI, and web Savings page read,
+    # source the statusline, `lc savings` CLI, and web Savings page read,
     # so the dashboard's saved totals agree with every other surface.
     from lemoncrow.core.capabilities.savings_summary import _price_savings_row
 
@@ -389,7 +389,7 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
     # ── ONE-LINER MODE ──
     if line_mode:
         if not snap:
-            click.echo(f"lemon | run {Path(ledger_path).stem[:8] if ledger_path != 'NONE' else '?'} not found")
+            click.echo(f"lc | run {Path(ledger_path).stem[:8] if ledger_path != 'NONE' else '?'} not found")
             return
 
         sid = snap.get("session_id") or snap.get("id") or "?"

@@ -1,9 +1,9 @@
 """Stop hook `_format_stats`: normal formatting + resilience to a stale
-installed `lemon` package.
+installed `lc` package.
 
 This file is copied verbatim to ``~/.lemoncrow/claude-plugin/hooks/stop.py`` by
 ``scripts/install_claude.sh`` and is kept in sync with the dev repo
-independently of the *installed* ``lemon`` package (``uv tool install``).
+independently of the *installed* ``lc`` package (``uv tool install``).
 A prebuilt/older install can lag behind and miss recently-added private
 helpers (e.g. ``_fmt_tok``/``_fmt_usd`` in ``savings_summary.py``) -- that
 mismatch must degrade to an equivalent inline formatter, never crash the hook.
@@ -71,7 +71,7 @@ def test_format_stats_normal_path_uses_canonical_formatters() -> None:
 def test_format_stats_falls_back_when_installed_package_lacks_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Simulates the reported bug: an installed `lemon` predating
+    """Simulates the reported bug: an installed `lc` predating
     `_fmt_tok`/`_fmt_usd` must not crash `_format_stats` with an ImportError --
     it should fall back to an equivalent inline formatter and render the same
     output.

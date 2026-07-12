@@ -39,21 +39,21 @@ def test_edit_tracking_then_read_after_edit_blocks_expand_reread(tmp_path: Path)
     # loop_discipline_post records the edit (no output), then pre_tool_discipline
     # blocks a full expand re-read of that same file.
     edit = {
-        "tool_name": "mcp__lemon__edit",
+        "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"file_path": "shop/pricing.py", "old_string": "a", "new_string": "b"}]},
     }
     assert _run("loop_discipline_post.py", edit, tmp_path) == ""
 
-    expand_reread = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
+    expand_reread = {"tool_name": "mcp__lc__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
     out = _run("pre_tool_discipline.py", expand_reread, tmp_path)
     assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     # a targeted range read of the same file is allowed
-    range_read = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "shop/pricing.py", "range": "L1-L20"}}
+    range_read = {"tool_name": "mcp__lc__read", "tool_input": {"path": "shop/pricing.py", "range": "L1-L20"}}
     assert _run("pre_tool_discipline.py", range_read, tmp_path) == ""
 
     # an expand read of a file NOT edited this session is allowed
-    other = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "shop/other.py", "full": True}}
+    other = {"tool_name": "mcp__lc__read", "tool_input": {"path": "shop/other.py", "full": True}}
     assert _run("pre_tool_discipline.py", other, tmp_path) == ""
 
     # opt-out via env
@@ -64,13 +64,13 @@ def test_files_schema_full_reads_blocked_after_edit(tmp_path: Path) -> None:
     # The read tool's real input shape is files=[]; the guard must catch full
     # reads expressed as ':full' strings, bare-path strings, and dict entries.
     edit = {
-        "tool_name": "mcp__lemon__edit",
+        "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
     }
     assert _run("loop_discipline_post.py", edit, tmp_path) == ""
 
     def denied(tool_input: dict) -> bool:
-        out = _run("pre_tool_discipline.py", {"tool_name": "mcp__lemon__read", "tool_input": tool_input}, tmp_path)
+        out = _run("pre_tool_discipline.py", {"tool_name": "mcp__lc__read", "tool_input": tool_input}, tmp_path)
         return bool(out) and json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     assert denied({"files": ["shop/pricing.py:full"]})
@@ -89,21 +89,21 @@ def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
     # utils.py edited in one package must not block a full read of a different
     # package's utils.py -- comparison is on resolved paths, not basenames.
     edit = {
-        "tool_name": "mcp__lemon__edit",
+        "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"file_path": "pkg_a/utils.py", "old_string": "a", "new_string": "b"}]},
     }
     assert _run("loop_discipline_post.py", edit, tmp_path) == ""
 
-    other = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "pkg_b/utils.py", "full": True}}
+    other = {"tool_name": "mcp__lc__read", "tool_input": {"path": "pkg_b/utils.py", "full": True}}
     assert _run("pre_tool_discipline.py", other, tmp_path) == ""
 
-    same = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "pkg_a/utils.py", "full": True}}
+    same = {"tool_name": "mcp__lc__read", "tool_input": {"path": "pkg_a/utils.py", "full": True}}
     out = _run("pre_tool_discipline.py", same, tmp_path)
     assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 def test_read_after_edit_no_block_without_prior_edit(tmp_path: Path) -> None:
-    expand_reread = {"tool_name": "mcp__lemon__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
+    expand_reread = {"tool_name": "mcp__lc__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
     assert _run("pre_tool_discipline.py", expand_reread, tmp_path) == ""
 
 
@@ -111,13 +111,13 @@ def test_workspace_code_grep_is_not_blocked(tmp_path: Path) -> None:
     # The grep->explore hard block was removed: steering toward explore lives in
     # agent disallowedTools + tool descriptions, not a PreToolUse deny (which
     # mis-fired on legitimate searches such as greps over other repos).
-    payload = {"tool_name": "mcp__lemon__bash", "tool_input": {"command": "grep -rn handleAuth src/"}}
+    payload = {"tool_name": "mcp__lc__bash", "tool_input": {"command": "grep -rn handleAuth src/"}}
     assert _run("pre_tool_discipline.py", payload, tmp_path) == ""
 
 
 def test_other_repo_grep_is_not_blocked(tmp_path: Path) -> None:
     payload = {
-        "tool_name": "mcp__lemon__bash",
+        "tool_name": "mcp__lc__bash",
         "tool_input": {"command": "cd /srv/other-repo && grep -rn handleAuth ."},
     }
     assert _run("pre_tool_discipline.py", payload, tmp_path) == ""

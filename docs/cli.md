@@ -1,16 +1,16 @@
 # LemonCrow CLI Reference
 
-The `lemon` command is the local control surface for the runtime, storage,
+The `lc` command is the local control surface for the runtime, storage,
 imports, benchmarks, background processing, and the optional visualization
 stack.
 
 Use the built-in help for the exact command tree:
 
 ```bash
-lemon -h
-lemon help runs
-lemon help benchmark
-lemon help background
+lc -h
+lc help runs
+lc help benchmark
+lc help background
 ```
 
 ## Global Options
@@ -28,21 +28,21 @@ optional visualization stack.
 
 | Command                  | Purpose                                                        |
 | ------------------------ | -------------------------------------------------------------- |
-| `lemon init`           | Initialize the runtime store under `--root`.                   |
-| `lemon uninstall`      | Remove LemonCrow-managed host integrations and wrappers.         |
-| `lemon status`         | Show local plugin, auth, and subscription status.              |
-| `lemon stack ...`      | Start, stop, inspect, or log the optional native UI/API stack. |
-| `lemon service ...`    | Manage the HTTP/API service surface.                           |
-| `lemon background ...` | Manage OS-level background services and auto-updates.          |
-| `lemon worker ...`     | Inspect, enqueue, and run worker jobs.                         |
+| `lc init`           | Initialize the runtime store under `--root`.                   |
+| `lc uninstall`      | Remove LemonCrow-managed host integrations and wrappers.         |
+| `lc status`         | Show local plugin, auth, and subscription status.              |
+| `lc stack ...`      | Start, stop, inspect, or log the optional native UI/API stack. |
+| `lc service ...`    | Manage the HTTP/API service surface.                           |
+| `lc background ...` | Manage OS-level background services and auto-updates.          |
+| `lc worker ...`     | Inspect, enqueue, and run worker jobs.                         |
 
 Common examples:
 
 ```bash
-lemon init
-lemon background status
-lemon background restart
-lemon background logs controller
+lc init
+lc background status
+lc background restart
+lc background logs controller
 ```
 
 ## Background Services & Auto-Update
@@ -51,11 +51,11 @@ Manage background components via your OS-native manager (systemd/launchd).
 
 | Subcommand                      | Purpose                                                    |
 | ------------------------------- | ---------------------------------------------------------- |
-| `lemon background install`    | Register services with systemd (Linux) or launchd (macOS). |
-| `lemon background uninstall`  | Unregister and stop background services.                   |
-| `lemon background status`     | Show service health and auto-update state.                 |
-| `lemon background restart`    | Trigger a clean restart of the entire environment.         |
-| `lemon background logs [svc]` | Stream logs for `controller` or `stack`.                   |
+| `lc background install`    | Register services with systemd (Linux) or launchd (macOS). |
+| `lc background uninstall`  | Unregister and stop background services.                   |
+| `lc background status`     | Show service health and auto-update state.                 |
+| `lc background restart`    | Trigger a clean restart of the entire environment.         |
+| `lc background logs [svc]` | Stream logs for `controller` or `stack`.                   |
 
 ### Auto-Update Mechanism
 
@@ -67,7 +67,7 @@ To configure the loop manually (not recommended for general use):
 
 ```bash
 # Start the internal loop with custom auto-update settings
-lemon servicectl run --auto-update --auto-update-interval-seconds 3600
+lc servicectl run --auto-update --auto-update-interval-seconds 3600
 ```
 
 ## Traces, Ledgers, and Operational State
@@ -76,26 +76,26 @@ LemonCrow persists observable execution state rather than hidden reasoning.
 
 | Command              | Purpose                                             |
 | -------------------- | --------------------------------------------------- |
-| `lemon runs ...`   | Record, list, and inspect run data.                 |
-| `lemon ledger ...` | Manage run ledgers and session state.               |
-| `lemon swarm ...`  | Fan out isolated child attempts into git worktrees. |
+| `lc runs ...`   | Record, list, and inspect run data.                 |
+| `lc ledger ...` | Manage run ledgers and session state.               |
+| `lc swarm ...`  | Fan out isolated child attempts into git worktrees. |
 
 Examples:
 
 ```bash
-lemon runs list
-lemon ledger list
+lc runs list
+lc ledger list
 ```
 
 ## Swarm Harness
 
-`lemon swarm` is LemonCrow's multi-run harness. It creates one git worktree and
+`lc swarm` is LemonCrow's multi-run harness. It creates one git worktree and
 one isolated `LEMONCROW_ROOT` per child, launches the same child agent command in
 each sandbox, collects structured result JSON, and merges accepted
 improvements onto a coordinator-owned integration base.
 
 ```bash
-lemon swarm start program.md --runs 3 --continuous \
+lc swarm start program.md --runs 3 --continuous \
   --runner ollama-claude \
   --runner-model qwen3.6 \
   --validate "make lint" \
@@ -124,10 +124,10 @@ Useful child environment variables:
 Inspection commands:
 
 ```bash
-lemon swarm list
-lemon swarm status <run_id>
-lemon swarm logs <run_id> --child-id wave-03-run-01
-lemon swarm stop <run_id> --cleanup
+lc swarm list
+lc swarm status <run_id>
+lc swarm logs <run_id> --child-id wave-03-run-01
+lc swarm stop <run_id> --cleanup
 ```
 
 If you omit the swarm spec path, LemonCrow resolves `program.md` relative to the
@@ -166,19 +166,19 @@ runner path today.
 Code retrieval, file reads, grep/search, and symbol lookup are exposed as
 LemonCrow **MCP tools** (`read`, `grep`, `search`, `explore`, `codemod`)
 rather than standalone CLI commands. Invoke them through your agent host or via
-`lemon tools call <name>`. (Call-graph and reference relations — callers,
+`lc tools call <name>`. (Call-graph and reference relations — callers,
 callees, usages — fold into one `explore` call.)
 
 | Command                 | Purpose                                                |
 | ----------------------- | ------------------------------------------------------ |
-| `lemon code index` | Build or refresh the code index for a repository. |
-| `lemon optimize`   | Show session cost optimization recommendations.   |
+| `lc code index` | Build or refresh the code index for a repository. |
+| `lc optimize`   | Show session cost optimization recommendations.   |
 
 Examples:
 
 ```bash
-lemon code index --repo-root .
-lemon tools call grep --args '{"path":".","content_regex":"TODO"}'
+lc code index --repo-root .
+lc tools call grep --args '{"path":".","content_regex":"TODO"}'
 ```
 
 ## Knowledge, Lessons, and Failure Workflows
@@ -187,11 +187,11 @@ These commands manage the reusable knowledge layer and failure review flows.
 
 | Command                      | Purpose                                         |
 | ---------------------------- | ----------------------------------------------- |
-| `lemon lesson ...`         | Review and promote lesson candidates.            |
-| `lemon eval ...`           | Run eval suites (`mcp`, `retrieval`, `fitness`). |
-| `lemon report`             | Generate an engineering governance report.       |
-| `lemon import-style-guide` | Draft lesson candidates from Markdown guidance.  |
-| `lemon proof ...`          | Run cost-quality proof gate workflows.           |
+| `lc lesson ...`         | Review and promote lesson candidates.            |
+| `lc eval ...`           | Run eval suites (`mcp`, `retrieval`, `fitness`). |
+| `lc report`             | Generate an engineering governance report.       |
+| `lc import-style-guide` | Draft lesson candidates from Markdown guidance.  |
+| `lc proof ...`          | Run cost-quality proof gate workflows.           |
 
 ## Imports and Host Integrations
 
@@ -199,10 +199,10 @@ LemonCrow ships import and integration commands for supported agent hosts.
 
 | Command                | Purpose                                               |
 | ---------------------- | ----------------------------------------------------- |
-| `lemon import` | Import sessions from all supported hosts in one pass. |
+| `lc import` | Import sessions from all supported hosts in one pass. |
 
 Supported session import hosts are defined in the runtime registry, not in the
-docs. Use `lemon help import` to inspect the exact flags and options
+docs. Use `lc help import` to inspect the exact flags and options
 supported by your installed build.
 
 ## Benchmarks, Savings, and External Reports
@@ -211,21 +211,21 @@ These commands support performance validation and cost-accounting workflows.
 
 | Command                   | Purpose                                        |
 | ------------------------- | ---------------------------------------------- |
-| `lemon benchmark ...`   | Run benchmark suites (`mini`, `harbor`, `codebench`, `swe`, `local`). |
-| `lemon benchmark local` | BYO-repo A/B: LemonCrow vs vanilla on your repo. |
-| `lemon savings`         | Aggregate cost and token savings.              |
-| `lemon session replay`  | Replay a past session; mark what one-shot search would collapse. |
-| `lemon dashboard`       | Show the spend & savings dashboard.            |
+| `lc benchmark ...`   | Run benchmark suites (`mini`, `harbor`, `codebench`, `swe`, `local`). |
+| `lc benchmark local` | BYO-repo A/B: LemonCrow vs vanilla on your repo. |
+| `lc savings`         | Aggregate cost and token savings.              |
+| `lc session replay`  | Replay a past session; mark what one-shot search would collapse. |
+| `lc dashboard`       | Show the spend & savings dashboard.            |
 
 Examples:
 
 ```bash
-lemon benchmark mini --dry-run --json
-lemon savings --json
-lemon session replay --last 1
+lc benchmark mini --dry-run --json
+lc savings --json
+lc session replay --last 1
 ```
 
-`lemon session replay` reconstructs a recorded session (Claude Code, Codex, or
+`lc session replay` reconstructs a recorded session (Claude Code, Codex, or
 opencode) from its transcript and replays it turn by turn — assistant text,
 thinking, tool calls and outputs. For each native call it then invokes the
 **real** LemonCrow tool that would have replaced it and shows the actual output:
@@ -246,40 +246,40 @@ an HTML page, and opens it in the browser.
 | `--html <path>` / `--json` / `--no-color` | Output controls. |
 
 ```bash
-lemon session replay --last 1                          # most recent session (+ opens HTML)
-lemon session replay --session-id <id> --host codex    # a specific session
-lemon session replay --file ./session.jsonl --repo .   # explicit transcript + repo
-lemon session replay --last 1 --no-live --no-open      # structural only, no browser
+lc session replay --last 1                          # most recent session (+ opens HTML)
+lc session replay --session-id <id> --host codex    # a specific session
+lc session replay --file ./session.jsonl --repo .   # explicit transcript + repo
+lc session replay --last 1 --no-live --no-open      # structural only, no browser
 ```
 
-`lemon benchmark local` is the user-facing BYO benchmark, also surfaced as the
+`lc benchmark local` is the user-facing BYO benchmark, also surfaced as the
 `/benchmark` skill: point it at your own git repo and supply your own coding
 prompts to compare LemonCrow against a vanilla Claude Code baseline on the same
 model. It prints an up-front cost estimate and asks to confirm before any spend.
 
 ```bash
-lemon benchmark local --repo . --prompt "add a docstring to the entry point"
-lemon benchmark local --repo . --prompt "x" --estimate-only
+lc benchmark local --repo . --prompt "add a docstring to the entry point"
+lc benchmark local --repo . --prompt "x" --estimate-only
 ```
 
 Wire capture is off by default — cost comes from the CLI receipts, so no
 mitmproxy or MITM CA cert is needed. Pass `--capture` to opt into mitmproxy
 wire-level cost verification (requires `mitmproxy` and its CA cert).
 
-The internal/dev suites are `lemon benchmark {codebench,swe}` and
-`lemon eval {mcp,retrieval,fitness}`.
+The internal/dev suites are `lc benchmark {codebench,swe}` and
+`lc eval {mcp,retrieval,fitness}`.
 
 ## Configuration and Account State
 
 | Command                 | Purpose                                                 |
 | ----------------------- | ------------------------------------------------------- |
-| `lemon settings ...`  | Manage local plugin settings.                           |
-| `lemon telemetry ...` | Enable, disable, or inspect product telemetry settings. |
-| `lemon login`         | Create local auth state for plugin operations.          |
-| `lemon logout`        | Remove local auth state.                                |
-| `lemon share`         | Render referral or share text.                          |
-| `lemon domain ...`    | Manage internal domain bundles.                         |
-| `lemon letta ...`     | Manage the self-hosted Letta sidecar.                   |
+| `lc settings ...`  | Manage local plugin settings.                           |
+| `lc telemetry ...` | Enable, disable, or inspect product telemetry settings. |
+| `lc login`         | Create local auth state for plugin operations.          |
+| `lc logout`        | Remove local auth state.                                |
+| `lc share`         | Render referral or share text.                          |
+| `lc domain ...`    | Manage internal domain bundles.                         |
+| `lc letta ...`     | Manage the self-hosted Letta sidecar.                   |
 
 ## JSON Output
 

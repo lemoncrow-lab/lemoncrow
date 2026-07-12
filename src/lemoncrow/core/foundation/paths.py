@@ -13,7 +13,7 @@ DEFAULT_STORE_DIRNAME = ".lemoncrow"
 
 
 class WorkspaceNotRegisteredError(RuntimeError):
-    """Raised when cwd is neither a git repo nor an explicitly `lemon init`-registered
+    """Raised when cwd is neither a git repo nor an explicitly `lc init`-registered
     workspace. Non-git directories are never silently auto-registered."""
 
 
@@ -101,7 +101,7 @@ def _git_toplevel(start: Path | None = None) -> Path | None:
 
 def _lemoncrow_marker_root(start: Path | None = None) -> Path | None:
     """Return the nearest ancestor of *start* (default: cwd) that was explicitly
-    registered via ``lemon init`` (i.e. contains a ``.lemoncrow/`` dir), or None.
+    registered via ``lc init`` (i.e. contains a ``.lemoncrow/`` dir), or None.
 
     Stops before reaching ``$HOME``: ``~/.lemoncrow`` is the global store
     (see ``default_store_root``), not a per-project marker, so it must never
@@ -125,12 +125,12 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     2. Common host workspace env vars (``CLAUDE_WORKSPACE_ROOT``, etc.)
     3. Derive from the *root* path itself (e.g. parent of ``.lemoncrow``)
     4. Git repository root of the current directory (auto-detect)
-    5. A directory explicitly registered via ``lemon init`` (marker: ``.lemoncrow/``)
+    5. A directory explicitly registered via ``lc init`` (marker: ``.lemoncrow/``)
     6. Otherwise: raises ``WorkspaceNotRegisteredError``
 
     Raises:
         WorkspaceNotRegisteredError: cwd is neither inside a git repository nor
-            an explicitly ``lemon init``-registered directory.
+            an explicitly ``lc init``-registered directory.
     """
     for env_var in _HOST_WORKSPACE_ENV_VARS:
         configured = os.environ.get(env_var, "").strip()
@@ -143,7 +143,7 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     # Auto-detect the repository root of the current directory so LemonCrow,
     # run anywhere inside a repo, targets the repo root rather than a nested
     # subdirectory. Falls through to a directory explicitly registered via
-    # `lemon init`, then raises for directories that are neither.
+    # `lc init`, then raises for directories that are neither.
     git_root = _git_toplevel()
     if git_root is not None:
         return git_root
@@ -152,14 +152,14 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
         return marker_root
     raise WorkspaceNotRegisteredError(
         "This directory is not a git repository and has not been registered with "
-        "LemonCrow. Run `lemon init` here to register it, or run this command from "
+        "LemonCrow. Run `lc init` here to register it, or run this command from "
         "inside a git repository."
     )
 
 
 def is_recognized_workspace(path: Path | str | None = None) -> bool:
     """True when *path* (default: cwd) is a git repository or has been
-    explicitly registered via ``lemon init`` (marker: ``.lemoncrow/``).
+    explicitly registered via ``lc init`` (marker: ``.lemoncrow/``).
 
     Mirrors the same two checks :func:`resolve_workspace_root` uses for its
     cwd-fallback precedence (steps 4-5) -- exposed standalone so callers that
@@ -387,7 +387,7 @@ def resolve_store_root_for_workspace(workspace_root: Path | str | None = None) -
     1. ``LEMONCROW_WORKSPACE_ROOT``
     2. Common host env vars (``CLAUDE_WORKSPACE_ROOT``, etc.)
     3. Current working directory — only when it is a git repository or has been
-       explicitly registered via ``lemon init`` (marker: ``.lemoncrow/``); otherwise
+       explicitly registered via ``lc init`` (marker: ``.lemoncrow/``); otherwise
        falls back to the global store root (this function never raises).
     """
     if workspace_root is None:

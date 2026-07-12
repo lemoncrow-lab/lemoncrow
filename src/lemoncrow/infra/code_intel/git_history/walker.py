@@ -134,7 +134,7 @@ _DEFAULT_HISTORY_BOOTSTRAP_COMMITS = 100
 
 
 def resolve_history_bootstrap_commits() -> int:
-    """Commits indexed synchronously by the first ``lemon code index`` (bootstrap).
+    """Commits indexed synchronously by the first ``lc code index`` (bootstrap).
 
     Keeps the eager index fast: only the most-recent N commits are walked inline.
     Deeper history is left to the (separate) background backfill. Tunable via
@@ -156,7 +156,7 @@ def _resolve_history_max_commits() -> int:
 
     The deleted/renamed-symbol graveyard only needs recent history, but an
     unbounded ``repo.walk`` over a deep-history repo (~130k commits for VS Code)
-    diffs every commit and dominates ``lemon code index``. Cap the walk to the
+    diffs every commit and dominates ``lc code index``. Cap the walk to the
     most recent N commits. ``LEMONCROW_HISTORY_MAX_COMMITS=0`` restores the
     unbounded walk for callers that want the complete graveyard.
     """

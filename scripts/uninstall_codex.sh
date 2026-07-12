@@ -51,7 +51,7 @@ AGENTS_DIR="${CODEX_HOME}/agents"
 AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/AGENTS.lemoncrow.md"
 STAGING_DIRS=("${HOME}/.lemoncrow/codex-plugin" "${HOME}/.lemoncrow/codex-plugin-stable" "${HOME}/.lemoncrow/codex-plugin-dev")
 
-info()  { echo "[lemon:uninstall:codex] $*"; }
+info()  { echo "[lc:uninstall:codex] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 codex_cmd() {
@@ -167,7 +167,7 @@ if [ -f "$AGENTS_FILE" ]; then
     if $DRY_RUN; then
         if grep -q "$LEMONCROW_CODE_BLOCK_START" "$AGENTS_FILE" 2>/dev/null; then
             echo "  [dry-run] remove managed LemonCrow Codex instructions from $AGENTS_FILE"
-        elif grep -q "lemon:code" "$AGENTS_FILE" 2>/dev/null; then
+        elif grep -q "lc:code" "$AGENTS_FILE" 2>/dev/null; then
             echo "  [dry-run] remove legacy LemonCrow Codex instructions file $AGENTS_FILE"
         fi
     else
@@ -184,7 +184,7 @@ source = source_path.read_text(encoding="utf-8").strip()
 if text.strip() == source:
     agents_path.unlink()
     print("removed-legacy-exact")
-elif "lemon:code" in text:
+elif "lc:code" in text:
     backup_path = agents_path.with_suffix(agents_path.suffix + ".lemoncrow-removed-backup")
     backup_path.write_text(text, encoding="utf-8")
     agents_path.unlink()

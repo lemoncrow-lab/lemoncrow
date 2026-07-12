@@ -1,4 +1,4 @@
-"""Per-command bash spend ledger + `lemon audit bash` CLI (rtk-discover equivalent)."""
+"""Per-command bash spend ledger + `lc audit bash` CLI (rtk-discover equivalent)."""
 
 from __future__ import annotations
 

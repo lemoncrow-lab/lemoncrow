@@ -1,9 +1,9 @@
-"""``lemon benchmark`` command group.
+"""``lc benchmark`` command group.
 
 Quick-reference invocation patterns
 ------------------------------------
 
-All examples use ``lemon benchmark codebench``
+All examples use ``lc benchmark codebench``
 (default task = all, default model = sonnet).
 
 
@@ -11,19 +11,19 @@ LemonCrow vs Baseline on Claude CLI (default transport)
 ......................................................
 
   # LemonCrow arm (latent + swarm), local Claude CLI:
-  lemon benchmark codebench --arm lemoncrow
+  lc benchmark codebench --arm lemoncrow
 
   # Baseline arm (no LemonCrow, vanilla Claude CLI):
-  lemon benchmark codebench --arm baseline
+  lc benchmark codebench --arm baseline
 
   # Compare both in one run:
-  lemon benchmark codebench --arm baseline --arm lemoncrow
+  lc benchmark codebench --arm baseline --arm lemoncrow
 
   # With a specific model:
-  lemon benchmark codebench --arm lemoncrow --model claude-sonnet-4-20250514
+  lc benchmark codebench --arm lemoncrow --model claude-sonnet-4-20250514
 
   # Limit to a single task for fast iteration:
-  lemon benchmark codebench --task codegen_hello_world --arm lemoncrow
+  lc benchmark codebench --task codegen_hello_world --arm lemoncrow
 
 
 
@@ -31,10 +31,10 @@ OpenCode as the CLI driver (--cli-driver opencode)
 ...................................................
 
   # LemonCrow arm, but the sub-task prompt is handed to `opencode run`:
-  lemon benchmark codebench --arm lemoncrow --cli-driver opencode
+  lc benchmark codebench --arm lemoncrow --cli-driver opencode
 
   # Compare lemoncrow vs baseline on OpenCode driver:
-  lemon benchmark codebench --arm baseline --arm lemoncrow --cli-driver opencode
+  lc benchmark codebench --arm baseline --arm lemoncrow --cli-driver opencode
 
 
 LemonCrow on Bedrock (AWS) with rate limiting
@@ -42,66 +42,66 @@ LemonCrow on Bedrock (AWS) with rate limiting
 
   Shorthand via --provider:
 
-    lemon benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5
-    lemon benchmark codebench --arm baseline --arm lemoncrow --provider bedrock --rate-limit-rpm 5
+    lc benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5
+    lc benchmark codebench --arm baseline --arm lemoncrow --provider bedrock --rate-limit-rpm 5
 
   Explicit preset (same effect):
 
-    lemon benchmark codebench --arm lemoncrow --claude-provider-preset aws-claude --rate-limit-rpm 5
+    lc benchmark codebench --arm lemoncrow --claude-provider-preset aws-claude --rate-limit-rpm 5
 
   With token-level rate limit:
 
-    lemon benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5 --rate-limit-tpm 50000
+    lc benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5 --rate-limit-tpm 50000
 
 
 Baseline on Bedrock with rate limiting
 .......................................
 
-  lemon benchmark codebench --arm baseline --provider bedrock --rate-limit-rpm 5
+  lc benchmark codebench --arm baseline --provider bedrock --rate-limit-rpm 5
 
 
 LemonCrow on GCP Vertex with rate limiting
 ........................................
 
-  lemon benchmark codebench --arm lemoncrow --provider gcp --rate-limit-rpm 5
-  lemon benchmark codebench --arm baseline --arm lemoncrow --provider gcp --rate-limit-rpm 5
+  lc benchmark codebench --arm lemoncrow --provider gcp --rate-limit-rpm 5
+  lc benchmark codebench --arm baseline --arm lemoncrow --provider gcp --rate-limit-rpm 5
 
 
 LemonCrow on Azure with rate limiting
 ....................................
 
-  lemon benchmark codebench --arm lemoncrow --provider azure --rate-limit-rpm 5
-  lemon benchmark codebench --arm baseline --arm lemoncrow --provider azure --rate-limit-rpm 5
+  lc benchmark codebench --arm lemoncrow --provider azure --rate-limit-rpm 5
+  lc benchmark codebench --arm baseline --arm lemoncrow --provider azure --rate-limit-rpm 5
 
 
 LemonCrow on OpenRouter
 .....................
 
-  lemon benchmark codebench --arm lemoncrow --provider openrouter --rate-limit-rpm 10
-  lemon benchmark codebench --arm baseline --arm lemoncrow --provider openrouter --rate-limit-rpm 10
+  lc benchmark codebench --arm lemoncrow --provider openrouter --rate-limit-rpm 10
+  lc benchmark codebench --arm baseline --arm lemoncrow --provider openrouter --rate-limit-rpm 10
 
 
 All five arms together (compare everything)
 ...........................................
 
-  lemon benchmark codebench --arm baseline --arm lemoncrow --arm lemoncrow.raw \
+  lc benchmark codebench --arm baseline --arm lemoncrow --arm lemoncrow.raw \
       --cli-driver claude --reps 3
 
 
-LemonCrow-run arm (runs ``lemon run start`` as the driver -- LemonCrow's own
+LemonCrow-run arm (runs ``lc run start`` as the driver -- LemonCrow's own
 owned-agent loop, using YOUR API credentials directly)
 ........................................................
 
-  lemon benchmark codebench --arm lemoncrow --cli-driver lemoncrow-run
+  lc benchmark codebench --arm lemoncrow --cli-driver lemoncrow-run
 
-  # LemonCrow-run on Bedrock with rate limiting (the driver is `lemon run start`,
-  # not the `claude` CLI -- `lemon run` uses your own ANTHROPIC_API_KEY or
+  # LemonCrow-run on Bedrock with rate limiting (the driver is `lc run start`,
+  # not the `claude` CLI -- `lc run` uses your own ANTHROPIC_API_KEY or
   # other provider credentials):
-  lemon benchmark codebench --arm lemoncrow --cli-driver lemoncrow-run \
+  lc benchmark codebench --arm lemoncrow --cli-driver lemoncrow-run \
       --model us.anthropic.claude-sonnet-4-6 --rate-limit-rpm 10
 
   # Compare lemoncrow (plugin) vs lemoncrow-run (owned-agent loop) on Bedrock:
-  lemon benchmark codebench \
+  lc benchmark codebench \
       --arm lemoncrow \
       --cli-driver lemoncrow-run \
       --model us.anthropic.claude-sonnet-4-6 \
@@ -113,7 +113,7 @@ LemonCrow on Bedrock with explicit model + rate limit (copy-paste ready)
 ......................................................................
 
   # LemonCrow plugin arm via Claude CLI routed through Bedrock:
-  lemon benchmark codebench \
+  lc benchmark codebench \
       --arms lemoncrow \
       --provider bedrock \
       --model us.anthropic.claude-sonnet-4-6 \
@@ -122,7 +122,7 @@ LemonCrow on Bedrock with explicit model + rate limit (copy-paste ready)
       --reps 1 --tasks all
 
   # Compare lemoncrow vs baseline on Bedrock:
-  lemon benchmark codebench \
+  lc benchmark codebench \
       --arms baseline --arms lemoncrow \
       --provider bedrock \
       --model us.anthropic.claude-sonnet-4-6 \
@@ -137,16 +137,16 @@ Common pitfalls
   # click.Choice is out of sync. This is now fixed.
   #
   # WRONG: --cli-extra-arg=--provider --cli-extra-arg=bedrock
-  # Those get forwarded to the CLI driver binary (claude / lemon run start),
+  # Those get forwarded to the CLI driver binary (claude / lc run start),
   # not to the benchmark harness. Use --provider / --agent-env instead.
   #
   # CORRECT: use --provider to set cloud-provider env vars for the claude CLI:
-  lemon benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5
+  lc benchmark codebench --arm lemoncrow --provider bedrock --rate-limit-rpm 5
 
 
 Use --help on the sub-command for all available flags:
 
-  lemon benchmark codebench --help
+  lc benchmark codebench --help
 """
 
 from __future__ import annotations
@@ -221,8 +221,8 @@ def benchmark_mini_cmd(
 
     \b
     Usage:
-      lemon benchmark mini --dry-run --json       # Offline validation, no API keys needed
-      lemon benchmark mini --limit 5 --json        # Run 5 cases, write JSON report
+      lc benchmark mini --dry-run --json       # Offline validation, no API keys needed
+      lc benchmark mini --limit 5 --json        # Run 5 cases, write JSON report
     """
     import json as _json
 
@@ -361,16 +361,16 @@ def benchmark_harbor_cmd(
     \b
     Examples:
       # Fresh run, all tasks, 5 attempts, slots from LEMONCROW_BENCH_TOKEN_SLOTS (auto-rebuilds bundle):
-      lemon benchmark harbor -y
+      lc benchmark harbor -y
 
       # Baseline arm (no LemonCrow plugin):
-      lemon benchmark harbor --baseline -y
+      lc benchmark harbor --baseline -y
 
       # Resume a rate-limited job (must point at the dated job dir, not its parent):
-      lemon benchmark harbor --resume benchmarks/harbor/results/lemoncrow/2026-07-01__12-00-00 -y
+      lc benchmark harbor --resume benchmarks/harbor/results/lemoncrow/2026-07-01__12-00-00 -y
 
       # Quick smoke test (3 tasks, 1 attempt):
-      lemon benchmark harbor --limit 3 --attempts 1 -y
+      lc benchmark harbor --limit 3 --attempts 1 -y
     """
     import json as _json
     import os as _os
@@ -472,7 +472,7 @@ def benchmark_harbor_cmd(
                 "run",
                 "--rm",
                 "-v",
-                f"{repo_root_str}:/lemon:ro",
+                f"{repo_root_str}:/lc:ro",
                 "-v",
                 f"{bundle_path.parent}:/out",
                 "debian:bullseye-slim",
@@ -1184,7 +1184,7 @@ def benchmark_telegraphic_cmd(
     Reproduces JuliusBrussee/caveman's benchmark+eval prompt sets
     (github.com/JuliusBrussee/caveman/tree/main/{benchmarks,evals}) with the
     FULL real LemonCrow runtime as the "lemoncrow" arm (tools + MCP + the
-    ``lemon:auto`` persona's shipped ultra reply-register) -- not an
+    ``lc:auto`` persona's shipped ultra reply-register) -- not an
     isolated system-prompt swap, so the number is apples-to-apples with every
     other figure in BENCHMARKS.md. Prints a cost estimate and confirms before
     spending real tokens; report = per-prompt output-token savings, not
@@ -1192,9 +1192,9 @@ def benchmark_telegraphic_cmd(
 
     \b
     Usage:
-      lemon benchmark telegraphic --repo . --limit 2 --estimate-only  # dry run, no spend
-      lemon benchmark telegraphic --repo . --limit 2 -y               # smoke test, 2 prompts
-      lemon benchmark telegraphic --repo . -y                         # full 20-prompt run
+      lc benchmark telegraphic --repo . --limit 2 --estimate-only  # dry run, no spend
+      lc benchmark telegraphic --repo . --limit 2 -y               # smoke test, 2 prompts
+      lc benchmark telegraphic --repo . -y                         # full 20-prompt run
     """
     bench_root = _bench_source_root()
     if str(bench_root) not in sys.path:
@@ -1469,10 +1469,10 @@ def benchmark_swe_cmd(
 
     \b
     Usage:
-      lemon benchmark swe --language go --language rust --per-language-limit 5
-      lemon benchmark swe --suite swe-bench-verified --limit 3 --jobs 2
-      lemon benchmark swe --suite swe-lite --arm baseline --arm lemoncrow --grade
-      lemon benchmark swe --suite swe-pro --arm baseline --arm lemoncrow --grade
+      lc benchmark swe --language go --language rust --per-language-limit 5
+      lc benchmark swe --suite swe-bench-verified --limit 3 --jobs 2
+      lc benchmark swe --suite swe-lite --arm baseline --arm lemoncrow --grade
+      lc benchmark swe --suite swe-pro --arm baseline --arm lemoncrow --grade
     """
     bench_root = _bench_source_root()
     run_dir = _run_dir("swe", None)

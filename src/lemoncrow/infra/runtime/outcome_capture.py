@@ -565,7 +565,7 @@ def _flush_commit(session_id: str, *, writer: _StateWriter | None) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# CLI query helpers (used by lemon outcomes show/summary)                   #
+# CLI query helpers (used by lc outcomes show/summary)                   #
 # --------------------------------------------------------------------------- #
 
 

@@ -96,13 +96,13 @@ def coding_guidelines_section() -> str:
     return "\n".join(["## Coding Guidelines", "", _markdown_body(CODING_GUIDELINES_PATH)])
 
 
-# Bare user-scope server name ("lemon", registered by install_claude.sh) — the
+# Bare user-scope server name ("lc", registered by install_claude.sh) — the
 # canonical local install. The marketplace plugin shape is
-# "mcp__plugin_lemoncrow_lemon__"; runtime consumers (hooks, session parsers)
+# "mcp__plugin_lemoncrow_lc__"; runtime consumers (hooks, session parsers)
 # accept both, and the deny-list covers both (see _claude_disallowed_tools).
-_CLAUDE_TOOL_PREFIX = "mcp__lemon__"
-_OPENCODE_TOOL_PREFIX = "lemon_"
-_CODEX_TOOL_PREFIX = "lemon."
+_CLAUDE_TOOL_PREFIX = "mcp__lc__"
+_OPENCODE_TOOL_PREFIX = "lc_"
+_CODEX_TOOL_PREFIX = "lc."
 
 # Claude Code folds the MCP server's `instructions` field (SERVER_INSTRUCTIONS
 # in mcp_server.py, which carries the full generic tool discipline) into every
@@ -126,13 +126,13 @@ _CLAUDE_SHARED_OVERRIDES = {
 
 # OpenCode's own native tools (read/grep/bash/edit/patch) stay fully enabled --
 # no permission-deny for them (see scripts/install_opencode.sh's opencode.json,
-# only "lemoncrow_*": "allow" is ever set) -- so "Host tools disabled" is as
+# only "lc_*": "allow" is ever set) -- so "Host tools disabled" is as
 # inaccurate for OpenCode as it is for Codex. Same swap-the-lead-in fix,
 # keeping the "use LemonCrow: ..." clause (same shared helper Codex uses).
 #
 # Unlike Codex's apply_patch/exec_command, these names (read/bash/edit) DO
 # collide with INLINE_TOOL_NAMES -- render_agent's replace_inline_tool_names
-# pass would mangle them into lemon_read/lemon_bash/lemon_edit (they'd
+# pass would mangle them into lc_read/lc_bash/lc_edit (they'd
 # read as OpenCode's own native tools, not LemonCrow's). So the {{NATIVE_FALLBACK_NAMES}}
 # marker below is deliberately left unresolved here and filled in by render_agent
 # *after* that rewrite pass runs (see profile.native_fallback_names).
@@ -167,7 +167,7 @@ class HostInstructionProfile:
 
     tool_prefix : str
         Prefix LemonCrow MCP tools are registered under by the host, e.g.
-        ``lemon_`` (OpenCode), ``mcp__lemon__`` (Claude Code user-scope server).
+        ``lc_`` (OpenCode), ``mcp__lc__`` (Claude Code user-scope server).
     overrides : dict[str, str] | None
         Shared-section token overrides (e.g. ``{{TOOL_DISCIPLINE}}``), expanded by
         render_mode_body before the prefix rewrite.
@@ -263,9 +263,9 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
                 "  ]",
                 "---",
                 "",
-                f"# lemon:{role.role_id}",
+                f"# lc:{role.role_id}",
                 "",
-                f"You are operating as *lemon:{role.role_id}*.",
+                f"You are operating as *lc:{role.role_id}*.",
                 "",
                 render_mode_body(mode_doc),
             ]
@@ -309,7 +309,7 @@ def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
 
 def _already_active_guard(skill_name: str) -> str:
     """One-line blockquote that tells the model the skill is already loaded."""
-    return f'> **Active** — do not call `Skill("lemon:{skill_name}")` again.'
+    return f'> **Active** — do not call `Skill("lc:{skill_name}")` again.'
 
 
 def _inject_active_guard(content: str, skill_name: str) -> str:
@@ -401,7 +401,7 @@ def render_claude_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostPr
 
 
 def render_simple_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostProjection) -> str:
-    identity_block = ["You are operating as *lemon:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
     return (
         "\n".join(
             [
@@ -429,7 +429,7 @@ def render_agent(
     host's prefix so agents know the exact tool names to call.
     """
     p = profile.tool_prefix
-    identity_block = ["You are operating as *lemon:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
     body = replace_inline_tool_names(render_mode_body(mode_doc, profile.overrides), p)
     if profile.native_fallback_names:
         names, _verb = format_native_names_and_verb(profile.native_fallback_names)
@@ -479,7 +479,7 @@ def build_mode_outputs(
     # default (test_plugin_agent_set_matches_canonical_registry pins this) --
     # every role is a legitimate Task-tool dispatch target (e.g. a benchmark
     # harness mounting --plugin-dir straight from here and selecting via
-    # --agent lemon:<role>). Only a caller that explicitly passes
+    # --agent lemoncrow:<role>). Only a caller that explicitly passes
     # claude_plugin_role_ids= (see main()'s --claude-plugin-roles flag /
     # LEMONCROW_CLAUDE_PLUGIN_ROLES env var, typically combined with a scratch
     # `root` for a trimmed benchmark-only build) gets a reduced roster --
@@ -611,7 +611,7 @@ def main(argv: list[str] | None = None) -> int:
             "Comma-separated role ids the Claude plugin bundle ships (default: "
             "DEFAULT_ROLE_IDS, i.e. 'code'). Also settable via "
             "LEMONCROW_CLAUDE_PLUGIN_ROLES. Use when a build needs a different agent "
-            "shipped, e.g. a benchmark harness driving --agent lemon:auto: "
+            "shipped, e.g. a benchmark harness driving --agent lemoncrow:auto: "
             "--claude-plugin-roles=auto."
         ),
     )

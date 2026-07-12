@@ -3,7 +3,7 @@
 Single source of truth for:
 - Claude transcript discovery and per-model cost parsing
 - Session savings aggregation (live events + session_stats)
-- savings --segment output formatting (consumed by statusline.sh via ``lemon savings --segment``)
+- savings --segment output formatting (consumed by statusline.sh via ``lc savings --segment``)
 
 Previously this logic was spread across:
 - integrations/claude/plugin/scripts/statusline.sh (inline Python heredoc)
@@ -935,7 +935,7 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
 
     Returns ``(priced_tokens, priced_usd, calls, calls_usd, unpriced_tokens)``.
 
-    The statusline, stop hook, ``lemon savings`` CLI, dashboard, and web
+    The statusline, stop hook, ``lc savings`` CLI, dashboard, and web
     Savings page all run rows through this one function so their realized-savings
     numbers agree.  The rule mirrors the long-standing live/statusline pricing:
 
@@ -1804,20 +1804,23 @@ def compute_savings_summary(
 # actually ships (the agents/ and skills/ staged by install_claude.sh) — when
 # a mode or skill is added or removed there, update its tip here.
 _STATUS_TIPS: tuple[str, ...] = (
-    "`/lemon:code` — main coding mode: indexed search, batched edits, owned completion",
-    "`/lemon:explore` — read-only explorer: files, symbols, patterns; never edits",
-    "`/lemon:plan` — turn grounded context into a concrete, reviewable plan first",
-    "`/lemon:execute` — apply an accepted plan with surgical, minimal edits",
-    "`/lemon:review` — adversarial review: verified findings, ranked by severity",
-    "`/lemon:research` — fetch web pages, repos, and docs into a cited memo",
-    "`/lemon:solve` — own a task end-to-end; ship early, iterate against the real check",
-    "`/lemon:recall` — what LemonCrow learned from your past sessions, on demand",
-    "`/lemon:ux-review` — WCAG + design-token gates, verified in a real browser",
-    "`/lemon:perf-review` — latency/memory/scaling gates measured by running it",
-    "`/lemon:orchestrate` — one structured run: subagent vs isolated worktree",
-    "`/lemon:swarm` — parallel multi-worktree swarm runs on your repo",
-    "`/lemon:benchmark` — LemonCrow vs vanilla Claude Code on your repo: cost, turns, time",
-    "`lemon savings` — realized savings: this session, 1d, 7d, 30d",
+    # "`/lc:code` — main coding mode: indexed search, batched edits, owned completion",
+    # "`/lc:explore` — read-only explorer: files, symbols, patterns; never edits",
+    # "`/lc:plan` — turn grounded context into a concrete, reviewable plan first",
+    # "`/lc:execute` — apply an accepted plan with surgical, minimal edits",
+    # "`/lc:review` — adversarial review: verified findings, ranked by severity",
+    # "`/lc:research` — fetch web pages, repos, and docs into a cited memo",
+    # "`/lc:solve` — own a task end-to-end; ship early, iterate against the real check",
+    "`/recall` — what LemonCrow learned from your past sessions, on demand",
+    "`/ux-review` — WCAG + design-token gates, verified in a real browser",
+    "`/perf-review` — latency/memory/scaling gates measured by running it",
+    "`/orchestrate` — one structured run: subagent vs isolated worktree",
+    "`/swarm` — parallel multi-worktree swarm runs on your repo",
+    "`/benchmark` — LemonCrow vs vanilla Claude Code on your repo: cost, turns, time",
+    "`/lemoncrow skills` - install/uninstall lemoncrow skills",
+    "`/lemoncrow agents` - install/uninstall lemoncrow agents",
+    "`/lemoncrow settings` — list/view/set LemonCrow plugin settings",
+    "`/lemoncrow savings` — realized savings: this session, 1d, 7d, 30d",
 )
 
 
@@ -1967,11 +1970,11 @@ def load_usage_breakdown(root: str | Path) -> dict[str, Any]:
 
 
 def render_savings_summary(payload: dict[str, Any]) -> str:
-    """Render the default ``lemon savings`` view as a compact human summary.
+    """Render the default ``lc savings`` view as a compact human summary.
 
     Surfaces the headline numbers, the 1/7/30-day window table, and the plan
     line from the ``build_savings_report`` payload. The full raw structure
-    stays available via ``lemon savings --json``.
+    stays available via ``lc savings --json``.
     """
 
     def _int(v: Any) -> str:
@@ -2030,7 +2033,7 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
         lines.append(f"  {note}")
 
     lines.append("")
-    lines.append("  detail: lemon savings detail      json: lemon savings --json")
+    lines.append("  detail: lc savings detail      json: lc savings --json")
     return "\n".join(lines)
 
 
@@ -3114,7 +3117,7 @@ def savings_segment(
 ) -> str:
     """Return ONE pre-formatted rotating statusline frame.
 
-    Subprocess/CLI path (``lemon savings --segment``): builds all frames via
+    Subprocess/CLI path (``lc savings --segment``): builds all frames via
     :func:`savings_frames` and picks the current one from the shared rolling
     counter at ``<root>/statusline_frame_state.json`` (advances every
     ``_SEGMENT_INTERVAL_S`` seconds). The MCP sidecar path writes the full

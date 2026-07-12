@@ -2,7 +2,7 @@
 # verify_opencode.sh — Verify LemonCrow install + provider wiring for opencode.
 #
 # 1. Runs install_opencode.sh (post-install checks; handles --workspace + skip).
-# 2. Smoke-tests the `lemon` MCP provider entry in opencode.json (tools/list).
+# 2. Smoke-tests the `lc` MCP provider entry in opencode.json (tools/list).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,16 +38,16 @@ if "lemoncrow" not in mcps:
     sys.exit(1)
 entry = mcps["lemoncrow"]
 cmd = entry.get("command", "")
-if "lemon" not in str(cmd) and "mcp" not in str(entry.get("args", [])):
+if "lc" not in str(cmd) and "mcp" not in str(entry.get("args", [])):
     print(f"FAIL: unexpected command: {cmd}")
     sys.exit(1)
 print(f"LemonCrow MCP entry: {entry}")
 EOF
 
-echo "--- checking opencode can list tools (via lemon mcp stdio) ---"
+echo "--- checking opencode can list tools (via lc mcp stdio) ---"
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"verify","version":"1"},"capabilities":{}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-    | lemon mcp 2>/dev/null \
+    | lc mcp 2>/dev/null \
     | python3 - <<'EOF'
 import sys, json
 lines = sys.stdin.read().strip().split("\n")

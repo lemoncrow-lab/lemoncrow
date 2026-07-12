@@ -27,12 +27,12 @@ def test_letta_memory_store_raises_sidecar_unavailable_on_503(tmp_path: Path) ->
 
     with pytest.raises(MemorySidecarUnavailable):
         store.upsert_block(
-            MemoryBlock(agent_id="lemon:code", label="persona", value="text"),
-            actor="agent:lemon:code",
+            MemoryBlock(agent_id="lc:code", label="persona", value="text"),
+            actor="agent:lc:code",
         )
 
     with pytest.raises(MemorySidecarUnavailable):
-        store.search_passages("lemon:code", "query")
+        store.search_passages("lc:code", "query")
 
 
 def test_make_memory_store_does_not_fallback_when_letta_construction_fails(
@@ -71,9 +71,9 @@ def test_openmemory_memory_store_raises_sidecar_unavailable_on_503(tmp_path: Pat
 
     with pytest.raises(MemorySidecarUnavailable):
         store.upsert_block(
-            MemoryBlock(agent_id="lemon:code", label="persona", value="text"),
-            actor="agent:lemon:code",
+            MemoryBlock(agent_id="lc:code", label="persona", value="text"),
+            actor="agent:lc:code",
         )
 
     with pytest.raises(MemorySidecarUnavailable):
-        store.search_passages("lemon:code", "query")
+        store.search_passages("lc:code", "query")

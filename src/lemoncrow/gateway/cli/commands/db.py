@@ -1,4 +1,4 @@
-"""``lemon db`` — database maintenance (reclaim space, start fresh)."""
+"""``lc db`` — database maintenance (reclaim space, start fresh)."""
 
 from __future__ import annotations
 

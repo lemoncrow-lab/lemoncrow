@@ -88,7 +88,7 @@ def test_spill_helper_spills_and_returns_recoverable_ref(monkeypatch: pytest.Mon
     assert len(out) < len(text)  # host-facing text is a compact summary
     assert out.startswith("HEAD-MARKER")  # head preserved in summary
     assert "TAIL-MARKER" in out  # tail preserved in summary
-    assert "[lemon: shrunk" in out  # canonical footer present
+    assert "[lc: shrunk" in out  # canonical footer present
     assert "read " in out  # recovery hint present
     assert _extract_path(out).read_text(encoding="utf-8") == text  # full original preserved
 
@@ -219,21 +219,21 @@ def test_spill_notice_shrunk_with_path() -> None:
     text = tool_output_spill.spill_notice(
         verb="shrunk", original_chars=100907, kept_chars=5035, path=Path("/tmp/lemoncrow-spill/tool_output-x.txt")
     )
-    assert text == ("[lemon: shrunk 100907→5035; full: read /tmp/lemoncrow-spill/tool_output-x.txt]")
+    assert text == ("[lc: shrunk 100907→5035; full: read /tmp/lemoncrow-spill/tool_output-x.txt]")
 
 
 def test_spill_notice_truncated_with_path() -> None:
     text = tool_output_spill.spill_notice(
         verb="truncated", original_chars=9000, kept_chars=1024, path=Path("/tmp/x.txt")
     )
-    assert text == "[lemon: truncated 9000→1024; full: read /tmp/x.txt]"
+    assert text == "[lc: truncated 9000→1024; full: read /tmp/x.txt]"
 
 
 def test_spill_notice_compacted_with_method_verb() -> None:
     text = tool_output_spill.spill_notice(
         verb="compacted:dedup", original_chars=500, kept_chars=100, path=Path("/tmp/x.txt")
     )
-    assert text == "[lemon: compacted:dedup 500→100; full: read /tmp/x.txt]"
+    assert text == "[lc: compacted:dedup 500→100; full: read /tmp/x.txt]"
 
 
 def test_spill_notice_no_path_is_spill_failed_shape() -> None:
@@ -241,7 +241,7 @@ def test_spill_notice_no_path_is_spill_failed_shape() -> None:
     # the requested verb -- from the model's perspective there's nothing to
     # recover either way.
     text = tool_output_spill.spill_notice(verb="shrunk", original_chars=9000, kept_chars=1024, path=None)
-    assert text == "[lemon: truncated 9000→1024; narrow the query for full]"
+    assert text == "[lc: truncated 9000→1024; narrow the query for full]"
 
 
 def test_summary_with_ref_inserts_clipped_marker_when_summary_must_shrink() -> None:
@@ -262,7 +262,7 @@ def test_summary_with_ref_inserts_clipped_marker_when_summary_must_shrink() -> N
 
     assert len(out) <= cap
     assert "[… summary clipped; full in spill …]" in out
-    assert "[lemon: shrunk" in out
+    assert "[lc: shrunk" in out
 
 
 def test_spill_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -459,7 +459,7 @@ def test_handle_spill_flag_off_does_not_spill(monkeypatch: pytest.MonkeyPatch) -
     assert "spilled to" not in host_text  # flag off -> no spill
     # Legacy char compaction still ran; without a recovery path the canonical
     # footer reports a hard truncation (format 3) regardless of the verb.
-    assert "[lemon: truncated" in host_text
+    assert "[lc: truncated" in host_text
     assert "narrow the query for full" in host_text
 
 

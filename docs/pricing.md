@@ -1,7 +1,7 @@
 # LemonCrow plans & pricing
 
 LemonCrow is source-available and local-first: the engine runs on your machine.
-The official distribution requires a free LemonCrow account at lemon init; code,
+The official distribution requires a free LemonCrow account at lc init; code,
 local session data, and configuration remain local.
 
 Prices are configured in Stripe Payment Links. The client checks plan
@@ -27,11 +27,11 @@ For developers trying LemonCrow and using its local runtime day to day.
 
 Free includes the local code-navigation tools, supported host packaging,
 normal-size repository context, benchmarks, and local savings estimates. Create
-a free account with lemon login, then activate the official install with
-lemon init.
+a free account with lc login, then activate the official install with
+lc init.
 
 Remote telemetry is on by default to help us improve the product. Opt out
-anytime with `lemon telemetry remote off`.
+anytime with `lc telemetry remote off`.
 
 ## Pro beta — for individual developers
 
@@ -56,9 +56,9 @@ refund, gated surfaces return to Free and local data remains untouched.
 
 ## How to activate
 
-    lemon login          # create or sign in to a free account
-    lemon init           # activate the official install
-    lemon login --status # show account and plan
+    lc login          # create or sign in to a free account
+    lc init           # activate the official install
+    lc login --status # show account and plan
 
 In CI or containers, set LEMONCROW_AUTH_TOKEN to a session token.
 

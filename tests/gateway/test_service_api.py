@@ -457,7 +457,7 @@ def test_analytics_day_windows_use_calendar_days(
     store.record_trace(
         Trace(
             id="trace-yesterday-recent",
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task="yesterday but within 24h",
@@ -472,7 +472,7 @@ def test_analytics_day_windows_use_calendar_days(
     store.record_trace(
         Trace(
             id="trace-today-current",
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task="today only",
@@ -521,7 +521,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     store.record_trace(
         Trace(
             id="trace-codex-stub",
-            agent="lemon:code",
+            agent="lc:code",
             host="codex",
             domain="coding",
             task="prompt only",
@@ -533,7 +533,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     store.record_trace(
         Trace(
             id="trace-codex-usage",
-            agent="lemon:code",
+            agent="lc:code",
             host="codex",
             domain="coding",
             task="real codex usage",
@@ -550,7 +550,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     store.record_trace(
         Trace(
             id="trace-claude-usage",
-            agent="lemon:code",
+            agent="lc:code",
             host="claude",
             domain="coding",
             task="real claude usage",
@@ -599,7 +599,7 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
         Trace(
             id="trace-copilot-session-primary",
             session_id="copilot-session-1",
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task="priced copilot session",
@@ -615,7 +615,7 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
         Trace(
             id="trace-copilot-session-transcript",
             session_id="copilot-session-1",
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task="prompt-only transcript stub",
@@ -650,7 +650,7 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
     store.record_trace(
         Trace(
             id="trace-cursor-family",
-            agent="lemon:code",
+            agent="lc:code",
             host="cursor",
             domain="coding",
             task="cursor family usage",
@@ -672,7 +672,7 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
     store.record_trace(
         Trace(
             id="trace-cursor-agent-family",
-            agent="lemon:code",
+            agent="lc:code",
             host="cursor-agent",
             domain="coding",
             task="cursor agent family usage",
@@ -714,7 +714,7 @@ def test_dashboard_returns_hourly_usage_buckets(
     store.record_trace(
         Trace(
             id="trace-hourly-usage",
-            agent="lemon:code",
+            agent="lc:code",
             host="codex",
             domain="coding",
             task="hourly dashboard usage",
@@ -741,7 +741,7 @@ def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: 
     store.record_trace(
         Trace(
             id="trace-summary-priced",
-            agent="lemon:code",
+            agent="lc:code",
             host="claude",
             domain="coding",
             task="summary pricing",
@@ -773,7 +773,7 @@ def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
     store.record_trace(
         Trace(
             id="trace-mixed-model-dashboard",
-            agent="lemon:code",
+            agent="lc:code",
             host="gemini",
             domain="coding",
             task="mixed model session",

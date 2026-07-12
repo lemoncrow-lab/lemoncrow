@@ -7,7 +7,7 @@ the TUI is just a view layer.
 
 Usage::
 
-    lemon serve-openai [--port 8787]
+    lc serve-openai [--port 8787]
 
 Then configure your TUI to point at ``http://localhost:8787/v1``.
 """

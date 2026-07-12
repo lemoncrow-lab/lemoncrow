@@ -63,7 +63,7 @@ def zoekt_install(auto: bool, print_only: bool) -> None:
     if print_only:
         return
     if not auto:
-        raise click.ClickException("Install the commands above, or run: lemon zoekt install --auto")
+        raise click.ClickException("Install the commands above, or run: lc zoekt install --auto")
     if shutil.which("go") is None:
         raise click.ClickException("Go is required for --auto install (go command not found on PATH)")
 
@@ -106,7 +106,7 @@ def zoekt_index(target: Path, index_dir: Path) -> None:
     elif git_index:
         cmd = [git_index, "-index", str(index_dir), str(target)]
     else:
-        raise click.ClickException("Zoekt index binaries not found. Run: lemon zoekt install")
+        raise click.ClickException("Zoekt index binaries not found. Run: lc zoekt install")
 
     subprocess.run(cmd, check=True)
     click.echo(f"Zoekt index updated at {index_dir}")
@@ -126,7 +126,7 @@ def zoekt_search(query: tuple[str, ...], index_dir: Path) -> None:
     require_pro("code_search", "Zoekt-backed code search")
     zoekt_bin = shutil.which("zoekt")
     if zoekt_bin is None:
-        raise click.ClickException("zoekt binary not found. Run: lemon zoekt install")
+        raise click.ClickException("zoekt binary not found. Run: lc zoekt install")
     q = " ".join(query).strip()
     if not q:
         raise click.ClickException("query cannot be empty")
@@ -150,7 +150,7 @@ def zoekt_serve(index_dir: Path, host: str, port: int) -> None:
     require_pro("code_search", "Zoekt-backed code search")
     webserver_bin = shutil.which("zoekt-webserver")
     if webserver_bin is None:
-        raise click.ClickException("zoekt-webserver binary not found. Run: lemon zoekt install")
+        raise click.ClickException("zoekt-webserver binary not found. Run: lc zoekt install")
     subprocess.run(
         [webserver_bin, "-index", str(index_dir.resolve()), "-listen", f"{host}:{port}"],
         check=True,
@@ -199,7 +199,7 @@ def zoekt_status(ctx: click.Context, index_dir: Path) -> None:
     missing = _zoekt_missing_local_binaries()
     if missing:
         click.echo("Local Zoekt binaries: missing -> " + ", ".join(missing))
-        click.echo("Install with: lemon zoekt install")
+        click.echo("Install with: lc zoekt install")
     else:
         click.echo("Local Zoekt binaries: installed")
     resolved_index = index_dir.resolve()

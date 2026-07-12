@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Any
 
 _VERSION_RE = re.compile(r"\bversion\s+([0-9][^\s]*)")
-# Bin dirs to append to PATH when resolving the `lemon` executable, for
+# Bin dirs to append to PATH when resolving the `lc` executable, for
 # callers spawned by launchd/systemd with a minimal PATH (e.g. the servicectl
-# daemon) that would otherwise never find a user-installed `lemon`.
+# daemon) that would otherwise never find a user-installed `lc`.
 _COMMON_LEMONCROW_BIN_DIRS = (
     str(Path.home() / ".local" / "share" / "uv" / "tools" / "lemoncrow" / "bin"),
     str(Path.home() / ".lemoncrow" / "uv-tools" / "lemoncrow" / "bin"),
@@ -29,12 +29,12 @@ _COMMON_LEMONCROW_BIN_DIRS = (
 
 
 def installed_cli_version() -> str | None:
-    """Return the version reported by the installed ``lemon`` executable.
+    """Return the version reported by the installed ``lc`` executable.
 
     Queries the CLI itself (not the current process's in-memory package
     metadata) so callers see the version actually on disk after a
     reinstall/update, even when the calling process is stale. The PATH used
-    to resolve ``lemon`` is augmented with common install locations so
+    to resolve ``lc`` is augmented with common install locations so
     this also works for callers (e.g. the servicectl daemon under launchd)
     whose inherited PATH is minimal. Returns ``None`` if the binary can't be
     resolved or fails to report a version.
@@ -42,7 +42,7 @@ def installed_cli_version() -> str | None:
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([env.get("PATH", ""), *_COMMON_LEMONCROW_BIN_DIRS])
     try:
-        result = subprocess.run(["lemon", "--version"], capture_output=True, text=True, timeout=15, env=env)
+        result = subprocess.run(["lc", "--version"], capture_output=True, text=True, timeout=15, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     match = _VERSION_RE.search(result.stdout)

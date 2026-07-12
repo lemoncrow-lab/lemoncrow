@@ -4,7 +4,7 @@ argument-hint: <the UI to verify — a route, page, or component story>
 description: "Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review)."
 ---
 
-> **Active** — do not call `Skill("lemon:ux-review")` again.
+> **Active** — do not call `Skill("lc:ux-review")` again.
 
 # UX review
 

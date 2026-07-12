@@ -9,14 +9,14 @@ if TYPE_CHECKING:
     import click
 
 
-# Set LEMONCROW_SHOW_ALL=1 to reveal internal/hidden commands in ``lemon --help``.
+# Set LEMONCROW_SHOW_ALL=1 to reveal internal/hidden commands in ``lc --help``.
 _SHOW_ALL = os.environ.get("LEMONCROW_SHOW_ALL") == "1"
 
 
 def _h(cmd: Any) -> Any:
     """Mark a click command/group hidden (used for internal commands).
 
-    Hidden commands stay fully runnable and ``lemon <cmd> --help`` still
+    Hidden commands stay fully runnable and ``lc <cmd> --help`` still
     prints their help; they are only dropped from the top-level ``--help``
     listing. Set ``LEMONCROW_SHOW_ALL=1`` to reveal them all.
     """
@@ -155,7 +155,7 @@ def register(cli: click.Group) -> None:
         _h(tools_group)
         cli.add_command(tools_group)
 
-        # 'lemon mcp' starts the stdio MCP server (replaces the legacy standalone binary)
+        # 'lc mcp' starts the stdio MCP server (replaces the legacy standalone binary)
         try:
             from .mcp import mcp_group
 
@@ -288,7 +288,7 @@ def register(cli: click.Group) -> None:
         cli.add_command(runs_group)
         session_group.add_command(recall_group)
         # replay reconstructs a past session and marks LemonCrow short-circuits:
-        # `lemon session replay`.
+        # `lc session replay`.
         session_group.add_command(replay_cmd)
         cli.add_command(session_group)
     except (ModuleNotFoundError, ImportError):
@@ -336,7 +336,7 @@ def register(cli: click.Group) -> None:
             """Show the LemonCrow spend & savings dashboard.
 
             Run with no arguments for the terminal rollup (last 7 days + recent
-            runs). Use ``lemon dashboard open`` for the browser analytics UI.
+            runs). Use ``lc dashboard open`` for the browser analytics UI.
             """
             if ctx.invoked_subcommand is None:
                 from lemoncrow.core.capabilities.reporting.dashboard import render_overview
@@ -362,10 +362,10 @@ def register(cli: click.Group) -> None:
                 _click.echo(
                     f"  LemonCrow web UI not running on port {port}.\n\n"
                     f"  Start the full stack (backend + web UI):\n"
-                    f"    lemon stack start\n"
+                    f"    lc stack start\n"
                     f"  Or just the frontend:\n"
-                    f"    lemond frontend-start\n\n"
-                    f"  Then run: lemon dashboard open"
+                    f"    lcd frontend-start\n\n"
+                    f"  Then run: lc dashboard open"
                 )
                 return
             _click.echo(f"  ◆ Opening LemonCrow dashboard: {url}")
@@ -421,7 +421,7 @@ def register(cli: click.Group) -> None:
 
             serve(port=port, host=host, project_root=project_root, yolo=not no_yolo)
 
-        serve_openai_cmd.hidden = True  # internal: integrated into lemon service
+        serve_openai_cmd.hidden = True  # internal: integrated into lc service
         cli.add_command(serve_openai_cmd, name="serve-openai")
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
@@ -435,9 +435,9 @@ def register(cli: click.Group) -> None:
             """Print shell completion script.
 
             \b
-            # zsh:  echo 'eval "$(lemon completions zsh)"'  >> ~/.zshrc
-            # bash: echo 'eval "$(lemon completions bash)"' >> ~/.bashrc
-            # fish: lemon completions fish > ~/.config/fish/completions/lemoncrow.fish
+            # zsh:  echo 'eval "$(lc completions zsh)"'  >> ~/.zshrc
+            # bash: echo 'eval "$(lc completions bash)"' >> ~/.bashrc
+            # fish: lc completions fish > ~/.config/fish/completions/lemoncrow.fish
             """
             # Derived from the live CLI group so the list can never go stale.
             entries = _completion_entries(cli)
@@ -460,7 +460,7 @@ def _completion_entries(cli: click.Group) -> list[tuple[str, str]]:
     """(name, one-line description) for every visible top-level command."""
     import click as _click
 
-    ctx = _click.Context(cli, info_name="lemon")
+    ctx = _click.Context(cli, info_name="lc")
     entries: list[tuple[str, str]] = []
     for name in cli.list_commands(ctx):
         cmd = cli.get_command(ctx, name)
@@ -476,9 +476,9 @@ def _render_completion_script(shell: str, entries: list[tuple[str, str]]) -> str
     if shell == "zsh":
         lines = "\n".join(f"        '{name}:{desc}'" for name, desc in entries)
         return (
-            "\n#compdef lemon\n_lemoncrow() {\n    local -a commands\n    commands=(\n"
+            "\n#compdef lc lemoncrow\n_lemoncrow() {\n    local -a commands\n    commands=(\n"
             f"{lines}\n"
-            "    )\n    _describe 'lemon commands' commands\n}\ncompdef _lemoncrow lemon\n"
+            "    )\n    _describe 'lc commands' commands\n}\ncompdef _lemoncrow lc lemoncrow\n"
         )
     if shell == "bash":
         return (
@@ -486,7 +486,12 @@ def _render_completion_script(shell: str, entries: list[tuple[str, str]]) -> str
             '    local cur="${COMP_WORDS[COMP_CWORD]}"\n'
             f'    local commands="{names} --help --version"\n'
             '    COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))\n'
-            "}\ncomplete -F _lemoncrow_completions lemon\n"
+            "}\ncomplete -F _lemoncrow_completions lc lemoncrow\n"
         )
-    lines = "\n".join(f"complete -c lemon -n '__fish_use_subcommand' -a {name} -d '{desc}'" for name, desc in entries)
-    return f"\ncomplete -c lemon -f\n{lines}\n"
+    lines = "\n".join(
+        f"complete -c {prog} -n '__fish_use_subcommand' -a {name} -d '{desc}'"
+        for prog in ("lc", "lemoncrow")
+        for name, desc in entries
+    )
+    headers = "\n".join(f"complete -c {prog} -f" for prog in ("lc", "lemoncrow"))
+    return f"\n{headers}\n{lines}\n"

@@ -1,4 +1,4 @@
-"""Spec 04 — ``lemon insights``
+"""Spec 04 — ``lc insights``
 
 Aggregates ``SessionReport`` objects over a time window into an
 ``InsightsWindow`` with vendor/tool breakdowns, outcomes summary, and

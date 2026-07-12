@@ -88,7 +88,7 @@ def test_bound_cell_spills_full_text_when_truncated(tmp_path: Path, monkeypatch:
     full = "y" * 5000 + "TAIL-MARKER"
     out = _bound_cell(full)
     assert "TAIL-MARKER" not in out  # dropped from the truncated cell
-    assert "[lemon: truncated" in out
+    assert "[lc: truncated" in out
     match = re.search(r"read (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")

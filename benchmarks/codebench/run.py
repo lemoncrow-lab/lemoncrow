@@ -103,14 +103,14 @@ class ArmSpec:
 ARM_SPECS: dict[str, ArmSpec] = {
     "baseline": ArmSpec({"code": None}),
     "lemoncrow": ArmSpec(
-        {"code": "lemon:auto"},
+        {"code": "lc:auto"},
         plugin=True,
         strip_mcp=False,
         heavy=True,
     ),
-    "execute": ArmSpec({"code": "lemon:execute"}, plugin=True, strip_mcp=False, heavy=True),
-    "solve": ArmSpec({"code": "lemon:solve"}, plugin=True, strip_mcp=False, heavy=True),
-    "auto": ArmSpec({"code": "lemon:auto"}, plugin=True, strip_mcp=False, heavy=True),
+    "execute": ArmSpec({"code": "lc:execute"}, plugin=True, strip_mcp=False, heavy=True),
+    "solve": ArmSpec({"code": "lc:solve"}, plugin=True, strip_mcp=False, heavy=True),
+    "auto": ArmSpec({"code": "lc:auto"}, plugin=True, strip_mcp=False, heavy=True),
 }
 VALID_ARMS = tuple(ARM_SPECS)
 PERSISTENT_WORKSPACE_ROOT = Path(
@@ -640,7 +640,7 @@ def _pre_index_workspace(task: Task, arm: str, rep: int, ws: Path) -> None:
 
     Two phases, both excluded from the benchmark timer:
 
-    1. **FTS index** — ``lemon code index`` builds the SQLite FTS5 symbol
+    1. **FTS index** — ``lc code index`` builds the SQLite FTS5 symbol
        store (~40s for VS Code).  No model calls, no API cost.
 
     2. **Explore warm-up** — a single ``engine.tool_explore(task_prompt)`` call
@@ -658,7 +658,7 @@ def _pre_index_workspace(task: Task, arm: str, rep: int, ws: Path) -> None:
     t0 = time.time()
     try:
         result = subprocess.run(
-            ["uv", "run", "lemon", "code", "index", "--repo-root", str(ws)],
+            ["uv", "run", "lc", "code", "index", "--repo-root", str(ws)],
             cwd=str(REPO_ROOT),
             capture_output=True,
             text=True,
@@ -991,9 +991,9 @@ def _parse_lemoncrow_run_result(
     rep: int,
     wall_duration_ms: int,
 ) -> ArmResult:
-    """Parse the `lemon run start` headless owned-agent receipt from stdout.
+    """Parse the `lc run start` headless owned-agent receipt from stdout.
 
-    `lemon run report` rebuilds an empty receipt, so the only populated token/
+    `lc run report` rebuilds an empty receipt, so the only populated token/
     cost figures live in the `format_receipt()` block printed by `run start`.
     """
     text = stdout or ""
@@ -1466,10 +1466,10 @@ def run_arm(
                 # Load a bench-lean copy of the plugin: only this arm's persona
                 # (no other agent personas) and zero skills -- see
                 # _lean_plugin_root. Its agents/MCP/hooks still resolve.
-                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lemon:auto"))]
+                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lc:auto"))]
             if persona:
                 # Pin the arm to one agent persona: a built-in twin (e.g. "Explore"
-                # / "Plan") for baseline, or "lemon:<x>" for the candidate. None
+                # / "Plan") for baseline, or "lc:<x>" for the candidate. None
                 # leaves Claude Code's default persona (the vanilla code baseline).
                 cmd += ["--agent", persona]
             if spec.strip_mcp:
@@ -1480,7 +1480,7 @@ def run_arm(
             # Direct owned-session arm: LemonCrow owns prompt assembly, model routing,
             # caching, and the executable tool loop on the caller's API credentials.
             # The retained workspace is validated like every other coding arm.
-            cmd = ["lemon", "run", "start", task.prompt(), "--yolo"]
+            cmd = ["lc", "run", "start", task.prompt(), "--yolo"]
             if model:
                 cmd += ["--model", model]
             cmd += list(cli_extra_args)

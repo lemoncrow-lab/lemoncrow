@@ -1,6 +1,6 @@
 """Reply-register level resolution + application across generated host surfaces.
 
-Guards the `lemon set telegraphic <ultra|lite|off>` pipeline: the ultra
+Guards the `lc set telegraphic <ultra|lite|off>` pipeline: the ultra
 (default) register must be baked verbatim into every generated persona
 surface (so the level swap is a deterministic text replacement), and the
 swap itself must be clean for every level on every surface.

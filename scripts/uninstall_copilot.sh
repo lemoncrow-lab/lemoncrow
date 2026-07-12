@@ -43,7 +43,7 @@ else
     COPILOT_CLI_HOOKS_JSON="${HOME}/.copilot/hooks/hooks.json"
 fi
 
-info()  { echo "[lemon:uninstall:copilot] $*"; }
+info()  { echo "[lc:uninstall:copilot] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 if [ -f "$MCP_JSON" ] && grep -q "lemoncrow" "$MCP_JSON" 2>/dev/null; then
@@ -101,7 +101,7 @@ path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
     info "Removed LemonCrow task presets from $TASKS_JSON"
 fi
 
-if ! $WORKSPACE_SET && [ -f "$COPILOT_CLI_HOOKS_JSON" ] && grep -q "lemon" "$COPILOT_CLI_HOOKS_JSON" 2>/dev/null; then
+if ! $WORKSPACE_SET && [ -f "$COPILOT_CLI_HOOKS_JSON" ] && grep -q "lc" "$COPILOT_CLI_HOOKS_JSON" 2>/dev/null; then
     run "python3 -c '
 import json, sys
 from pathlib import Path
@@ -112,7 +112,7 @@ hooks = data.get(\"hooks\", {})
 for event, entries in list(hooks.items()):
     filtered = [
         entry for entry in entries
-        if \"lemon\" not in str(entry.get(\"bash\", \"\")).lower()
+        if \"lc\" not in str(entry.get(\"bash\", \"\")).lower()
     ]
     if filtered:
         hooks[event] = filtered

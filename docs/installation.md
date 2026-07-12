@@ -5,7 +5,7 @@ This page starts with the installed product flow. Source-checkout and contributo
 ## Quick Install (Production)
 
 ```bash
-curl -fsSL https://install.lemoncrow.ws | bash
+curl -fsSL https://install.lemoncrow.com | bash
 ```
 
 What the production installer does:
@@ -29,7 +29,7 @@ bash scripts/local.sh --local
 
 The dev installer:
 
-- installs `lemon` and `lemon mcp` as user-level console commands in `~/.local/bin`
+- installs `lc` and `lc mcp` as user-level console commands in `~/.local/bin`
 - clones or updates LemonCrow under `~/.local/share/lemoncrow`
 - initializes `~/.lemoncrow`
 - starts the detached `servicectl` loop
@@ -37,15 +37,15 @@ The dev installer:
 - installs host integrations when compatible CLIs are found on `PATH`
 
 The dev installer uses uv at install time to create a managed tool environment.
-After install, `lemon` and `lemon mcp` run directly from that environment;
+After install, `lc` and `lc mcp` run directly from that environment;
 normal CLI usage does not shell through `uv run`.
 
 Verify the install:
 
 ```bash
-lemon --version
-lemon mcp --version
-lemon background status
+lc --version
+lc mcp --version
+lc background status
 ```
 
 ## Useful Installer Variants
@@ -86,9 +86,9 @@ bash scripts/local.sh --local --workspace .
 
 No HTTP server is required for normal usage.
 
-- `lemon ...` is the main CLI
-- `lemon mcp` is the MCP server used by host integrations
-- `lemon background ...` manages background services and auto-updates
+- `lc ...` is the main CLI
+- `lc mcp` is the MCP server used by host integrations
+- `lc background ...` manages background services and auto-updates
 
 If npm is installed and `LEMONCROW_NO_STACK=1` was not set during install, the
 installer will also register the visualization stack as a background service for you.
@@ -99,14 +99,14 @@ LemonCrow uses your OS-native manager (**systemd** on Linux, **launchd** on macO
 
 ```bash
 # Check service health and auto-update status
-lemon background status
+lc background status
 
 # View background logs
-lemon background logs controller
-lemon background logs stack
+lc background logs controller
+lc background logs stack
 
 # Restart the entire stack (e.g. after a manual code change)
-lemon background restart
+lc background restart
 ```
 
 #### Auto-Update
@@ -122,13 +122,13 @@ The background controller periodically checks your git repository for updates. W
 Manage the visualization UI as a background service:
 
 ```bash
-lemon background restart  # Restarts both controller and stack
+lc background restart  # Restarts both controller and stack
 ```
 
 Or control the native stack manually:
 
 ```bash
-lemon stack start
+lc stack start
 ```
 
 Then open:
@@ -139,9 +139,9 @@ Then open:
 Other stack commands:
 
 ```bash
-lemon stack status
-lemon stack logs
-lemon stack stop
+lc stack status
+lc stack logs
+lc stack stop
 ```
 
 ### Optional HTTP Service Without the UI
@@ -149,7 +149,7 @@ lemon stack stop
 If you want the service API without the full stack:
 
 ```bash
-LEMONCROW_REQUIRE_AUTH=false lemon service start --host 0.0.0.0 --port 8787
+LEMONCROW_REQUIRE_AUTH=false lc service start --host 0.0.0.0 --port 8787
 ```
 
 For authenticated deployments, set `LEMONCROW_API_KEY` and keep `LEMONCROW_REQUIRE_AUTH=true`.
@@ -159,16 +159,16 @@ For authenticated deployments, set `LEMONCROW_API_KEY` and keep `LEMONCROW_REQUI
 The installer registers background services by default.
 
 ```bash
-lemon background status
-lemon background logs
+lc background status
+lc background logs
 ```
 
 Manual job control is available too:
 
 ```bash
-lemon worker enqueue consolidate_playbooks
-lemon worker run-once
-lemon worker list
+lc worker enqueue consolidate_playbooks
+lc worker run-once
+lc worker list
 ```
 
 ### Installer Behavior Variables
@@ -207,7 +207,7 @@ Use Postgres when you want shared storage, central deployment, or multi-writer o
 ```bash
 LEMONCROW_STORAGE_BACKEND=postgres \
 LEMONCROW_DATABASE_URL=postgresql://user:pass@localhost:5432/lemoncrow \
-lemon init
+lc init
 ```
 
 ### pgvector (optional)
@@ -219,7 +219,7 @@ LEMONCROW_STORAGE_BACKEND=postgres \
 LEMONCROW_DATABASE_URL=postgresql://... \
 LEMONCROW_VECTOR_SEARCH_ENABLED=true \
 LEMONCROW_EMBEDDING_MODEL=text-embedding-3-small \
-lemon init
+lc init
 ```
 
 ## Environment Variables
@@ -282,7 +282,7 @@ If you are developing LemonCrow itself instead of using the installed product:
 ```bash
 cd lemoncrow
 uv sync --all-extras
-lemon init
+lc init
 ```
 
 Contributor verification flow:

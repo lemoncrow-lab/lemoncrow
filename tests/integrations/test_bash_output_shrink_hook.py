@@ -63,7 +63,7 @@ def test_large_generic_output_is_shrunk(tmp_path: Path) -> None:
     proc = _run(_bash_payload("bash build.sh", stdout), tmp_path)
     assert proc.returncode == 0, proc.stderr
     updated = _updated(proc)
-    assert "[lemon: " in updated["stdout"]
+    assert "[lc: " in updated["stdout"]
     assert len(updated["stdout"]) < len(stdout)
     assert "omitted" in updated["stdout"]
     assert updated["returnCode"] == 0  # untouched fields pass through
@@ -125,7 +125,7 @@ def test_spill_hint_names_recovery_path(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     updated = _updated(proc)
-    assert "[lemon: shrunk" in updated["stdout"]
+    assert "[lc: shrunk" in updated["stdout"]
     assert "read " in updated["stdout"]
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for render_savings_summary (default `lemon savings` view)."""
+"""Unit tests for render_savings_summary (default `lc savings` view)."""
 
 from __future__ import annotations
 

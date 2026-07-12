@@ -1,4 +1,4 @@
-"""``lemon knowledge`` — local review knowledge base (extract + view)."""
+"""``lc knowledge`` — local review knowledge base (extract + view)."""
 
 from __future__ import annotations
 

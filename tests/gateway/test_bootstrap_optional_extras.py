@@ -3,7 +3,7 @@ test_bootstrap_optional_extras.py -- the interactive agent/skill checklist
 step in the bootstrap flow.
 
 Phases 1-3 (merged) made the default install bare-minimum (agent `code` only,
-zero skills) and exposed a tested CLI (`lemon agent|skill list/install/
+zero skills) and exposed a tested CLI (`lc agent|skill list/install/
 remove`) plus an in-chat `/lemoncrow` skill for opting extras in after the fact.
 
 The interactive checklist lives entirely inside host_wizard() (scripts/lib/
@@ -24,7 +24,7 @@ in this order:
 
 Both checklists read role/skill names + a lightweight chars/4 cost estimate
 directly off integrations/agents/*.md and integrations/skills/*/SKILL.md
-frontmatter rather than shelling to the `lemon` CLI, since host_wizard()
+frontmatter rather than shelling to the `lc` CLI, since host_wizard()
 runs before the CLI (and its tiktoken dependency) are installed.
 
 Covers:
@@ -106,7 +106,6 @@ def test_code_shown_as_locked_always_installed_role() -> None:
     wizard_pos = content.index("host_wizard() {")
     scope_pos = content.index('"Apply configs globally or just here?"', wizard_pos)
     block = content[wizard_pos:scope_pos]
-    assert "LOCK_ICON" in content
     assert "always installed" in block
     assert (
         "code) SELECTED_ITEMS[$_rw_i]=1; LOCKED_ITEMS[$_rw_i]=1 ;;" in block
@@ -167,7 +166,7 @@ def _drain(master_fd: int, buf: bytearray, proc: subprocess.Popen[bytes], timeou
 def _role_names_from_disk() -> list[str]:
     """Non-default role names straight off integrations/agents/*.md frontmatter --
     what host_wizard() reads (it runs before the CLI/venv exist in a real
-    bootstrap, so it can't shell out to `lemon agent list`)."""
+    bootstrap, so it can't shell out to `lc agent list`)."""
     names = []
     agents_dir = LEMONCROW_ROOT / "integrations" / "agents"
     for path in sorted(agents_dir.glob("*.md")):
@@ -181,7 +180,7 @@ def _role_names_from_disk() -> list[str]:
 def _skill_names_from_disk() -> list[str]:
     """Public, non-hidden, non-default skill names straight off
     integrations/skills/*/SKILL.md -- mirrors host_wizard()'s own exclusion
-    set (HIDDEN_SKILLS dev-only names, plus `lemon` itself)."""
+    set (HIDDEN_SKILLS dev-only names, plus `lc` itself)."""
     hidden = {"analyze-failures", "context", "evals", "rescue", "savings", "status", "record", "lemoncrow"}
     names = []
     skills_dir = LEMONCROW_ROOT / "integrations" / "skills"

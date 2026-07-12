@@ -132,18 +132,18 @@ for every suite in full.
 
 ```bash
 # SWE-bench Verified
-CODEBENCH_LEMONCROW_AGENT=lemon:auto uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
+CODEBENCH_LEMONCROW_AGENT=lc:auto uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --suite swe-bench-verified --instances $(cat benchmarks/codebench/data/verified.txt) \
-  --min-changed-files 1 -a baseline lemon --reps 5 --model claude-opus-4-8 --jobs 8
+  --min-changed-files 1 -a baseline lc --reps 5 --model claude-opus-4-8 --jobs 8
 
 # Retrieval evaluation
-uv run lemon eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
+uv run lc eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
 
 # Telegraphic Q&A
-uv run lemon benchmark telegraphic --arm baseline --arm lemoncrow --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y
+uv run lc benchmark telegraphic --arm baseline --arm lemoncrow --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y
 
 # Terminal-Bench 2.1
-lemon benchmark harbor -y
+lc benchmark harbor -y
 ```
 
 Every command above, plus setup notes and per-suite caveats, is in

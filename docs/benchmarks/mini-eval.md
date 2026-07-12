@@ -22,7 +22,7 @@ eval gives a quick signal you can run locally:
 ### Dry-run (offline, no API keys)
 
 ```bash
-lemon benchmark mini --dry-run --json
+lc benchmark mini --dry-run --json
 ```
 
 Dry-run loads and validates every case, then returns a report with
@@ -33,7 +33,7 @@ is well-formed without spending anything.
 ### Live run
 
 ```bash
-lemon benchmark mini --limit 5 --json
+lc benchmark mini --limit 5 --json
 ```
 
 A live run requires a configured API key (e.g. `ANTHROPIC_API_KEY`). For each
@@ -117,13 +117,13 @@ was not accepted (verify failed or the file boundary was violated).
 4. Validate without spending anything:
 
    ```bash
-   lemon benchmark mini --dry-run --json
+   lc benchmark mini --dry-run --json
    ```
 
 ## Relationship to `make proof-cost-quality`
 
 The mini eval shares the same philosophy as the WP-32 cost-quality proof gate
-(`make proof-cost-quality`, `lemon proof run`): accepted-patch economics,
+(`make proof-cost-quality`, `lc proof run`): accepted-patch economics,
 trace coverage, and regression accounting where failures always count. The
 proof gate is the formal release gate with fixed thresholds; the mini eval is
 the fast, local, runnable companion you reach for during development.

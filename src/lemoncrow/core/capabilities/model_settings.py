@@ -39,7 +39,7 @@ DEFAULT_RUNTIME_MODELS = {
 # Per-host default model pins for roles that should NOT inherit the session
 # model out of the box. Read-only exploration/research run on a cheap model
 # (mirrors the built-in Explore=haiku); coding/judgment roles inherit. Users
-# override any entry via ``lemon init`` (writes models.hosts.<host>.roles).
+# override any entry via ``lc init`` (writes models.hosts.<host>.roles).
 # Claude entries use Claude Code's bare model aliases ("sonnet"/"opus"/"haiku"),
 # not versioned ids. Claude Code itself resolves an alias to its current model
 # on every invocation, so these pins never go stale as new versions ship --

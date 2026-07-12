@@ -1,4 +1,4 @@
-"""Tests for ``lemon update`` — install-method detection and the GitHub
+"""Tests for ``lc update`` — install-method detection and the GitHub
 release update channel.
 
 LemonCrow ships only two ways (git checkout, GitHub-release install), so these

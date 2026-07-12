@@ -52,7 +52,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "\\[lemon:",
+      "\\[lc:",
       "session_447",
       "lemoncrow__lemoncrow"
     ],
@@ -102,7 +102,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lemon savings --line|statusline|session_id|claude_session_id|context_window|model|ctx",
+      "lc savings --line|statusline|session_id|claude_session_id|context_window|model|ctx",
       "session_1650",
       "lemoncrow__lemoncrow"
     ],
@@ -307,7 +307,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lemon|def main|argparse|typer|click",
+      "lc|def main|argparse|typer|click",
       "session_1678",
       "lemoncrow__lemoncrow"
     ],
@@ -377,7 +377,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "claude|--agent|--disallow|--permission|lemon:|stream-json|disallowedTools|--effort|--model",
+      "claude|--agent|--disallow|--permission|lc:|stream-json|disallowedTools|--effort|--model",
       "session_119",
       "lemoncrow__lemoncrow"
     ],
@@ -397,7 +397,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lemon:knowledge|skills/knowledge|name:\\s*knowledge",
+      "lc:knowledge|skills/knowledge|name:\\s*knowledge",
       "session_507",
       "lemoncrow__lemoncrow"
     ],
@@ -532,7 +532,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "shell.*savings|savings.*shell|wire.*shell|shell.*wire|redirect.*mcp__lemon__shell|mcp__lemon__shell.*redirect",
+      "shell.*savings|savings.*shell|wire.*shell|shell.*wire|redirect.*mcp__lc__shell|mcp__lc__shell.*redirect",
       "session_1476",
       "lemoncrow__lemoncrow"
     ],
@@ -582,7 +582,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "Launch ``lemon code index`` in a fully detached child process.",
+      "Launch ``lc code index`` in a fully detached child process.",
       "sem-7d80d5705d16760c",
       "lemoncrow__lemoncrow"
     ],
@@ -1387,7 +1387,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "LEMONCROW_BENCH_AGENT|_lemoncrow_claude_agent_args|lemon:code|add_argument\\(|\\.add_argument|def main\\(|argparse",
+      "LEMONCROW_BENCH_AGENT|_lemoncrow_claude_agent_args|lc:code|add_argument\\(|\\.add_argument|def main\\(|argparse",
       "session_1196",
       "lemoncrow__lemoncrow"
     ],
@@ -1887,7 +1887,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lemon:review|subagent_type|agent_type|agentType",
+      "lc:review|subagent_type|agent_type|agentType",
       "session_468",
       "lemoncrow__lemoncrow"
     ],
@@ -2192,7 +2192,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "code-review|lemon:review",
+      "code-review|lc:review",
       "session_469",
       "lemoncrow__lemoncrow"
     ],
@@ -2442,7 +2442,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "--agent|lemon:code|lemon:auto|plugin_flags|--plugin-dir",
+      "--agent|lc:code|lc:auto|plugin_flags|--plugin-dir",
       "session_114",
       "lemoncrow__lemoncrow"
     ],

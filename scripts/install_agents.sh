@@ -50,12 +50,12 @@ if [ -z "$WORKSPACE" ]; then
 fi
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
-# Host-neutral lemon:code persona that ships with the distribution. Never source
+# Host-neutral lc:code persona that ships with the distribution. Never source
 # the repo's own AGENTS.md (that is LemonCrow's dev entrypoint, not a user persona).
 AGENTS_SOURCE="${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:agents] $*" || true; }
-warn()  { echo "[lemon:agents] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:agents] $*" || true; }
+warn()  { echo "[lc:agents] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || "$@"; }
 
 if $PRINT_ONLY; then
@@ -64,18 +64,18 @@ if $PRINT_ONLY; then
     echo ""
     echo "Project: ${WORKSPACE}"
     echo ""
-    echo "1. Ensure ${WORKSPACE}/AGENTS.md has lemon:code persona"
+    echo "1. Ensure ${WORKSPACE}/AGENTS.md has lc:code persona"
     echo "   Source: ${AGENTS_SOURCE}"
     echo ""
     echo "2. Install the Git prepare-commit-msg hook for LemonCrow co-author attribution"
     echo "   Trailer: Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
     echo ""
-    echo "After install, AGENTS.md will contain the lemon:code agent persona and commits will carry LemonCrow attribution."
+    echo "After install, AGENTS.md will contain the lc:code agent persona and commits will carry LemonCrow attribution."
     exit 0
 fi
 
 # ── 1. AGENTS.md ──────────────────────────────────────────────────────────────
-# Ensures the project's AGENTS.md includes the lemon:code persona via
+# Ensures the project's AGENTS.md includes the lc:code persona via
 # sentinel markers so re-install updates in place without destroying user content.
 
 AGENTS_FILE="${WORKSPACE}/AGENTS.md"
@@ -84,18 +84,18 @@ if [ -f "$AGENTS_SOURCE" ]; then
     if [ -f "$AGENTS_FILE" ]; then
         if $DRY_RUN; then
             lemoncrow_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
-            info "[dry-run] would ensure lemon:code persona in $AGENTS_FILE"
+            info "[dry-run] would ensure lc:code persona in $AGENTS_FILE"
         else
             lemoncrow_upsert_managed_block "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
-            info "ensured lemon:code persona in $AGENTS_FILE"
+            info "ensured lc:code persona in $AGENTS_FILE"
         fi
     else
         if $DRY_RUN; then
             lemoncrow_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "true"
-            info "[dry-run] would create $AGENTS_FILE with lemon:code persona"
+            info "[dry-run] would create $AGENTS_FILE with lc:code persona"
         else
             lemoncrow_write_managed_copy "$AGENTS_SOURCE" "$AGENTS_FILE" "false"
-            info "created $AGENTS_FILE with lemon:code persona"
+            info "created $AGENTS_FILE with lc:code persona"
         fi
     fi
 else
@@ -110,7 +110,7 @@ lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 info "Universal agents config installed in ${WORKSPACE}"
-info "  ${AGENTS_FILE}  — lemon:code persona (respected by all agent CLIs)"
+info "  ${AGENTS_FILE}  — lc:code persona (respected by all agent CLIs)"
 info "  Git hook       — LemonCrow co-author attribution for agent commits"
 echo ""
 info "Next: install per-host configs (if needed)"

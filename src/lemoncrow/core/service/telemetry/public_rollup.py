@@ -34,7 +34,7 @@ def _hash_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-DEFAULT_PUBLIC_ROLLUP_ENDPOINT = "https://lemoncrow.ws/api/telemetry/rollup"
+DEFAULT_PUBLIC_ROLLUP_ENDPOINT = "https://lemoncrow.com/api/telemetry/rollup"
 DEFAULT_TIMEOUT_SECONDS = 0.75
 
 

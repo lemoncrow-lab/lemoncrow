@@ -133,10 +133,10 @@ else
     fail "Claude user MCP missing lemoncrow - run: make install-claude"
 fi
 
-if command -v lemon &>/dev/null; then
-    pass "lemon is available on PATH"
+if command -v lc &>/dev/null; then
+    pass "lc is available on PATH"
 else
-    fail "lemon NOT found on PATH"
+    fail "lc NOT found on PATH"
 fi
 
 if [ "$FAIL" -ne 0 ]; then

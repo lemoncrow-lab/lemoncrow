@@ -171,7 +171,7 @@ def mine_semantic_pairs(
         db_path = _user_db_path_for(repo_dir)
         if not db_path.exists():
             print(
-                f"[semantic] No DB found at {db_path} — run 'lemon code index --reindex' first.",
+                f"[semantic] No DB found at {db_path} — run 'lc code index --reindex' first.",
                 file=sys.stderr,
             )
             return [], {}

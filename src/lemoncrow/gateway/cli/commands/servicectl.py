@@ -80,7 +80,7 @@ def service_start(host: str | None, port: int | None, reload: bool) -> None:
     except ImportError as exc:
         if "cannot import name 'main'" in str(exc):
             raise click.ClickException(
-                "The service API 'main' entrypoint is missing. Ensure your 'lemon' installation is up to date."
+                "The service API 'main' entrypoint is missing. Ensure your 'lc' installation is up to date."
             ) from exc
         raise click.ClickException(
             "Could not start the service API. Ensure all dependencies are installed: uv sync --extra api"
@@ -255,7 +255,7 @@ def servicectl_start(
     if (SYSTEMD_USER_DIR / CONTROLLER_UNIT).exists():
         click.echo(
             f"Notice: {CONTROLLER_UNIT} is installed. "
-            "Prefer using 'lemon systemd restart' or 'systemctl --user restart lemoncrow-controller'."
+            "Prefer using 'lc systemd restart' or 'systemctl --user restart lemoncrow-controller'."
         )
 
     _kill_orphan_servicectl_processes(root)

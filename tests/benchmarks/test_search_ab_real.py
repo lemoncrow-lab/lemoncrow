@@ -1,4 +1,4 @@
-"""Real A/B benchmark: mcp__lemon__search and mcp__lemon__grep vs naive workflows.
+"""Real A/B benchmark: mcp__lc__search and mcp__lc__grep vs naive workflows.
 
 This benchmark measures what the MCP ranked-search and grep tools actually
 deliver, then persists rows to

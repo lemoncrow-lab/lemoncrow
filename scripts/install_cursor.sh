@@ -59,8 +59,8 @@ fi
 
 CURSOR_RULES_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/rules"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:cursor] $*" || true; }
-warn()  { echo "[lemon:cursor] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:cursor] $*" || true; }
+warn()  { echo "[lc:cursor] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -79,7 +79,7 @@ MCP_ENTRY=$(cat <<JSON
   "mcpServers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lemon",
+      "command": "lc",
       "args": ["mcp", "--host", "cursor"],
       "alwaysAllow": ["code","compact","context","edit","grep","memory","read","rescue","route","search","shell","sql","trace","verify"]
     }
@@ -110,7 +110,7 @@ fi
 # ---- check cursor installation ----------------------------------------------
 if [ ! -d "${HOME}/.cursor" ] && ! $WORKSPACE_SET && [ ! -f "$MCP_FILE" ]; then
     if $STRICT; then
-        echo "[lemon:cursor] ERROR: ~/.cursor not found. Is Cursor installed?" >&2
+        echo "[lc:cursor] ERROR: ~/.cursor not found. Is Cursor installed?" >&2
         exit 1
     fi
     warn "~/.cursor not found - SKIPPING. Install Cursor from https://cursor.com"
@@ -140,13 +140,13 @@ else:
 existing.setdefault('mcpServers', {}).update({
     'lemoncrow': {
         'type': 'stdio',
-        'command': 'lemon',
+        'command': 'lc',
         'args': ['mcp', '--host', 'cursor'],
         'alwaysAllow': ['code','compact','context','edit','grep','memory','read','rescue','route','search','shell','sql','trace','verify'],
     }
 })
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print("[lemon:cursor] merged LemonCrow entry into $MCP_FILE")
+print("[lc:cursor] merged LemonCrow entry into $MCP_FILE")
 PYEOF
     fi
 else
@@ -187,11 +187,11 @@ if not isinstance(data, dict):
 data.setdefault("version", 1)
 hooks = data.setdefault("hooks", {})
 entries = hooks.setdefault("sessionStart", [])
-if not any(isinstance(e, dict) and "lemon" in str(e.get("command", "")) for e in entries):
+if not any(isinstance(e, dict) and "lc" in str(e.get("command", "")) for e in entries):
     entries.append({"command": cmd})
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print(f"[lemon:cursor] merged sessionStart hook into {path}")
+print(f"[lc:cursor] merged sessionStart hook into {path}")
 PYEOF
     fi
 fi
@@ -224,7 +224,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lemon:cursor] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lc:cursor] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$MCP_FILE" ]; then
     HAS=$(python3 - <<PYEOF
@@ -256,17 +256,17 @@ if $WORKSPACE_SET; then
     fi
 fi
 
-if command -v lemon &>/dev/null; then
-    vpass "lemon is available on PATH"
+if command -v lc &>/dev/null; then
+    vpass "lc is available on PATH"
 else
-    vfail "lemon NOT found on PATH"
+    vfail "lc NOT found on PATH"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lemon:cursor] ERROR: post-install verification failed." >&2
+    echo "[lc:cursor] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
 info "Done. Restart Cursor for MCP changes to take effect."
-info "Tip: run 'lemon status' in any shell to see the runs dashboard."
+info "Tip: run 'lc status' in any shell to see the runs dashboard."

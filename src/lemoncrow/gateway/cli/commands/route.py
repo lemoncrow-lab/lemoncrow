@@ -164,7 +164,7 @@ def proof_run_cmd(
             raise click.ClickException(
                 "Could not auto-measure context reduction. "
                 "Pass --context-reduction-pct <value> explicitly.\n"
-                "Example: lemon proof run --session-id wp32-proof --context-reduction-pct 60"
+                "Example: lc proof run --session-id wp32-proof --context-reduction-pct 60"
             )
 
     cases: list[BenchmarkCase] = _build_proof_cases(session_id)
@@ -201,7 +201,7 @@ def _show_proof_report(ctx: click.Context, as_json: bool) -> None:
     report = capability.load()
 
     if report is None:
-        raise click.ClickException("No proof report found. Run `lemon proof run --session-id <id>` first.")
+        raise click.ClickException("No proof report found. Run `lc proof run --session-id <id>` first.")
 
     payload = to_jsonable(report)
     if as_json:
@@ -313,12 +313,12 @@ def _build_proof_cases(session_id: str) -> list[Any]:
 def proof_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None:
     """Check a benchmark cost run gate artifact and optionally fail CI.
 
-    Run after ``lemon benchmark cost`` to verify the A/B results meet the gate.
+    Run after ``lc benchmark cost`` to verify the A/B results meet the gate.
 
     \b
     Example:
-      lemon benchmark cost --task all --arm baseline lemoncrow
-      lemon proof gate --run-dir .lemoncrow/benchmark/cost/2026-... --require-pass
+      lc benchmark cost --task all --arm baseline lemoncrow
+      lc proof gate --run-dir .lemoncrow/benchmark/cost/2026-... --require-pass
     """
     import json as _json
 

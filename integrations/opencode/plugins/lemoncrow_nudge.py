@@ -20,7 +20,7 @@ def _stale_nudge_message(root: Path) -> str | None:
     OpenCode has no skills concept (see agents_skills._skill_dir), so only
     installed agent roles are checked here. Reuses the exact same
     stale_optional_items/format_stale_nudge the Claude statusline tip and
-    `lemon stale-nudge` CLI use -- one shared threshold/cost calculation
+    `lc stale-nudge` CLI use -- one shared threshold/cost calculation
     for every host. Fail-open: any error means no nudge, never a crash.
     """
     try:

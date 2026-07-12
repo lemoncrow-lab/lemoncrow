@@ -39,7 +39,7 @@ def _arg_summary(turn: dict[str, Any]) -> str:
             val = args.get(key)
             if isinstance(val, str) and val.strip():
                 return f"{name}({val.strip()[:120]})"
-        # List-valued inputs (e.g. lemon read files=[...], edit edits=[...]).
+        # List-valued inputs (e.g. lc read files=[...], edit edits=[...]).
         for key in ("files", "edits", "symbol", "paths"):
             val = args.get(key)
             summ = _summarize_value(val)
@@ -196,7 +196,7 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         lines.append(head)
         if not sav["saved_is_measured"] and not sav["ran_with_lemoncrow"]:
             lines.append(
-                "  " + c(_DIM, "LemonCrow cost & saving are estimates — run `lemon benchmark` for the measured A/B")
+                "  " + c(_DIM, "LemonCrow cost & saving are estimates — run `lc benchmark` for the measured A/B")
             )
     if not replay.turns:
         lines.append("  " + c(_ORANGE, "⚠ no turns parsed from this transcript — nothing to replay"))
@@ -242,7 +242,7 @@ def _text_batch(batch: Any, *, color: bool) -> list[str]:
     def c(code: str, text: str) -> str:
         return f"{code}{text}{_RESET}" if color else text
 
-    a = batch.lemon if isinstance(batch.lemon, dict) else {}
+    a = batch.live_result if isinstance(batch.live_result, dict) else {}
     call = a.get("call") or f"{batch.kind}([{len(batch.turn_indices)}])"
     return [
         c(_GREEN, f"  ┌─ ⊕ LemonCrow: {call} → 1 call"),
@@ -257,19 +257,19 @@ def _text_lemoncrow(a: dict[str, Any]) -> list[str]:
     if mode not in ("real", "preview", "simulated"):
         return []
     if tool == "read":
-        return [f"     ↳ lemon read: {a.get('note', '')}"]
+        return [f"     ↳ lc read: {a.get('note', '')}"]
     if tool == "bash":
         if a.get("mode") == "simulated":
             b, af, saved = _ann_tokens(a)
-            return [f"     ↳ lemon bash [output compacted, not re-run]: {b:,} → {af:,} tokens (-{saved:,})"]
+            return [f"     ↳ lc bash [output compacted, not re-run]: {b:,} → {af:,} tokens (-{saved:,})"]
         extra = f" → {a['rewrite']}" if a.get("rewrite") else ""
-        return [f"     ↳ lemon bash [preview, not run]: {a.get('category') or 'classified'}{extra}"]
+        return [f"     ↳ lc bash [preview, not run]: {a.get('category') or 'classified'}{extra}"]
     if tool == "edit":
         return [
-            f"     ↳ lemon edit [preview, not written]: {a.get('path') or ''} ({a.get('changed_lines', 0)} lines)"
+            f"     ↳ lc edit [preview, not written]: {a.get('path') or ''} ({a.get('changed_lines', 0)} lines)"
         ]
     if tool == "web_fetch":
-        return [f"     ↳ lemon web_fetch: {str(a.get('content') or '').splitlines()[0][:80]}"]
+        return [f"     ↳ lc web_fetch: {str(a.get('content') or '').splitlines()[0][:80]}"]
     if tool == "code_search":
         return _text_hits(a)
     return []
@@ -279,7 +279,7 @@ def _text_hits(a: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for h in (a.get("hits") or [])[:3]:
         rng = f"L{h.get('line')}-L{h.get('end_line')}" if h.get("line") else ""
-        out.append(f"     ↳ lemon code_search → {h.get('path')}:{rng}  {h.get('name') or ''} ({h.get('kind') or ''})")
+        out.append(f"     ↳ lc code_search → {h.get('path')}:{rng}  {h.get('name') or ''} ({h.get('kind') or ''})")
     if a.get("matched_endpoint"):
         out.append(f"     ✓ matches where the loop landed: {a.get('endpoint')}")
     return out
@@ -313,7 +313,7 @@ def _text_collapse(ep: Episode, *, color: bool) -> list[str]:
     if ep.read_count:
         detail += f" + {ep.read_count} whole-file read{'s' if ep.read_count != 1 else ''}"
     out = [c(_GREEN, f'  ┌─ ⟳ LemonCrow: code_search("{ep.query}") → 1 call')]
-    lemoncrow = ep.lemon if isinstance(ep.lemon, dict) else None
+    lemoncrow = ep.live_result if isinstance(ep.live_result, dict) else None
     if lemoncrow and lemoncrow.get("mode") == "real":
         for h in (lemoncrow.get("hits") or [])[:3]:
             rng = f"L{h.get('line')}-L{h.get('end_line')}" if h.get("line") else ""
@@ -535,7 +535,7 @@ def _html_lemoncrow(a: dict[str, Any]) -> str:
             inner.append(f'<pre class="an-out">{_esc(a["diff"])}</pre>')
     elif a.get("tool") == "web_fetch":
         inner.append(f'<pre class="an-out">{_esc(a.get("content"))}</pre>')
-    return f'<div class="an"><div class="an-h">↳ lemon {tool} <span class="an-tag {tag_cls}">{tag}</span></div>{"".join(inner)}</div>'
+    return f'<div class="an"><div class="an-h">↳ lc {tool} <span class="an-tag {tag_cls}">{tag}</span></div>{"".join(inner)}</div>'
 
 
 def _html_hits(a: dict[str, Any]) -> str:
@@ -558,7 +558,7 @@ def _html_collapse(ep: Episode) -> str:
     if ep.read_count:
         detail += f" + {ep.read_count} whole-file read{'s' if ep.read_count != 1 else ''}"
     hits_html = ""
-    lemoncrow = ep.lemon if isinstance(ep.lemon, dict) else None
+    lemoncrow = ep.live_result if isinstance(ep.live_result, dict) else None
     if lemoncrow and lemoncrow.get("mode") == "real":
         hits_html = f'<div class="hits">{_html_hits(lemoncrow)}</div>'
     elif lemoncrow and lemoncrow.get("mode") in ("error", "unavailable"):
@@ -671,7 +671,7 @@ def _html_session(replay: Replay) -> str:
 
 
 def _html_batch(batch: Any) -> str:
-    a = batch.lemon if isinstance(batch.lemon, dict) else {}
+    a = batch.live_result if isinstance(batch.live_result, dict) else {}
     call = _esc(a.get("call") or f"{batch.kind}([{len(batch.turn_indices)}])")
     files = a.get("files") or []
     files_html = "".join(f'<div class="hit"><code>{_esc(p)}</code></div>' for p in files[:8])

@@ -1,4 +1,4 @@
-"""Unit tests for the SWE-bench Pro backend folded into ``lemon benchmark swe``.
+"""Unit tests for the SWE-bench Pro backend folded into ``lc benchmark swe``.
 
 SWE-bench Pro (ScaleAI) has its own loader (:mod:`swebench_pro_data`) and
 grader (:mod:`swebench_pro_grade`) -- a structurally different dataset/harness

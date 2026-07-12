@@ -8717,7 +8717,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lemon:knowledge|skills/knowledge|name:\\s*knowledge",
+      "lc:knowledge|skills/knowledge|name:\\s*knowledge",
       "session_569",
       "lemoncrow__lemoncrow"
     ],
@@ -9297,7 +9297,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "_ARM_AGENT|lemon:code|lemon:auto|lemon:solve",
+      "_ARM_AGENT|lc:code|lc:auto|lc:solve",
       "session_1450",
       "lemoncrow__lemoncrow"
     ],
@@ -9372,7 +9372,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "command|args|lemon|mcp|serve|python|uv",
+      "command|args|lc|mcp|serve|python|uv",
       "session_1564",
       "lemoncrow__lemoncrow"
     ],
@@ -21722,7 +21722,7 @@
       "integrations/claude/plugin/agents/explore.md",
       "integrations/claude/plugin/skills/explore/SKILL.md",
       "integrations/codex/plugin/skills/explore/SKILL.md",
-      "integrations/copilot/agents/lemon.explore.agent.md",
+      "integrations/copilot/agents/lc.explore.agent.md",
       "integrations/opencode/agents/explore.md"
     ],
     "session_1720": [
@@ -24662,7 +24662,7 @@
       ".cost-worktree/Makefile",
       ".github/agents/lemoncrow.code.agent.md",
       ".github/agents/lemoncrow.execute.agent.md",
-      ".github/agents/lemon.explore.agent.md",
+      ".github/agents/lc.explore.agent.md",
       ".github/agents/lemoncrow.plan.agent.md",
       ".github/agents/lemoncrow.research.agent.md",
       ".github/agents/lemoncrow.review.agent.md",

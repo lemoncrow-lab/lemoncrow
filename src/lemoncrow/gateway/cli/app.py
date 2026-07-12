@@ -169,7 +169,7 @@ _AUTO_INSTALL_SENTINEL = "_LEMONCROW_UV_SYNC_RETRY"
     context_settings={"help_option_names": ["-h", "--help"]},
     invoke_without_command=True,
 )
-@click.version_option(version=lemoncrow_version, prog_name="lemon")
+@click.version_option(version=lemoncrow_version, prog_name="lemoncrow")
 @click.option(
     "--root",
     type=click.Path(path_type=Path),
@@ -261,7 +261,7 @@ def main() -> None:
     # Handle calling conventions (symlink for backward compat)
     argv = sys.argv[1:]
     prog_name = Path(sys.argv[0]).name
-    if prog_name == "lemond":
+    if prog_name in ("lemoncrowd", "lcd"):
         argv = ["background", "service", *argv]
     elif prog_name == "lemoncrow-mcp":
         argv = ["mcp", *argv]

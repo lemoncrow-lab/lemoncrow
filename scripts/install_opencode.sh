@@ -5,7 +5,7 @@
 #   Global mode: installs opencode user config and user agent under ~/.config/opencode.
 #   Workspace mode (--workspace DIR): installs project-local opencode artifacts under DIR.
 #   Config merge includes both:
-#     - MCP server entry (lemon mcp)
+#     - MCP server entry (lc mcp)
 #     - OpenAI-compatible provider entry (LemonCrow service /v1 endpoint)
 #
 # Options:
@@ -79,8 +79,8 @@ else
     LEMONCROW_OPENAI_BASE="${LEMONCROW_SERVICE_BASE}/v1"
 fi
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemon:opencode] $*" || true; }
-warn()  { echo "[lemon:opencode] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:opencode] $*" || true; }
+warn()  { echo "[lc:opencode] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 if command -v uv >/dev/null 2>&1; then
     PYTHON_CMD=(uv run python)
@@ -104,10 +104,10 @@ if $WORKSPACE_SET; then
 {
   "default_agent": "code",
   "permission": {
-    "lemon_*": "allow"
+    "lc_*": "allow"
   },
   "provider": {
-    "lemon": {
+    "lc": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LemonCrow",
       "options": {
@@ -117,9 +117,9 @@ if $WORKSPACE_SET; then
     }
   },
   "mcp": {
-      "lemon": {
+      "lc": {
         "type": "local",
-        "command": ["lemon", "mcp", "--host", "opencode"],
+        "command": ["lc", "mcp", "--host", "opencode"],
         "environment": {
           "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
         }
@@ -133,10 +133,10 @@ else
 {
   "default_agent": "code",
   "permission": {
-    "lemon_*": "allow"
+    "lc_*": "allow"
   },
   "provider": {
-    "lemon": {
+    "lc": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LemonCrow",
       "options": {
@@ -146,9 +146,9 @@ else
     }
   },
   "mcp": {
-    "lemon": {
+    "lc": {
       "type": "local",
-      "command": ["lemon", "mcp", "--host", "opencode"]
+      "command": ["lc", "mcp", "--host", "opencode"]
     }
   }
 }
@@ -173,7 +173,7 @@ fi
 # ---- check CLI --------------------------------------------------------------
 if ! command -v opencode &>/dev/null; then
     if $STRICT; then
-        echo "[lemon:opencode] ERROR: 'opencode' not found. Install from https://opencode.ai" >&2
+        echo "[lc:opencode] ERROR: 'opencode' not found. Install from https://opencode.ai" >&2
         exit 1
     fi
     warn "'opencode' not found - SKIPPING. Install from https://opencode.ai"
@@ -188,7 +188,7 @@ run "mkdir -p $(printf %q "$(dirname "$OC_FILE")")"
 if [ -f "$OC_FILE" ]; then
     backup_file "$OC_FILE"
     if $DRY_RUN; then
-        echo "  [dry-run] merge lemon into $OC_FILE"
+        echo "  [dry-run] merge lc into $OC_FILE"
     else
         LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
@@ -207,7 +207,7 @@ existing['default_agent'] = new_entry['default_agent']
 existing.pop('model', None)
 existing.setdefault('permission', {}).update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print(f"[lemon:opencode] merged lemon entry into {path}")
+print(f"[lc:opencode] merged lc entry into {path}")
 PYEOF
     fi
 else
@@ -229,7 +229,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_opencode_agents
 
 written = write_workspace_opencode_agents(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lemon:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lc:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
     fi
 elif [[ "$ROLES" == "code" ]]; then
@@ -266,7 +266,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_opencode_agents
 
 written = write_opencode_agents(Path("${AGENT_DEST_DIR}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lemon:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lc:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
         "${PYTHON_CMD[@]}" - <<PYEOF2
 import json
@@ -304,7 +304,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lemon:opencode] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lc:opencode] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$OC_FILE" ]; then
     HAS=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
@@ -317,17 +317,17 @@ content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
-    print('yes' if 'lemon' in d.get('mcp', {}) else 'no')
+    print('yes' if 'lc' in d.get('mcp', {}) else 'no')
 except Exception:
     print('parse-error')
 PYEOF
 )
     if [ "$HAS" = "yes" ]; then
-        vpass "opencode config contains lemon MCP entry ($OC_FILE)"
+        vpass "opencode config contains lc MCP entry ($OC_FILE)"
     elif [ "$HAS" = "parse-error" ]; then
         vfail "opencode config parse error: $OC_FILE"
     else
-        vfail "opencode config missing lemon entry"
+        vfail "opencode config missing lc entry"
     fi
 
     DEFAULT_AGENT=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
@@ -361,7 +361,7 @@ content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
-    provider = d.get('provider', {}).get('lemon', {})
+    provider = d.get('provider', {}).get('lc', {})
     base_url = provider.get('options', {}).get('baseURL')
     print('yes' if provider and base_url else 'no')
 except Exception:
@@ -369,7 +369,7 @@ except Exception:
 PYEOF
 )
     if [ "$HAS_PROVIDER" = "yes" ]; then
-        vpass "opencode provider.lemoncrow and model are configured for LemonCrow OpenAI gateway"
+        vpass "opencode provider.lc and model are configured for LemonCrow OpenAI gateway"
     elif [ "$HAS_PROVIDER" = "parse-error" ]; then
         vfail "opencode config parse error while validating provider settings"
     else
@@ -401,23 +401,23 @@ else
     vfail "opencode lemoncrow agent missing: $AGENT_FILE"
 fi
 
-if command -v lemon &>/dev/null; then
-    vpass "lemon is available on PATH"
+if command -v lc &>/dev/null; then
+    vpass "lc is available on PATH"
 else
-    vfail "lemon NOT found on PATH"
+    vfail "lc NOT found on PATH"
 fi
 
-if command -v lemon >/dev/null 2>&1 && lemon status --help >/dev/null 2>&1; then
-    vpass "lemon status command is available"
+if command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1; then
+    vpass "lc status command is available"
 else
-    vfail "lemon status command unavailable"
+    vfail "lc status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lemon:opencode] ERROR: post-install verification failed." >&2
+    echo "[lc:opencode] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
 info "Done. Restart opencode - LemonCrow agent and MCP are available."
-info "Tip: run 'lemon status' in any shell to see the runs dashboard."
+info "Tip: run 'lc status' in any shell to see the runs dashboard."

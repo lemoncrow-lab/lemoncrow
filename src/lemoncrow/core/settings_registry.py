@@ -1,9 +1,9 @@
 """Registry of every user-tunable LemonCrow setting.
 
-Each :class:`SettingSpec` binds a dotted CLI key (used by ``lemon settings
+Each :class:`SettingSpec` binds a dotted CLI key (used by ``lc settings
 show``/``set``) to the environment variable that actually drives runtime
 behavior. This is the single source of truth consumed by
-``lemoncrow.core.settings`` (persistence + env seeding) and the ``lemon
+``lemoncrow.core.settings`` (persistence + env seeding) and the ``lc
 settings`` CLI group.
 
 Scope: this covers env vars read by Python code under ``src/`` — i.e. knobs
@@ -20,7 +20,7 @@ internal default; see source for the exact value."
 either because they are generated per-run (swarm child ids, result paths) or
 because they are the bootstrap knobs (``LEMONCROW_ROOT`` and friends) that this
 very file's location depends on, so persisting them here would be circular.
-They still show up in ``lemon settings show`` for discoverability.
+They still show up in ``lc settings show`` for discoverability.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ SETTINGS: list[SettingSpec] = [
         "Days an installed OPTIONAL (non-default) agent/skill can go unused before a staleness nudge "
         "suggests removing it.",
     ),
-    # -- service: local HTTP service (lemond) --
+    # -- service: local HTTP service (lcd) --
     SettingSpec(
         "service.enabled", "LEMONCROW_SERVICE_ENABLED", "bool", False, "service", "Enable the local LemonCrow HTTP service."
     ),
@@ -192,7 +192,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "127.0.0.1",
         "service",
-        "Legacy bind-host override consulted by lemond's --host default.",
+        "Legacy bind-host override consulted by lcd's --host default.",
     ),
     SettingSpec(
         "service.web_port",
@@ -200,7 +200,7 @@ SETTINGS: list[SettingSpec] = [
         "int",
         7700,
         "service",
-        "Port used to build local share links (lemon share).",
+        "Port used to build local share links (lc share).",
     ),
     SettingSpec(
         "service.code_warm",
@@ -1799,7 +1799,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "licensing",
-        "OAuth session token created by `lemon login`; used for plan checks.",
+        "OAuth session token created by `lc login`; used for plan checks.",
     ),
     SettingSpec(
         "licensing.pro_url",

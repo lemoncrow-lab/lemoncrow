@@ -25,16 +25,16 @@ Keep using Claude Code normally — LemonCrow sits underneath it and gives the a
 
 **Live savings and time saved across LemonCrow sessions**
 
-[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://lemoncrow.ws)
-[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://lemoncrow.ws)
-[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://lemoncrow.ws)
-[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.ws%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://lemoncrow.ws)
+[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://lemoncrow.com)
+[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://lemoncrow.com)
+[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://lemoncrow.com)
+[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://lemoncrow.com)
 
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://lemoncrow.ws/pricing)
+[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://lemoncrow.com/pricing)
 
-[![LemonCrow running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://lemoncrow.ws/#terminal)
+[![LemonCrow running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://lemoncrow.com/#terminal)
 
-*Click for the full walkthrough on [lemoncrow.ws](https://lemoncrow.ws/#terminal).*
+*Click for the full walkthrough on [lemoncrow.com](https://lemoncrow.com/#terminal).*
 
 </div>
 
@@ -44,23 +44,23 @@ Keep using Claude Code normally — LemonCrow sits underneath it and gives the a
 
 Run this once:
 
-    curl -fsSL https://install.lemoncrow.ws | bash
+    curl -fsSL https://install.lemoncrow.com | bash
 
 Then create or sign in to a free LemonCrow account and activate it inside the project where you use Claude Code:
 
     cd your-project
-    lemon login
-    lemon init
+    lc login
+    lc init
 
-LemonCrow wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `lemon telemetry remote off`.
+LemonCrow wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `lc telemetry remote off`.
 ```bash
-lemon update
+lc update
 ```
 
 Check that everything is connected:
 
 ```bash
-lemon doctor
+lc doctor
 ```
 
 ## What changes for you
@@ -76,7 +76,7 @@ LemonCrow does not ask you to learn a new coding app. It improves the work Claud
 
 ### What actually gets replaced
 
-`lemon init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
+`lc init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
 
 **Find things in one shot** -- no wandering the codebase call after call.
 
@@ -103,11 +103,11 @@ A bare MCP server is a library the model can call *if* it remembers to. A runtim
 
 ### The engine underneath — not just for code
 
-Under the coding runtime is a domain-neutral context engine with one contract: **one-shot retrieval** — a single call returns what the model needs, packed to a token budget; follow-up queries are allowed, retry loops are never required. Retrieval, compression, memory, and replay do not assume code — code is the first conforming retriever (`Retriever` protocol, `lemoncrow.core.capabilities.retrieval`), chosen because the pain is mature and the results are measurable. The same engine is being opened to teams building any LLM agent: [lemoncrow.ws/engine](https://lemoncrow.ws/engine).
+Under the coding runtime is a domain-neutral context engine with one contract: **one-shot retrieval** — a single call returns what the model needs, packed to a token budget; follow-up queries are allowed, retry loops are never required. Retrieval, compression, memory, and replay do not assume code — code is the first conforming retriever (`Retriever` protocol, `lemoncrow.core.capabilities.retrieval`), chosen because the pain is mature and the results are measurable. The same engine is being opened to teams building any LLM agent: [lemoncrow.com/engine](https://lemoncrow.com/engine).
 
 ### Agents
 
-Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `lemon:<mode>`), not a persona:
+Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `lc:<mode>`), not a persona:
 
 | Agent      | Writes? | Use                                              |
 | ---------- | :-----: | ------------------------------------------------ |
@@ -128,7 +128,7 @@ Packaged in [integrations/skills/](integrations/skills/):
 
 | Skill         | What it does                                                 |
 | ------------- | ------------------------------------------------------------ |
-| `lemon`     | manage LemonCrow itself via the CLI                            |
+| `lc`     | manage LemonCrow itself via the CLI                            |
 | `benchmark`   | measure savings on *your* repo — offline scan or live A/B    |
 | `orchestrate` | one structured multi-step task, routed to the right surface  |
 | `swarm`       | N parallel attempts in isolated worktrees — best result wins |
@@ -141,7 +141,7 @@ Packaged in [integrations/skills/](integrations/skills/):
 Do not take our 30% claim on faith — scan your own local agent history before installing:
 
 ```bash
-curl -fsSL https://savings.lemoncrow.ws | bash
+curl -fsSL https://savings.lemoncrow.com | bash
 ```
 
 It reads local Claude/Codex session files, estimates where LemonCrow would have used fewer tokens or cheaper tool calls, and prints savings from your own history. Temporary local store — no account, no API keys.
@@ -149,19 +149,19 @@ It reads local Claude/Codex session files, estimates where LemonCrow would have 
 Useful variants:
 
 ```bash
-curl -fsSL https://savings.lemoncrow.ws | bash -s -- --since 30d --top 10
-curl -fsSL https://savings.lemoncrow.ws | bash -s -- --host codex --limit 20
+curl -fsSL https://savings.lemoncrow.com | bash -s -- --since 30d --top 10
+curl -fsSL https://savings.lemoncrow.com | bash -s -- --host codex --limit 20
 ```
 
 ### Replay a past session
 
-`lemon session replay` plays back a recorded session and, for each native call, **runs the real LemonCrow tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** LemonCrow would have saved. No model re-run, nothing written; opens a shareable HTML page.
+`lc session replay` plays back a recorded session and, for each native call, **runs the real LemonCrow tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** LemonCrow would have saved. No model re-run, nothing written; opens a shareable HTML page.
 
 ```bash
-lemon session replay --last 1
+lc session replay --last 1
 ```
 
-Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `lemon benchmark local`.
+Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `lc benchmark local`.
 
 ## Why trust the numbers?
 
@@ -259,7 +259,7 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 - [Installation](docs/installation.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Benchmarks](BENCHMARKS.md) · [full results, backed by docs](docs/benchmarks/results.md) · [every "vs" comparison, with sources](https://lemoncrow.ws/vs)
+- [Benchmarks](BENCHMARKS.md) · [full results, backed by docs](docs/benchmarks/results.md) · [every "vs" comparison, with sources](https://lemoncrow.com/vs)
 - [CLI reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 

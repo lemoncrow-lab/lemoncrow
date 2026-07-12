@@ -1,1 +1,1 @@
-- When using subagents prefer `lemon:*` agents.
+- When using subagents prefer `lc:*` agents.

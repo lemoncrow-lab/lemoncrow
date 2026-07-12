@@ -19,7 +19,7 @@ def _run_statusline(root: Path, payload: dict[str, object], *, env_extra: dict[s
             "LEMONCROW_ROOT": str(root),
             "LEMONCROW_STORE_ROOT": str(root),
             "LEMONCROW_NO_COLOR": "1",
-            # Force the statusline to use source-tree lemon, not installed tools binary.
+            # Force the statusline to use source-tree lc, not installed tools binary.
             "LEMONCROW_PYTHON": _SOURCE_PYTHON,
         }
     )

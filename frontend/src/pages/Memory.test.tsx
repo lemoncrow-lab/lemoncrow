@@ -33,7 +33,7 @@ describe("Memory page", () => {
                 {
                   id: "trace-1",
                   session_id: "run-1",
-                  agent: "lemon:code",
+                  agent: "lc:code",
                   task: "memory test",
                   status: "success",
                   files_touched: [],
@@ -49,12 +49,12 @@ describe("Memory page", () => {
             })
           );
         }
-        if (url.includes("/api/v1/memory/blocks?agent_id=lemon%3Acode")) {
+        if (url.includes("/api/v1/memory/blocks?agent_id=lc%3Acode")) {
           return Promise.resolve(
             jsonResponse([
               {
                 id: "mem-1",
-                agent_id: "lemon:code",
+                agent_id: "lc:code",
                 label: "working-style",
                 value: "Stay concise.",
                 limit_chars: 8000,
@@ -69,18 +69,18 @@ describe("Memory page", () => {
             ])
           );
         }
-        if (url.includes("/api/v1/memory/blocks?agent_id=lemon")) {
+        if (url.includes("/api/v1/memory/blocks?agent_id=lc")) {
           return Promise.resolve(jsonResponse([]));
         }
-        if (url.includes("/api/v1/memory/passages?agent_id=lemon%3Acode")) {
+        if (url.includes("/api/v1/memory/passages?agent_id=lc%3Acode")) {
           return Promise.resolve(jsonResponse([]));
         }
-        if (url.includes("/api/v1/memory/passages?agent_id=lemon")) {
+        if (url.includes("/api/v1/memory/passages?agent_id=lc")) {
           return Promise.resolve(
             jsonResponse([
               {
                 id: "pas-1",
-                agent_id: "lemon",
+                agent_id: "lc",
                 text: "A useful archived passage.",
                 source: "trace",
                 source_ref: "https://example.com/source",

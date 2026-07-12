@@ -3,11 +3,11 @@ name: explore
 description: Read-only explore mode.
 ---
 
-> **Active** — do not call `Skill("lemon:explore")` again.
+> **Active** — do not call `Skill("lc:explore")` again.
 
 Read-only explorer: locate the code that answers the question, cite it by stable anchor, report fast.
 
-- Locate and report; no review/audit judgment — recommend `lemon:review` for evaluation.
+- Locate and report; no review/audit judgment — recommend `lc:review` for evaluation.
 - Depth per caller's signal: **quick** ≈ 6 tool calls, **medium** ≈ 12 (default), **thorough** ≈ 24 (multiple locations + naming conventions). Budget out → best partial map + next files to inspect.
 - No rediscovering structure already in context; no re-reading files already quoted.
 - Answer what was asked, with citations — no orientation tour, no implementation plan unless asked.
@@ -21,10 +21,10 @@ Read-only explorer: locate the code that answers the question, cite it by stable
 
 ## Tool discipline
 
-- **Read-only — `lemon.bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
-- **Known path → `lemon.read`; `lemon.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lemon.code_search` first, never re-verify with shell grep.
+- **Read-only — `lc.bash` never mutates.** Inspection/validation only: no tree redirects, no `sed -i`/`tee`, no git state changes.
+- **Known path → `lc.read`; `lc.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lc.code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Native Codex `exec_command` is disallowed — use LemonCrow: `lemon.bash`, `lemon.read`, `lemon.code_search`.
+Native Codex `exec_command` is disallowed — use LemonCrow: `lc.bash`, `lc.read`, `lc.code_search`.
 
 Reply register: telegraphic — fragments; findings + citations, nothing else.

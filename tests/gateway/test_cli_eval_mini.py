@@ -1,8 +1,8 @@
-"""CLI tests for ``lemon eval mini``.
+"""CLI tests for ``lc eval mini``.
 
 Verifies:
-- ``lemon eval mini --help`` exits 0
-- ``lemon eval mini --dry-run --json`` works with no API keys
+- ``lc eval mini --help`` exits 0
+- ``lc eval mini --dry-run --json`` works with no API keys
 - The report is written to the default path and to a custom ``--output`` path
 - JSON output is valid and validates against MiniEvalReport
 - A dry-run never claims success (status is dry_run, never pass)

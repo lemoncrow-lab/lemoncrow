@@ -1,4 +1,4 @@
-"""``lemon project`` — project intelligence snapshot.
+"""``lc project`` — project intelligence snapshot.
 
 Scans the current working directory and renders a rich breakdown:
   - language distribution (files + LOC)
@@ -9,9 +9,9 @@ Scans the current working directory and renders a rich breakdown:
     projection pipeline — AST / tree-sitter / generic outline — per file)
 
 Run:
-    lemon project [PATH]
-    lemon project --json
-    lemon project --top 10
+    lc project [PATH]
+    lc project --json
+    lc project --top 10
 """
 
 from __future__ import annotations
@@ -1018,11 +1018,11 @@ def project_cmd(
 
     \b
     Examples:
-      lemon project               # overview of cwd
-      lemon project --files 30    # per-file token table (top 30 by tokens)
-      lemon project --diff src/foo.py   # raw vs projected side-by-side
-      lemon project --threshold 0      # outline-project every file
-      lemon project --json        # raw JSON
+      lc project               # overview of cwd
+      lc project --files 30    # per-file token table (top 30 by tokens)
+      lc project --diff src/foo.py   # raw vs projected side-by-side
+      lc project --threshold 0      # outline-project every file
+      lc project --json        # raw JSON
     """
     resolved = _resolve_threshold(threshold)
     if diff_path is not None:

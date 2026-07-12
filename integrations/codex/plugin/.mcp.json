@@ -1,6 +1,6 @@
 {
-  "lemon": {
-    "command": "lemon",
+  "lc": {
+    "command": "lc",
     "args": ["mcp", "--host", "codex"],
     "env": {}
   }

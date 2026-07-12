@@ -27,7 +27,7 @@ from lemoncrow.infra.storage.sqlite_memory_store import MEMORY_DB_NAME, SqliteMe
 
 _BLOCK_KIND = "lemoncrow_block"
 _PASSAGE_KIND = "lemoncrow_passage"
-_PINNED_TAG = "lemon:pinned"
+_PINNED_TAG = "lc:pinned"
 _T = TypeVar("_T")
 
 

@@ -10,8 +10,8 @@ Run with:
 
 Or via the CLI:
 
-    lemon eval harbor --limit 5
-    lemon eval harbor --agent lemoncrow-bedrock --limit 5
+    lc eval harbor --limit 5
+    lc eval harbor --agent lemoncrow-bedrock --limit 5
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ _DEFAULT_MAX_OUTPUT_TOKENS = os.environ.get("LEMONCROW_BENCH_MAX_OUTPUT_TOKENS",
 # Tools disabled for every benchmark run via `claude --disallowedTools` (this
 # REMOVES their schemas from the request, so it also trims tokens). No-ask
 # (AskUserQuestion/ExitPlanMode) stops the headless agent stalling on a prompt;
-# no-web (WebFetch/WebSearch/mcp__lemon__web_fetch) is disabled by default for
+# no-web (WebFetch/WebSearch/mcp__lc__web_fetch) is disabled by default for
 # submission-safety: Terminal-Bench's integrity policy scores reward hacking
 # ("finding solutions on the internet") as 0 per trial, judged retroactively on
 # the trajectory (https://www.tbench.ai/news/leaderboard-integrity-update), and
@@ -66,7 +66,7 @@ _DEFAULT_MAX_OUTPUT_TOKENS = os.environ.get("LEMONCROW_BENCH_MAX_OUTPUT_TOKENS",
 _DISALLOWED_TOOLS = os.environ.get(
     "LEMONCROW_BENCH_DISALLOWED_TOOLS",
     "AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch"
-    " mcp__lemon__web_fetch mcp__plugin_lemoncrow_lemon__web_fetch"
+    " mcp__lc__web_fetch mcp__plugin_lemoncrow_lc__web_fetch"
     " Workflow ScheduleWakeup",
 )
 
@@ -85,7 +85,7 @@ async def _install_rtk(agent: BaseInstalledAgent, environment: BaseEnvironment) 
     (external_compactors.py) and, when present, routes read-only commands
     (git status/log/diff, pytest, ruff check, etc.) through it to compress
     output before it reaches the model -- cutting benchmark token cost for
-    free. `lemon doctor` already treats its absence as an optional,
+    free. `lc doctor` already treats its absence as an optional,
     non-failing check, so this install must honor the same contract: a
     flaky download here must never fail the trial. Every branch below
     degrades to "rtk stays absent" rather than raising.
@@ -110,7 +110,7 @@ def _web_access_line() -> str:
     tool list the model was actually given.
     """
     disallowed = _DISALLOWED_TOOLS.split()
-    fetch_on = "mcp__lemon__web_fetch" not in disallowed
+    fetch_on = "mcp__lc__web_fetch" not in disallowed
     search_on = "WebSearch" not in disallowed
     if not fetch_on and not search_on:
         return "- Web access is disabled; solve from the task and the files present.\n"
@@ -202,7 +202,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
     """Harbor agent that runs LemonCrow's owned coding loop headlessly.
 
     Installs lemoncrow via pip in the container, initialises the runtime store,
-    then runs ``lemon run "<instruction>"`` for each task.
+    then runs ``lc run "<instruction>"`` for each task.
 
     Bench arms:
       ``bench_mode="on"``  — full LemonCrow augmentation (default)
@@ -276,7 +276,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         # Initialise the runtime store (creates ~/.lemoncrow/ layout)
         await self.exec_as_agent(
             environment,
-            command="lemon init",
+            command="lc init",
             env=self._agent_env,
         )
         await _install_rtk(self, environment)
@@ -291,7 +291,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         """Run LemonCrow on the task instruction and stream results to the log."""
         escaped = shlex.quote(instruction)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
-        cmd = f"lemon run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
+        cmd = f"lc run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
         await self.exec_as_agent(
             environment,
             command=cmd,
@@ -299,7 +299,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         )
 
     def populate_context_post_run(self, context: AgentContext) -> None:
-        """Parse the lemon run start --output-format stream-json log for token/cost.
+        """Parse the lc run start --output-format stream-json log for token/cost.
 
         The CLI emits one JSON object per run with a top-level ``receipt`` key
         whose ``totals`` sub-object carries the aggregated token counts and cost.
@@ -333,7 +333,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
 class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
     """Harbor agent: Claude Code CLI with LemonCrow plugin enabled.
 
-    Mirrors the codebench ``lemon`` arm exactly: ``claude`` is the host,
+    Mirrors the codebench ``lc`` arm exactly: ``claude`` is the host,
     LemonCrow is the plugin loaded via ``--plugin-dir``. Auth uses
     ``CLAUDE_CODE_OAUTH_TOKEN`` (subscription token) forwarded from the host.
 
@@ -519,11 +519,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # making the plugin the ONLY variable vs the "on" arm. Select the
         # baseline at run time with `--ak bench_mode=off`.
         plugin_flags = (
-            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lemon:solve "
+            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lc:solve "
         )
         # LemonCrow arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental
-        # build (the empty-first-grep bug). `lemon code index` is fully
+        # build (the empty-first-grep bug). `lc code index` is fully
         # synchronous for the FTS symbol/file store grep reads, and the CLI engine
         # runs with autosync disabled (no background worker). Both `code index`
         # and the MCP server key the db as sha256(resolved repo-root)[:12]; the
@@ -547,7 +547,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             else (
                 'export LEMONCROW_WORKSPACE_ROOT="$PWD" CLAUDE_WORKSPACE_ROOT="$PWD" '
                 'LEMONCROW_INDEX_LOCK_TIMEOUT_S="${LEMONCROW_INDEX_LOCK_TIMEOUT_S:-300}"; '
-                "lemon code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
+                "lc code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
                 '|| echo "LEMONCROW_PREWARM_INDEX_FAILED rc=$? (see agent/lemoncrow-index.log)"; '
             )
         )

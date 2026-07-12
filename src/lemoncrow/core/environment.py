@@ -79,13 +79,13 @@ HIDDEN_LLM_TOOLS = frozenset(
     }
 )
 HIDDEN_SKILLS: frozenset[str] = frozenset()
-# Public skills that ship by default when installing a host. `lemon` (the
+# Public skills that ship by default when installing a host. `lc` (the
 # on-demand install/remove/list discovery skill, integrations/skills/lemoncrow/)
 # is the sole default-shipped entry -- it is how a user discovers the rest of
 # the opt-in surface in the first place. The 6 optional public skills
 # (benchmark/orchestrate/perf-review/recall/swarm/ux-review) stay out of this
 # set -- distinct from HIDDEN_SKILLS, which is permanently excluded regardless
-# of any opt-in. `lemon skill install <name>` passes an explicit superset
+# of any opt-in. `lc skill install <name>` passes an explicit superset
 # (see agents_skills.py) to opt individual public skills into a given host.
 DEFAULT_SKILLS: frozenset[str] = frozenset({"lemoncrow"})
 

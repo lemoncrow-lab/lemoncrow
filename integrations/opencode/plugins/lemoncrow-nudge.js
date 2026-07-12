@@ -11,13 +11,13 @@ const canImportLemonCrow = (python) =>
 
 // Mirrors integrations/claude/plugin/scripts/_lemoncrow_python.sh: lemoncrow is
 // normally installed in an isolated uv-tool venv, so bare `python3` cannot
-// import it. Resolution order: $LEMONCROW_PYTHON -> lemon wrapper shebang ->
+// import it. Resolution order: $LEMONCROW_PYTHON -> lc wrapper shebang ->
 // uv tool default venv -> python3 fallback.
 const resolvePython = () => {
   const override = process.env.LEMONCROW_PYTHON
   if (override && canImportLemonCrow(override)) return override
   try {
-    const which = spawnSync("sh", ["-c", "command -v lemon"], { encoding: "utf8" })
+    const which = spawnSync("sh", ["-c", "command -v lc"], { encoding: "utf8" })
     const wrapper = (which.stdout ?? "").trim()
     if (which.status === 0 && wrapper) {
       const firstLine = readFileSync(wrapper, "utf8").split("\n", 1)[0]

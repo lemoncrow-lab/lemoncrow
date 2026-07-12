@@ -14,7 +14,7 @@ def telemetry_group(ctx: click.Context) -> None:
 
 
 def _render_telemetry_overview() -> str:
-    """Render the default lemon telemetry view: state, storage, and controls."""
+    """Render the default lc telemetry view: state, storage, and controls."""
     from pathlib import Path
 
     from lemoncrow.core.foundation.identity import get_anon_id
@@ -44,12 +44,12 @@ def _render_telemetry_overview() -> str:
     lines.append(f"  {'Config file':<14}{_short(config_path())}")
     lines.append("")
     lines.append("  Controls")
-    lines.append("    lemon telemetry remote on      opt in to anonymous remote telemetry")
-    lines.append("    lemon telemetry remote off     keep telemetry local")
-    lines.append("    lemon telemetry lexical off    disable frustration detection")
-    lines.append("    lemon telemetry reset-id       rotate the anonymous ID")
-    lines.append("    lemon telemetry show           inspect locally-stored events")
-    lines.append("    lemon telemetry status --json  machine-readable status")
+    lines.append("    lc telemetry remote on      opt in to anonymous remote telemetry")
+    lines.append("    lc telemetry remote off     keep telemetry local")
+    lines.append("    lc telemetry lexical off    disable frustration detection")
+    lines.append("    lc telemetry reset-id       rotate the anonymous ID")
+    lines.append("    lc telemetry show           inspect locally-stored events")
+    lines.append("    lc telemetry status --json  machine-readable status")
     return "\n".join(lines)
 
 

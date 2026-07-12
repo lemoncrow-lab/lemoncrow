@@ -705,19 +705,19 @@ def _mcp_templates() -> dict[str, McpTemplate]:
         "claude-default": McpTemplate(
             template_id="claude-default",
             host="claude",
-            command="lemon",
+            command="lc",
             args=("mcp", "--host", "claude"),
         ),
         "codex-default": McpTemplate(
             template_id="codex-default",
             host="codex",
-            command="lemon",
+            command="lc",
             args=("mcp", "--host", "codex"),
         ),
         "antigravity-default": McpTemplate(
             template_id="antigravity-default",
             host="antigravity",
-            command="lemon",
+            command="lc",
             args=("mcp", "--host", "antigravity"),
         ),
     }
@@ -826,17 +826,17 @@ def _role_read_hint(role_id: str) -> str:
 # MCP-grounded file I/O and search across every generated Claude agent while
 # keeping the frontmatter small: ``tools: ["*"]`` already grants every MCP tool,
 # so an explicit allow-list is unnecessary. ``MultiEdit``/``NotebookEdit`` are
-# intentionally omitted (``Edit``/``Write`` plus ``mcp__lemon__edit`` cover the
+# intentionally omitted (``Edit``/``Write`` plus ``mcp__lc__edit`` cover the
 # real write paths) so the list stays short. Native ``Bash`` is denied so all
-# shell work flows through ``mcp__lemon__bash`` (the supervised path) instead
+# shell work flows through ``mcp__lc__bash`` (the supervised path) instead
 # of native heredocs; without this, agents bypass every LemonCrow file/search tool
-# by doing all I/O through ``Bash``. ``mcp__lemon__bash`` is never denied:
+# by doing all I/O through ``Bash``. ``mcp__lc__bash`` is never denied:
 # read-only roles still need shell to run checks and probes (``git diff``,
 # ``pytest``, ``ls``), and read-only is enforced by denying the write tools, not
 # by removing shell.
 #
 # Native ``WebFetch`` is denied so URL retrieval flows through the supervised
-# ``mcp__lemon__web_fetch`` (telemetry, redaction, savings) instead of the
+# ``mcp__lc__web_fetch`` (telemetry, redaction, savings) instead of the
 # always-present native fetch. Native ``WebSearch`` stays enabled because
 # LemonCrow has no web-search equivalent -- denying it would leave research with
 # no way to discover sources. (Hermetic benchmarks deny it per-run via the
@@ -891,7 +891,7 @@ def _claude_disallowed_tools(policy: ToolPolicy) -> list[str]:
     if _denies_mutation(policy):
         # Both install shapes: bare user-scope server (install_claude.sh) and
         # marketplace plugin namespacing — the deny must hold under either.
-        denied.extend(("mcp__lemon__edit", "mcp__plugin_lemoncrow_lemon__edit"))
+        denied.extend(("mcp__lc__edit", "mcp__plugin_lemoncrow_lc__edit"))
     if _denies_plan_gate(policy):
         # Deny both: ExitPlanMode alone still lets the agent EnterPlanMode and
         # plan instead of execute (EnterPlanMode is a real tool as of claude 2.1).

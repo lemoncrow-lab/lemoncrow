@@ -7,7 +7,7 @@ routine, generic hosts (antigravity, cursor) were imported directly by each
 presenter with different pre-filtering -- the JSON path applied --since only
 as a post-filter external to the scan function while the text path never
 applied --since to generic hosts at all, and neither respected --id
-consistently. `lemon session list` vs `lemon session list --json` could
+consistently. `lc session list` vs `lc session list --json` could
 therefore show different sessions for the identical query.
 """
 

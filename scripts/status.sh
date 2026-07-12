@@ -52,7 +52,7 @@ check_runtime() {
 }
 
 check_cli() {
-    if command -v lemon >/dev/null 2>&1; then
+    if command -v lc >/dev/null 2>&1; then
         echo "installed"
     else
         echo "not installed"
@@ -168,7 +168,7 @@ check_tokscale() {
 
 get_latest_run() {
     if [ -d "${HOME}/.lemoncrow/runs" ]; then
-        lemon status --line --root "${HOME}/.lemoncrow" 2>/dev/null || echo "(no runs yet)"
+        lc status --line --root "${HOME}/.lemoncrow" 2>/dev/null || echo "(no runs yet)"
     else
         echo "(no runs yet)"
     fi

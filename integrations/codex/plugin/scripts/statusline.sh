@@ -2,16 +2,16 @@
 # statusline.sh -- Codex command-backed statusline for LemonCrow.
 #
 # Match the Claude statusline shape:
-#   ❯ lemon | gpt-5.5 xhigh ctx 1.1M $0.012(I:30k C:10k O:5k) ↓ $0.045(R:12k C:2k)
+#   ❯ lc | gpt-5.5 xhigh ctx 1.1M $0.012(I:30k C:10k O:5k) ↓ $0.045(R:12k C:2k)
 #
 # Codex statusline input is version-dependent. Newer command-backed builds may
 # pass JSON; some builds expose the native footer text. Both are parsed into the
-# same fields and rendered through `lemon savings --segment`, the same backend
+# same fields and rendered through `lc savings --segment`, the same backend
 # used by the Claude script.
 set -uo pipefail
 
 input="$(cat 2>/dev/null || true)"
-PLUGIN_LABEL="❯ lemon"
+PLUGIN_LABEL="❯ lc"
 
 MODEL=""
 EFFORT=""
@@ -156,12 +156,12 @@ if [ -n "${_SEG_SID}" ]; then
   fi
 fi
 if [ -z "${DYNAMIC_SEG:-}" ]; then
-  LEMONCROW_BIN="$(command -v lemon 2>/dev/null || true)"
+  LEMONCROW_BIN="$(command -v lc 2>/dev/null || true)"
   if [ -n "$LEMONCROW_BIN" ]; then
     DYNAMIC_SEG="$("$LEMONCROW_BIN" savings --segment 2>/dev/null || true)"
   fi
   if [ -z "${DYNAMIC_SEG:-}" ]; then
-    DYNAMIC_SEG="$(uv run --quiet lemon savings --segment 2>/dev/null || true)"
+    DYNAMIC_SEG="$(uv run --quiet lc savings --segment 2>/dev/null || true)"
   fi
   # Cache only with a real session id and real live usage -- never a shared,
   # unkeyed slot, never a stale zero-token segment. Atomic renames so a

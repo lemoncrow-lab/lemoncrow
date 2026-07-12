@@ -44,21 +44,21 @@ def _catalog_cache_path() -> Path:
 def _is_self(config: MCPServerConfig) -> bool:
     """True if *config* would spawn LemonCrow's own MCP server (avoid recursion).
 
-    Matches LemonCrow's real self-registration shapes (``command="lemon"``,
+    Matches LemonCrow's real self-registration shapes (``command="lc"``,
     ``args=["mcp", ...]``, optionally wrapped in ``uv run``/``uvx``) by exact
     token, not substring: a substring match on the full command path would
     false-positive on any command whose absolute path happens to contain
-    "lemon" (e.g. a dev checkout at ``.../lemoncrow/.venv/bin/python3``) or
-    whose arg happens to contain "mcp" as a substring (e.g. a fixture script
-    named ``fake_mcp_server.py``).
+    "lc" (e.g. an arg or path segment that happens to contain those two
+    letters) or whose arg happens to contain "mcp" as a substring (e.g. a
+    fixture script named ``fake_mcp_server.py``).
 
     Also matches by server NAME alone (``SELF_SERVER_NAMES``, shared with
     ``discover_mcp_configs`` so both layers agree): some real host configs
     register LemonCrow's own server under a shape the token check above misses
     entirely -- e.g. Cursor's config-merge path writes
-    ``{"command": "lemon", "args": ["--host", "cursor"]}``, with no
+    ``{"command": "lc", "args": ["--host", "cursor"]}``, with no
     "mcp"/"serve" token anywhere. The server name is a weaker signal (a
-    third-party server could coincidentally be named "lemon") but every real
+    third-party server could coincidentally be named "lc") but every real
     LemonCrow self-registration observed across hosts uses one of these names, so
     the trade-off favors closing the recursion hole. In practice
     ``discover_mcp_configs`` already drops these names before this function
@@ -67,7 +67,7 @@ def _is_self(config: MCPServerConfig) -> bool:
     """
     tokens = {Path(config.command).name.lower()}
     tokens.update(str(a).lower() for a in config.args)
-    if "lemon" in tokens and ("mcp" in tokens or "serve" in tokens):
+    if "lc" in tokens and ("mcp" in tokens or "serve" in tokens):
         return True
     return config.name.strip().lower() in SELF_SERVER_NAMES
 

@@ -27,9 +27,9 @@ tools:
   ]
 ---
 
-# lemon:execute
+# lc:execute
 
-You are operating as *lemon:execute*.
+You are operating as *lc:execute*.
 
 Implementation specialist: land an accepted plan or scoped task in one complete verified pass. Sole builder — not a partial probe handing design questions back.
 

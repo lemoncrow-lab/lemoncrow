@@ -35,16 +35,16 @@ def test_classifies_grep_read_and_lemoncrow() -> None:
     assert _is_grep(_tc("Glob", pattern="*.py"))
     assert _is_whole_file_read(_tc("Read", file_path="a.py"))
     assert not _is_whole_file_read(_tc("Read", file_path="a.py", offset=10, limit=20))  # ranged
-    assert _is_lemoncrow_search(_tc("mcp__lemon__code_search", query="x"))
-    assert not _is_grep(_tc("mcp__lemon__code_search", query="x"))
+    assert _is_lemoncrow_search(_tc("mcp__lc__code_search", query="x"))
+    assert not _is_grep(_tc("mcp__lc__code_search", query="x"))
     assert not _is_grep(_tc("Edit", file_path="a.py"))
 
 
-def test_lemon_read_is_not_a_wasteful_whole_file_read() -> None:
+def test_lc_read_is_not_a_wasteful_whole_file_read() -> None:
     # LemonCrow's read is batched/ranged by design -- classifying it as a wasteful
     # whole-file read inflated collapse/batch stats on ran-with-LemonCrow sessions.
-    assert not _is_whole_file_read(_tc("mcp__lemon__read", files=["a.py", "b.py:L1-L20"]))
-    assert not _is_whole_file_read(_tc("mcp__lemon__read", symbol="fold_line"))
+    assert not _is_whole_file_read(_tc("mcp__lc__read", files=["a.py", "b.py:L1-L20"]))
+    assert not _is_whole_file_read(_tc("mcp__lc__read", symbol="fold_line"))
     # files/symbol args are targeted on ANY read tool
     assert not _is_whole_file_read(_tc("read", files=["a.py"]))
     assert not _is_whole_file_read(_tc("read", symbol="foo"))
@@ -91,7 +91,7 @@ def test_thinking_is_transparent_between_greps() -> None:
 def test_lemoncrow_search_breaks_and_is_not_collapsed() -> None:
     turns = [
         _tc("Grep", pattern="a"),
-        _tc("mcp__lemon__code_search", query="a"),
+        _tc("mcp__lc__code_search", query="a"),
         _tc("Read", file_path="a.py"),
     ]
     # A lone grep (len 1) then a code_search break => no episode; the trailing
@@ -236,13 +236,13 @@ def test_codex_replay_parses_current_custom_and_mcp_calls_with_model() -> None:
         {"type": "event_msg", "payload": {"type": "user_message", "message": "inspect the parser"}},
         {
             "type": "response_item",
-            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.mcp__lemon__read()"},
+            "payload": {"type": "custom_tool_call", "name": "exec", "input": "await tools.mcp__lc__read()"},
         },
         {
             "type": "event_msg",
             "payload": {
                 "type": "mcp_tool_call_end",
-                "invocation": {"server": "lemon", "tool": "read", "arguments": {"files": ["a.py"]}},
+                "invocation": {"server": "lc", "tool": "read", "arguments": {"files": ["a.py"]}},
             },
         },
         {
@@ -255,7 +255,7 @@ def test_codex_replay_parses_current_custom_and_mcp_calls_with_model() -> None:
 
     assert replay.model == "gpt-5.6-terra"
     assert replay.summary is not None and replay.summary.total_tool_calls == 2
-    assert [turn.get("tool_name") for turn in replay.turns if turn.get("kind") == "tool_call"] == ["lemon.read"]
+    assert [turn.get("tool_name") for turn in replay.turns if turn.get("kind") == "tool_call"] == ["lc.read"]
     assert any(
         turn.get("kind") == "shell_command" and turn.get("content") == "await tools.exec_command()"
         for turn in replay.turns
@@ -300,16 +300,16 @@ def test_arg_summary_covers_list_and_scalar_args() -> None:
 
     read = {
         "kind": "tool_call",
-        "tool_name": "mcp__lemon__read",
+        "tool_name": "mcp__lc__read",
         "arguments": {"files": ["a.py", "b.py:L1-L9", "c.py", "d.py"]},
     }
     edit = {
         "kind": "tool_call",
-        "tool_name": "mcp__lemon__edit",
+        "tool_name": "mcp__lc__edit",
         "arguments": {"edits": [{"path": "x.py:L1-L4", "new": "..."}]},
     }
-    assert _arg_summary(read) == "mcp__lemon__read(a.py, b.py:L1-L9, c.py, +1 more)"
-    assert _arg_summary(edit) == "mcp__lemon__edit(x.py:L1-L4)"
+    assert _arg_summary(read) == "mcp__lc__read(a.py, b.py:L1-L9, c.py, +1 more)"
+    assert _arg_summary(edit) == "mcp__lc__edit(x.py:L1-L4)"
     # unknown scalar-only tool still surfaces its first value, never a bare ellipsis
     assert _arg_summary({"kind": "tool_call", "tool_name": "X", "arguments": {"n": 42}}) == "X(42)"
 

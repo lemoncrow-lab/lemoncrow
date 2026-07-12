@@ -435,7 +435,7 @@ def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path:
 
         tool_record_trace(
             {
-                "agent": "lemon:code",
+                "agent": "lc:code",
                 "domain": "coding",
                 "task": "accept legacy confidence strength",
                 "status": "success",

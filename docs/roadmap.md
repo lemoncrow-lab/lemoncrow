@@ -22,7 +22,7 @@ This roadmap tracks shipped capabilities against what's in active development. D
 
 ### Cost tracking
 - Per-session cost reports with actual vs counterfactual costs
-- `lemon savings` and `lemon dashboard` commands
+- `lc savings` and `lc dashboard` commands
 - Aggregate cost and token savings with reset support
 - Counterfactual pricing engine
 
@@ -41,7 +41,7 @@ This roadmap tracks shipped capabilities against what's in active development. D
 - OpenAI-compatible `/v1/chat/completions` gateway
 - Runtime commands: runs, ledger, swarm, lessons, benchmarks
 - Outcome capture (feedback loop for routing decisions)
-- `lemon insights` weekly summary with spend trends and opportunities
+- `lc insights` weekly summary with spend trends and opportunities
 - Lesson promotion with PR bot
 - Live reviewer agent
 - Background services with auto-update
@@ -59,7 +59,7 @@ This roadmap tracks shipped capabilities against what's in active development. D
 
 | Area | Description |
 |------|-------------|
-| Optimization advisor | `lemon optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
+| Optimization advisor | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
 | Cross-machine sync | Encrypted workspace sync across machines |
 | Web dashboard | Browser-based spend trends and management |
 | Benchmark publication | One-command export to publishable JSON + markdown |

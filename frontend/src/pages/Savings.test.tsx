@@ -156,7 +156,7 @@ describe("Savings page", () => {
                 model: "test-model",
                 n_prompts: 2,
                 total_tokens_baseline: 1000,
-                total_tokens_lemon: 600,
+                total_tokens_lc: 600,
                 tokens_saved: 400,
                 reduction_pct: 40.0,
                 total_cost_baseline_usd: 0.02,
@@ -233,7 +233,7 @@ describe("Savings page", () => {
     expect(
       await screen.findByText("No savings telemetry yet")
     ).toBeInTheDocument();
-    expect(await screen.findByText("lemon mcp")).toBeInTheDocument();
+    expect(await screen.findByText("lc mcp")).toBeInTheDocument();
   });
 
   it("renders an explicit capture-gap message instead of three empty proof columns", async () => {

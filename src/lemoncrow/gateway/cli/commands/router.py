@@ -1,4 +1,4 @@
-"""``lemon router`` — run a local model-routing proxy daemon."""
+"""``lc router`` — run a local model-routing proxy daemon."""
 
 from __future__ import annotations
 

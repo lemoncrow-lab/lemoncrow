@@ -450,7 +450,7 @@ class CodexImporter:
 
     def _parse_event_msg(self, session_id: str, raw_content: str, artifact_id: str) -> Trace:
         tools_called: dict[str, int] = {}
-        mcp_lemoncrow_calls: dict[str, int] = {}  # LemonCrow MCP calls keyed as "lemon_<tool>"
+        mcp_lemoncrow_calls: dict[str, int] = {}  # LemonCrow MCP calls keyed as "lc_<tool>"
         tool_args: dict[str, dict[str, Any] | None] = {}
         tool_in_tokens: dict[str, int] = {}
         tool_out_tokens: dict[str, int] = {}
@@ -636,8 +636,8 @@ class CodexImporter:
                 elif ptype == "mcp_tool_call_end":
                     invocation = payload.get("invocation") or {}
                     tool_name = invocation.get("tool", "mcp")
-                    if invocation.get("server") in ("lemon", "lemoncrow"):
-                        key = f"lemon_{tool_name}"
+                    if invocation.get("server") in ("lc", "lemoncrow"):
+                        key = f"lc_{tool_name}"
                         mcp_lemoncrow_calls[key] = mcp_lemoncrow_calls.get(key, 0) + 1
                     else:
                         tools_called[tool_name] = tools_called.get(tool_name, 0) + 1
@@ -738,9 +738,9 @@ class CodexImporter:
         usage_summary = summarize_usage_entries(usage_entries, fallback_model=model_seen)
 
         # Reconcile LemonCrow MCP calls: remove their duplicate function_call counts,
-        # then merge with lemon_<tool> prefix so downstream can classify correctly.
+        # then merge with lc_<tool> prefix so downstream can classify correctly.
         for lemoncrow_key, mcp_count in mcp_lemoncrow_calls.items():
-            native_key = lemoncrow_key[len("lemon_") :]  # strip prefix to get base name
+            native_key = lemoncrow_key[len("lc_") :]  # strip prefix to get base name
             native_remaining = tools_called.get(native_key, 0) - mcp_count
             if native_remaining <= 0:
                 tools_called.pop(native_key, None)
@@ -752,7 +752,7 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             session_id=session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="codex",
             domain="coding",
             task=task,
@@ -940,7 +940,7 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             session_id=session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="codex",
             domain="coding",
             task=task,

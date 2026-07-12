@@ -30,13 +30,13 @@ bash scripts/install_hermes.sh
 | MCP server config | `$HERMES_HOME/config.yaml` or `~/.hermes/config.yaml` |
 | Toolset entry     | Added `mcp-lemoncrow` to `platform_toolsets.cli`        |
 
-The installer merges an `lemon` entry into the `mcp_servers` key of
+The installer merges an `lc` entry into the `mcp_servers` key of
 `config.yaml`:
 
 ```yaml
 mcp_servers:
-  lemon:
-    command: lemon mcp
+  lc:
+    command: lc mcp
     args:
       - --host
       - hermes
@@ -66,10 +66,10 @@ make verify
 Or manually:
 
 ```bash
-lemon mcp --host hermes --version
+lc mcp --host hermes --version
 ```
 
-Check that the config file contains the lemon entry:
+Check that the config file contains the lc entry:
 
 ```bash
 cat ~/.hermes/config.yaml
@@ -92,10 +92,10 @@ cat ~/.hermes/config.yaml
 
 | Problem                          | Fix                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------------- |
-| "lemon mcp: command not found" | Run `pip install lemoncrow` or reinstall via `make install`                    |
+| "lc mcp: command not found" | Run `pip install lemoncrow` or reinstall via `make install`                    |
 | Tools not showing up in Hermes   | Verify `mcp-lemoncrow` is in `platform_toolsets.cli` — start a new Hermes session |
 | `$HERMES_HOME` not set           | Installer defaults to `~/.hermes/config.yaml`. Set `HERMES_HOME` to customize.  |
-| Tools fail with "hermes" label   | Check `config.yaml` has `--host hermes` in the lemon args                     |
+| Tools fail with "hermes" label   | Check `config.yaml` has `--host hermes` in the lc args                     |
 | MCP connection timeout           | Increase `connect_timeout` and `timeout` values in `config.yaml`                |
 
 ---
@@ -103,8 +103,8 @@ cat ~/.hermes/config.yaml
 ## Uninstall
 
 ```bash
-lemon uninstall
+lc uninstall
 ```
 
-Or manually remove the `lemon` block from `mcp_servers` and remove
+Or manually remove the `lc` block from `mcp_servers` and remove
 `mcp-lemoncrow` from `platform_toolsets.cli` in `$HERMES_HOME/config.yaml`.

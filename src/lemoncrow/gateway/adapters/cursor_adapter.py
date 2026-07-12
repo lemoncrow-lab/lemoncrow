@@ -13,15 +13,15 @@ agent (the Cursor Tab / Composer) can:
 
 Installation (automatic via the installer)::
 
-    lemon install cursor
+    lc install cursor
 
 Or manually — add to ``~/.cursor/mcp.json``::
 
     {
       "mcpServers": {
-        "lemoncrow": {
+        "lc": {
           "type": "stdio",
-          "command": "lemon",
+          "command": "lc",
           "args": ["mcp"]
         }
       }
@@ -29,7 +29,7 @@ Or manually — add to ``~/.cursor/mcp.json``::
 
 Then add a global rule at ``~/.cursor/rules/lemoncrow.mdc`` (Cursor Pro)
 or a project-local rule at ``.cursor/rules/lemoncrow.mdc`` so the agent
-knows to prefer ``lemon`` tools over native grep/read.
+knows to prefer ``lc`` tools over native grep/read.
 
 Usage (programmatic)::
 
@@ -135,12 +135,12 @@ class CursorAdapter(AgentAdapter):
         return (
             "# Cursor IDE ← LemonCrow integration\n"
             "1. pip install lemoncrow\n"
-            "2. lemon init && lemon mcp    # verify MCP server starts\n"
+            "2. lc init && lc mcp    # verify MCP server starts\n"
             "3. Add to ~/.cursor/mcp.json:\n"
             '   { "mcpServers": {\n'
-            '       "lemoncrow": {\n'
+            '       "lc": {\n'
             '           "type": "stdio",\n'
-            '           "command": "lemon",\n'
+            '           "command": "lc",\n'
             '           "args": []\n'
             "       }\n"
             "   }}\n"

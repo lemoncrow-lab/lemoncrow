@@ -731,7 +731,7 @@ def test_finish_fetch_without_query_is_unchanged_head_truncation() -> None:
         raw, rendered={"content": md, "format": "text"}, char_limit=1000, include_meta=False
     )
     assert payload["content"].startswith("x" * 100)
-    assert "[lemon: truncated 5000→1000" in payload["content"]
+    assert "[lc: truncated 5000→1000" in payload["content"]
 
 
 def test_finish_fetch_with_query_surfaces_a_row_the_head_cut_would_miss() -> None:
@@ -805,7 +805,7 @@ def test_finish_fetch_summary_returns_heuristic_gist_with_spill_path(
     assert "# Project Overview" in content
     assert "## Installation" in content
     assert "## Usage" in content
-    assert "[lemon: summarized:heuristic" in content
+    assert "[lc: summarized:heuristic" in content
     assert "full: read " in content
     spilled = list(tmp_path.glob("web_fetch-*.txt"))
     assert len(spilled) == 1
@@ -826,7 +826,7 @@ def test_finish_fetch_summary_uses_llm_tier_when_available(tmp_path: Any, monkey
     )
     content = payload["content"]
     assert "An LLM-produced gist of the page." in content
-    assert "[lemon: summarized:qwen2.5" in content
+    assert "[lc: summarized:qwen2.5" in content
 
 
 def test_finish_fetch_summary_llm_failure_falls_back_silently_to_heuristic(
@@ -847,7 +847,7 @@ def test_finish_fetch_summary_llm_failure_falls_back_silently_to_heuristic(
         summary=True,
     )
     content = payload["content"]
-    assert "[lemon: summarized:heuristic" in content
+    assert "[lc: summarized:heuristic" in content
     assert "An LLM-produced gist" not in content
 
 
@@ -865,7 +865,7 @@ def test_finish_fetch_summary_spill_disabled_uses_pathless_footer(
         summary=True,
     )
     content = payload["content"]
-    assert "[lemon: truncated" in content
+    assert "[lc: truncated" in content
     assert "summarized:" not in content
     assert "read " not in content
     assert not list(tmp_path.glob("web_fetch-*.txt"))
@@ -927,7 +927,7 @@ def test_fetch_url_pdf_summary_flows_through_rendered_text_unchanged(
     monkeypatch.setattr(web_fetch, "_resolve_host_safe", lambda host, timeout: "1.2.3.4")
     result = web_fetch.fetch_url("https://example.com/doc.pdf", output_format="text", summary=True)
     assert "Hello PDF" in result["content"]
-    assert "[lemon: summarized:heuristic" in result["content"]
+    assert "[lc: summarized:heuristic" in result["content"]
     assert "downloaded PDF:" in result["content"]
 
 

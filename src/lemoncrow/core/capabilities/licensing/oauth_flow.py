@@ -1,11 +1,11 @@
 """Shared browser OAuth login flow.
 
-Extracted from the ``lemon login`` CLI command so it can also run from a
+Extracted from the ``lc login`` CLI command so it can also run from a
 non-interactive context — e.g. a background daemon thread on the MCP server's
 stdio startup path — where there is no click/tty and stdout is the JSON-RPC
 channel (so it must never be written to directly).
 
-Callers that want CLI-style terminal output (``lemon login``) should format
+Callers that want CLI-style terminal output (``lc login``) should format
 the returned ``OAuthLoginResult`` themselves; this module only logs via the
 standard ``logging`` module.
 """
@@ -110,7 +110,7 @@ def run_oauth_login(
         else:
             _log.info(message)
 
-    base = "http://localhost:4321" if dev_mode else "https://lemoncrow.ws"
+    base = "http://localhost:4321" if dev_mode else "https://lemoncrow.com"
 
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
