@@ -56,12 +56,12 @@ def test_openmemory_adapter_always_delegates_to_bridge() -> None:
 def test_openmemory_memory_store_uses_openmemory_as_primary(tmp_path: Path) -> None:
     store = OpenMemoryMemoryStore(tmp_path / "lemoncrow", client=_FakeOpenMemoryClient())
 
-    block = store.upsert_block(MemoryBlock(agent_id="lc:code", label="style", value="compact"), actor="tests")
-    assert store.get_block("lc:code", "style") == block
+    block = store.upsert_block(MemoryBlock(agent_id="lemoncrow:code", label="style", value="compact"), actor="tests")
+    assert store.get_block("lemoncrow:code", "style") == block
 
     passage = store.insert_passage(
         ArchivalPassage(
-            agent_id="lc:code",
+            agent_id="lemoncrow:code",
             text="checkout retry guidance",
             tags=["checkout"],
             source="trace",
@@ -69,12 +69,12 @@ def test_openmemory_memory_store_uses_openmemory_as_primary(tmp_path: Path) -> N
             dedup_hash="hash-1",
         )
     )
-    results = store.search_passages("lc:code", "checkout", top_k=1)
+    results = store.search_passages("lemoncrow:code", "checkout", top_k=1)
     assert [item.id for item in results] == [passage.id]
 
     sqlite = SqliteMemoryStore(tmp_path / "lemoncrow")
-    assert sqlite.get_block("lc:code", "style") is None
-    assert sqlite.list_passages("lc:code") == []
+    assert sqlite.get_block("lemoncrow:code", "style") is None
+    assert sqlite.list_passages("lemoncrow:code") == []
 
 
 def test_openmemory_adapter_rest_fallback_when_mcp_returns_empty(monkeypatch: Any) -> None:

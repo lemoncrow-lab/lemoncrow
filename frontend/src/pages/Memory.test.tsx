@@ -33,7 +33,7 @@ describe("Memory page", () => {
                 {
                   id: "trace-1",
                   session_id: "run-1",
-                  agent: "lc:code",
+                  agent: "lemoncrow:code",
                   task: "memory test",
                   status: "success",
                   files_touched: [],
@@ -54,7 +54,7 @@ describe("Memory page", () => {
             jsonResponse([
               {
                 id: "mem-1",
-                agent_id: "lc:code",
+                agent_id: "lemoncrow:code",
                 label: "working-style",
                 value: "Stay concise.",
                 limit_chars: 8000,

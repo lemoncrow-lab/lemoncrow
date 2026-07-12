@@ -57,7 +57,7 @@ def test_arm_specs_resolve_persona_by_capability() -> None:
     # lemoncrow runs the generated plugin's autonomous (auto) persona.
     assert specs["lemoncrow"].plugin is True
     assert specs["lemoncrow"].strip_mcp is False
-    assert specs["lemoncrow"].persona_by_capability["code"] == "lc:auto"
+    assert specs["lemoncrow"].persona_by_capability["code"] == "lemoncrow:auto"
     # execute / solve are code-only coding personas (no built-in twin).
     assert set(specs["execute"].persona_by_capability) == {"code"}
     assert set(specs["solve"].persona_by_capability) == {"code"}

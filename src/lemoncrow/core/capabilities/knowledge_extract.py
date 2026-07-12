@@ -179,7 +179,7 @@ def _run_owned(prompt: str, *, root: str | Path, model: str) -> str:
             mode="explicit",
             provider=provider,
             model=model_id,
-            host_agent="lc:knowledge",
+            host_agent="lemoncrow:knowledge",
         )
         allow_fallback = False
     else:
@@ -189,7 +189,7 @@ def _run_owned(prompt: str, *, root: str | Path, model: str) -> str:
             mode="auto",
             budget="cheap",
             model=model_id,
-            host_agent="lc:knowledge",
+            host_agent="lemoncrow:knowledge",
         )
         allow_fallback = True
     decision = select_owned_route(root, request)
@@ -199,7 +199,7 @@ def _run_owned(prompt: str, *, root: str | Path, model: str) -> str:
         tool_name="agent",
         task_text=prompt,
         decision=decision,
-        host_agent="lc:knowledge",
+        host_agent="lemoncrow:knowledge",
         allow_fallback=allow_fallback,
     ).output
 

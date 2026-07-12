@@ -79,8 +79,8 @@ else
     LEMONCROW_OPENAI_BASE="${LEMONCROW_SERVICE_BASE}/v1"
 fi
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:opencode] $*" || true; }
-warn()  { echo "[lc:opencode] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:opencode] $*" || true; }
+warn()  { echo "[lemoncrow:opencode] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 if command -v uv >/dev/null 2>&1; then
     PYTHON_CMD=(uv run python)
@@ -173,7 +173,7 @@ fi
 # ---- check CLI --------------------------------------------------------------
 if ! command -v opencode &>/dev/null; then
     if $STRICT; then
-        echo "[lc:opencode] ERROR: 'opencode' not found. Install from https://opencode.ai" >&2
+        echo "[lemoncrow:opencode] ERROR: 'opencode' not found. Install from https://opencode.ai" >&2
         exit 1
     fi
     warn "'opencode' not found - SKIPPING. Install from https://opencode.ai"
@@ -207,7 +207,7 @@ existing['default_agent'] = new_entry['default_agent']
 existing.pop('model', None)
 existing.setdefault('permission', {}).update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print(f"[lc:opencode] merged lc entry into {path}")
+print(f"[lemoncrow:opencode] merged lc entry into {path}")
 PYEOF
     fi
 else
@@ -229,7 +229,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_opencode_agents
 
 written = write_workspace_opencode_agents(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lemoncrow:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
     fi
 elif [[ "$ROLES" == "code" ]]; then
@@ -266,7 +266,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_opencode_agents
 
 written = write_opencode_agents(Path("${AGENT_DEST_DIR}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lemoncrow:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
         "${PYTHON_CMD[@]}" - <<PYEOF2
 import json
@@ -304,7 +304,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:opencode] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:opencode] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$OC_FILE" ]; then
     HAS=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
@@ -401,23 +401,23 @@ else
     vfail "opencode lemoncrow agent missing: $AGENT_FILE"
 fi
 
-if command -v lc &>/dev/null; then
-    vpass "lc is available on PATH"
+if command -v lemoncrow &>/dev/null; then
+    vpass "lemoncrow is available on PATH"
 else
-    vfail "lc NOT found on PATH"
+    vfail "lemoncrow NOT found on PATH"
 fi
 
-if command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1; then
-    vpass "lc status command is available"
+if command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1; then
+    vpass "lemoncrow status command is available"
 else
-    vfail "lc status command unavailable"
+    vfail "lemoncrow status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:opencode] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:opencode] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
 info "Done. Restart opencode - LemonCrow agent and MCP are available."
-info "Tip: run 'lc status' in any shell to see the runs dashboard."
+info "Tip: run 'lemoncrow status' in any shell to see the runs dashboard."

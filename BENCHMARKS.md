@@ -25,7 +25,7 @@ This document keeps benchmark proof out of the first-use README while preserving
 
 ## SWE-bench Verified
 
-End-to-end bug fixing on 50 SWE-bench Verified instances across 12 Python repos, with 5 reps each. Both arms used the same model, same Docker image, same conda environment, same turn cap, same timeout, and same disabled tools. The LemonCrow arm used `lc:auto`.
+End-to-end bug fixing on 50 SWE-bench Verified instances across 12 Python repos, with 5 reps each. Both arms used the same model, same Docker image, same conda environment, same turn cap, same timeout, and same disabled tools. The LemonCrow arm used `lemoncrow:auto`.
 
 
 | Arm         |        Cost | Input tok | Cache write |  Cache read | Output tok |  Total tok |     Turns |      Time |       Resolved       |
@@ -39,7 +39,7 @@ Raw data: [`benchmarks/codebench/results/swe50_2026_06_30/`](benchmarks/codebenc
 Run it:
 
 ```bash
-CODEBENCH_LEMONCROW_AGENT=lc:auto \
+CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto \
 uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --suite swe-bench-verified \
   --instances $(cat benchmarks/codebench/data/verified.txt) \
@@ -61,11 +61,11 @@ Every knob below was identical for both arms unless marked LemonCrow-only.
 - Turn cap and timeout: `--max-turns 100`; per-run agent timeout 3600 seconds.
 - Egress: hermetic except `api.anthropic.com`.
 - Disabled tools in both arms: `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `WebFetch`, `WebSearch`, LemonCrow `web_fetch`, `Workflow`, and `ScheduleWakeup`.
-- LemonCrow-only persona: `lc:auto`.
+- LemonCrow-only persona: `lemoncrow:auto`.
 
 ## SWE-bench Lite
 
-A smaller companion cut: 10 SWE-bench Lite instances x 3 reps, same harness (`multiswe_run.py`), same model, same disabled-tools list, and the same `lc:auto` persona as the Verified run above.
+A smaller companion cut: 10 SWE-bench Lite instances x 3 reps, same harness (`multiswe_run.py`), same model, same disabled-tools list, and the same `lemoncrow:auto` persona as the Verified run above.
 
 
 | Arm         |       Cost | Input tok | Cache write | Cache read | Output tok | Total tok |   Turns |        Time |      Resolved      |
@@ -79,7 +79,7 @@ Raw data: [`benchmarks/codebench/results/swe-lite_2026-07-06/`](benchmarks/codeb
 Run it:
 
 ```bash
-CODEBENCH_LEMONCROW_AGENT=lc:auto \
+CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto \
 uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --suite swe-lite \
   --instances astropy__astropy-13579 django__django-12155 django__django-13837 django__django-14007 \
@@ -93,7 +93,7 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
 
 ## SWE-bench Pro
 
-A structurally different, harder benchmark than SWE-bench (Verified/Lite above): [SWE-bench Pro](https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro) (ScaleAI) covers non-Python-heavy, often larger production codebases -- Go, TypeScript/JS, Python across vuls, flipt, element-web, qutebrowser (x2), tutanota, navidrome, NodeBB, teleport, and openlibrary -- graded by ScaleAI's own harness (`scaleapi/SWE-bench_Pro-os`), not the `swebench` package. The pinned default 10-instance slice, 5 reps per arm (50 runs a side), `claude-opus-4-8`, same disabled-tools list and `lc:auto` persona as the runs above. The suite's one dead instance (protonmail/webclients -- base image can't build) was dropped from the default slice entirely, pulling in a previously-unrun 10th task in its place.
+A structurally different, harder benchmark than SWE-bench (Verified/Lite above): [SWE-bench Pro](https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro) (ScaleAI) covers non-Python-heavy, often larger production codebases -- Go, TypeScript/JS, Python across vuls, flipt, element-web, qutebrowser (x2), tutanota, navidrome, NodeBB, teleport, and openlibrary -- graded by ScaleAI's own harness (`scaleapi/SWE-bench_Pro-os`), not the `swebench` package. The pinned default 10-instance slice, 5 reps per arm (50 runs a side), `claude-opus-4-8`, same disabled-tools list and `lemoncrow:auto` persona as the runs above. The suite's one dead instance (protonmail/webclients -- base image can't build) was dropped from the default slice entirely, pulling in a previously-unrun 10th task in its place.
 
 
 | Arm         |       Cost | Input tok | Cache write | Cache read | Output tok | Total tok |   Turns |     Time |     Resolved     |
@@ -125,7 +125,7 @@ Raw data: [`benchmarks/codebench/results/swe-pro_2026_07_07/`](benchmarks/codebe
 Run it:
 
 ```bash
-CODEBENCH_LEMONCROW_AGENT=lc:auto \
+CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto \
 uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --suite swe-pro \
   --limit 10 \
@@ -169,7 +169,7 @@ lc benchmark codebench \
 
 ## Telegraphic Q&A Benchmark
 
-A different cut than the prose-anatomy section above: 20 general engineering Q&A prompts (React re-renders, connection pooling, git rebase vs merge, race conditions, error boundaries, ...; no code repo, no golden patch -- these are explanation prompts, not bug fixes). Three arms in one run: baseline (vanilla Claude Code), `lc:auto` through the full plugin+MCP runtime, and **caveman** (`benchmarks/telegraphic/caveman_skill.md` appended as the only system prompt, no plugin/tooling/MCP -- the free "just tell Claude to be terse" DIY alternative anyone can paste into their own CLAUDE.md today). `claude-opus-4-8`, 5 reps per prompt per arm (300 runs total), `--max-turns 50`; the codebench arms (baseline/lemoncrow) run with `--jobs 4`, caveman's isolated calls run sequentially (no `--jobs`, by design).
+A different cut than the prose-anatomy section above: 20 general engineering Q&A prompts (React re-renders, connection pooling, git rebase vs merge, race conditions, error boundaries, ...; no code repo, no golden patch -- these are explanation prompts, not bug fixes). Three arms in one run: baseline (vanilla Claude Code), `lemoncrow:auto` through the full plugin+MCP runtime, and **caveman** (`benchmarks/telegraphic/caveman_skill.md` appended as the only system prompt, no plugin/tooling/MCP -- the free "just tell Claude to be terse" DIY alternative anyone can paste into their own CLAUDE.md today). `claude-opus-4-8`, 5 reps per prompt per arm (300 runs total), `--max-turns 50`; the codebench arms (baseline/lemoncrow) run with `--jobs 4`, caveman's isolated calls run sequentially (no `--jobs`, by design).
 
 
 | Arm                        |      Cost | Input tok | Cache write | Cache read | Output tok | Total tok |    Turns |        Time |
