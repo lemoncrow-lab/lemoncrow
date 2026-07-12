@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_child_arguments autoreload"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_child_arguments autoreload"}
 [usage] input=2818 cache_read=4958 cache_write=707 output=103
 
 === Turn 2 ===
@@ -101,12 +101,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 246	    return args
 
 candidate_files: django/template/library.py, django/contrib/gis/utils/layermapping.py, django/contrib/contenttypes/fields.py, django/shortcuts.py, django/contrib/admindocs/views.py, django/contrib/admin/static/admin/js/core.js, django/db/models/sql/compiler.py, django/db/models/query.py, django/db/models/functions/text.py, django/views/templates/technical_500.html, django/contrib/admin/options.py, django/core/management/__init__.py, django/contrib/admin/templatetags/log.py, django/contrib/gis/db/backends/postgis/introspection.py, django/contrib/gis/db/backends/spatialite/introspection.py, django/core/management/commands/runserver.py, django/db/models/query_utils.py, django/db/models/sql/query.py, tests/admin_changelist/tests.py, tests/invalid_models_tests/test_models.py, django/core/management/base.py, django/template/defaulttags.py, tests/contenttypes_tests/test_fields.py, django/urls/resolvers.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"django/utils/autoreload.py:L213-L227","old":"def get_child_arguments():\n    \"\"\"\n    Return the executable. This contains a workaround for Windows if the\n    executable is reported to not have the .exe extension which can cause bugs\n    on reloading.\n    \"\"\"\n    import django.__main__\n    django_main_path = Path(django.__main__.__file__)\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    if py_script == django_main_path:\n        # The server was started with `python -m django runserver`.\n        args += ['-m', 'django']\n        args += sys.argv[1:]","new":"def get_child_arguments():\n    \"\"\"\n    Return the executable. This contains a workaround for Windows if the\n    executable is reported to not have the .exe extension which can cause bugs\n    on reloading.\n    \"\"\"\n    import __main__\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"django/utils/autoreload.py:L213-L227","old":"def get_child_arguments():\n    \"\"\"\n    Return the executable. This contains a workaround for Windows if the\n    executable is reported to not have the .exe extension which can cause bugs\n    on reloading.\n    \"\"\"\n    import django.__main__\n    django_main_path = Path(django.__main__.__file__)\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    if py_script == django_main_path:\n        # The server was started with `python -m django runserver`.\n        args += ['-m', 'django']\n        args += sys.argv[1:]","new":"def get_child_arguments():\n    \"\"\"\n    Return the executable. This contains a workaround for Windows if the\n    executable is reported to not have the .exe extension which can cause bugs\n    on reloading.\n    \"\"\"\n    import __main__\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]"}]}
 [usage] input=2 cache_read=5665 cache_write=3960 output=662
 
 === Turn 3 ===
 [user] [tool_result] applied django/utils/autoreload.py:213-227
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/utils/autoreload.py:L213-L252"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/utils/autoreload.py:L213-L252"]}
 [usage] input=2 cache_read=9625 cache_write=686 output=101
 
 === Turn 4 ===
@@ -151,12 +151,12 @@ def get_child_arguments():
     else:
         args += sys.argv
     return args
-[assistant] The directory/zipfile case sets `__spec__` but with empty `parent`; my version would emit `-m ''`. Fix to use `.parent` directly per the ticket's algorithm.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/utils/autoreload.py", "old": "    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]", "new": "    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None and __main__.__spec__.parent:\n        args += ['-m', __main__.__spec__.parent]\n        args += sys.argv[1:]"}]}
+[assistant] The directory/zipfile case sets `__spec__` but with empty `parent`; my version would emit `-m ''`. Fix to use `.parent` directly per the ticket's algorithm.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/utils/autoreload.py", "old": "    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]", "new": "    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None and __main__.__spec__.parent:\n        args += ['-m', __main__.__spec__.parent]\n        args += sys.argv[1:]"}]}
 [usage] input=2 cache_read=10311 cache_write=805 output=1045
 
 === Turn 5 ===
 [user] [tool_result] applied django/utils/autoreload.py:223-233
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_child_arguments test python -m django __main__", "paths": "tests/utils_tests/test_autoreload.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_child_arguments test python -m django __main__", "paths": "tests/utils_tests/test_autoreload.py"}
 [usage] input=2 cache_read=11116 cache_write=1067 output=146
 
 === Turn 6 ===
@@ -199,7 +199,7 @@ def get_child_arguments():
 247	    return args
 
 candidate_files: django/contrib/admin/options.py, django/db/models/sql/compiler.py, django/core/management/__init__.py, django/contrib/gis/utils/layermapping.py, scripts/manage_translations.py, tests/modeladmin/tests.py, django/utils/version.py, django/template/library.py, django/core/management/commands/test.py, django/contrib/admindocs/views.py, django/contrib/admin/static/admin/js/core.js, django/shortcuts.py, django/core/management/base.py, django/contrib/admin/static/admin/js/nav_sidebar.js, django/db/migrations/operations/base.py, django/db/models/expressions.py, tests/admin_views/test_nav_sidebar.py, tests/admin_docs/test_views.py, django/db/backends/oracle/creation.py, django/views/templates/technical_500.html, tests/admin_changelist/tests.py, django/__main__.py, tests/admin_scripts/test_django_admin_py.py, django/bin/django-admin.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "test_run_as_module test_run_as_non_django_module get_child_arguments __main__ __spec__", "paths": "tests/utils_tests/test_autoreload.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "test_run_as_module test_run_as_non_django_module get_child_arguments __main__ __spec__", "paths": "tests/utils_tests/test_autoreload.py"}
 [usage] input=2 cache_read=12183 cache_write=1237 output=133
 
 === Turn 7 ===
@@ -242,7 +242,7 @@ candidate_files: django/contrib/admin/options.py, django/db/models/sql/compiler.
 247	    return args
 
 candidate_files: tests/migrations/test_loader.py, tests/migrations/test_commands.py, django/test/runner.py, tests/migrations/test_multidb.py, tests/admin_scripts/tests.py, tests/forms_tests/tests/test_formsets.py, django/__main__.py, django/core/management/commands/migrate.py, scripts/manage_translations.py, django/apps/config.py, django/test/testcases.py, django/conf/__init__.py, django/db/migrations/writer.py, django/test/selenium.py, django/db/models/fields/related_lookups.py, django/test/utils.py, tests/auth_tests/test_checks.py, django/db/models/base.py, django/core/management/__init__.py, tests/migrations/test_base.py, tests/migrations/test_executor.py, tests/invalid_models_tests/test_relative_fields.py, django/contrib/gis/templates/gis/admin/openlayers.js, django/db/backends/oracle/creation.py
-[assistant] Let me look at the existing autoreload tests to update them for the new detection logic.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/utils_tests/test_autoreload.py:L1-L40"]}
+[assistant] Let me look at the existing autoreload tests to update them for the new detection logic.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/utils_tests/test_autoreload.py:L1-L40"]}
 [usage] input=2 cache_read=13420 cache_write=1209 output=112
 
 === Turn 8 ===
@@ -287,13 +287,13 @@ class TestIterModulesAndFiles(SimpleTestCase):
     def assertFileFound(self, filename):
         # Some temp directories are symlinks. Python resolves these fully while
         # importing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "class TestChildArguments test_run_as_module django_main_path", "paths": "tests/utils_tests/test_autoreload.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "class TestChildArguments test_run_as_module django_main_path", "paths": "tests/utils_tests/test_autoreload.py"}
 [usage] input=2 cache_read=14629 cache_write=531 output=120
 
 === Turn 9 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"get_child_arguments\\|django_main\\|run_as_module\\|__main__\\|__spec__\\|argv\" tests/utils_tests/test_autoreload.py | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"get_child_arguments\\|django_main\\|run_as_module\\|__main__\\|__spec__\\|argv\" tests/utils_tests/test_autoreload.py | head -60"}
 [usage] input=131 cache_read=15160 cache_write=350 output=122
 
 === Turn 10 ===
@@ -323,7 +323,7 @@ class TestIterModulesAndFiles(SimpleTestCase):
 448:        mock_call = self.patch_autoreload(argv)
 449:        with mock.patch('django.__main__.__file__', main):
 452:            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/utils_tests/test_autoreload.py:L155-L205", "tests/utils_tests/test_autoreload.py:L415-L455"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/utils_tests/test_autoreload.py:L155-L205", "tests/utils_tests/test_autoreload.py:L415-L455"]}
 [usage] input=2 cache_read=15510 cache_write=905 output=111
 
 === Turn 11 ===
@@ -422,17 +422,17 @@ class RestartWithReloaderTests(SimpleTestCase):
 
 
 class ReloaderTests(SimpleTestCase):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "class TestChildArguments(SimpleTestCase):\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch('sys.argv', [__file__, 'runserver'])", "new": "class TestChildArguments(SimpleTestCase):\n    @mock.patch.dict(sys.modules, {'__main__': django.__main__})\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch.dict(sys.modules, {'__main__': test_main})\n    @mock.patch('sys.argv', [test_main.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_non_django_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'utils_tests.test_module', 'runserver'],\n        )\n\n    @mock.patch('sys.argv', [__file__, 'runserver'])"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "class TestChildArguments(SimpleTestCase):\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch('sys.argv', [__file__, 'runserver'])", "new": "class TestChildArguments(SimpleTestCase):\n    @mock.patch.dict(sys.modules, {'__main__': django.__main__})\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch.dict(sys.modules, {'__main__': test_main})\n    @mock.patch('sys.argv', [test_main.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_non_django_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'utils_tests.test_module', 'runserver'],\n        )\n\n    @mock.patch('sys.argv', [__file__, 'runserver'])"}]}
 [usage] input=2 cache_read=16415 cache_write=1593 output=809
 
 === Turn 12 ===
 [user] [tool_result] applied tests/utils_tests/test_autoreload.py:159-168
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "import django.__main__\nfrom django.apps.registry import Apps", "new": "import django.__main__\nfrom django.apps.registry import Apps\nfrom django.test import SimpleTestCase\nfrom django.test.utils import extend_sys_path\nfrom django.utils import autoreload\nfrom django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "import django.__main__\nfrom django.apps.registry import Apps", "new": "import django.__main__\nfrom django.apps.registry import Apps\nfrom django.test import SimpleTestCase\nfrom django.test.utils import extend_sys_path\nfrom django.utils import autoreload\nfrom django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs"}]}
 [usage] input=2 cache_read=18008 cache_write=837 output=1065
 
 === Turn 13 ===
 [user] [tool_result] applied tests/utils_tests/test_autoreload.py:19-20
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/utils_tests/test_autoreload.py:L17-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/utils_tests/test_autoreload.py:L17-L40"]}
 [usage] input=2 cache_read=18845 cache_write=1093 output=259
 
 === Turn 14 ===
@@ -461,44 +461,44 @@ class TestIterModulesAndFiles(SimpleTestCase):
         import_module(name)
         self.addCleanup(lambda: sys.path_importer_cache.clear())
         self.addCleanup(lambda: sys.modules.pop(name, None))
-[assistant] I created duplicates. Fix:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "from django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs\nfrom django.test import SimpleTestCase\nfrom django.test.utils import extend_sys_path\nfrom django.utils import autoreload\nfrom django.utils.autoreload import WatchmanUnavailable\n\nfrom .utils import on_macos_with_hfs", "new": "from django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs"}]}
+[assistant] I created duplicates. Fix:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "from django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs\nfrom django.test import SimpleTestCase\nfrom django.test.utils import extend_sys_path\nfrom django.utils import autoreload\nfrom django.utils.autoreload import WatchmanUnavailable\n\nfrom .utils import on_macos_with_hfs", "new": "from django.utils.autoreload import WatchmanUnavailable\n\nfrom .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs"}]}
 [usage] input=2 cache_read=19938 cache_write=589 output=326
 
 === Turn 15 ===
 [user] [tool_result] applied tests/utils_tests/test_autoreload.py:24-33
-[assistant] Now create the test module package:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/utils_tests/test_module/__init__.py", "new": "", "replace": true}, {"path": "tests/utils_tests/test_module/__main__.py", "new": "", "replace": true}]}
+[assistant] Now create the test module package:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/utils_tests/test_module/__init__.py", "new": "", "replace": true}, {"path": "tests/utils_tests/test_module/__main__.py", "new": "", "replace": true}]}
 [usage] input=2 cache_read=20527 cache_write=354 output=144
 
 === Turn 16 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"tests/utils_tests/test_module/__init__.py","edit_index":0,"error":"overwrite=true with an empty new_string would truncate non-empty file 'tests/utils_tests/test_module/__init__.py' to nothing; pass the full replacement content, or use old_string to remove a specific region"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls -la tests/utils_tests/test_module/ && echo \"---init---\" && wc -l tests/utils_tests/test_module/__init__.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls -la tests/utils_tests/test_module/ && echo \"---init---\" && wc -l tests/utils_tests/test_module/__init__.py"}
 [usage] input=2 cache_read=20881 cache_write=280 output=129
 
 === Turn 17 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Package exists. Just need `__main__.py`:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "printf '' > tests/utils_tests/test_module/__main__.py && ls -la tests/utils_tests/test_module/__main__.py"}
+[assistant] Package exists. Just need `__main__.py`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "printf '' > tests/utils_tests/test_module/__main__.py && ls -la tests/utils_tests/test_module/__main__.py"}
 [usage] input=131 cache_read=21161 cache_write=420 output=124
 
 === Turn 18 ===
 [user] [tool_result] -rw-r--r-- 1 root root 0 Jul  6 16:28 tests/utils_tests/test_module/__main__.py
-[assistant] Now update `test_python_m_django` in `RestartWithReloaderTests`:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "    def test_python_m_django(self):\n        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'\n        argv = [main, 'runserver']\n        mock_call = self.patch_autoreload(argv)\n        with mock.patch('django.__main__.__file__', main):\n            autoreload.restart_with_reloader()\n            self.assertEqual(mock_call.call_count, 1)\n            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])", "new": "    def test_python_m_django(self):\n        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'\n        argv = [main, 'runserver']\n        mock_call = self.patch_autoreload(argv)\n        with mock.patch('django.__main__.__file__', main):\n            with mock.patch.dict(sys.modules, {'__main__': django.__main__}):\n                autoreload.restart_with_reloader()\n            self.assertEqual(mock_call.call_count, 1)\n            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])"}]}
+[assistant] Now update `test_python_m_django` in `RestartWithReloaderTests`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/utils_tests/test_autoreload.py", "old": "    def test_python_m_django(self):\n        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'\n        argv = [main, 'runserver']\n        mock_call = self.patch_autoreload(argv)\n        with mock.patch('django.__main__.__file__', main):\n            autoreload.restart_with_reloader()\n            self.assertEqual(mock_call.call_count, 1)\n            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])", "new": "    def test_python_m_django(self):\n        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'\n        argv = [main, 'runserver']\n        mock_call = self.patch_autoreload(argv)\n        with mock.patch('django.__main__.__file__', main):\n            with mock.patch.dict(sys.modules, {'__main__': django.__main__}):\n                autoreload.restart_with_reloader()\n            self.assertEqual(mock_call.call_count, 1)\n            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])"}]}
 [usage] input=2 cache_read=21581 cache_write=303 output=624
 
 === Turn 19 ===
 [user] [tool_result] applied tests/utils_tests/test_autoreload.py:456-463
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python -m pytest utils_tests/test_autoreload.py -k \"TestChildArguments or test_python_m_django or test_manage_py\" -x -q 2>&1 | tail -30 || python runtests.py utils_tests.test_autoreload -v1 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python -m pytest utils_tests/test_autoreload.py -k \"TestChildArguments or test_python_m_django or test_manage_py\" -x -q 2>&1 | tail -30 || python runtests.py utils_tests.test_autoreload -v1 2>&1 | tail -30"}
 [usage] input=2 cache_read=21884 cache_write=652 output=161
 
 === Turn 20 ===
 [user] [tool_result] /opt/miniconda3/envs/testbed/bin/python: No module named pytest
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py utils_tests.test_autoreload -v1 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py utils_tests.test_autoreload -v1 2>&1 | tail -30"}
 [usage] input=2 cache_read=22536 cache_write=194 output=98
 
 === Turn 21 ===
 [user] [tool_result] Ran 78 tests in 0.247s
 OK (skipped=20)
-[assistant] All tests pass. Let me add a release note:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls docs/releases/ | sort -V | tail -5"}
+[assistant] All tests pass. Let me add a release note:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls docs/releases/ | sort -V | tail -5"}
 [usage] input=2 cache_read=22730 cache_write=127 output=399
 
 === Turn 22 ===
@@ -507,18 +507,18 @@ OK (skipped=20)
 3.2.txt
 index.txt
 security.txt
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"runserver\\|autoreload\\|auto-reload\" docs/releases/3.2.txt | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"runserver\\|autoreload\\|auto-reload\" docs/releases/3.2.txt | head"}
 [usage] input=2 cache_read=22857 cache_write=438 output=97
 
 === Turn 23 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"^Management Commands\\|^~~~~\\|runserver\\|^Miscellaneous\" docs/releases/3.2.txt | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"^Management Commands\\|^~~~~\\|runserver\\|^Miscellaneous\" docs/releases/3.2.txt | head"}
 [usage] input=2 cache_read=23295 cache_write=108 output=109
 
 === Turn 24 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["docs/releases/3.2.txt:L154-L172"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["docs/releases/3.2.txt:L154-L172"]}
 [usage] input=131 cache_read=23403 cache_write=437 output=81
 
 === Turn 25 ===
@@ -542,13 +542,13 @@ security.txt
 :mod:`django.contrib.postgres`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"^Management Commands\\|^Core$\\|^Utilities\\|Auto-reload\\|django-admin\" docs/releases/3.2.txt | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"^Management Commands\\|^Core$\\|^Utilities\\|Auto-reload\\|django-admin\" docs/releases/3.2.txt | head"}
 [usage] input=2 cache_read=23840 cache_write=500 output=114
 
 === Turn 26 ===
 [user] [tool_result] 319:Management Commands
 512:Utilities
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["docs/releases/3.2.txt:L319-L345"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["docs/releases/3.2.txt:L319-L345"]}
 [usage] input=2 cache_read=24340 cache_write=133 output=81
 
 === Turn 27 ===
@@ -580,12 +580,12 @@ Migrations
   filename fragment that will be used to name a migration containing only that
   operation.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "docs/releases/3.2.txt", "old": "* Support for colored terminal output on Windows is updated. Various modern\n  terminal environments are automatically detected, and the options for\n  enabling support in other cases are improved. See :ref:`syntax-coloring` for\n  more details.\n\nMigrations", "new": "* Support for colored terminal output on Windows is updated. Various modern\n  terminal environments are automatically detected, and the options for\n  enabling support in other cases are improved. See :ref:`syntax-coloring` for\n  more details.\n\n* The auto-reloader now detects when a program is started with ``python -m\n  custom_module`` (rather than only ``python -m django``), allowing\n  Django-based command-line utilities to override the :djadmin:`runserver`\n  command and be auto-reloaded.\n\nMigrations", "replace": false}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "docs/releases/3.2.txt", "old": "* Support for colored terminal output on Windows is updated. Various modern\n  terminal environments are automatically detected, and the options for\n  enabling support in other cases are improved. See :ref:`syntax-coloring` for\n  more details.\n\nMigrations", "new": "* Support for colored terminal output on Windows is updated. Various modern\n  terminal environments are automatically detected, and the options for\n  enabling support in other cases are improved. See :ref:`syntax-coloring` for\n  more details.\n\n* The auto-reloader now detects when a program is started with ``python -m\n  custom_module`` (rather than only ``python -m django``), allowing\n  Django-based command-line utilities to override the :djadmin:`runserver`\n  command and be auto-reloaded.\n\nMigrations", "replace": false}]}
 [usage] input=2 cache_read=24473 cache_write=462 output=360
 
 === Turn 28 ===
 [user] [tool_result] applied docs/releases/3.2.txt:334-339
-[assistant] Fix complete. Let me run the full autoreload test suite once more:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py utils_tests.test_autoreload 2>&1 | tail -5"}
+[assistant] Fix complete. Let me run the full autoreload test suite once more:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py utils_tests.test_autoreload 2>&1 | tail -5"}
 [usage] input=2 cache_read=24935 cache_write=383 output=151
 
 === Turn 29 ===

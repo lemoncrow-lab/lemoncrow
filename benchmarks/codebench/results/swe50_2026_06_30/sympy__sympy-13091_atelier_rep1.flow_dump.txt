@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/core/basic.py:L290-L380"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/core/basic.py:L290-L380"]}
 [usage] input=3819 cache_read=4885 cache_write=830 output=136
 
 === Turn 2 ===
@@ -157,17 +157,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 
         return self.subs(dummy, tmp) == other.subs(symbol, tmp)
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def __eq__ return False sympify SympifyError", "max_files": 15}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def __eq__ return False sympify SympifyError", "max_files": 15}
 [usage] input=2 cache_read=5715 cache_write=4889 output=709
 
 === Turn 3 ===
 [user] [tool_result] {"candidate_files": ["sympy/core/basic.py", "sympy/core/numbers.py", "sympy/core/function.py", "sympy/combinatorics/free_groups.py", "sympy/assumptions/assume.py", "sympy/combinatorics/perm_groups.py", "sympy/core/containers.py", "sympy/matrices/dense.py"], "exact_match": true, "files": [], "related_symbols": ["SympifyError @ sympy/core/sympify.py:12", "sympify @ sympy/core/sympify.py:54"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "__eq__ __lt__ __le__ __gt__ __ge__ return False SympifyError in numbers.py", "paths": "sympy/core/numbers.py", "max_files": 3, "include_source": true}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "__eq__ __lt__ __le__ __gt__ __ge__ return False SympifyError in numbers.py", "paths": "sympy/core/numbers.py", "max_files": 3, "include_source": true}
 [usage] input=2 cache_read=10604 cache_write=903 output=323
 
 === Turn 4 ===
 [user] [tool_result] {"candidate_files": ["sympy/core/expr.py", "sympy/sets/sets.py"], "exact_match": true, "files": [{"path": "sympy/core/numbers.py", "sections": [{"content": "1249\tdef __eq__(self, other):\n1250\t        if isinstance(other, float):\n1251\t            # coerce to Float at same precision\n1252\t            o = Float(other)\n1253\t            try:\n1254\t                ompf = o._as_mpf_val(self._prec)\n1255\t            except ValueError:\n1256\t                return False\n1257\t            return bool(mlib.mpf_eq(self._mpf_, ompf))\n1258\t        try:\n1259\t            other = _sympify(other)\n1260\t        except SympifyError:\n1261\t            return False    # sympy != other  -->  not ==\n1262\t        if isinstance(other, NumberSymbol):\n1263\t            if other.is_irrational:\n1264\t                return False\n1265\t            return other.__eq__(self)\n1266\t        if isinstance(other, Float):\n1267\t            return bool(mlib.mpf_eq(self._mpf_, other._mpf_))\n1268\t        if isinstance(other, Number):\n1269\t            # numbers should compare at the same precision;\n1270\t            # all _as_mpf_val routines should be sure to abide\n1271\t            # by the request to change the prec if necessary; if\n1272\t            # they don't, the equality test will fail since it compares\n1273\t            # the mpf tuples\n1274\t            ompf = other._as_mpf_val(self._prec)\n1275\t            return bool(mlib.mpf_eq(self._mpf_, ompf))\n1276\t        return False", "end_line": 1276, "line": 1249, "path": "sympy/core/numbers.py", "qualified_name": "Float.__eq__"}]}], "related_symbols": ["Integer.__lt__ @ sympy/core/numbers.py:2126", "Float.__eq__ @ sympy/core/numbers.py:1249", "Rational.__eq__ @ sympy/core/numbers.py:1718", "Number.__eq__ @ sympy/core/numbers.py:688", "Number.__lt__ @ sympy/core/numbers.py:696", "Number.__le__ @ sympy/core/numbers.py:704", "Number.__gt__ @ sympy/core/numbers.py:712", "Number.__ge__ @ sympy/core/numbers.py:719"], "truncated": true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/core/numbers.py:L688-L740", "sympy/core/numbers.py:L1330-L1420", "sympy/core/numbers.py:L1718-L1830", "sympy/core/numbers.py:L2126-L2240"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/core/numbers.py:L688-L740", "sympy/core/numbers.py:L1330-L1420", "sympy/core/numbers.py:L1718-L1830", "sympy/core/numbers.py:L2126-L2240"]}
 [usage] input=2 cache_read=11507 cache_write=1202 output=380
 
 === Turn 5 ===
@@ -550,21 +550,21 @@ class Rational(Number):
         out_int = 1  # integer part
         out_rad = 1  # extracted radicals
         sqr_int = 1
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"return False    # sympy != other\\|return False  # sympy != other\\|return not self.__eq__(other)\" sympy/core/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"return False    # sympy != other\\|return False  # sympy != other\\|return not self.__eq__(other)\" sympy/core/"}
 [usage] input=2 cache_read=12709 cache_write=5073 output=1725
 
 === Turn 6 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"sympy != other\\|return not self.__eq__\\|def __ne__\" sympy/core/*.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"sympy != other\\|return not self.__eq__\\|def __ne__\" sympy/core/*.py"}
 [usage] input=2 cache_read=17782 cache_write=1746 output=99
 
 === Turn 7 ===
-[user] [tool_result] [large response spilled] payload saved to /tmp/atelier-spill/search-1782773249961.json. Use read on this file to inspect full results.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/atelier-spill/search-1782773249961.json"]}
+[user] [tool_result] [large response spilled] payload saved to /tmp/lemoncrow-spill/search-1782773249961.json. Use read on this file to inspect full results.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["/tmp/lemoncrow-spill/search-1782773249961.json"]}
 [usage] input=2 cache_read=19528 cache_write=151 output=84
 
 === Turn 8 ===
-[user] [tool_result] ## /tmp/atelier-spill/search-1782773249961.json
+[user] [tool_result] ## /tmp/lemoncrow-spill/search-1782773249961.json
 {
   "mode": "file_paths_with_content",
   "content": [
@@ -700,7 +700,7 @@ class Rational(Number):
     "inlineCharsBudget": 4000
   }
 }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/core/numbers.py:L2100-L2126", "sympy/core/numbers.py:L3335-L3360"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/core/numbers.py:L2100-L2126", "sympy/core/numbers.py:L3335-L3360"]}
 [usage] input=2 cache_read=19679 cache_write=3777 output=2042
 
 === Turn 9 ===
@@ -760,23 +760,23 @@ class Rational(Number):
         if self is other:
             return S.false
         if isinstance(other, Number):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "sympy/core/basic.py:L316", "old": "                return False    # sympy != other", "new": "                return NotImplemented    # sympy != other"}, {"path": "sympy/core/basic.py:L332", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L1261", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L1279", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L1722", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L1737", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L2115", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L3342", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L3351", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "sympy/core/basic.py:L316", "old": "                return False    # sympy != other", "new": "                return NotImplemented    # sympy != other"}, {"path": "sympy/core/basic.py:L332", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L1261", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L1279", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L1722", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L1737", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L2115", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}, {"path": "sympy/core/numbers.py:L3342", "old": "            return False    # sympy != other  -->  not ==", "new": "            return NotImplemented    # sympy != other  -->  not =="}, {"path": "sympy/core/numbers.py:L3351", "old": "        return not self.__eq__(other)", "new": "        return not self == other"}]}
 [usage] input=2 cache_read=23456 cache_write=2675 output=1384
 
 === Turn 10 ===
 [user] [tool_result] applied sympy/core/basic.py:L316:316, sympy/core/basic.py:L332:332, sympy/core/numbers.py:L1261:1261, sympy/core/numbers.py:L1279:1279, sympy/core/numbers.py:L1722:1722, sympy/core/numbers.py:L1737:1737, sympy/core/numbers.py:L2115:2115, sympy/core/numbers.py:L3342:3342, sympy/core/numbers.py:L3351:3351
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null || cd $(git rev-parse --show-toplevel 2>/dev/null) ; python -c \"\nimport sympy\nfrom sympy import Integer, Float, Rational, pi, Symbol\n\nclass Foo(object):\n    def __eq__(self, other):\n        return True\n    def __ne__(self, other):\n        return False\n    __hash__ = None\n\nf = Foo()\ns = Integer(3)\nprint('Integer == Foo:', s == f, '| Foo == Integer:', f == s)\nprint('Integer != Foo:', s != f, '| Foo != Integer:', f != s)\nprint('Float == Foo:', Float(1.0) == f)\nprint('Rational == Foo:', Rational(1,2) == f)\nprint('pi == Foo:', pi == f)\nprint('Symbol == Foo:', Symbol(\\\"x\\\") == f)\n# sanity normal comparisons\nprint('Integer(3)==3:', Integer(3)==3, '3==Integer(3):', 3==Integer(3))\nprint('Integer(3)==Integer(3):', Integer(3)==Integer(3))\nprint('Float(1)==1:', Float(1)==1)\nprint('Integer(3)==\\\"a\\\":', Integer(3)==\\\"a\\\")\nprint('Integer(3)!=\\\"a\\\":', Integer(3)!=\\\"a\\\")\nprint('NotImpl eq:', Integer(3).__eq__(f) is NotImplemented)\n\"\n"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null || cd $(git rev-parse --show-toplevel 2>/dev/null) ; python -c \"\nimport sympy\nfrom sympy import Integer, Float, Rational, pi, Symbol\n\nclass Foo(object):\n    def __eq__(self, other):\n        return True\n    def __ne__(self, other):\n        return False\n    __hash__ = None\n\nf = Foo()\ns = Integer(3)\nprint('Integer == Foo:', s == f, '| Foo == Integer:', f == s)\nprint('Integer != Foo:', s != f, '| Foo != Integer:', f != s)\nprint('Float == Foo:', Float(1.0) == f)\nprint('Rational == Foo:', Rational(1,2) == f)\nprint('pi == Foo:', pi == f)\nprint('Symbol == Foo:', Symbol(\\\"x\\\") == f)\n# sanity normal comparisons\nprint('Integer(3)==3:', Integer(3)==3, '3==Integer(3):', 3==Integer(3))\nprint('Integer(3)==Integer(3):', Integer(3)==Integer(3))\nprint('Float(1)==1:', Float(1)==1)\nprint('Integer(3)==\\\"a\\\":', Integer(3)==\\\"a\\\")\nprint('Integer(3)!=\\\"a\\\":', Integer(3)!=\\\"a\\\")\nprint('NotImpl eq:', Integer(3).__eq__(f) is NotImplemented)\n\"\n"}
 [usage] input=2 cache_read=26131 cache_write=1555 output=936
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Symmetry now holds. Let me run the relevant test suites.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/core/tests/test_basic.py sympy/core/tests/test_numbers.py sympy/core/tests/test_relational.py -q 2>&1 | tail -20"}
+[assistant] Symmetry now holds. Let me run the relevant test suites.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/core/tests/test_basic.py sympy/core/tests/test_numbers.py sympy/core/tests/test_relational.py -q 2>&1 | tail -20"}
 [usage] input=131 cache_read=27686 cache_write=1364 output=214
 
 === Turn 12 ===
 [user] [tool_result] /opt/miniconda3/envs/testbed/bin/python: No module named pytest
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_numbers.py','sympy/core/tests/test_basic.py','sympy/core/tests/test_relational.py')\" 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_numbers.py','sympy/core/tests/test_basic.py','sympy/core/tests/test_relational.py')\" 2>&1 | tail -30"}
 [usage] input=2 cache_read=29050 cache_write=376 output=144
 
 === Turn 13 ===
@@ -803,7 +803,7 @@ sympy/core/tests/test_relational.py[39] ............f.....................f....
                                                                             [OK]
 
 ======= tests finished: 132 passed, 3 expected to fail, in 0.56 seconds ========
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_expr.py','sympy/core/tests/test_arit.py','sympy/core/tests/test_sympify.py')\" 2>&1 | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_expr.py','sympy/core/tests/test_arit.py','sympy/core/tests/test_sympify.py')\" 2>&1 | tail -8"}
 [usage] input=2 cache_read=29426 cache_write=779 output=216
 
 === Turn 14 ===
@@ -815,13 +815,13 @@ ValueError: Name node can't be used with 'False' constant
  tests finished: 203 passed, 2 skipped, 6 expected to fail, 5 exceptions, 
 in 2.35 seconds 
 DO *NOT* COMMIT!
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_sympify.py')\" 2>&1 | grep -iE \"exception|____ test|Error\" | head -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"import sympy; sympy.test('sympy/core/tests/test_sympify.py')\" 2>&1 | grep -iE \"exception|____ test|Error\" | head -30"}
 [usage] input=2 cache_read=30205 cache_write=404 output=300
 
 === Turn 15 ===
 [user] [tool_result] ValueError: Name node can't be used with 'False' constant
  tests finished: 38 passed, 2 skipped, 1 expected to fail, 1 exceptions,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && git stash && python -c \"import sympy; sympy.test('sympy/core/tests/test_sympify.py')\" 2>&1 | grep -iE \"exceptions|passed\"; git stash pop"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && git stash && python -c \"import sympy; sympy.test('sympy/core/tests/test_sympify.py')\" 2>&1 | grep -iE \"exceptions|passed\"; git stash pop"}
 [usage] input=2 cache_read=30609 cache_write=361 output=132
 
 === Turn 16 ===

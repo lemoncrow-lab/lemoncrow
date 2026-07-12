@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "verbose option definition argparse"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "verbose option definition argparse"}
 [usage] input=3819 cache_read=5104 cache_write=0 output=90
 
 === Turn 2 ===
 [user] [tool_result] MCP error -32000: No module named 'numpy'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"verbose\" pylint/lint/base_options.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"verbose\" pylint/lint/base_options.py"}
 [usage] input=2 cache_read=5104 cache_write=3935 output=83
 
 === Turn 3 ===
@@ -75,7 +75,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 564:                "help": "Show more verbose help.",
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/lint/base_options.py:L535-L560"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/lint/base_options.py:L535-L560"]}
 [usage] input=2 cache_read=9039 cache_write=169 output=81
 
 === Turn 4 ===
@@ -106,7 +106,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
         ),
         (
             "long-help",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"_DoNothingAction\\|metavar\\|nargs\\|add_argument\" pylint/config/utils.py pylint/config/arguments_manager.py pylint/config/argument.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"_DoNothingAction\\|metavar\\|nargs\\|add_argument\" pylint/config/utils.py pylint/config/arguments_manager.py pylint/config/argument.py"}
 [usage] input=2 cache_read=9208 cache_write=338 output=187
 
 === Turn 5 ===
@@ -154,7 +154,7 @@ pylint/config/argument.py:411:    https://docs.python.org/3/library/argparse.htm
 pylint/config/argument.py:422:        metavar: str,
 pylint/config/argument.py:434:            metavar=metavar,
 pylint/config/argument.py:448:    https://docs.python.org/3/library/argparse.html#argparse.ArgumentParser.add_argument
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/arguments_manager.py:L142-L235"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/arguments_manager.py:L142-L235"]}
 [usage] input=2 cache_read=9546 cache_write=1648 output=83
 
 === Turn 6 ===
@@ -253,7 +253,7 @@ pylint/config/argument.py:448:    https://docs.python.org/3/library/argparse.htm
         else:
             raise UnrecognizedArgumentAction
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/argument.py:L260-L320", "pylint/config/utils.py:L120-L150"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/argument.py:L260-L320", "pylint/config/utils.py:L120-L150"]}
 [usage] input=2 cache_read=11194 cache_write=1297 output=194
 
 === Turn 7 ===
@@ -352,7 +352,7 @@ class _DeprecationArgument(_Argument):
 def _parse_rich_type_value(value: Any) -> str:
     """Parse rich (toml) types into strings."""
     if isinstance(value, (list, tuple)):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/utils.py:L40-L120"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/utils.py:L40-L120"]}
 [usage] input=2 cache_read=12491 cache_write=1190 output=79
 
 === Turn 8 ===
@@ -438,7 +438,7 @@ def _parse_rich_type_value(value: Any) -> str:
                 metavar=optdict.get("metavar", ""),
                 hide_help=optdict.get("hide", False),
                 kwargs=optdict.get("kwargs", {}),
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"_DoNothingAction\\|class _CallbackAction\\|nargs\" pylint/config/callback_actions.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"_DoNothingAction\\|class _CallbackAction\\|nargs\" pylint/config/callback_actions.py | head"}
 [usage] input=2 cache_read=13681 cache_write=1145 output=136
 
 === Turn 9 ===
@@ -447,7 +447,7 @@ def _parse_rich_type_value(value: Any) -> str:
 86:        nargs: None = None,
 129:        nargs: None = None,
 333:        nargs: None = None,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/callback_actions.py:L27-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/callback_actions.py:L27-L60"]}
 [usage] input=2 cache_read=14826 cache_write=216 output=82
 
 === Turn 10 ===
@@ -486,13 +486,13 @@ class _DoNothingAction(_CallbackAction):
 class _ExtendAction(argparse._AppendAction):
     """Action that adds the value to a pre-existing list.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/callback_actions.py:L41-L90"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/callback_actions.py:L41-L90"]}
 [usage] input=2 cache_read=15042 cache_write=439 output=82
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"verbose\\|PREPROCESSABLE\\|_set_verbose\\|preprocess\" pylint/config/utils.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"verbose\\|PREPROCESSABLE\\|_set_verbose\\|preprocess\" pylint/config/utils.py"}
 [usage] input=131 cache_read=15481 cache_write=599 output=284
 
 === Turn 12 ===
@@ -503,7 +503,7 @@ class _ExtendAction(argparse._AppendAction):
 214:def _preprocess_options(run: Run, args: Sequence[str]) -> list[str]:
 231:        if option not in PREPROCESSABLE_OPTIONS:
 236:        takearg, cb = PREPROCESSABLE_OPTIONS[option]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/utils.py:L185-L260"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/utils.py:L185-L260"]}
 [usage] input=2 cache_read=16080 cache_write=595 output=79
 
 === Turn 13 ===
@@ -573,7 +573,7 @@ def _preprocess_options(run: Run, args: Sequence[str]) -> list[str]:
         i += 1
 
     return processed_args
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/callback_actions.py:L79-L125"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/callback_actions.py:L79-L125"]}
 [usage] input=2 cache_read=16675 cache_write=880 output=1081
 
 === Turn 14 ===
@@ -625,18 +625,18 @@ class _MessageHelpAction(_CallbackAction):
     """Display the help message of a message."""
 
     def __init__(
-[assistant] I found the bug. The `_DoNothingAction` doesn't set `nargs=0`, so argparse expects an argument. The `--verbose` long option works only because it's stripped out by `_preprocess_options` before argparse sees it, but `-v` falls through to argparse. Let me fix the action:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/config/callback_actions.py", "old": "class _DoNothingAction(_CallbackAction):\n    \"\"\"Action that just passes.\n\n    This action is used to allow pre-processing of certain options\n    without erroring when they are then processed again by argparse.\n    \"\"\"\n\n    def __call__(", "new": "class _DoNothingAction(_CallbackAction):\n    \"\"\"Action that just passes.\n\n    This action is used to allow pre-processing of certain options\n    without erroring when they are then processed again by argparse.\n    \"\"\"\n\n    def __init__(\n        self,\n        option_strings: Sequence[str],\n        dest: str,\n        nargs: None = None,\n        const: None = None,\n        default: None = None,\n        type: None = None,\n        choices: None = None,\n        required: bool = False,\n        help: str = \"\",\n        metavar: str = \"\",\n    ) -> None:\n        super().__init__(\n            option_strings,\n            dest,\n            0,\n            const,\n            default,\n            type,\n            choices,\n            required,\n            help,\n            metavar,\n        )\n\n    def __call__("}]}
+[assistant] I found the bug. The `_DoNothingAction` doesn't set `nargs=0`, so argparse expects an argument. The `--verbose` long option works only because it's stripped out by `_preprocess_options` before argparse sees it, but `-v` falls through to argparse. Let me fix the action:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/config/callback_actions.py", "old": "class _DoNothingAction(_CallbackAction):\n    \"\"\"Action that just passes.\n\n    This action is used to allow pre-processing of certain options\n    without erroring when they are then processed again by argparse.\n    \"\"\"\n\n    def __call__(", "new": "class _DoNothingAction(_CallbackAction):\n    \"\"\"Action that just passes.\n\n    This action is used to allow pre-processing of certain options\n    without erroring when they are then processed again by argparse.\n    \"\"\"\n\n    def __init__(\n        self,\n        option_strings: Sequence[str],\n        dest: str,\n        nargs: None = None,\n        const: None = None,\n        default: None = None,\n        type: None = None,\n        choices: None = None,\n        required: bool = False,\n        help: str = \"\",\n        metavar: str = \"\",\n    ) -> None:\n        super().__init__(\n            option_strings,\n            dest,\n            0,\n            const,\n            default,\n            type,\n            choices,\n            required,\n            help,\n            metavar,\n        )\n\n    def __call__("}]}
 [usage] input=2 cache_read=17555 cache_write=1489 output=690
 
 === Turn 15 ===
 [user] [tool_result] applied pylint/config/callback_actions.py:41-48
-[assistant] Now let me verify the fix works:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null || cd $(git rev-parse --show-toplevel 2>/dev/null); echo \"x = 1\" > /tmp/mytest.py; python -m pylint /tmp/mytest.py -v 2>&1 | head -20"}
+[assistant] Now let me verify the fix works:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null || cd $(git rev-parse --show-toplevel 2>/dev/null); echo \"x = 1\" > /tmp/mytest.py; python -m pylint /tmp/mytest.py -v 2>&1 | head -20"}
 [usage] input=2 cache_read=19044 cache_write=714 output=217
 
 === Turn 16 ===
 [user] [tool_result] ------------------------------------
 Your code has been rated at 10.00/10
-[assistant] `-v` now works. Let me also confirm the help message no longer suggests a `VERBOSE` value, and the long option still works:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pylint /tmp/mytest.py --verbose 2>&1 | head -3; echo \"---help---\"; python -m pylint --help 2>&1 | grep -i verbose"}
+[assistant] `-v` now works. Let me also confirm the help message no longer suggests a `VERBOSE` value, and the long option still works:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pylint /tmp/mytest.py --verbose 2>&1 | head -3; echo \"---help---\"; python -m pylint --help 2>&1 | grep -i verbose"}
 [usage] input=2 cache_read=19758 cache_write=243 output=190
 
 === Turn 17 ===
@@ -646,13 +646,13 @@ Your code has been rated at 10.00/10
 ---help---
   --long-help           Show more verbose help.
   --verbose, -v         In verbose mode, extra non-checker-related info will
-[assistant] Both the short and long options work, and the help no longer shows a `VERBOSE` metavar. Let me run the relevant tests to ensure nothing regressed:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pytest tests/config/test_config.py tests/test_self.py -k \"verbose or callback or extension\" -q 2>&1 | tail -20"}
+[assistant] Both the short and long options work, and the help no longer shows a `VERBOSE` metavar. Let me run the relevant tests to ensure nothing regressed:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pytest tests/config/test_config.py tests/test_self.py -k \"verbose or callback or extension\" -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=20001 cache_write=268 output=394
 
 === Turn 18 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] The 2 failures are pre-existing and unrelated (a `tomlkit` version incompatibility in `generate_toml_config`, nothing to do with verbose/callback actions). My fix's relevant tests pass. Let me add a regression test for this bug:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); grep -rn \"verbose\" tests/config/test_config.py tests/test_self.py"}
+[assistant] The 2 failures are pre-existing and unrelated (a `tomlkit` version incompatibility in `generate_toml_config`, nothing to do with verbose/callback actions). My fix's relevant tests pass. Let me add a regression test for this bug:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); grep -rn \"verbose\" tests/config/test_config.py tests/test_self.py"}
 [usage] input=131 cache_read=20269 cache_write=970 output=359
 
 === Turn 19 ===
@@ -662,7 +662,7 @@ tests/test_self.py:1425:            run = Run(["--verbose"])
 tests/test_self.py:1426:            assert run.verbose
 tests/test_self.py:1429:            run = Run(["--verbose=True"])
 tests/test_self.py:1430:            assert run.verbose
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/test_self.py:L1418-L1435"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/test_self.py:L1418-L1435"]}
 [usage] input=2 cache_read=21239 cache_write=639 output=79
 
 === Turn 20 ===
@@ -685,7 +685,7 @@ tests/test_self.py:1430:            assert run.verbose
     def test_enable_all_extensions() -> None:
         """Test to see if --enable-all-extensions does indeed load all extensions."""
         # Record all extensions
-[assistant] Let me check whether `-v` actually enables verbose mode (not just avoids the error), since preprocessing only handles `--verbose`:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -c \"\nfrom pylint.lint import Run\ntry:\n    r = Run(['/tmp/mytest.py','-v'], exit=False)\n    print('verbose via -v:', r.verbose)\nexcept SystemExit as e:\n    print('exit', e)\n\""}
+[assistant] Let me check whether `-v` actually enables verbose mode (not just avoids the error), since preprocessing only handles `--verbose`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -c \"\nfrom pylint.lint import Run\ntry:\n    r = Run(['/tmp/mytest.py','-v'], exit=False)\n    print('verbose via -v:', r.verbose)\nexcept SystemExit as e:\n    print('exit', e)\n\""}
 [usage] input=2 cache_read=21878 cache_write=307 output=651
 
 === Turn 21 ===
@@ -693,12 +693,12 @@ tests/test_self.py:1430:            assert run.verbose
 Your code has been rated at 10.00/10 (previous run: 10.00/10, +0.00)
 
 verbose via -v: False
-[assistant] For behavior to truly match the long option, `-v` should also enable verbose mode. The preprocessing only handles `--` prefixed options. Let me fix both the preprocessing and register the short option:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/config/utils.py", "old": "    \"--verbose\": (False, _set_verbose_mode),\n    \"--enable-all-extensions\": (False, _enable_all_extensions),\n}", "new": "    \"--verbose\": (False, _set_verbose_mode),\n    \"-v\": (False, _set_verbose_mode),\n    \"--enable-all-extensions\": (False, _enable_all_extensions),\n}"}, {"path": "pylint/config/utils.py", "old": "        argument = args[i]\n        if not argument.startswith(\"--\"):\n            processed_args.append(argument)\n            i += 1\n            continue", "new": "        argument = args[i]\n        if not argument.startswith(\"-\"):\n            processed_args.append(argument)\n            i += 1\n            continue"}]}
+[assistant] For behavior to truly match the long option, `-v` should also enable verbose mode. The preprocessing only handles `--` prefixed options. Let me fix both the preprocessing and register the short option:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/config/utils.py", "old": "    \"--verbose\": (False, _set_verbose_mode),\n    \"--enable-all-extensions\": (False, _enable_all_extensions),\n}", "new": "    \"--verbose\": (False, _set_verbose_mode),\n    \"-v\": (False, _set_verbose_mode),\n    \"--enable-all-extensions\": (False, _enable_all_extensions),\n}"}, {"path": "pylint/config/utils.py", "old": "        argument = args[i]\n        if not argument.startswith(\"--\"):\n            processed_args.append(argument)\n            i += 1\n            continue", "new": "        argument = args[i]\n        if not argument.startswith(\"-\"):\n            processed_args.append(argument)\n            i += 1\n            continue"}]}
 [usage] input=2 cache_read=22185 cache_write=710 output=1458
 
 === Turn 22 ===
 [user] [tool_result] {"FIXME":{"reason":"Must update: these callers still use the contract this edit changed.","sites":[{"line":247,"old":"--","path":"pylint/config/arguments_manager.py","snippet":"if opt.startswith(\"--\"):"},{"line":404,"old":"--","path":"pylint/config/arguments_manager.py","snippet":"args = [\"--\" + str(opt)]"}]},"applied":["pylint/config/utils.py:209-211,221-225"]}
-[assistant] The FIXME sites are unrelated (different functions in `arguments_manager.py` dealing with config writing, not preprocessing). Let me verify quickly and test:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/arguments_manager.py:L243-L250", "pylint/config/arguments_manager.py:L400-L406"]}
+[assistant] The FIXME sites are unrelated (different functions in `arguments_manager.py` dealing with config writing, not preprocessing). Let me verify quickly and test:[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/arguments_manager.py:L243-L250", "pylint/config/arguments_manager.py:L400-L406"]}
 [usage] input=2 cache_read=22895 cache_write=1630 output=256
 
 === Turn 23 ===
@@ -720,23 +720,23 @@ verbose via -v: False
         args = ["--" + str(opt)]
         if "short" in optdict:
             self._short_options[optdict["short"]] = opt  # type: ignore[index]
-[assistant] Both FIXME sites are unrelated to preprocessing (unrecognized-option detection and config writing). Now let me verify `-v` enables verbose mode:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -c \"\nfrom pylint.lint import Run\nr = Run(['/tmp/mytest.py','-v'], exit=False)\nprint('verbose via -v:', r.verbose)\nr2 = Run(['/tmp/mytest.py','--verbose'], exit=False)\nprint('verbose via --verbose:', r2.verbose)\nr3 = Run(['/tmp/mytest.py'], exit=False)\nprint('verbose default:', r3.verbose)\n\" 2>&1 | grep verbose"}
+[assistant] Both FIXME sites are unrelated to preprocessing (unrecognized-option detection and config writing). Now let me verify `-v` enables verbose mode:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -c \"\nfrom pylint.lint import Run\nr = Run(['/tmp/mytest.py','-v'], exit=False)\nprint('verbose via -v:', r.verbose)\nr2 = Run(['/tmp/mytest.py','--verbose'], exit=False)\nprint('verbose via --verbose:', r2.verbose)\nr3 = Run(['/tmp/mytest.py'], exit=False)\nprint('verbose default:', r3.verbose)\n\" 2>&1 | grep verbose"}
 [usage] input=2 cache_read=24525 cache_write=534 output=376
 
 === Turn 24 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now `-v` fully matches `--verbose`. Let me add a regression test and run the verbose tests:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_self.py", "old": "    @staticmethod\n    def test_verbose() -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose\"])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose", "new": "    @staticmethod\n    @pytest.mark.parametrize(\"argument\", [\"--verbose\", \"-v\"])\n    def test_verbose(argument: str) -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([argument])\n            assert run.verbose"}]}
+[assistant] Now `-v` fully matches `--verbose`. Let me add a regression test and run the verbose tests:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_self.py", "old": "    @staticmethod\n    def test_verbose() -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose\"])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose", "new": "    @staticmethod\n    @pytest.mark.parametrize(\"argument\", [\"--verbose\", \"-v\"])\n    def test_verbose(argument: str) -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([argument])\n            assert run.verbose"}]}
 [usage] input=131 cache_read=25059 cache_write=407 output=389
 
 === Turn 25 ===
 [user] [tool_result] {"failed":[{"error":"Edit rolled back: it weakened an existing test contract (tests/test_self.py: net removal of 1 assertion(s)). This was a test-only edit -- fix the production code in the SAME edit so the original assertions pass (a genuine contract change that also edits code is allowed).","paths":["tests/test_self.py"]}],"rolled_back":true,"test_weakening":[{"path":"tests/test_self.py","reason":"net removal of 1 assertion(s)"}]}
-[assistant] I'll keep all assertions and add the short-option case:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_self.py", "old": "    @staticmethod\n    def test_verbose() -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose\"])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose", "new": "    @staticmethod\n    @pytest.mark.parametrize(\"argument\", [\"--verbose\", \"-v\"])\n    def test_verbose(argument: str) -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([argument])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose"}]}
+[assistant] I'll keep all assertions and add the short-option case:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_self.py", "old": "    @staticmethod\n    def test_verbose() -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose\"])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose", "new": "    @staticmethod\n    @pytest.mark.parametrize(\"argument\", [\"--verbose\", \"-v\"])\n    def test_verbose(argument: str) -> None:\n        \"\"\"Test the --verbose flag.\"\"\"\n        with pytest.raises(SystemExit):\n            run = Run([argument])\n            assert run.verbose\n\n        with pytest.raises(SystemExit):\n            run = Run([\"--verbose=True\"])\n            assert run.verbose"}]}
 [usage] input=2 cache_read=25466 cache_write=693 output=461
 
 === Turn 26 ===
 [user] [tool_result] applied tests/test_self.py:1421-1430
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pytest tests/test_self.py -k \"verbose or enable_all_extensions\" -q 2>&1 | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); python -m pytest tests/test_self.py -k \"verbose or enable_all_extensions\" -q 2>&1 | tail -8"}
 [usage] input=2 cache_read=26159 cache_write=482 output=130
 
 === Turn 27 ===
@@ -747,7 +747,7 @@ tests/test_self.py: 23 warnings
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 3 passed, 116 deselected, 170 warnings in 0.09s
-[assistant] All tests pass. Let me do a final review of the complete change:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); git diff --stat"}
+[assistant] All tests pass. Let me do a final review of the complete change:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null); git diff --stat"}
 [usage] input=2 cache_read=26641 cache_write=308 output=468
 
 === Turn 28 ===

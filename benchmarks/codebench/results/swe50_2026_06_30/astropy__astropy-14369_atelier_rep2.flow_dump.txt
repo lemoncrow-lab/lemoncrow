@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "ascii.cds reader parse units CDS format"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "ascii.cds reader parse units CDS format"}
 [usage] input=3819 cache_read=5485 cache_write=0 output=95
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["astropy/io/ascii/cds.py","astropy/units/format/cds.py","astropy/io/fits/column.py","astropy/io/ascii/core.py","astropy/io/ascii/ui.py","astropy/io/ascii/mrt.py","astropy/units/cds.py","astropy/units/format/cds_parsetab.py"],"exact_match":false,"files":[],"related_symbols":["Cds @ astropy/io/ascii/cds.py:209","parse @ astropy/io/votable/table.py:35","CDS.parse @ astropy/units/format/cds.py:291","CDS @ astropy/units/format/cds.py:26","CDS._generate_unit_names @ astropy/units/format/cds.py:64","io_read @ astropy/io/ascii/connect.py:13","Fits.parse @ astropy/units/format/fits.py:153","Base.parse @ astropy/units/format/base.py:27"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/units/format/cds.py"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/units/format/cds.py"]}
 [usage] input=2 cache_read=5485 cache_write=4249 output=75
 
 === Turn 3 ===
@@ -430,17 +430,17 @@ class CDS(Base):
 
         return s
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "CDS unit format parse test cases division roundtrip", "paths": "astropy/units/tests"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "CDS unit format parse test cases division roundtrip", "paths": "astropy/units/tests"}
 [usage] input=2 cache_read=9734 cache_write=3891 output=2629
 
 === Turn 4 ===
 [user] [tool_result] {"candidate_files":["astropy/io/ascii/cds.py","astropy/units/quantity.py","astropy/io/votable/tree.py","astropy/units/format/cds_parsetab.py","astropy/io/fits/connect.py","astropy/units/format/generic.py","astropy/units/core.py"],"exact_match":false,"files":[{"path":"astropy/units/format/cds.py","sections":[{"content":"26\tclass CDS(Base):\n27\t    \"\"\"\n28\t    Support the `Centre de Données astronomiques de Strasbourg\n29\t    <http://cds.u-strasbg.fr/>`_ `Standards for Astronomical\n30\t    Catalogues 2.0 <http://vizier.u-strasbg.fr/vizier/doc/catstd-3.2.htx>`_\n31\t    format, and the `complete set of supported units\n32\t    <https://vizier.u-strasbg.fr/viz-bin/Unit>`_.  This format is used\n33\t    by VOTable up to version 1.2.\n34\t    \"\"\"\n35\t\n36\t    _tokens = (\n37\t        \"PRODUCT\",\n38\t        \"DIVISION\",\n39\t        \"OPEN_PAREN\",\n40\t        \"CLOSE_PAREN\",\n41\t        \"OPEN_BRACKET\",\n42\t        \"CLOSE_BRACKET\",\n43\t        \"X\",\n44\t        \"SIGN\",\n45\t        \"UINT\",\n46\t        \"UFLOAT\",\n47\t        \"UNIT\",\n48\t        \"DIMENSIONLESS\",\n49\t    )\n50\t\n51\t    @classproperty(lazy=True)\n52\t    def _units(cls):\n53\t        return cls._generate_unit_names()\n54\t\n55\t    @classproperty(lazy=True)\n56\t    def _parser(cls):\n57\t        return cls._make_parser()\n58\t\n59\t    @classproperty(lazy=True)\n60\t    def _lexer(cls):\n61\t        return cls._make_lexer()\n62\t\n63\t    @staticmethod\n64\t    def _generate_unit_names():\n65\t        from astropy import units as u\n66\t        from astropy.units import cds\n67\t\n68\t        names = {}\n69\t\n70\t        for key, val in cds.__dict__.items():\n71\t            if isinstance(val, u.UnitBase):\n72\t                names[key] = val\n73\t\n74\t        return names\n75\t\n76\t    @classmethod\n77\t    def _make_lexer(cls):\n78\t        tokens = cls._tokens\n79\t\n80\t        t_PRODUCT = r\"\\.\"\n81\t        t_DIVISION = r\"/\"\n82\t        t_OPEN_PAREN = r\"\\(\"\n83\t        t_CLOSE_PAREN = r\"\\)\"\n84\t        t_OPEN_BRACKET = r\"\\[\"\n85\t        t_CLOSE_BRACKET = r\"\\]\"\n86\t\n87\t        # NOTE THE ORDERING OF THESE RULES IS IMPORTANT!!\n88\t        # Regular expression rules for simple tokens\n89\t\n90\t        def t_UFLOAT(t):\n91\t            r\"((\\d+\\.?\\d+)|(\\.\\d+))([eE][+-]?\\d+)?\"\n92\t            if not re.search(r\"[eE\\.]\", t.value):\n93\t                t.type = \"UINT\"\n... [truncated — L26-L358]","end_line":358,"line":26,"path":"astropy/units/format/cds.py","qualified_name":"CDS"}]}],"related_symbols":["TestRoundtripCDS @ astropy/units/tests/test_format.py:316","TestRoundtripVOUnit @ astropy/units/tests/test_format.py:282","TestRoundtripFITS @ astropy/units/tests/test_format.py:300","Cds @ astropy/io/ascii/cds.py:209","test_full_repr_roundtrip @ astropy/io/ascii/tests/test_ecsv.py:762","test_cds_power @ astropy/units/tests/test_units.py:197","TestDivisionFunctions @ astropy/io/fits/tests/test_division.py:10","CDS @ astropy/units/format/cds.py:26"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "cds format unit parse test J/m/s division", "paths": "astropy/units/tests/test_format.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "cds format unit parse test J/m/s division", "paths": "astropy/units/tests/test_format.py"}
 [usage] input=2 cache_read=13625 cache_write=4227 output=111
 
 === Turn 5 ===
 [user] [tool_result] {"candidate_files":["astropy/units/format/cds.py","astropy/io/ascii/cds.py","astropy/io/votable/tree.py","astropy/units/format/cds_parsetab.py","astropy/units/cds.py","astropy/units/format/ogip.py","astropy/units/format/generic.py"],"exact_match":false,"files":[{"path":"astropy/units/tests/test_format.py","sections":[{"content":"316\tclass TestRoundtripCDS(RoundtripBase):\n317\t    format_ = \"cds\"\n318\t\n319\t    @pytest.mark.parametrize(\n320\t        \"unit\",\n321\t        [\n322\t            unit\n323\t            for unit in u_format.CDS._units.values()\n324\t            if (isinstance(unit, UnitBase) and not isinstance(unit, PrefixUnit))\n325\t        ],\n326\t    )\n327\t    def test_roundtrip(self, unit):\n328\t        self.check_roundtrip(unit)\n329\t        if unit == u.mag:\n330\t            # Skip mag: decomposes into dex, which is unknown to CDS.\n331\t            return\n332\t\n333\t        self.check_roundtrip_decompose(unit)\n334\t\n335\t    @pytest.mark.parametrize(\n336\t        \"unit\", [u.dex(unit) for unit in (u.cm / u.s**2, u.K, u.Lsun)]\n337\t    )\n338\t    def test_roundtrip_dex(self, unit):\n339\t        string = unit.to_string(format=\"cds\")\n340\t        recovered = u.Unit(string, format=\"cds\")\n341\t        assert recovered == unit","end_line":341,"line":316,"path":"astropy/units/tests/test_format.py","qualified_name":"TestRoundtripCDS"}]}],"related_symbols":["TestRoundtripCDS @ astropy/units/tests/test_format.py:316","test_cds_grammar @ astropy/units/tests/test_format.py:95","TestRoundtripCDS.test_roundtrip_dex @ astropy/units/tests/test_format.py:338","test_cds_non_ascii_unit @ astropy/units/tests/test_format.py:395","test_vounit_binary_prefix @ astropy/units/tests/test_format.py:569","test_unit_grammar @ astropy/units/tests/test_format.py:40","test_parse_error_message_for_output_only_format @ astropy/units/tests/test_format.py:783","test_unit_grammar_fail @ astropy/units/tests/test_format.py:50"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/units/tests/test_format.py:L95-L180"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/units/tests/test_format.py:L95-L180"]}
 [usage] input=2 cache_read=17852 cache_write=1039 output=83
 
 === Turn 6 ===
@@ -531,7 +531,7 @@ def test_cds_log10_dimensionless():
                 "10**46 erg /s",
                 "10**(39) J /s",
                 "10**(39) W",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/units/tests/test_format.py:L60-L96"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/units/tests/test_format.py:L60-L96"]}
 [usage] input=2 cache_read=18891 cache_write=1141 output=83
 
 === Turn 7 ===
@@ -573,7 +573,7 @@ def test_cds_log10_dimensionless():
 )
 def test_cds_grammar(strings, unit):
     for s in strings:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/units/tests/test_format.py:L54-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/units/tests/test_format.py:L54-L60"]}
 [usage] input=2 cache_read=20032 cache_write=864 output=83
 
 === Turn 8 ===
@@ -585,7 +585,7 @@ def test_cds_grammar(strings, unit):
     [
         (["0.1nm"], u.AA),
         (["mW/m2"], u.Unit(u.erg / u.cm**2 / u.s)),
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/units/tests/test_format.py:L180-L260"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/units/tests/test_format.py:L180-L260"]}
 [usage] input=2 cache_read=20896 cache_write=186 output=421
 
 === Turn 9 ===
@@ -671,30 +671,30 @@ class RoundtripBase:
         ud = unit.decompose()
         s = ud.to_string(self.format_)
         assert "  " not in s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def yacc def lex parsing tabmodule signature regenerate", "paths": "astropy/utils/parsing.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def yacc def lex parsing tabmodule signature regenerate", "paths": "astropy/utils/parsing.py"}
 [usage] input=2 cache_read=21082 cache_write=1475 output=3837
 
 === Turn 10 ===
 [user] [tool_result] {"candidate_files":["astropy/extern/ply/lex.py","astropy/extern/ply/yacc.py","astropy/extern/ply/__init__.py","astropy/units/format/cds.py","astropy/units/format/generic.py","astropy/units/format/ogip.py","astropy/coordinates/angle_formats.py"],"exact_match":false,"files":[{"path":"astropy/utils/parsing.py","sections":[{"content":"30\tdef _add_tab_header(filename, package):\n31\t    with open(filename) as f:\n32\t        contents = f.read()\n33\t\n34\t    with open(filename, \"w\") as f:\n35\t        f.write(_TAB_HEADER.format(package=package))\n36\t        f.write(contents)\n37\t\n38\t\n39\t@contextlib.contextmanager\n40\tdef _patch_get_caller_module_dict(module):\n41\t    \"\"\"Temporarily replace the module's get_caller_module_dict.\n42\t\n43\t    This is a function inside ``ply.lex`` and ``ply.yacc`` (each has a copy)\n44\t    that is used to retrieve the caller's local symbols. Here, we patch the\n45\t    function to instead retrieve the grandparent's local symbols to account\n46\t    for a wrapper layer.\n47\t    \"\"\"\n48\t    original = module.get_caller_module_dict\n49\t\n50\t    @functools.wraps(original)\n51\t    def wrapper(levels):\n52\t        # Add 2, not 1, because the wrapper itself adds another level\n53\t        return original(levels + 2)\n54\t\n55\t    module.get_caller_module_dict = wrapper\n56\t    yield\n57\t    module.get_caller_module_dict = original\n58\t\n59\t\n60\tdef lex(lextab, package, reflags=int(re.VERBOSE)):\n61\t    \"\"\"Create a lexer from local variables.\n62\t\n63\t    It automatically compiles the lexer in optimized mode, writing to\n64\t    ``lextab`` in the same directory as the calling file.\n65\t\n66\t    This function is thread-safe. The returned lexer is *not* thread-safe, but\n67\t    if it is used exclusively with a single parser returned by :func:`yacc`\n68\t    then it will be safe.\n69\t\n70\t    It is only intended to work with lexers defined within the calling\n71\t    function, rather than at class or module scope.\n72\t\n73\t    Parameters\n74\t    ----------\n75\t    lextab : str\n76\t        Name for the file to write with the generated tables, if it does not\n77\t        already exist (without ``.py`` suffix).\n78\t    package : str\n79\t        Name of a test package which should be run with pytest to regenerate\n80\t        the output file. This is inserted into a comment in the generated\n81\t        file.\n... [truncated — L30-L158]","end_line":158,"line":30,"path":"astropy/utils/parsing.py","qualified_name":"_add_tab_header"}]}],"related_symbols":["yacc @ astropy/utils/parsing.py:119","lex @ astropy/utils/parsing.py:60","_add_tab_header @ astropy/utils/parsing.py:30","_patch_get_caller_module_dict @ astropy/utils/parsing.py:40","ThreadSafeParser @ astropy/utils/parsing.py:103","ThreadSafeParser.__init__ @ astropy/utils/parsing.py:109","ThreadSafeParser.parse @ astropy/utils/parsing.py:113","_check_ellipsoid @ astropy/coordinates/earth.py:59"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/utils/parsing.py:L119-L158"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/utils/parsing.py:L119-L158"]}
 [usage] input=2 cache_read=22557 cache_write=5141 output=81
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now I'll make the fix. The bug is that `p_division_of_units` is right-recursive (`unit_expression DIVISION combined_units`), making division right-associative. CDS division should be left-associative.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"astropy/units/format/cds.py","old":"        def p_division_of_units(p):\n            \"\"\"\n            division_of_units : DIVISION unit_expression\n                              | unit_expression DIVISION combined_units\n            \"\"\"\n            if len(p) == 3:\n                p[0] = p[2] ** -1\n            else:\n                p[0] = p[1] / p[3]","new":"        def p_division_of_units(p):\n            \"\"\"\n            division_of_units : DIVISION unit_expression\n                              | combined_units DIVISION unit_expression\n            \"\"\"\n            if len(p) == 3:\n                p[0] = p[2] ** -1\n            else:\n                p[0] = p[1] / p[3]"}]}
+[assistant] Now I'll make the fix. The bug is that `p_division_of_units` is right-recursive (`unit_expression DIVISION combined_units`), making division right-associative. CDS division should be left-associative.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"astropy/units/format/cds.py","old":"        def p_division_of_units(p):\n            \"\"\"\n            division_of_units : DIVISION unit_expression\n                              | unit_expression DIVISION combined_units\n            \"\"\"\n            if len(p) == 3:\n                p[0] = p[2] ** -1\n            else:\n                p[0] = p[1] / p[3]","new":"        def p_division_of_units(p):\n            \"\"\"\n            division_of_units : DIVISION unit_expression\n                              | combined_units DIVISION unit_expression\n            \"\"\"\n            if len(p) == 3:\n                p[0] = p[2] ** -1\n            else:\n                p[0] = p[1] / p[3]"}]}
 [usage] input=131 cache_read=27698 cache_write=805 output=765
 
 === Turn 12 ===
 [user] [tool_result] applied astropy/units/format/cds.py:182-190
-[assistant] Now delete the stale generated parser table so it regenerates with the new grammar:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd astropy/units/format && ls cds_parsetab.py cds_lextab.py 2>/dev/null && rm -f cds_parsetab.py && echo removed"}
+[assistant] Now delete the stale generated parser table so it regenerates with the new grammar:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd astropy/units/format && ls cds_parsetab.py cds_lextab.py 2>/dev/null && rm -f cds_parsetab.py && echo removed"}
 [usage] input=2 cache_read=28503 cache_write=919 output=200
 
 === Turn 13 ===
 [user] [tool_result] cds_lextab.py
 cds_parsetab.py
 removed
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nfrom astropy import units as u\nfor s in ['10+3J/m/s/kpc2','10-7J/s/kpc2','J/m/s/kpc2','mW/m2','km/s','km.s-1']:\n    print(s, '->', u.Unit(s, format='cds'))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nfrom astropy import units as u\nfor s in ['10+3J/m/s/kpc2','10-7J/s/kpc2','J/m/s/kpc2','mW/m2','km/s','km.s-1']:\n    print(s, '->', u.Unit(s, format='cds'))\n\""}
 [usage] input=2 cache_read=29422 cache_write=226 output=192
 
 === Turn 14 ===
@@ -704,28 +704,28 @@ J/m/s/kpc2 -> J / (kpc2 m s)
 mW/m2 -> mW / m2
 km/s -> km / s
 km.s-1 -> km / s
-[assistant] The units now parse correctly. Let me run the CDS format tests to ensure no regressions:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest astropy/units/tests/test_format.py -k \"cds or CDS or Cds\" -q 2>&1 | tail -25"}
+[assistant] The units now parse correctly. Let me run the CDS format tests to ensure no regressions:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest astropy/units/tests/test_format.py -k \"cds or CDS or Cds\" -q 2>&1 | tail -25"}
 [usage] input=2 cache_read=29648 cache_write=319 output=171
 
 === Turn 15 ===
 [user] [tool_result] 167 passed, 565 deselected in 0.21s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest astropy/io/ascii/tests/test_cds.py astropy/units/tests/test_format.py -q 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest astropy/io/ascii/tests/test_cds.py astropy/units/tests/test_format.py -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=29967 cache_write=193 output=175
 
 === Turn 16 ===
 [user] [tool_result] 744 passed in 0.70s
-[assistant] All tests pass. Let me verify the original reported reproduction end-to-end:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && cat > /tmp/tab.txt <<'EOF'\nTitle:\nAuthors:\nTable:\n================================================================================\nByte-by-byte Description of file: tab.txt\n--------------------------------------------------------------------------------\n   Bytes Format Units          \t\tLabel      Explanations\n--------------------------------------------------------------------------------\n   1- 10 A10    ---            \t\tID         ID\n  12- 21 F10.5  10+3J/m/s/kpc2    \tSBCONT     Cont surface brightness\n  23- 32 F10.5  10-7J/s/kpc2 \t\tSBLINE     Line surface brightness\n--------------------------------------------------------------------------------\nID0001     70.99200   38.51040      \nID0001     13.05120   28.19240      \nEOF\npython -c \"\nfrom astropy.table import Table\ndat = Table.read('/tmp/tab.txt',format='ascii.cds')\nprint(dat['SBCONT'].unit, '|', dat['SBLINE'].unit)\n\"; git -C \"$(git rev-parse --show-toplevel)\" status --short astropy/units/format/"}
+[assistant] All tests pass. Let me verify the original reported reproduction end-to-end:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && cat > /tmp/tab.txt <<'EOF'\nTitle:\nAuthors:\nTable:\n================================================================================\nByte-by-byte Description of file: tab.txt\n--------------------------------------------------------------------------------\n   Bytes Format Units          \t\tLabel      Explanations\n--------------------------------------------------------------------------------\n   1- 10 A10    ---            \t\tID         ID\n  12- 21 F10.5  10+3J/m/s/kpc2    \tSBCONT     Cont surface brightness\n  23- 32 F10.5  10-7J/s/kpc2 \t\tSBLINE     Line surface brightness\n--------------------------------------------------------------------------------\nID0001     70.99200   38.51040      \nID0001     13.05120   28.19240      \nEOF\npython -c \"\nfrom astropy.table import Table\ndat = Table.read('/tmp/tab.txt',format='ascii.cds')\nprint(dat['SBCONT'].unit, '|', dat['SBLINE'].unit)\n\"; git -C \"$(git rev-parse --show-toplevel)\" status --short astropy/units/format/"}
 [usage] input=2 cache_read=30160 cache_write=190 output=541
 
 === Turn 17 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "/tmp/tab.txt", "overwrite": true, "new": "Title:\nAuthors:\nTable:\n================================================================================\nByte-by-byte Description of file: tab.txt\n--------------------------------------------------------------------------------\n   Bytes Format Units          \t\tLabel      Explanations\n--------------------------------------------------------------------------------\n   1- 10 A10    ---            \t\tID         ID\n  12- 21 F10.5  10+3J/m/s/kpc2    \tSBCONT     Cont surface brightness\n  23- 32 F10.5  10-7J/s/kpc2 \t\tSBLINE     Line surface brightness\n--------------------------------------------------------------------------------\nID0001     70.99200   38.51040      \nID0001     13.05120   28.19240      \n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "/tmp/tab.txt", "overwrite": true, "new": "Title:\nAuthors:\nTable:\n================================================================================\nByte-by-byte Description of file: tab.txt\n--------------------------------------------------------------------------------\n   Bytes Format Units          \t\tLabel      Explanations\n--------------------------------------------------------------------------------\n   1- 10 A10    ---            \t\tID         ID\n  12- 21 F10.5  10+3J/m/s/kpc2    \tSBCONT     Cont surface brightness\n  23- 32 F10.5  10-7J/s/kpc2 \t\tSBLINE     Line surface brightness\n--------------------------------------------------------------------------------\nID0001     70.99200   38.51040      \nID0001     13.05120   28.19240      \n"}]}
 [usage] input=131 cache_read=30350 cache_write=765 output=348
 
 === Turn 18 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nfrom astropy.table import Table\ndat = Table.read('/tmp/tab.txt',format='ascii.cds')\nprint(dat['SBCONT'].unit, '|', dat['SBLINE'].unit)\n\" && git status --short astropy/units/format/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nfrom astropy.table import Table\ndat = Table.read('/tmp/tab.txt',format='ascii.cds')\nprint(dat['SBCONT'].unit, '|', dat['SBLINE'].unit)\n\" && git status --short astropy/units/format/"}
 [usage] input=2 cache_read=31115 cache_write=484 output=184
 
 === Turn 19 ===

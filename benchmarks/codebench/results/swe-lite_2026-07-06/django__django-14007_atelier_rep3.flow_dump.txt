@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "returning_fields insert converters set attr pk"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "returning_fields insert converters set attr pk"}
 [usage] input=2845 cache_read=4973 cache_write=629 output=105
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ django/db/backends/mysql/operations.py:L145-L150 method DatabaseOperations.fetch
 candidate_files: django/db/models/options.py, django/db/models/query.py, django/db/models/base.py, django/db/backends/base/operations.py, django/db/models/sql/compiler.py, django/db/backends/oracle/operations.py, django/db/backends/mysql/operations.py, django/contrib/admin/templatetags/admin_list.py, tests/model_meta/tests.py, django/db/models/sql/query.py, django/db/models/sql/subqueries.py, tests/backends/tests.py, django/db/backends/sqlite3/operations.py, django/db/models/fields/related.py, django/contrib/admin/utils.py, django/db/models/fields/__init__.py, django/db/models/expressions.py, django/forms/forms.py, django/db/backends/oracle/base.py, django/db/backends/postgresql/operations.py, django/db/models/functions/comparison.py, django/contrib/admin/checks.py, django/urls/resolvers.py, django/contrib/admin/views/main.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/compiler.py:L1403-L1440", "django/db/models/query.py:L1279-L1310", "django/db/models/base.py:L900-L960"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/compiler.py:L1403-L1440", "django/db/models/query.py:L1279-L1310", "django/db/models/base.py:L900-L960"]}
 [usage] input=2 cache_read=5602 cache_write=3626 output=121
 
 === Turn 3 ===
@@ -218,7 +218,7 @@ class SQLDeleteCompiler(SQLCompiler):
         return collector.delete()
 
     delete.alters_data = True
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "apply_converters get_db_converters from_db_value expression"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "apply_converters get_db_converters from_db_value expression"}
 [usage] input=2 cache_read=9228 cache_write=2305 output=274
 
 === Turn 4 ===
@@ -280,7 +280,7 @@ django/db/models/fields/related.py:L1011-L1015 method ForeignKey.get_db_converte
 candidate_files: django/db/backends/sqlite3/operations.py, django/contrib/gis/db/backends/base/operations.py, django/db/models/expressions.py, django/db/backends/base/operations.py, django/db/models/fields/related.py, django/db/models/sql/compiler.py, tests/from_db_value/models.py, django/contrib/gis/db/models/fields.py, django/contrib/gis/db/models/sql/conversion.py, django/db/models/fields/json.py, tests/custom_pk/fields.py, tests/postgres_tests/models.py, django/db/models/fields/__init__.py, django/db/models/sql/query.py, django/core/cache/backends/db.py, django/db/models/query.py, django/urls/resolvers.py, django/contrib/gis/db/backends/mysql/operations.py, django/contrib/gis/db/backends/oracle/operations.py, django/urls/converters.py, django/contrib/gis/db/backends/postgis/operations.py, django/contrib/gis/db/backends/spatialite/operations.py, django/contrib/postgres/aggregates/general.py, django/contrib/postgres/search.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "SQLCompiler apply_converters get_converters", "paths": "django/db/models/sql/compiler.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "SQLCompiler apply_converters get_converters", "paths": "django/db/models/sql/compiler.py"}
 [usage] input=2 cache_read=11533 cache_write=1774 output=147
 
 === Turn 5 ===
@@ -457,7 +457,7 @@ django/db/models/sql/compiler.py:L150-L198 method SQLCompiler.collapse_group_by
 django/db/models/sql/compiler.py:L200-L270 method SQLCompiler.get_select
 
 candidate_files: django/urls/converters.py, django/db/models/query.py, django/db/models/sql/query.py, django/db/models/expressions.py, django/urls/resolvers.py, django/db/backends/sqlite3/operations.py, django/contrib/gis/db/backends/base/operations.py, django/core/handlers/base.py, django/db/backends/mysql/compiler.py, django/db/backends/base/operations.py, django/db/models/fields/__init__.py, django/db/backends/oracle/operations.py, django/db/backends/mysql/operations.py, django/core/cache/backends/db.py, django/db/backends/oracle/base.py, django/db/models/fields/related.py, django/contrib/gis/db/backends/postgis/operations.py, django/contrib/gis/db/backends/oracle/operations.py, django/contrib/gis/db/backends/spatialite/operations.py, django/utils/timezone.py, django/urls/base.py, django/contrib/gis/db/backends/mysql/operations.py, django/core/handlers/exception.py, django/core/management/commands/migrate.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/compiler.py:L1100-L1130"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/compiler.py:L1100-L1130"]}
 [usage] input=2 cache_read=13307 cache_write=3623 output=85
 
 === Turn 6 ===
@@ -493,7 +493,7 @@ candidate_files: django/urls/converters.py, django/db/models/query.py, django/db
         rows = chain.from_iterable(results)
         if converters:
             rows = self.apply_converters(rows, converters)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/__init__.py:L746-L760"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/__init__.py:L746-L760"]}
 [usage] input=2 cache_read=16930 cache_write=579 output=256
 
 === Turn 7 ===
@@ -513,12 +513,12 @@ candidate_files: django/urls/converters.py, django/db/models/query.py, django/db
 
     @property
     def db_returning(self):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/models/sql/compiler.py:L1403-L1422", "new": "    def execute_sql(self, returning_fields=None):\n        assert not (\n            returning_fields and len(self.query.objs) != 1 and\n            not self.connection.features.can_return_rows_from_bulk_insert\n        )\n        opts = self.query.get_meta()\n        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                rows = self.connection.ops.fetch_returned_insert_rows(cursor)\n            elif self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                rows = [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            else:\n                rows = [(self.connection.ops.last_insert_id(\n                    cursor, opts.db_table, opts.pk.column,\n                ),)]\n        cols = [field.get_col(opts.db_table) for field in self.returning_fields]\n        converters = self.get_converters(cols)\n        if converters:\n            rows = list(self.apply_converters(rows, converters))\n        return rows"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/models/sql/compiler.py:L1403-L1422", "new": "    def execute_sql(self, returning_fields=None):\n        assert not (\n            returning_fields and len(self.query.objs) != 1 and\n            not self.connection.features.can_return_rows_from_bulk_insert\n        )\n        opts = self.query.get_meta()\n        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                rows = self.connection.ops.fetch_returned_insert_rows(cursor)\n            elif self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                rows = [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            else:\n                rows = [(self.connection.ops.last_insert_id(\n                    cursor, opts.db_table, opts.pk.column,\n                ),)]\n        cols = [field.get_col(opts.db_table) for field in self.returning_fields]\n        converters = self.get_converters(cols)\n        if converters:\n            rows = list(self.apply_converters(rows, converters))\n        return rows"}]}
 [usage] input=2 cache_read=17509 cache_write=422 output=1195
 
 === Turn 8 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":1422,"line_start":1403}],"match_mode":"range","path":"django/db/models/sql/compiler.py:L1403-L1422"}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_do_insert results returning_fields setattr attname save_table", "paths": "django/db/models/base.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_do_insert results returning_fields setattr attname save_table", "paths": "django/db/models/base.py"}
 [usage] input=2 cache_read=17931 cache_write=1269 output=238
 
 === Turn 9 ===
@@ -544,7 +544,7 @@ django/db/models/base.py:L74-L322 method ModelBase.__new__
 candidate_files: django/db/models/query.py, django/db/models/sql/compiler.py, django/db/models/options.py, django/db/backends/oracle/operations.py, django/core/serializers/base.py, django/db/models/fields/files.py, django/db/models/fields/related.py, django/db/models/fields/__init__.py, django/db/models/fields/related_descriptors.py, django/db/backends/base/operations.py, django/db/backends/mysql/operations.py, django/db/models/deletion.py, django/db/models/sql/query.py, django/forms/models.py, django/db/backends/postgresql/operations.py, django/contrib/admin/views/main.py, django/contrib/contenttypes/fields.py, django/contrib/contenttypes/forms.py, django/db/backends/oracle/base.py, tests/model_meta/tests.py, django/db/backends/postgresql/introspection.py, django/contrib/gis/db/models/proxy.py, django/db/backends/sqlite3/operations.py, django/db/backends/ddl_references.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/base.py:L855-L876"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/base.py:L855-L876"]}
 [usage] input=2 cache_read=19200 cache_write=906 output=78
 
 === Turn 10 ===
@@ -571,7 +571,7 @@ candidate_files: django/db/models/query.py, django/db/models/sql/compiler.py, dj
                 for value, field in zip(results[0], returning_fields):
                     setattr(self, field.attname, value)
         return updated
-[assistant] Works. Row-as-list is fine for the `zip` consumers. Let me verify the bulk_create consumer too.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/query.py:L488-L520"]}
+[assistant] Works. Row-as-list is fine for the `zip` consumers. Let me verify the bulk_create consumer too.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/query.py:L488-L520"]}
 [usage] input=2 cache_read=20106 cache_write=441 output=159
 
 === Turn 11 ===

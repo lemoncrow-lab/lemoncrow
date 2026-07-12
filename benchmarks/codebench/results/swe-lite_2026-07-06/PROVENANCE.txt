@@ -1,18 +1,18 @@
 Provenance for swe-lite_2026-07-06 results
 ===========================================
 
-Atelier: 3 dedicated full sweeps (one per rep), all 10 instances, atelier:auto persona.
+LemonCrow: 3 dedicated full sweeps (one per rep), all 10 instances, lemoncrow:auto persona.
 Baseline: 30 reps pooled from several incremental multiswe_run sessions on 2026-07-06;
 for each task the 3 chronologically most recent completed baseline reps were selected
 (by .patch file mtime) and renumbered rep1 (oldest of the 3) -> rep3 (newest).
 Excluded: an unrelated earlier 10-instance swe-lite selection (astropy-6938, django-14999,
 matplotlib-23913, requests-2674, xarray-3364, pylint-5859, pytest-5221, scikit-learn-13497,
-sphinx-7975, sympy-16503) run 06:55-09:38 the same day -- no atelier reps exist for that
+sphinx-7975, sympy-16503) run 06:55-09:38 the same day -- no lemoncrow reps exist for that
 instance set at this rep-depth, so it can't form a matched pair and was left out.
 
-atelier rep1 <- 20260706T134744Z_atelier_lean_rep1 (10 tasks)
-atelier rep2 <- 20260706T162043Z_atelier_lean_rep2 (10 tasks)
-atelier rep3 <- 20260706T192923Z_atelier_lean_rep3b (10 tasks)
+lemoncrow rep1 <- 20260706T134744Z_lemoncrow_lean_rep1 (10 tasks)
+lemoncrow rep2 <- 20260706T162043Z_lemoncrow_lean_rep2 (10 tasks)
+lemoncrow rep3 <- 20260706T192923Z_lemoncrow_lean_rep3b (10 tasks)
 baseline rep1 (astropy__astropy-13579) <- 20260706T100226Z rep1 (mtime=1783333314, cost=0.6253005, correct=True)
 baseline rep2 (astropy__astropy-13579) <- 20260706T110302Z rep1 (mtime=1783336473, cost=0.5842504999999999, correct=True)
 baseline rep3 (astropy__astropy-13579) <- 20260706T110302Z rep2 (mtime=1783336508, cost=0.5674635, correct=True)

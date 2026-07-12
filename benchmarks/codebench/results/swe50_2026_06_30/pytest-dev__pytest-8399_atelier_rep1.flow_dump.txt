@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,17 +61,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unittest_setUpClass_fixture _make_xunit_fixture"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unittest_setUpClass_fixture _make_xunit_fixture"}
 [usage] input=3819 cache_read=4930 cache_write=0 output=114
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["src/_pytest/python.py","src/_pytest/fixtures.py","testing/python/fixtures.py","testing/test_unittest.py","src/_pytest/junitxml.py","testing/test_terminal.py","testing/test_runner_xunit.py"],"exact_match":true,"files":[{"path":"src/_pytest/unittest.py","sections":[{"content":"123\tdef _make_xunit_fixture(\n124\t    obj: type,\n125\t    setup_name: str,\n126\t    teardown_name: str,\n127\t    cleanup_name: Optional[str],\n128\t    scope: \"_Scope\",\n129\t    pass_self: bool,\n130\t):\n131\t    setup = getattr(obj, setup_name, None)\n132\t    teardown = getattr(obj, teardown_name, None)\n133\t    if setup is None and teardown is None:\n134\t        return None\n135\t\n136\t    if cleanup_name:\n137\t        cleanup = getattr(obj, cleanup_name, lambda *args: None)\n138\t    else:\n139\t\n140\t        def cleanup(*args):\n141\t            pass\n142\t\n143\t    @pytest.fixture(\n144\t        scope=scope,\n145\t        autouse=True,\n146\t        # Use a unique name to speed up lookup.\n147\t        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",\n148\t    )\n149\t    def fixture(self, request: FixtureRequest) -> Generator[None, None, None]:\n150\t        if _is_skipped(self):\n151\t            reason = self.__unittest_skip_why__\n152\t            raise pytest.skip.Exception(reason, _use_item_location=True)\n153\t        if setup is not None:\n154\t            try:\n155\t                if pass_self:\n156\t                    setup(self, request.function)\n157\t                else:\n158\t                    setup()\n159\t            # unittest does not call the cleanup function for every BaseException, so we\n160\t            # follow this here.\n161\t            except Exception:\n162\t                if pass_self:\n163\t                    cleanup(self)\n164\t                else:\n165\t                    cleanup()\n166\t\n167\t                raise\n168\t        yield\n169\t        try:\n170\t            if teardown is not None:\n171\t                if pass_self:\n172\t                    teardown(self, request.function)\n173\t                else:\n174\t                    teardown()\n175\t        finally:\n176\t            if pass_self:\n177\t                cleanup(self)\n178\t            else:\n179\t                cleanup()\n180\t\n181\t    return fixture","end_line":181,"line":123,"path":"src/_pytest/unittest.py","qualified_name":"_make_xunit_fixture"}]}],"related_symbols":["_make_xunit_fixture @ src/_pytest/unittest.py:123"]}
-[assistant] The fix is to prefix the fixture name with an underscore to make it "private".[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"src/_pytest/unittest.py","old":"        # Use a unique name to speed up lookup.\n        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",","new":"        # Use a unique name to speed up lookup.\n        name=f\"_unittest_{setup_name}_fixture_{obj.__qualname__}\","}]}
+[assistant] The fix is to prefix the fixture name with an underscore to make it "private".[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"src/_pytest/unittest.py","old":"        # Use a unique name to speed up lookup.\n        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",","new":"        # Use a unique name to speed up lookup.\n        name=f\"_unittest_{setup_name}_fixture_{obj.__qualname__}\","}]}
 [usage] input=2 cache_read=4930 cache_write=4969 output=219
 
 === Turn 3 ===
 [user] [tool_result] applied src/_pytest/unittest.py:146-147
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unittest_setUpClass_fixture\\|unittest_setup_fixture\\|_fixture_{obj\\|unittest_.*_fixture\" testing/ src/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unittest_setUpClass_fixture\\|unittest_setup_fixture\\|_fixture_{obj\\|unittest_.*_fixture\" testing/ src/"}
 [usage] input=2 cache_read=9899 cache_write=243 output=140
 
 === Turn 4 ===
@@ -79,7 +79,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 mode
   Input should be 'content', 'map', 'paths' or 'counts' [type=literal_error, input_value='file_paths_with_content', input_type=str]
     For further information visit https://errors.pydantic.dev/2.13/v/literal_error
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unittest_.*_fixture\" testing/ src/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unittest_.*_fixture\" testing/ src/"}
 [usage] input=2 cache_read=10142 cache_write=259 output=84
 
 === Turn 5 ===
@@ -87,12 +87,12 @@ mode
 mode
   Input should be 'content', 'map', 'paths' or 'counts' [type=literal_error, input_value='file_paths_with_content', input_type=str]
     For further information visit https://errors.pydantic.dev/2.13/v/literal_error
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unittest_setUpClass_fixture test assertion fixtures listing"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unittest_setUpClass_fixture test assertion fixtures listing"}
 [usage] input=2 cache_read=10401 cache_write=203 output=85
 
 === Turn 6 ===
 [user] [tool_result] {"candidate_files":["testing/python/fixtures.py","testing/test_unittest.py","testing/test_setuponly.py","src/_pytest/unittest.py","src/_pytest/fixtures.py","src/_pytest/config/__init__.py","testing/test_junitxml.py","src/_pytest/python.py"],"exact_match":false,"files":[],"related_symbols":["test_show_fixtures_and_test @ testing/test_setupplan.py:4","test_fixture_arg_ordering @ testing/python/fixtures.py:4407","TestDoctestAutoUseFixtures.test_doctest_module_session_fixture @ testing/test_doctest.py:1173","TestFixtureUsages.test_setup_functions_as_fixtures @ testing/python/fixtures.py:1476","TestDoctestAutoUseFixtures.test_fixture_scopes @ testing/test_doctest.py:1210","TestDoctestAutoUseFixtures.test_fixture_module_doctest_scopes @ testing/test_doctest.py:1244","Test @ testing/example_scripts/unittest/test_unittest_plain_async.py:4","test_show_multi_test_fixture_setup_and_teardown_correctly_simple @ testing/test_setupplan.py:27"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unittest_\" testing/test_unittest.py testing/test_setuponly.py testing/test_setupplan.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unittest_\" testing/test_unittest.py testing/test_setuponly.py testing/test_setupplan.py"}
 [usage] input=2 cache_read=10604 cache_write=536 output=129
 
 === Turn 7 ===
@@ -117,7 +117,7 @@ testing/test_unittest.py:1268:    pytester.copy_example("unittest/test_unittest_
 === Turn 8 ===
 [user] Stop hook feedback:
 verify-before-done: edited 1 file(s) (unittest.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && python -m pytest testing/test_unittest.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && python -m pytest testing/test_unittest.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=11861 cache_write=142 output=121
 
 === Turn 9 ===

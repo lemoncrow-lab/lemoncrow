@@ -57,7 +57,7 @@ function Parent() {
 - **Functions passed as props** have the same issue — use `useCallback` for those.
 - **Why is `Child` re-rendering visible/costly?** If it's expensive DOM work or a big subtree, that's the real target.
 
-If you paste your actual component, I can point at the exact culprit and show the minimal fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep1.flow,True,,,,,,0.0,0
+If you paste your actual component, I can point at the exact culprit and show the minimal fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep1.flow,True,,,,,,0.0,0
 local1,baseline,2,True,0.064566,16020,17555,2,3518,15192,2101,0,834,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a classic React re-render gotcha. Here's what's happening and how to fix it.
 
 ## Why it happens
@@ -125,7 +125,7 @@ If that fires on every render, it's the reference-identity problem.
 
 ---
 
-Want to paste your actual component? I can point at the exact prop that's churning and show the minimal fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep2.flow,True,,,,,,0.0,0
+Want to paste your actual component? I can point at the exact prop that's churning and show the minimal fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep2.flow,True,,,,,,0.0,0
 local1,baseline,0,True,0.06877600000000002,16316,17368,2,3518,15192,2101,0,1004,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a classic React re-rendering issue. Let me explain what's happening and how to fix it.
 
 ## Why it happens
@@ -204,7 +204,7 @@ If that logs on every parent render, it's the reference-identity problem.
 
 If you paste your actual component code, I can point at the exact prop that's churning and give you the precise fix. Also worth knowing: React 19's **compiler** auto-memoizes much of this, so if you're on it, some of the manual `useMemo`/`useCallback` may be unnecessary.
 
-What React version are you on, and is the child wrapped in `React.memo`?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep0.flow,True,,,,,,0.0,0
+What React version are you on, and is the child wrapped in `React.memo`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep0.flow,True,,,,,,0.0,0
 local1,baseline,3,True,0.067761,16958,18185,2,3492,15192,2101,0,967,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is one of the most common React gotchas. The short answer: **passing an object literal as a prop creates a brand-new object on every render, so even a memoized child sees ""different"" props.**
 
 ## Why it happens
@@ -265,8 +265,8 @@ function Parent() { return <Child config={STATIC_CONFIG} />; }
 If you paste the actual parent + child components (and whether the child uses `React.memo`), I can point at the exact line causing it. A couple of quick questions that determine the fix:
 
 1. Is the child wrapped in `React.memo`? If not, the object prop isn't the real cause — the re-render comes from the parent.
-2. Where does the object come from — an inline literal, a `.map()`/`.filter()`, or state/context?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep3.flow,True,,,,,,0.0,0
-local1,atelier,1,True,0.047364,12868,11116,1,5229,16488,0,0,519,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{...}` / `{ }` literal creates a fresh object each render → `React.memo`/`PureComponent` shallow compare sees `prevProps.obj !== nextProps.obj` (identity, not deep-equal) → re-renders even though contents identical.
+2. Where does the object come from — an inline literal, a `.map()`/`.filter()`, or state/context?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep3.flow,True,,,,,,0.0,0
+local1,lemoncrow,1,True,0.047364,12868,11116,1,5229,16488,0,0,519,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{...}` / `{ }` literal creates a fresh object each render → `React.memo`/`PureComponent` shallow compare sees `prevProps.obj !== nextProps.obj` (identity, not deep-equal) → re-renders even though contents identical.
 
 Two separate facts:
 - Plain child (no memo): re-renders whenever parent re-renders, period — props don't gate it. `React.memo(Child)` is what makes props the gate.
@@ -281,8 +281,8 @@ Fix — stabilize the reference:
 
 Verify: `why-did-you-render`, or log in child — reference equal across renders → gate holds.
 
-Root cause is identity, not prop values. Paste the component if you want the exact `useMemo` placement.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_atelier_rep1.flow,True,,,,,,0.0191,-514
-local1,atelier,0,True,0.048914000000000006,13208,11417,1,5229,16488,0,0,581,['claude-opus-4-8'],False,False,"New object literal = new reference every render. If the parent re-renders, `{...}` / `[...]` / inline `() => {}` create a fresh identity each time, so even a `React.memo` child sees `prevProps.obj !== nextProps.obj` (shallow compare = reference equality) and re-renders.
+Root cause is identity, not prop values. Paste the component if you want the exact `useMemo` placement.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_lemoncrow_rep1.flow,True,,,,,,0.0191,-514
+local1,lemoncrow,0,True,0.048914000000000006,13208,11417,1,5229,16488,0,0,581,['claude-opus-4-8'],False,False,"New object literal = new reference every render. If the parent re-renders, `{...}` / `[...]` / inline `() => {}` create a fresh identity each time, so even a `React.memo` child sees `prevProps.obj !== nextProps.obj` (shallow compare = reference equality) and re-renders.
 
 Two separate things, don't conflate:
 - **Unmemoized child** — re-renders whenever parent does, regardless of props. `React.memo` is what makes props even matter.
@@ -296,8 +296,8 @@ Fix — stabilize the reference:
 
 Root cause to check first: is the object *derived* in the parent body each render (`const obj = { id, name }`)? That's the usual culprit — wrap in `useMemo`. If it comes from `useState`/props already, the reference is stable and the re-render is from something else (parent re-render + unmemoized child, or a different prop/context changing).
 
-Verify: `console.log` the prop reference, or React DevTools Profiler → ""why did this render"" → shows which prop changed identity.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_atelier_rep0.flow,True,,,,,,0.0199,-483
-local1,atelier,2,True,0.050964,14462,12388,1,5229,16488,0,0,663,['claude-opus-4-8'],False,False,"Two separate things — which one bites you depends on whether the child is memoized.
+Verify: `console.log` the prop reference, or React DevTools Profiler → ""why did this render"" → shows which prop changed identity.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_lemoncrow_rep0.flow,True,,,,,,0.0199,-483
+local1,lemoncrow,2,True,0.050964,14462,12388,1,5229,16488,0,0,663,['claude-opus-4-8'],False,False,"Two separate things — which one bites you depends on whether the child is memoized.
 
 **Not memoized:** a parent re-render re-renders *all* children regardless of props. Props ""not changing"" is irrelevant — React doesn't check. Default behavior.
 
@@ -323,8 +323,8 @@ Both pieces required: `useMemo`/`useCallback` stabilize identity, `React.memo` m
 
 Verify which case: temporarily `React.memo` the child — still re-renders → it's a prop identity problem (object/array/function inline); stops → it was just unmemoized parent cascade. Or add `useEffect(() => console.log(data), [data])` — fires every render → reference is unstable.
 
-Caveat: don't memoize everything reflexively — re-renders are cheap unless the child is expensive or the tree deep. Reach for this when you measure a real cost.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_atelier_rep2.flow,True,,,,,,0.0136,-735
-local1,atelier,3,True,0.048589,13864,11901,1,4874,16488,0,0,639,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{}` / `[]` / inline literals create a fresh object each time, so `prevProps.obj === nextProps.obj` is false → child re-renders even though the *contents* are identical.
+Caveat: don't memoize everything reflexively — re-renders are cheap unless the child is expensive or the tree deep. Reach for this when you measure a real cost.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_lemoncrow_rep2.flow,True,,,,,,0.0136,-735
+local1,lemoncrow,3,True,0.048589,13864,11901,1,4874,16488,0,0,639,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{}` / `[]` / inline literals create a fresh object each time, so `prevProps.obj === nextProps.obj` is false → child re-renders even though the *contents* are identical.
 
 Two independent things to check:
 
@@ -351,7 +351,7 @@ Mechanism: React compares by `Object.is`. Object/array/function literals are ref
 
 Diagnose which: React DevTools Profiler → ""Why did this render?"" shows whether it's props changing or an unmemoized parent.
 
-Note: don't reach for `useMemo` on every prop — cheap children re-rendering is usually fine. Memoize when the child is genuinely expensive or the re-render causes a visible/perf problem. If contents (not reference) are what matter, a custom comparator: `React.memo(Child, (a,b) => a.config.id === b.config.id)`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_atelier_rep3.flow,True,,,,,,0.0192,-249
+Note: don't reach for `useMemo` on every prop — cheap children re-rendering is usually fine. Memoize when the child is genuinely expensive or the re-render causes a visible/perf problem. If contents (not reference) are what matter, a custom comparator: `React.memo(Child, (a,b) => a.config.id === b.config.id)`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_lemoncrow_rep3.flow,True,,,,,,0.0192,-249
 local1,baseline,4,True,0.06841599999999999,20510,21488,2,3518,15192,2101,0,988,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a classic React re-render issue. Here's what's happening and how to fix it.
 
 ## The core problem
@@ -417,8 +417,8 @@ function Parent() {
 
 Open **React DevTools → Profiler**, record an interaction, and turn on ""Highlight updates."" It'll show you exactly which components render and, in the flamegraph, *why* (""props changed: config"").
 
-If you paste the actual component code, I can point at the specific prop that's breaking memoization.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep4.flow,True,,,,,,0.0,0
-local1,atelier,4,True,0.045069000000000005,10594,8610,1,5185,16488,0,0,436,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{}`/`[]`/inline literals create a fresh identity each time → child sees ""changed"" prop even if contents identical.
+If you paste the actual component code, I can point at the specific prop that's breaking memoization.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_baseline_rep4.flow,True,,,,,,0.0,0
+local1,lemoncrow,4,True,0.045069000000000005,10594,8610,1,5185,16488,0,0,436,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render. `{}`/`[]`/inline literals create a fresh identity each time → child sees ""changed"" prop even if contents identical.
 
 Why it still re-renders:
 - Default React: parent re-renders → all children re-render regardless of props. Props equality isn't checked unless memoized.
@@ -435,7 +435,7 @@ const data = useMemo(() => ({ id, name }), [id, name]);
 return <Child data={data} />;   // Child = React.memo(...)
 ```
 
-Without both — memoized prop AND `React.memo` on child — nothing gates the render. Confirm which is missing: object built inline in JSX = reference problem; child not memoized = no gate at all.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_atelier_rep4.flow,True,,,,,,0.0233,-310
+Without both — memoized prop AND `React.memo` on child — nothing gates the render. Confirm which is missing: object built inline in JSX = reference problem; child not memoized = no gate at all.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local1_lemoncrow_rep4.flow,True,,,,,,0.0233,-310
 local2,baseline,1,True,0.137565,51016,51984,2,3527,15192,2120,0,3746,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"## The bug: unit mismatch (seconds vs. milliseconds)
 
 JWT's `exp` claim is a **NumericDate** — seconds since the Unix epoch (RFC 7519). `Date.now()` returns **milliseconds**. They differ by a factor of 1000, so any direct comparison is wrong.
@@ -499,7 +499,7 @@ If you paste your actual middleware I can point at the exact line, but check two
 1. **Are `exp` and your clock in the same unit?** (the seconds/ms bug above)
 2. **Are you calling `jwt.verify` or just `jwt.decode`?** `decode` does *no* verification at all — no signature, no expiry.
 
-One more thing to confirm: make sure the expiry branch actually **returns** (or doesn't call `next()`). A missing `return` before `res.status(401)` will send the 401 *and* fall through to `next()`, letting the request proceed anyway.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep1.flow,True,,,,,,0.0,0
+One more thing to confirm: make sure the expiry branch actually **returns** (or doesn't call `next()`). A missing `return` before `res.status(401)` will send the 401 *and* fall through to `next()`, letting the request proceed anyway.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep1.flow,True,,,,,,0.0,0
 local2,baseline,0,True,0.3177375,54034,55288,4,3531,55247,18162,0,3735,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"There's no actual auth middleware in this repo (it only contains benchmark reports), so I'll answer directly.
 
 ## The bug: seconds vs. milliseconds
@@ -543,7 +543,7 @@ Add `{ clockTolerance: 5 }` (seconds) to `verify` if you need leeway for clock s
 - **Missing `exp`:** `undefined * 1000` is `NaN`, and `Date.now() >= NaN` is `false` — a token with no `exp` sails through. Reject when `exp` is absent. (`jwt.verify` handles this for you.)
 - **Comparison direction:** confirm the operator actually rejects on expiry rather than admitting it.
 
-If you paste your middleware (or point me at the file), I'll mark the exact line and patch it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep0.flow,True,,,,,,0.0,0
+If you paste your middleware (or point me at the file), I'll mark the exact line and patch it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep0.flow,True,,,,,,0.0,0
 local2,baseline,3,True,0.268796,31651,32299,5,3577,74334,16748,0,1952,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The repo here only contains benchmark reports, not your actual middleware — so I'll answer directly. But this is a textbook bug and I'm confident about the cause.
 
 ## What's wrong: a unit mismatch
@@ -596,8 +596,8 @@ function auth(req, res, next) {
 
 Delete the manual `Date.now()`/`exp` check and lean on `verify` — the manual comparison is the exact source of this class of bug.
 
-If you paste your middleware (or tell me the file path), I'll point at the precise line and patch it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep3.flow,True,,,,,,0.0,0
-local2,atelier,3,True,0.0433535,8503,6561,1,5185,16507,0,0,367,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` = seconds since epoch (RFC 7519); `Date.now()` = **milliseconds**. So `Date.now() > exp` compares e.g. `1.75e12` vs `1.75e9` — every token looks ~1000× in the future → never expired.
+If you paste your middleware (or tell me the file path), I'll point at the precise line and patch it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep3.flow,True,,,,,,0.0,0
+local2,lemoncrow,3,True,0.0433535,8503,6561,1,5185,16507,0,0,367,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` = seconds since epoch (RFC 7519); `Date.now()` = **milliseconds**. So `Date.now() > exp` compares e.g. `1.75e12` vs `1.75e9` — every token looks ~1000× in the future → never expired.
 
 Fix — match units:
 ```js
@@ -607,7 +607,7 @@ if (Date.now() >= decoded.exp * 1000) throw new Error('token expired');
 
 Better: let the library do it. `jwt.verify(token, secret)` (jsonwebtoken) checks `exp` itself and throws `TokenExpiredError` — drop the manual check.
 
-Note: use `>=`, not `>` — token is invalid at exactly `exp`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_atelier_rep3.flow,True,,,,,,0.2254,74552
+Note: use `>=`, not `>` — token is invalid at exactly `exp`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_lemoncrow_rep3.flow,True,,,,,,0.2254,74552
 local2,baseline,2,True,0.191345,80209,81769,2,3527,15192,2120,0,5898,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The bug is almost certainly a **units mismatch**: JWT's `exp` claim is in **seconds** since the Unix epoch, but `Date.now()` returns **milliseconds**. So the two numbers differ by a factor of 1000, and your comparison doesn't mean what you think it means.
 
 ```js
@@ -657,8 +657,8 @@ function authMiddleware(req, res, next) {
 
 `jwt.verify` handles `exp` in the correct units internally (and supports a `clockTolerance` option if you need slack for clock skew), so there's no manual `Date.now()` comparison to get wrong.
 
-If you paste the actual middleware, I can point at the exact line and confirm the operator direction — but the two things to check are (1) seconds vs. milliseconds, and (2) whether you're using `decode` instead of `verify`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep2.flow,True,,,,,,0.0,0
-local2,atelier,0,True,0.0901235,35831,34139,1,4874,16507,0,0,2300,['claude-opus-4-8'],False,False,"**Unit mismatch.** JWT `exp` is Unix time in **seconds** (RFC 7519); `Date.now()` returns **milliseconds** — off by 1000×. Comparing them directly compares ~1.7e9 against ~1.75e12, so the check is meaningless and expired tokens slip through (or, flipped, everything rejects).
+If you paste the actual middleware, I can point at the exact line and confirm the operator direction — but the two things to check are (1) seconds vs. milliseconds, and (2) whether you're using `decode` instead of `verify`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep2.flow,True,,,,,,0.0,0
+local2,lemoncrow,0,True,0.0901235,35831,34139,1,4874,16507,0,0,2300,['claude-opus-4-8'],False,False,"**Unit mismatch.** JWT `exp` is Unix time in **seconds** (RFC 7519); `Date.now()` returns **milliseconds** — off by 1000×. Comparing them directly compares ~1.7e9 against ~1.75e12, so the check is meaningless and expired tokens slip through (or, flipped, everything rejects).
 
 Fix — convert to the same unit:
 
@@ -678,8 +678,8 @@ try {
 }
 ```
 
-If you're on `jwt.decode` for the manual check, you're also **not verifying the signature** — forged tokens pass regardless of expiry. Switch to `verify`. Add `clockTolerance` (seconds) if you need clock-skew leeway.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_atelier_rep0.flow,True,,,,,,0.2276,56994
-local2,atelier,2,True,0.0661035,22550,20790,1,5185,16507,0,0,1277,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` is **seconds** since epoch (RFC 7519); `Date.now()` is **milliseconds**. Comparing them raw is off by 1000×.
+If you're on `jwt.decode` for the manual check, you're also **not verifying the signature** — forged tokens pass regardless of expiry. Switch to `verify`. Add `clockTolerance` (seconds) if you need clock-skew leeway.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_lemoncrow_rep0.flow,True,,,,,,0.2276,56994
+local2,lemoncrow,2,True,0.0661035,22550,20790,1,5185,16507,0,0,1277,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` is **seconds** since epoch (RFC 7519); `Date.now()` is **milliseconds**. Comparing them raw is off by 1000×.
 
 Root cause: with `exp` (~1.7e9) never exceeding `Date.now()` (~1.7e12), whichever branch you wrote, the seconds value is being treated as milliseconds — so a token that expired seconds/minutes ago still reads as far in the future and passes.
 
@@ -705,8 +705,8 @@ try {
 }
 ```
 
-Only reason to keep the manual check is if you're using `jwt.decode` (no verification) — in which case you also have a **signature-not-verified** hole, which is worse than the expiry bug. Switch to `jwt.verify`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_atelier_rep2.flow,True,,,,,,0.1252,3768
-local2,atelier,1,True,0.1262735,55734,54075,1,5229,16507,0,0,3675,['claude-opus-4-8'],False,False,"**Bug: unit mismatch.** JWT `exp` (RFC 7519) is Unix time in **seconds**; `Date.now()` is **milliseconds** — ~1000× larger. Comparing them raw, the expiry branch never evaluates the way you intend, so expired tokens slip through.
+Only reason to keep the manual check is if you're using `jwt.decode` (no verification) — in which case you also have a **signature-not-verified** hole, which is worse than the expiry bug. Switch to `jwt.verify`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_lemoncrow_rep2.flow,True,,,,,,0.1252,3768
+local2,lemoncrow,1,True,0.1262735,55734,54075,1,5229,16507,0,0,3675,['claude-opus-4-8'],False,False,"**Bug: unit mismatch.** JWT `exp` (RFC 7519) is Unix time in **seconds**; `Date.now()` is **milliseconds** — ~1000× larger. Comparing them raw, the expiry branch never evaluates the way you intend, so expired tokens slip through.
 
 **Fix** — put both in the same unit:
 
@@ -731,7 +731,7 @@ try {
 
 If you're currently using `jwt.decode()` (no verification) plus a manual check, that's the deeper problem — `decode` validates nothing.
 
-Two adjacent causes if the above isn't it: operator inverted (`<` vs `>=`), or missing `return` after `res.status(401)…` so `next()` still runs and the request proceeds anyway.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_atelier_rep1.flow,True,,,,,,0.0113,-826
+Two adjacent causes if the above isn't it: operator inverted (`<` vs `>=`), or missing `return` after `res.status(401)…` so `next()` still runs and the request proceeds anyway.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_lemoncrow_rep1.flow,True,,,,,,0.0113,-826
 local3,baseline,0,True,0.091714,23637,25369,2,3511,15192,2100,0,1923,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a robust PostgreSQL connection pool in Node.js using the `pg` library (the standard choice).
 
 ## Installation
@@ -854,7 +854,7 @@ process.on('SIGTERM', shutdown);
 | `connectionTimeoutMillis` | Prevents requests hanging forever when the DB is unreachable |
 | `idleTimeoutMillis` | Frees connections your app isn't using |
 | `statement_timeout` | Server-side guard against runaway queries |
-| `i",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep0.flow,True,,,,,,0.0,0
+| `i",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep0.flow,True,,,,,,0.0,0
 local3,baseline,2,True,0.082214,20573,22058,2,3511,15192,2100,0,1543,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a robust PostgreSQL connection pool in Node.js using the `pg` library (node-postgres), which is the standard choice.
 
 ## Installation
@@ -962,7 +962,7 @@ process.on('SIGTERM', async () => {
 - **Size `max` realistically** — total connections across all app instances must stay under Postgres's `max_connections`. Behind a serverless/high-concurrency setup, put PgBouncer in front rather than raising `max`.
 - **Don't create a pool per request** — instantiate one pool and share it across the app.
 
-Want me to adapt this for a specific setup (TypeScript, a managed provider like RDS/Supabase/Neon, serverless/Lambda, or with an ORM like Prisma/Knex)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep2.flow,True,,,,,,0.0,0
+Want me to adapt this for a specific setup (TypeScript, a managed provider like RDS/Supabase/Neon, serverless/Lambda, or with an ORM like Prisma/Knex)?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep2.flow,True,,,,,,0.0,0
 local3,baseline,1,True,0.09088900000000001,25063,26303,2,3511,15192,2100,0,1890,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a robust PostgreSQL connection pool in Node.js using the `pg` library (node-postgres), which is the standard choice.
 
 ## Installation
@@ -1088,8 +1088,8 @@ process.on('SIGTERM', shutdown);
 | `connectionTimeoutMillis` | Without it, `pool.connect()` hangs forever if the pool is exhausted or the DB is unreachable. |
 | `idleTimeoutMillis` | Frees idle connections so you don't hold DB resources unnecessarily. |
 | `statement_timeout` | Server-side guard against runaway queries — the best defense. |
-| `maxUses` | Recycles",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep1.flow,True,,,,,,0.0,0
-local3,atelier,0,True,0.0600185,18605,16667,1,5185,16487,0,0,1034,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the standard. Pool config with every timeout + error hook:
+| `maxUses` | Recycles",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep1.flow,True,,,,,,0.0,0
+local3,lemoncrow,0,True,0.0600185,18605,16667,1,5185,16487,0,0,1034,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the standard. Pool config with every timeout + error hook:
 
 ```js
 import { Pool } from 'pg';
@@ -1153,8 +1153,8 @@ Key distinctions:
 - `idleTimeoutMillis` closes surplus idle clients; `maxLifetimeSeconds` recycles even active ones (defends against half-dead TCP conns behind a load balancer).
 - `statement_timeout`/`idle_in_transaction_session_timeout` are Postgres server settings — enforced DB-side, survive a hung client; `query_timeout` is client-side only.
 
-Install: `npm i pg`. One `Pool` per process, shared — never `new Pool()` per request.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_atelier_rep0.flow,True,,,,,,0.0317,20
-local3,atelier,1,True,0.06143850000000001,18141,16456,1,5229,16487,0,0,1082,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the standard:
+Install: `npm i pg`. One `Pool` per process, shared — never `new Pool()` per request.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_lemoncrow_rep0.flow,True,,,,,,0.0317,20
+local3,lemoncrow,1,True,0.06143850000000001,18141,16456,1,5229,16487,0,0,1082,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the standard:
 
 ```js
 import { Pool } from 'pg';
@@ -1228,8 +1228,8 @@ Key traps:
 - Never `client.connect()` per request — the whole point of the pool is reuse; one `Pool` per process, shared.
 - Serverless (Lambda): use a small `max` (1–2) per instance or an external pooler (PgBouncer/RDS Proxy) — thousands of instances × `max:20` exhausts `max_connections`.
 
-Want a `Pool` wrapper with retry-on-acquire or a health-check `SELECT 1`?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_atelier_rep1.flow,True,,,,,,0.0295,-105
-local3,atelier,2,True,0.0621685,20421,18673,1,5185,16487,0,0,1120,['claude-opus-4-8'],False,False,"Use `pg`'s `Pool`. Config with explicit timeouts + error handling:
+Want a `Pool` wrapper with retry-on-acquire or a health-check `SELECT 1`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_lemoncrow_rep1.flow,True,,,,,,0.0295,-105
+local3,lemoncrow,2,True,0.0621685,20421,18673,1,5185,16487,0,0,1120,['claude-opus-4-8'],False,False,"Use `pg`'s `Pool`. Config with explicit timeouts + error handling:
 
 ```js
 const { Pool } = require('pg');
@@ -1299,7 +1299,7 @@ Key points:
 - Never `client.query` without a `finally { client.release() }`; one leak exhausts `max` and every subsequent request stalls until `connectionTimeoutMillis`.
 - Size `max` against `max_connections ÷ number of app instances` — pooler, not per-process greed.
 
-For serverless/edge (per-invocation, no persistent pool), use `pg`'s single `Client` or a proxy like PgBouncer/Neon/RDS Proxy instead — a `Pool` per Lambda invocation exhausts connections.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_atelier_rep2.flow,True,,,,,,0.02,-446
+For serverless/edge (per-invocation, no persistent pool), use `pg`'s single `Client` or a proxy like PgBouncer/Neon/RDS Proxy instead — a `Pool` per Lambda invocation exhausts connections.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_lemoncrow_rep2.flow,True,,,,,,0.02,-446
 local2,baseline,4,True,0.2851005,79978,80948,4,3531,56933,10409,0,5497,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"There's no actual auth middleware in this working directory — the only matches are in benchmark report dumps, not source you're running. So I'll answer the question directly.
 
 ## The bug: seconds vs. milliseconds
@@ -1358,7 +1358,7 @@ function authMiddleware(req, res, next) {
 
 If you're currently using `jwt.decode()` (which does **not** verify signature or expiry) anywhere in this path, that's the deeper issue — switch it to `jwt.verify()`.
 
-If you paste the actual middleware, I'll point at the exact line.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep4.flow,True,,,,,,0.0,0
+If you paste the actual middleware, I'll point at the exact line.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_baseline_rep4.flow,True,,,,,,0.0,0
 local3,baseline,3,True,0.088514,24163,25493,2,3511,15192,2100,0,1795,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a production-ready PostgreSQL connection pool in Node.js using `node-postgres` (`pg`), the standard library.
 
 ## Basic Setup
@@ -1473,8 +1473,8 @@ process.on('SIGINT', shutdown);
 
 - **Not handling `pool.on('error')`** → process crash on DB blips.
 - **Forgetting `client.release()`** → pool exhaustion, then everything hangs at `connectionTimeoutMillis`.
-- **Creating a new `Pool` per request** → defeats pooling entirely. Instantiate once and sh",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep3.flow,True,,,,,,0.0,0
-local2,atelier,4,True,0.047953499999999996,10345,8633,1,5185,16507,0,0,551,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` = Unix seconds; `Date.now()` = milliseconds. So `Date.now() > token.exp` compares ms against s — `Date.now()` is ~1000× larger, but likely your check is written `token.exp > Date.now()` (still valid) → every token looks ~1000× further in the future → never expires.
+- **Creating a new `Pool` per request** → defeats pooling entirely. Instantiate once and sh",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep3.flow,True,,,,,,0.0,0
+local2,lemoncrow,4,True,0.047953499999999996,10345,8633,1,5185,16507,0,0,551,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` = Unix seconds; `Date.now()` = milliseconds. So `Date.now() > token.exp` compares ms against s — `Date.now()` is ~1000× larger, but likely your check is written `token.exp > Date.now()` (still valid) → every token looks ~1000× further in the future → never expires.
 
 Fix — convert to same unit:
 
@@ -1498,7 +1498,7 @@ try {
 
 If you're manually decoding to skip signature verification — that's a second bug: an unverified token's `exp` is attacker-controlled. Use `verify`, not `decode`.
 
-Paste the middleware if you want the exact edit.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_atelier_rep4.flow,True,,,,,,0.2371,54127
+Paste the middleware if you want the exact edit.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local2_lemoncrow_rep4.flow,True,,,,,,0.2371,54127
 local4,baseline,0,True,0.070478,18355,19363,2,3515,15192,2097,0,1073,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both `git merge` and `git rebase` integrate changes from one branch into another, but they do it in fundamentally different ways.
 
 ## The core difference
@@ -1559,7 +1559,7 @@ If you've already pushed a branch that only you use and you rebase it, you'll ne
 - Landing shared work / preserving real history → **merge**
 - Branch already shared and pulled by others → **merge** (don't rewrite)
 
-Want me to walk through the actual commands for a specific scenario, like updating your feature branch or squashing commits before a PR?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep0.flow,True,,,,,,0.0,0
+Want me to walk through the actual commands for a specific scenario, like updating your feature branch or squashing commits before a PR?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep0.flow,True,,,,,,0.0,0
 local3,baseline,4,True,0.090939,27073,28076,2,3511,15192,2100,0,1892,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a robust PostgreSQL connection pool in Node.js using the standard `pg` library.
 
 ## Installation
@@ -1681,7 +1681,7 @@ process.on('SIGINT', shutdown);
 | `connectionTimeoutMillis` | Fail fast instead of hanging when the DB is unreachable |
 | `statement_timeout` | Server-side guard against runaway queries holding connections |
 | `idle_in_transaction_session_timeout` | Prevents an app bug from locking rows indefinitely |
-| `client.release()` in `finally` | Prevents connection leaks th",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep4.flow,True,,,,,,0.0,0
+| `client.release()` in `finally` | Prevents connection leaks th",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_baseline_rep4.flow,True,,,,,,0.0,0
 local4,baseline,1,True,0.067503,14850,15981,2,3515,15192,2097,0,954,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# Git Rebase vs. Git Merge
 
 Both integrate changes from one branch into another, but they construct history differently.
@@ -1747,8 +1747,8 @@ Rebasing rewrites history; if others have based work on those original commits, 
 1. `git rebase main` on your feature branch periodically to stay current (clean, linear).
 2. `git merge --no-ff feature` into `main` when done, so the integration is recorded as a distinct event.
 
-A quick way to remember it: **rebase to prepare your work, merge to integrate it.**",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep1.flow,True,,,,,,0.0,0
-local3,atelier,3,True,0.06321850000000001,19039,17195,1,5185,16487,0,0,1162,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the `Pool` accepts both pool-level and per-connection timeout knobs:
+A quick way to remember it: **rebase to prepare your work, merge to integrate it.**",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep1.flow,True,,,,,,0.0,0
+local3,lemoncrow,3,True,0.06321850000000001,19039,17195,1,5185,16487,0,0,1162,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres) — the `Pool` accepts both pool-level and per-connection timeout knobs:
 
 ```js
 import { Pool } from 'pg';
@@ -1818,8 +1818,8 @@ Key traps:
 - Leaked clients (forgotten `release()`) starve the pool → every subsequent `connect()` hits `connectionTimeoutMillis`. The `try/finally` is the fix.
 - Sizing: `max × instances ≤ Postgres max_connections`; use PgBouncer if you outgrow it.
 
-For serverless/Lambda, use a much lower `max` (often 1) or an external pooler — per-invocation pools exhaust `max_connections` fast.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_atelier_rep3.flow,True,,,,,,0.0253,-236
-local4,atelier,0,True,0.052412,19140,17484,1,5229,16484,0,0,721,['claude-opus-4-8'],False,False,"**Core mechanic**
+For serverless/Lambda, use a much lower `max` (often 1) or an external pooler — per-invocation pools exhaust `max_connections` fast.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_lemoncrow_rep3.flow,True,,,,,,0.0253,-236
+local4,lemoncrow,0,True,0.052412,19140,17484,1,5229,16484,0,0,721,['claude-opus-4-8'],False,False,"**Core mechanic**
 
 - **`git merge feature`** — combines two branches by creating a new **merge commit** with two parents. History is preserved as-is; branch topology stays visible.
 - **`git rebase main`** — replays your branch's commits one-by-one *on top of* the new base, creating **new commits** (new SHAs). History becomes linear; the original branch point disappears.
@@ -1847,8 +1847,8 @@ Same end tree contents (usually); different history shape.
 
 **Common combined workflow:** rebase feature onto `main` locally to stay current + tidy, then `merge --no-ff` into `main` for an explicit integration point.
 
-Note: `git pull --rebase` applies the same idea to syncing — replays your local commits atop the fetched upstream instead of making a merge commit.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_atelier_rep0.flow,True,,,,,,0.0181,-557
-local4,atelier,1,True,0.052292000000000005,15244,13510,1,5185,16484,0,0,725,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another. Difference is *how history is recorded*.
+Note: `git pull --rebase` applies the same idea to syncing — replays your local commits atop the fetched upstream instead of making a merge commit.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_lemoncrow_rep0.flow,True,,,,,,0.0181,-557
+local4,lemoncrow,1,True,0.052292000000000005,15244,13510,1,5185,16484,0,0,725,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another. Difference is *how history is recorded*.
 
 **merge** — creates a merge commit tying the two branch tips together. History is preserved exactly as it happened; branch topology stays visible. Non-destructive: existing commits untouched.
 
@@ -1885,7 +1885,7 @@ A---B---C---D'---E'  feature
 
 Rule of thumb: **rebase private/local history to keep it clean, merge to integrate shared branches.** Common flow: rebase feature onto main locally, then fast-forward merge into main.
 
-`git pull --rebase` applies the same idea to syncing — avoids a merge commit on every pull.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_atelier_rep1.flow,True,,,,,,0.0152,-636
+`git pull --rebase` applies the same idea to syncing — avoids a merge commit on every pull.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_lemoncrow_rep1.flow,True,,,,,,0.0152,-636
 local4,baseline,2,True,0.06832799999999999,18073,19351,2,3515,15192,2097,0,987,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"## git merge vs git rebase
 
 Both integrate changes from one branch into another, but they do it differently.
@@ -1955,8 +1955,8 @@ Rewriting shared history forces everyone else to reconcile diverged branches (an
 2. Periodically `git rebase main` (or `git pull --rebase`) *while the branch is local* to stay current.
 3. When done, `git merge --no-ff` into `main` — often with a squash — so there's one clear record that the feature landed, on top of an otherwise clean history.
 
-Want me to look at your actual repo's history or workflow and suggest a concrete approach?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep2.flow,True,,,,,,0.0,0
-local3,atelier,4,True,0.0639185,23972,22158,1,5185,16487,0,0,1190,['claude-opus-4-8'],False,False,"Use `pg` (node-postgres). Pool config with the timeout/error knobs that matter:
+Want me to look at your actual repo's history or workflow and suggest a concrete approach?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep2.flow,True,,,,,,0.0,0
+local3,lemoncrow,4,True,0.0639185,23972,22158,1,5185,16487,0,0,1190,['claude-opus-4-8'],False,False,"Use `pg` (node-postgres). Pool config with the timeout/error knobs that matter:
 
 ```js
 const { Pool } = require('pg');
@@ -2026,7 +2026,7 @@ Key rules:
 - `statement_timeout`/`query_timeout` bound runaway queries; `connectionTimeoutMillis` bounds acquisition wait — set all three.
 - `max` × number of app instances must stay under Postgres `max_connections`; use PgBouncer if you exceed it.
 
-Serverless (Lambda) caveat: reuse one pool per warm container with `max: 1`, or front with a proxy — pools don't survive freeze/thaw well.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_atelier_rep4.flow,True,,,,,,0.027,-167
+Serverless (Lambda) caveat: reuse one pool per warm container with `max: 1`, or front with a proxy — pools don't survive freeze/thaw well.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local3_lemoncrow_rep4.flow,True,,,,,,0.027,-167
 local4,baseline,3,True,0.07113799999999999,17786,18887,2,3515,15192,2097,0,1101,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# git rebase vs git merge
 
 Both integrate changes from one branch into another, but they do it differently and produce different history.
@@ -2092,7 +2092,7 @@ Rebasing rewrites history; if someone else has those original commits, you'll cr
 
 A middle option worth knowing: **squash merge** (common on GitHub/GitLab) collapses your whole branch into a single commit on `main` — linear history without manual rebasing, at the cost of losing the individual commits.
 
-Want me to show the actual commands for any of these workflows?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep3.flow,True,,,,,,0.0,0
+Want me to show the actual commands for any of these workflows?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep3.flow,True,,,,,,0.0,0
 local5,baseline,0,True,0.055272,6660,7692,2,3584,15192,2184,0,428,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"```javascript
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
@@ -2120,7 +2120,7 @@ This assumes `db.query` returns a promise. A few notes:
 
   The `.bind(db)` preserves `db` as `this`; drop it only if `db.query` doesn't rely on `this`.
 
-- **Errors now propagate as exceptions** rather than a first-argument `err`, which is the main behavioral shift for calling code.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep0.flow,True,,,,,,0.0,0
+- **Errors now propagate as exceptions** rather than a first-argument `err`, which is the main behavioral shift for calling code.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep0.flow,True,,,,,,0.0,0
 local4,baseline,4,True,0.06865299999999999,17039,18265,2,3515,15192,2097,0,1000,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# git rebase vs git merge
 
 Both integrate changes from one branch into another, but they build **different history shapes**.
@@ -2184,8 +2184,8 @@ Many teams combine both: **rebase your feature branch locally** to keep it curre
 - `git pull --rebase` — keep your local branch linear instead of littering it with merge commits from routine syncs.
 - `git merge --squash` / squash-merge PRs — collapse a messy feature branch into one clean commit on `main`.
 
-Want me to look at your repo's history or set up a specific workflow (e.g. configure `pull.rebase`)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep4.flow,True,,,,,,0.0,0
-local4,atelier,2,True,0.050137,15884,13990,1,4874,16484,0,0,701,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; they differ in the history they produce.
+Want me to look at your repo's history or set up a specific workflow (e.g. configure `pull.rebase`)?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_baseline_rep4.flow,True,,,,,,0.0,0
+local4,lemoncrow,2,True,0.050137,15884,13990,1,4874,16484,0,0,701,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; they differ in the history they produce.
 
 ## Merge
 `git merge feature` into `main` → creates a **merge commit** with two parents, tying the branch histories together. Existing commits untouched.
@@ -2211,8 +2211,8 @@ local4,atelier,2,True,0.050137,15884,13990,1,4874,16484,0,0,701,['claude-opus-4-
 ## Common workflow
 Rebase your feature branch onto latest `main` throughout development (linear, current), then `merge --no-ff` into `main` at the end (explicit integration point). Best of both.
 
-Tradeoff in one line: **merge preserves history truthfully but messily; rebase fabricates a clean history at the cost of rewriting commits.**",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_atelier_rep2.flow,True,,,,,,0.0182,-268
-local5,atelier,0,True,0.0393055,5739,3919,1,5229,16571,0,0,195,['claude-opus-4-8'],False,False,"```javascript
+Tradeoff in one line: **merge preserves history truthfully but messily; rebase fabricates a clean history at the cost of rewriting commits.**",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_lemoncrow_rep2.flow,True,,,,,,0.0182,-268
+local5,lemoncrow,0,True,0.0393055,5739,3919,1,5229,16571,0,0,195,['claude-opus-4-8'],False,False,"```javascript
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2220,7 +2220,7 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a promise resolving to rows. If your driver only supports callbacks, wrap once: `const query = require('util').promisify(db.query).bind(db);` then `await query(...)`. Callers: `try { const u = await getUser(id) } catch (e) {...}` — errors now throw instead of arriving as first arg.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_atelier_rep0.flow,True,,,,,,0.016,-607
+Assumes `db.query` returns a promise resolving to rows. If your driver only supports callbacks, wrap once: `const query = require('util').promisify(db.query).bind(db);` then `await query(...)`. Callers: `try { const u = await getUser(id) } catch (e) {...}` — errors now throw instead of arriving as first arg.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_lemoncrow_rep0.flow,True,,,,,,0.016,-607
 local5,baseline,2,True,0.056936999999999995,9158,10169,2,3584,15192,2184,0,493,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's the async/await version:
 
 ```javascript
@@ -2256,8 +2256,8 @@ This assumes `db.query` returns a promise. A few notes:
 
 - **Behavior is preserved**: rejects on query error, throws `Not found` on empty result, otherwise resolves with the first row.
 
-Want me to update the call sites too, or adjust the error style (e.g. a custom `NotFoundError`)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep2.flow,True,,,,,,0.0,0
-local4,atelier,3,True,0.053387000000000004,17973,16211,1,5229,16484,0,0,760,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another. Difference is *how history is recorded*.
+Want me to update the call sites too, or adjust the error style (e.g. a custom `NotFoundError`)?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep2.flow,True,,,,,,0.0,0
+local4,lemoncrow,3,True,0.053387000000000004,17973,16211,1,5229,16484,0,0,760,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another. Difference is *how history is recorded*.
 
 **merge** — creates a merge commit joining the two branch tips. Non-destructive: existing commits untouched. History shows the branch topology exactly as it happened (parallel lines, a merge node).
 
@@ -2288,7 +2288,7 @@ git rebase main        # feature commits reapplied onto main's tip
 - Debugging: linear history (rebase) makes `git bisect` and `git log` cleaner; merge preserves the real context of when/why branches diverged.
 - Reverting: a merge of a whole feature is one revert target; rebased commits are individual.
 
-Common workflow combines both: rebase your feature locally to tidy it, then `--no-ff` merge into main.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_atelier_rep3.flow,True,,,,,,0.0178,-568
+Common workflow combines both: rebase your feature locally to tidy it, then `--no-ff` merge into main.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_lemoncrow_rep3.flow,True,,,,,,0.0178,-568
 local5,baseline,1,True,0.11208,13138,14051,3,3586,32568,6096,0,790,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's the refactored version:
 
 ```javascript
@@ -2328,8 +2328,8 @@ Key behavior changes:
 - The `err` branch is gone — a rejected query now propagates automatically, so callers use `try/catch` (or `.catch()`) instead of checking an `err` argument.
 - Errors are `throw`n rather than passed to a callback; the `Not found` case becomes a thrown error too. Callers who want to distinguish ""not found"" from a DB failure may prefer returning `null` instead of throwing.
 
-Callers change from `getUser(1, (err, user) => …)` to `const user = await getUser(1)`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep1.flow,True,,,,,,0.0,0
-local4,atelier,4,True,0.054267,17726,15712,1,5185,16484,0,0,804,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another; they differ in **how history is recorded**.
+Callers change from `getUser(1, (err, user) => …)` to `const user = await getUser(1)`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep1.flow,True,,,,,,0.0,0
+local4,lemoncrow,4,True,0.054267,17726,15712,1,5185,16484,0,0,804,['claude-opus-4-8'],False,False,"Both integrate commits from one branch into another; they differ in **how history is recorded**.
 
 **merge** — creates a merge commit tying the two branch tips together. History preserved exactly as it happened: parallel branches, one join point. Non-destructive — existing commits unchanged.
 
@@ -2362,8 +2362,8 @@ Same end tree content; different graph.
 
 Common hybrid workflow: rebase your feature branch onto `main` to linearize + resolve conflicts locally, then `merge --no-ff` into `main` so the integration point is still marked.
 
-One nuance on conflicts: rebase can make you resolve the *same* conflict repeatedly across commits (mitigate with `git rerere`), whereas merge resolves it once. If a rebase goes wrong: `git rebase --abort`, or recover via `git reflog`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_atelier_rep4.flow,True,,,,,,0.0144,-669
-local5,atelier,2,True,0.038955500000000004,9614,7939,1,5229,16571,0,0,181,['claude-opus-4-8'],False,False,"```javascript
+One nuance on conflicts: rebase can make you resolve the *same* conflict repeatedly across commits (mitigate with `git rerere`), whereas merge resolves it once. If a rebase goes wrong: `git rebase --abort`, or recover via `git reflog`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local4_lemoncrow_rep4.flow,True,,,,,,0.0144,-669
+local5,lemoncrow,2,True,0.038955500000000004,9614,7939,1,5229,16571,0,0,181,['claude-opus-4-8'],False,False,"```javascript
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2371,8 +2371,8 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a Promise (rows). If your driver still callback-only → `const rows = await promisify(db.query.bind(db))('SELECT ...', [id]);`. Errors now propagate via `throw`/rejection instead of `callback(err)`; callers use `try/catch`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_atelier_rep2.flow,True,,,,,,0.018,-528
-local5,atelier,1,True,0.039635500000000004,8585,6820,1,5185,16571,0,0,217,['claude-opus-4-8'],False,False,"```js
+Assumes `db.query` returns a Promise (rows). If your driver still callback-only → `const rows = await promisify(db.query.bind(db))('SELECT ...', [id]);`. Errors now propagate via `throw`/rejection instead of `callback(err)`; callers use `try/catch`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_lemoncrow_rep2.flow,True,,,,,,0.018,-528
+local5,lemoncrow,1,True,0.039635500000000004,8585,6820,1,5185,16571,0,0,217,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2382,7 +2382,7 @@ async function getUser(id) {
 
 Assumes `db.query` returns a promise (rows). If your driver returns `{rows}` (e.g. `pg`), destructure: `const { rows } = await db.query(...)`. If it's callback-only, wrap once: `const query = util.promisify(db.query).bind(db)`.
 
-Callers change: `try { const u = await getUser(id) } catch (e) {…}` instead of the `(err, user)` callback.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_atelier_rep1.flow,True,,,,,,0.0724,21067
+Callers change: `try { const u = await getUser(id) } catch (e) {…}` instead of the `(err, user)` callback.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_lemoncrow_rep1.flow,True,,,,,,0.0724,21067
 local5,baseline,3,True,0.101575,13604,19235,3,3586,32568,5332,0,673,"['claude-opus-4-8', 'claude-haiku-4-5-20251001']",False,False,"Here's the async/await version:
 
 ```js
@@ -2421,7 +2421,7 @@ try {
 } catch (err) {
   // handles both DB errors and ""Not found""
 }
-```",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep3.flow,True,,,,,,0.0,0
+```",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep3.flow,True,,,,,,0.0,0
 local5,baseline,4,True,0.110815,11168,12191,3,3586,32568,6056,0,753,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a standalone snippet (no matching source file in the repo), so here's the refactored version.
 
 The key assumption is that `db.query` returns a promise — which it does with modern drivers like `mysql2/promise`, or you can wrap a callback-only driver with `util.promisify`.
@@ -2456,8 +2456,8 @@ What changed:
 - `callback(new Error('Not found'))` becomes `throw new Error('Not found')`.
 - `callback(null, rows[0])` becomes `return rows[0]`.
 
-Callers move from `getUser(id, (err, user) => ...)` to `const user = await getUser(id)` inside a `try/catch`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep4.flow,True,,,,,,0.0,0
-local5,atelier,3,True,0.038485500000000006,6607,4857,1,5185,16571,0,0,171,['claude-opus-4-8'],False,False,"```javascript
+Callers move from `getUser(id, (err, user) => ...)` to `const user = await getUser(id)` inside a `try/catch`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_baseline_rep4.flow,True,,,,,,0.0,0
+local5,lemoncrow,3,True,0.038485500000000006,6607,4857,1,5185,16571,0,0,171,['claude-opus-4-8'],False,False,"```javascript
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2465,8 +2465,8 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a Promise resolving to rows. If it returns `{rows}` (e.g. `pg`), destructure: `const { rows } = await db.query(...)`. Callers now `await getUser(id)` in try/catch instead of passing a callback.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_atelier_rep3.flow,True,,,,,,0.0631,20232
-local5,atelier,4,True,0.0416105,17978,16266,1,5185,16571,0,0,296,['claude-opus-4-8'],False,False,"```js
+Assumes `db.query` returns a Promise resolving to rows. If it returns `{rows}` (e.g. `pg`), destructure: `const { rows } = await db.query(...)`. Callers now `await getUser(id)` in try/catch instead of passing a callback.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_lemoncrow_rep3.flow,True,,,,,,0.0631,20232
+local5,lemoncrow,4,True,0.0416105,17978,16266,1,5185,16571,0,0,296,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2487,7 +2487,7 @@ async function getUser(id) {
 }
 ```
 
-Callers: `try/await` or `.catch()` — errors now throw/reject instead of arriving as `callback(err)`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_atelier_rep4.flow,True,,,,,,0.0692,20911
+Callers: `try/await` or `.catch()` — errors now throw/reject instead of arriving as `callback(err)`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local5_lemoncrow_rep4.flow,True,,,,,,0.0692,20911
 local6,baseline,0,True,0.085848,32954,36712,2,3525,15192,2109,0,1685,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Good instinct to pause and analyze before committing to microservices — the split is often blamed for problems that turn out to be fixable in the monolith, and it's much harder to reverse than to undo. Here are the key factors I'd weigh.
 
 ## First: is the monolith actually the problem?
@@ -2529,7 +2529,7 @@ You rarely have to choose between ""keep the mess"" and ""full microservices"":
 
 - **Modular monolith first.** Enforce clean module boundaries *inside* the Django app (separate apps, explicit interfaces, no cross-module ORM reaching). This gives you most of the org/clarity benefits and makes any future extraction dramatically easier. Do this first regardless — it's the prerequisite for a clean split anyway.
 - **Strangler fig.** If you do split, extract *one* well-bounded, painful service, learn the operational cost for real, then decide whether to continue. Never a big-bang rewrite.
-- **Extract async workloads.** Move heavy/slow wor",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep0.flow,True,,,,,,0.0,0
+- **Extract async workloads.** Move heavy/slow wor",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep0.flow,True,,,,,,0.0,0
 local6,baseline,1,True,0.08251800000000001,32611,35992,2,3525,15192,2109,0,1551,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is one of those decisions that's much easier to get wrong than right, so it's worth slowing down before splitting anything. Here are the key factors I'd weigh.
 
 ## First: is the monolith actually the problem?
@@ -2568,7 +2568,7 @@ In-process calls are nanoseconds and never ""half-fail."" Network calls add mill
 
 Consider a **modular monolith** first: enforce internal boundaries (Django apps with clear interfaces, no cross-app model reach-in, a linter/import rules to keep them honest). You get most of the maintainability wins with none of the network/ops cost — and it becomes the natural seam if you *do* later extract a service.
 
-If you do split, use the **strangler fig pattern**: extract *one* well-bounded, independently-scaling service first (a clear win with a clean data boundary), learn the operational lessons on a low-risk piece, then decide whether to continue. Don't rewrite; carve incrementa",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep1.flow,True,,,,,,0.0,0
+If you do split, use the **strangler fig pattern**: extract *one* well-bounded, independently-scaling service first (a clear win with a clean data boundary), learn the operational lessons on a low-risk piece, then decide whether to continue. Don't rewrite; carve incrementa",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep1.flow,True,,,,,,0.0,0
 local6,baseline,2,True,0.084023,28403,29607,2,3525,15192,2109,0,1612,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Good instinct to pause before splitting. Most ""the monolith is slow"" problems are not actually solved by microservices — and microservices add a large, permanent tax. Here's how I'd think about it.
 
 ## First: is slowness even an architecture problem?
@@ -2603,7 +2603,7 @@ Can you identify bounded contexts with minimal coupling? If your models are a ta
 
 1. **Profile and fix the cheap things first** — you may buy years of runway in a week.
 2. **If boundaries are the problem, do a modular monolith** — strict app boundaries, no cross-domain ORM reaching, service-layer interfaces. This gets you 80% of the decoupling benefit at ~10% of the operational cost, and it's the necessary prerequisite anyway.
-3. **If you still need to split, extract one service** — pick the component with the clearest",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep2.flow,True,,,,,,0.0,0
+3. **If you still need to split, extract one service** — pick the component with the clearest",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep2.flow,True,,,,,,0.0,0
 local6,baseline,3,True,0.083098,27589,28618,2,3525,15192,2109,0,1575,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Before you split anything, it's worth naming the trap: **""the monolith is slow"" and ""we should do microservices"" are two unrelated statements.** Microservices don't make things faster — they usually add network latency, serialization overhead, and distributed-systems complexity. So the first factor is the most important one.
 
 ## 1. Is slowness even an architecture problem?
@@ -2653,8 +2653,8 @@ Before full microservices, consider these — they capture much of the benefit a
 2. **Extract one service** — the highest-value, cleanest-boundary piece (e.g. the CPU-heavy component from #2). Learn the operational cost on one service before committing to twenty.
 3. **Scale the monolith first** — read replicas, more app servers behind a load balancer, Celery for async work. Django scales to very large traffic as a monolith.
 
-**My recommendation:** profile fir",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep3.flow,True,,,,,,0.0,0
-local6,atelier,1,True,0.059548000000000004,21624,19586,1,5185,16496,0,0,1015,['claude-opus-4-8'],False,False,"Don't split to fix slowness — profile first. Most ""slow monolith"" pain is DB/query/caching, not architecture, and microservices add latency (network hops replace in-process calls), not remove it. Splitting a slow monolith gives you a slow distributed system that's harder to debug.
+**My recommendation:** profile fir",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep3.flow,True,,,,,,0.0,0
+local6,lemoncrow,1,True,0.059548000000000004,21624,19586,1,5185,16496,0,0,1015,['claude-opus-4-8'],False,False,"Don't split to fix slowness — profile first. Most ""slow monolith"" pain is DB/query/caching, not architecture, and microservices add latency (network hops replace in-process calls), not remove it. Splitting a slow monolith gives you a slow distributed system that's harder to debug.
 
 **First — is this even an architecture problem?**
 - Profile it: `django-silk`/APM. Usual culprits: N+1 queries (`select_related`/`prefetch_related`), missing indexes, no caching, sync work that should be Celery, no read replica. Fix these → often the debate ends.
@@ -2672,8 +2672,8 @@ local6,atelier,1,True,0.059548000000000004,21624,19586,1,5185,16496,0,0,1015,['c
 
 **Pragmatic middle path:** modular monolith first — enforce internal boundaries (separate Django apps, no cross-app model imports, service-layer between them) while staying one deployable. Gets you the boundary discipline; defers the distributed-systems tax. If a seam proves stable and a component genuinely needs independent scale/deploy, extract that one (strangler-fig) — don't big-bang rewrite.
 
-Rule of thumb: split for **team/deploy independence and divergent scaling needs**, not for performance. If the answer to ""why split?"" is ""it's slow,"" the answer is almost always ""profile and cache,"" not ""microservices.""",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_atelier_rep1.flow,True,,,,,,0.023,-319
-local6,atelier,0,True,0.061818000000000005,24242,22427,1,5229,16496,0,0,1097,['claude-opus-4-8'],False,False,"Key factors, ordered by what usually decides it:
+Rule of thumb: split for **team/deploy independence and divergent scaling needs**, not for performance. If the answer to ""why split?"" is ""it's slow,"" the answer is almost always ""profile and cache,"" not ""microservices.""",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_lemoncrow_rep1.flow,True,,,,,,0.023,-319
+local6,lemoncrow,0,True,0.061818000000000005,24242,22427,1,5229,16496,0,0,1097,['claude-opus-4-8'],False,False,"Key factors, ordered by what usually decides it:
 
 **1. Is the monolith actually the bottleneck?** Most Django slowness is fixable in-place and cheaper than any split:
 - N+1 queries → `select_related`/`prefetch_related`; missing indexes; `django-silk`/`nplusone` to find them.
@@ -2702,8 +2702,8 @@ Recommended path:
 3. Enforce internal module boundaries first (a ""modular monolith"" — Django apps with clean, no-cross-import interfaces). This is the cheap dress rehearsal: if you can't draw clean seams in one codebase, you can't across the network.
 4. Extract *one* service at the clearest seam (async-heavy, independently-scaled, weak data coupling) — measure, learn, then decide on more.
 
-Decision rule: split for **independent deploy/scale/team ownership**, not for speed. If the driver is only ""it's slow,"" fix the monolith — far cheaper, far faster.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_atelier_rep0.flow,True,,,,,,0.024,-311
-local6,atelier,2,True,0.057298,20772,19047,1,5185,16496,0,0,925,['claude-opus-4-8'],False,False,"Key factors, in decision order:
+Decision rule: split for **independent deploy/scale/team ownership**, not for speed. If the driver is only ""it's slow,"" fix the monolith — far cheaper, far faster.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_lemoncrow_rep0.flow,True,,,,,,0.024,-311
+local6,lemoncrow,2,True,0.057298,20772,19047,1,5185,16496,0,0,925,['claude-opus-4-8'],False,False,"Key factors, in decision order:
 
 **1. Prove the bottleneck first — monolith slowness is rarely architectural.**
 Profile before splitting. Most Django slowness is fixable in place, and splitting keeps every one of these problems while adding network latency:
@@ -2728,7 +2728,7 @@ Never big-bang rewrite. Strangler-fig: extract one bounded context (the one that
 
 Bottom line: profile first. If you haven't exhausted indexes, caching, Celery, and read replicas, ""microservices"" is treating an org-shaped remedy for a query-shaped disease. Split for team autonomy and independent scaling of a specific hot component — not for raw speed.
 
-Want me to profile the actual app and find where the time goes?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_atelier_rep2.flow,True,,,,,,0.0267,-168
+Want me to profile the actual app and find where the time goes?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_lemoncrow_rep2.flow,True,,,,,,0.0267,-168
 local7,baseline,0,True,0.07385000000000001,16894,18403,2,3557,15192,2148,0,1185,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This route handler has a **critical SQL injection vulnerability**, plus a couple of secondary issues.
 
 ## 1. SQL Injection (critical)
@@ -2791,7 +2791,7 @@ app.get('/api/users/:id', requireAuth, (req, res) => {
 });
 ```
 
-The SQL injection is the one that matters most — fix that first with parameterized queries; the rest is hardening.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep0.flow,True,,,,,,0.0,0
+The SQL injection is the one that matters most — fix that first with parameterized queries; the rest is hardening.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep0.flow,True,,,,,,0.0,0
 local7,baseline,1,True,0.06842500000000001,15802,17391,2,3557,15192,2148,0,968,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This route handler has a **critical SQL injection vulnerability**, plus a couple of secondary issues.
 
 ## Critical: SQL Injection
@@ -2845,8 +2845,8 @@ const query = 'SELECT id, name, email FROM users WHERE id = ?';
 
 ## Bottom line
 
-The parameterized query is the one non-negotiable fix — it closes the injection. The rest (validation, error handling, column allow-listing, authz) are strongly recommended hardening. Want me to look at where `db` is configured or check whether other routes share this interpolation pattern?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep1.flow,True,,,,,,0.0,0
-local6,atelier,3,True,0.061642999999999996,23679,21733,1,5229,16496,0,0,1090,['claude-opus-4-8'],False,False,"Factors — in rough priority:
+The parameterized query is the one non-negotiable fix — it closes the injection. The rest (validation, error handling, column allow-listing, authz) are strongly recommended hardening. Want me to look at where `db` is configured or check whether other routes share this interpolation pattern?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep1.flow,True,,,,,,0.0,0
+local6,lemoncrow,3,True,0.061642999999999996,23679,21733,1,5229,16496,0,0,1090,['claude-opus-4-8'],False,False,"Factors — in rough priority:
 
 **1. Is the monolith actually the bottleneck?**
 Most Django slowness is fixable in-place, and cheaper than distributed systems. Rule these out first:
@@ -2881,7 +2881,7 @@ In-process call → cross-network call: latency, partial failures, retries, time
 2. If genuinely need to split → **modular monolith** first: enforce module boundaries (separate Django apps, no cross-app imports, service-layer interfaces) *inside* one deploy. Gets you the decoupling with none of the distributed-systems tax.
 3. Extract a *single* service along a proven seam (clear bounded context, minimal shared data) once module boundaries hold. Learn the operational cost on one before committing.
 
-Blunt version: ""monolith is slow"" is almost never solved by microservices — it's solved by fixing queries, indexes, caching, and async. Split for *team autonomy and independent scaling*, not for speed. Want me to profile the actual app and find where the time goes?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_atelier_rep3.flow,True,,,,,,0.0215,-414
+Blunt version: ""monolith is slow"" is almost never solved by microservices — it's solved by fixing queries, indexes, caching, and async. Split for *team autonomy and independent scaling*, not for speed. Want me to profile the actual app and find where the time goes?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_lemoncrow_rep3.flow,True,,,,,,0.0215,-414
 local6,baseline,4,True,0.07754799999999999,23068,24516,2,3525,15192,2109,0,1353,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Good instinct to interrogate this before committing—microservices solve organizational and scaling problems, but they introduce distributed-systems complexity that often makes a slow monolith *slower to work on*, not faster. Here's how I'd think about it.
 
 ## First: is ""slow"" actually a decomposition problem?
@@ -2925,8 +2925,8 @@ If you can't cleanly modularize the monolith, you *definitely* can't cleanly spl
 
 ---
 
-If you want, I can dig into the actual app—point me at it and I'll profile the slow paths, check for N+1s, and see whether real service seams exist. That would turn this from an abstract debate into a decision grounded in your codebase. Want me to take a look?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep4.flow,True,,,,,,0.0,0
-local7,atelier,0,True,0.044317499999999996,8873,7194,1,5185,16535,0,0,405,['claude-opus-4-8'],False,False,"SQL injection: `req.params.id` interpolated raw into the query. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL / full table dump.
+If you want, I can dig into the actual app—point me at it and I'll profile the slow paths, check for N+1s, and see whether real service seams exist. That would turn this from an abstract debate into a decision grounded in your codebase. Want me to take a look?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_baseline_rep4.flow,True,,,,,,0.0,0
+local7,lemoncrow,0,True,0.044317499999999996,8873,7194,1,5185,16535,0,0,405,['claude-opus-4-8'],False,False,"SQL injection: `req.params.id` interpolated raw into the query. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL / full table dump.
 
 Fix — parameterized query:
 
@@ -2943,8 +2943,8 @@ Also:
 - No `.catch` → rejected promise crashes/hangs, and default handler may echo the DB error (schema leak). Added above.
 - Validate `id` is an integer before query if the column is numeric — `Number.isInteger(+req.params.id)` else 400.
 
-Rule: never string-interpolate request input into SQL — parameterize always, whatever the driver (`?` mysql2, `$1` pg).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_atelier_rep0.flow,True,,,,,,0.0295,-43
-local7,atelier,1,True,0.0468175,10603,8786,1,5185,16535,0,0,505,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into SQL. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary query execution, full DB read/write.
+Rule: never string-interpolate request input into SQL — parameterize always, whatever the driver (`?` mysql2, `$1` pg).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_lemoncrow_rep0.flow,True,,,,,,0.0295,-43
+local7,lemoncrow,1,True,0.0468175,10603,8786,1,5185,16535,0,0,505,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into SQL. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary query execution, full DB read/write.
 
 Fix — parameterized query:
 
@@ -2961,7 +2961,7 @@ Three points, severity order:
 2. **Unhandled rejection** — no `.catch`; a DB error crashes the request (and leaks stack in some setups). Added above.
 3. **Over-fetch / info leak** — `SELECT *` + `res.json(user)` returns every column incl. `password_hash`, tokens. Select explicit columns.
 
-Placeholder style depends on driver: `?` (mysql2), `$1` (pg). Validate `id` is integer first if IDs are numeric — `Number.isInteger(+req.params.id)`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_atelier_rep1.flow,True,,,,,,0.0216,-360
+Placeholder style depends on driver: `?` (mysql2), `$1` (pg). Validate `id` is integer first if IDs are numeric — `Number.isInteger(+req.params.id)`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_lemoncrow_rep1.flow,True,,,,,,0.0216,-360
 local7,baseline,2,True,0.07425000000000001,15950,17636,2,3557,15192,2148,0,1201,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has a critical **SQL injection** vulnerability, plus a couple of secondary issues. Here's the breakdown:
 
 ## 🔴 Critical: SQL Injection
@@ -3033,8 +3033,8 @@ app.get('/api/users/:id', requireAuth, (req, res) => {
 
 **Priority: the SQL injection is the one that must be fixed before this ships.** The parameterized query is the single most important change; the rest are hardening.
 
-Want me to check whether this same interpolation pattern appears elsewhere in the codebase?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep2.flow,True,,,,,,0.0,0
-local6,atelier,4,True,0.059173,23225,21378,1,5185,16496,0,0,1000,['claude-opus-4-8'],False,False,"Key factors, ordered by decision weight:
+Want me to check whether this same interpolation pattern appears elsewhere in the codebase?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep2.flow,True,,,,,,0.0,0
+local6,lemoncrow,4,True,0.059173,23225,21378,1,5185,16496,0,0,1000,['claude-opus-4-8'],False,False,"Key factors, ordered by decision weight:
 
 **1. Is the monolith actually the bottleneck?**
 Most Django slowness is fixable in-place, cheaper than any split:
@@ -3062,7 +3062,7 @@ Enforce internal module boundaries in the Django app (separate apps, no cross-ap
 
 Anti-pattern to avoid: **distributed monolith** — services that must deploy together and share data. All the network cost, none of the independence.
 
-Want me to profile the actual app and identify where the current slowness lives? That answers factor #1 concretely before any architecture decision.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_atelier_rep4.flow,True,,,,,,0.0184,-502
+Want me to profile the actual app and identify where the current slowness lives? That answers factor #1 concretely before any architecture decision.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local6_lemoncrow_rep4.flow,True,,,,,,0.0184,-502
 local7,baseline,3,True,0.07245000000000001,17129,18193,2,3557,15192,2148,0,1129,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This code has a **critical SQL injection vulnerability**, plus a couple of secondary issues. Here's the breakdown:
 
 ## 🔴 Critical: SQL Injection
@@ -3119,8 +3119,8 @@ if (!Number.isInteger(id) || id < 1) {
 ## Priority
 Fix **#1 (SQL injection) immediately** — it's the highest-severity, trivially exploitable flaw. The parameterized-query rewrite above also resolves the error-handling gap; then tighten the column list, validation, and authorization.
 
-Want me to apply these fixes if this handler exists in the repo? I can locate it and patch it directly.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep3.flow,True,,,,,,0.0,0
-local7,atelier,2,True,0.043287500000000007,10442,8525,1,5229,16535,0,0,355,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query string. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL, full DB read/write.
+Want me to apply these fixes if this handler exists in the repo? I can locate it and patch it directly.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep3.flow,True,,,,,,0.0,0
+local7,lemoncrow,2,True,0.043287500000000007,10442,8525,1,5229,16535,0,0,355,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query string. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL, full DB read/write.
 
 Fix — parameterized query:
 
@@ -3137,7 +3137,7 @@ Rule: never string-interpolate user input into SQL — always placeholders (`?` 
 Secondary:
 - No `.catch` → rejected promise crashes/hangs request; added above.
 - `SELECT *` + `res.json(user)` → leaks every column (password hash, tokens). Select explicit columns.
-- No validation → coerce/validate id is integer before query (defense-in-depth).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_atelier_rep2.flow,True,,,,,,0.031,-21
+- No validation → coerce/validate id is integer before query (defense-in-depth).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_lemoncrow_rep2.flow,True,,,,,,0.031,-21
 local7,baseline,4,True,0.069125,16010,17311,2,3557,15192,2148,0,996,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has one serious vulnerability and a couple of secondary issues.
 
 ## 🔴 Critical: SQL Injection
@@ -3193,8 +3193,8 @@ if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Inval
 **5. Consider authorization.** Nothing here checks whether the caller is allowed to view this user. If user records are private, add an auth/ownership check — otherwise it's an IDOR (any user enumerable by ID).
 
 ## Priority
-Fix the SQL injection first — it's the one that gets you breached. The parameterized query plus error handling is the minimum bar; column allow-listing, validation, and authz are the hardening pass.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep4.flow,True,,,,,,0.0,0
-local7,atelier,3,True,0.0437675,10776,8991,1,5185,16535,0,0,383,['claude-opus-4-8'],False,False,"SQLi: `req.params.id` interpolated raw into SQL. `GET /api/users/1;DROP TABLE users--` → arbitrary SQL.
+Fix the SQL injection first — it's the one that gets you breached. The parameterized query plus error handling is the minimum bar; column allow-listing, validation, and authz are the hardening pass.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_baseline_rep4.flow,True,,,,,,0.0,0
+local7,lemoncrow,3,True,0.0437675,10776,8991,1,5185,16535,0,0,383,['claude-opus-4-8'],False,False,"SQLi: `req.params.id` interpolated raw into SQL. `GET /api/users/1;DROP TABLE users--` → arbitrary SQL.
 
 Fix — parameterized query:
 
@@ -3211,8 +3211,8 @@ Three issues, injection is the only critical one:
 - **No error handling** → rejected promise = unhandled rejection, hangs the request. Added `.catch`.
 - **`SELECT *`** → leaks every column (password hashes, tokens) straight to JSON. Select explicit columns.
 
-Any DB call built by string-concatenating `req.params`/`req.query`/`req.body`: same fix — parameterize.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_atelier_rep3.flow,True,,,,,,0.0287,-77
-local7,atelier,4,True,0.043137499999999995,11006,9180,1,4874,16535,0,0,420,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into the query. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL, full-table dump, data destruction.
+Any DB call built by string-concatenating `req.params`/`req.query`/`req.body`: same fix — parameterize.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_lemoncrow_rep3.flow,True,,,,,,0.0287,-77
+local7,lemoncrow,4,True,0.043137499999999995,11006,9180,1,4874,16535,0,0,420,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into the query. `GET /api/users/1;DROP TABLE users--` or `0 OR 1=1` → arbitrary SQL, full-table dump, data destruction.
 
 Fix — parameterized query, never string interpolation:
 
@@ -3231,7 +3231,7 @@ Secondary:
 - **Data exposure** — `SELECT *` + `res.json(user)` returns every column (password hash, tokens). Select explicit columns.
 - **No input validation** — assert `id` numeric before query if IDs are integers.
 
-Same fix at every route interpolating `req.params`/`req.query`/`req.body` into SQL.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_atelier_rep4.flow,True,,,,,,0.026,64
+Same fix at every route interpolating `req.params`/`req.query`/`req.body` into SQL.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local7_lemoncrow_rep4.flow,True,,,,,,0.026,64
 local8,baseline,1,True,0.121589,23827,26860,3,3527,32504,5874,0,1262,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Done. `Dockerfile` written. Key size-minimizing decisions:
 
 **Separate stages, only the last one ships.** Everything in `deps`, `build`, and `prod-deps` is discarded — the final image contains only compiled JS + production `node_modules`.
@@ -3257,7 +3257,7 @@ Two optional additions worth considering:
 - A `.dockerignore` (with `node_modules`, `dist`, `.git`) to speed up the build context transfer.
 - If your app needs `tsconfig.json` or other assets at runtime, add a `COPY` for them into the runtime stage.
 
-Want me to generate a matching `.dockerignore`?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep1.flow,True,,,,,,0.0,0
+Want me to generate a matching `.dockerignore`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep1.flow,True,,,,,,0.0,0
 local8,baseline,0,True,0.18284499999999998,39420,40241,5,3531,75096,6977,0,2420,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Done. I wrote `Dockerfile` and `.dockerignore` in the project root.
 
 ## How it minimizes final image size
@@ -3281,7 +3281,7 @@ The final image contains **only** three things: the Alpine Node runtime, product
 - **`EXPOSE 3000`** — set to your actual port.
 - **Node version** — pin `node:22-alpine` to whatever your app targets.
 
-Want me to go even smaller with a `distroless` or `node:22-alpine` + bundler (esbuild/tsup) approach that ships a single JS file with zero `node_modules`?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep0.flow,True,,,,,,0.0,0
+Want me to go even smaller with a `distroless` or `node:22-alpine` + bundler (esbuild/tsup) approach that ships a single JS file with zero `node_modules`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep0.flow,True,,,,,,0.0,0
 local8,baseline,3,True,0.128344,21584,22625,3,3527,32504,5806,0,1561,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a multi-stage `Dockerfile` optimized for a small final image:
 
 ```dockerfile
@@ -3334,7 +3334,7 @@ dist
 npm-debug.log
 ```
 
-Want me to also generate the `.dockerignore`, or tailor the paths/port to your actual `package.json` and `tsconfig.json` if you share them?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep3.flow,True,,,,,,0.0,0
+Want me to also generate the `.dockerignore`, or tailor the paths/port to your actual `package.json` and `tsconfig.json` if you share them?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep3.flow,True,,,,,,0.0,0
 local8,baseline,2,True,0.15026650000000003,32067,33483,4,3529,53729,6314,0,1809,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Done. Both files are written to your project root.
 
 ## How the size stays minimal
@@ -3362,8 +3362,8 @@ The final image (`runner` stage) contains **only** three things: production `nod
 - **`EXPOSE 3000`** — set to your actual port, or remove it.
 - **`node:22-alpine`** — pin to whatever Node major your app targets.
 
-Want me to tailor it? If you point me at your `package.json` and `tsconfig.json` I can lock the paths and entrypoint to your actual setup. For the absolute smallest image, a bundler step (esbuild/tsup) plus `distroless` runtime can shave off `node_modules` entirely — say the word and I'll write that variant.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep2.flow,True,,,,,,0.0,0
-local8,atelier,1,True,0.12724200000000002,21313,19241,2,5231,33014,5843,0,1046,['claude-opus-4-8'],False,False,"`Dockerfile` written.
+Want me to tailor it? If you point me at your `package.json` and `tsconfig.json` I can lock the paths and entrypoint to your actual setup. For the absolute smallest image, a bundler step (esbuild/tsup) plus `distroless` runtime can shave off `node_modules` entirely — say the word and I'll write that variant.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep2.flow,True,,,,,,0.0,0
+local8,lemoncrow,1,True,0.12724200000000002,21313,19241,2,5231,33014,5843,0,1046,['claude-opus-4-8'],False,False,"`Dockerfile` written.
 
 4 stages, all on `node:22-alpine`:
 - `deps` → `npm ci` (all deps) with cached `/root/.npm`
@@ -3380,8 +3380,8 @@ Adjust if your repo differs:
 - runtime files beyond JS (e.g. `.env`, assets, `package.json` `type:module` already covered) → add `COPY` lines
 - `EXPOSE 3000` → set your actual port
 
-Even smaller: swap runtime base to `gcr.io/distroless/nodejs22` (no shell/pkg manager).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_atelier_rep1.flow,True,,,,,,-0.0057,-1967
-local8,atelier,0,True,0.12809199999999998,17956,15383,2,5187,33014,5905,0,1064,['claude-opus-4-8'],False,False,"done: `Dockerfile` (+ `.dockerignore`) written.
+Even smaller: swap runtime base to `gcr.io/distroless/nodejs22` (no shell/pkg manager).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_lemoncrow_rep1.flow,True,,,,,,-0.0057,-1967
+local8,lemoncrow,0,True,0.12809199999999998,17956,15383,2,5187,33014,5905,0,1064,['claude-opus-4-8'],False,False,"done: `Dockerfile` (+ `.dockerignore`) written.
 
 4 stages, `node:22-alpine` base:
 - **deps** — `npm ci` all deps, `--mount=type=cache` on `~/.npm`, layer keyed on lockfile.
@@ -3394,8 +3394,8 @@ Adjust to your project:
 - `EXPOSE 3000` → your port (or drop).
 - `node:22-alpine` → your Node major.
 
-Smaller still: swap runtime base for `gcr.io/distroless/nodejs22` (no shell/apk) — `COPY --from=build /app/dist` + prod node_modules, `CMD [""dist/index.js""]`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_atelier_rep0.flow,True,,,,,,0.0548,42854
-local8,atelier,3,True,0.1448835,24033,21371,3,5233,55377,6078,0,1210,['claude-opus-4-8'],False,False,"done: `Dockerfile` (4 stages) + `.dockerignore`.
+Smaller still: swap runtime base for `gcr.io/distroless/nodejs22` (no shell/apk) — `COPY --from=build /app/dist` + prod node_modules, `CMD [""dist/index.js""]`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_lemoncrow_rep0.flow,True,,,,,,0.0548,42854
+local8,lemoncrow,3,True,0.1448835,24033,21371,3,5233,55377,6078,0,1210,['claude-opus-4-8'],False,False,"done: `Dockerfile` (4 stages) + `.dockerignore`.
 
 Size levers:
 - `node:22-alpine` base → final carries only Alpine + prod `node_modules` + `dist`. No compiler, no dev deps, no source `.ts`.
@@ -3409,8 +3409,8 @@ Adjust before build:
 - `EXPOSE 3000` → your port.
 - needs native addons? add `RUN apk add --no-cache python3 make g++` to `deps`/`prod-deps` only.
 
-Requires BuildKit for the `--mount` cache (default in modern Docker; else `DOCKER_BUILDKIT=1`).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_atelier_rep3.flow,True,,,,,,-0.0165,-24500
-local8,atelier,2,True,0.145486,21762,19556,3,5629,55342,6002,0,1186,['claude-opus-4-8'],False,False,"done: `Dockerfile` + `.dockerignore` written.
+Requires BuildKit for the `--mount` cache (default in modern Docker; else `DOCKER_BUILDKIT=1`).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_lemoncrow_rep3.flow,True,,,,,,-0.0165,-24500
+local8,lemoncrow,2,True,0.145486,21762,19556,3,5629,55342,6002,0,1186,['claude-opus-4-8'],False,False,"done: `Dockerfile` + `.dockerignore` written.
 
 Size levers:
 - 4 stages — `deps` (full, cached `npm ci`) → `build` (compile TS) → `prod-deps` (`npm ci --omit=dev`) → `runtime`. Final image = alpine base + prod `node_modules` + `dist` only; no TS, devDeps, or source.
@@ -3424,7 +3424,7 @@ Adjust to your repo:
 - `EXPOSE 3000` → your port.
 - Native addons (node-gyp) → add `RUN apk add --no-cache python3 make g++` to deps/prod-deps stages.
 
-Build: `DOCKER_BUILDKIT=1 docker build -t app .`",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_atelier_rep2.flow,True,,,,,,0.0048,-2778
+Build: `DOCKER_BUILDKIT=1 docker build -t app .`",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_lemoncrow_rep2.flow,True,,,,,,0.0048,-2778
 local8,baseline,4,True,0.128229,21210,22504,3,3527,32504,5972,0,1490,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `Dockerfile` with a 4-stage build. Here's how each stage minimizes the final image:
 
 **Stage flow**
@@ -3454,7 +3454,7 @@ dist
 npm-debug.log
 ```
 
-Want me to generate the `.dockerignore` too, or tailor the Dockerfile to your actual `package.json` scripts and entry point?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep4.flow,True,,,,,,0.0,0
+Want me to generate the `.dockerignore` too, or tailor the Dockerfile to your actual `package.json` scripts and entry point?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_baseline_rep4.flow,True,,,,,,0.0,0
 local9,baseline,0,True,0.070363,19966,21072,2,3520,15192,2115,0,1061,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition comes from a **read-modify-write** pattern where you read the current value in one query, add 1 in JavaScript, then write it back in another query. Two concurrent requests both read the same starting value, both compute the same ""next"" value, and one overwrites the other (a lost update).
 
 The fix is to make the increment **atomic in a single SQL statement** so PostgreSQL does the arithmetic under a row lock.
@@ -3495,7 +3495,7 @@ return rows[0].value;
 1. **Pool, not a shared client.** Make sure you're using `pool.query(...)` (or a per-request client). Concurrent requests sharing one `Client` will corrupt each other regardless of the SQL.
 2. **Don't wrap it in a needless transaction with a prior SELECT.** If you kept a `SELECT` before the `UPDATE` ""to get the current value,"" that reintroduces the race. Delete it — `RETURNING` replaces it.
 
-If you paste your actual endpoint code I can point to the exact lines to change, but 95% of the time swapping in the atomic `UPDATE ... RETURNING` is the whole fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep0.flow,True,,,,,,0.0,0
+If you paste your actual endpoint code I can point to the exact lines to change, but 95% of the time swapping in the atomic `UPDATE ... RETURNING` is the whole fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep0.flow,True,,,,,,0.0,0
 local9,baseline,1,True,0.07441299999999999,20493,21971,2,3520,15192,2115,0,1223,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The root cause is almost certainly a **read-modify-write** pattern: you `SELECT` the current value, add 1 in JavaScript, then `UPDATE`. Two concurrent requests both read the same value before either writes back, so they produce the same result. The fix is to let PostgreSQL do the increment **atomically** in a single statement.
 
 ## The fix: atomic UPDATE ... RETURNING
@@ -3549,7 +3549,7 @@ Before the fix you'll see duplicates; after it, all 100 values are distinct.
 
 ---
 
-If you paste your actual endpoint/query code, I can point at the exact lines and give you the corrected version in your style. Which is it — a real counter you're tallying, or are you really after unique IDs?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep1.flow,True,,,,,,0.0,0
+If you paste your actual endpoint/query code, I can point at the exact lines and give you the corrected version in your style. Which is it — a real counter you're tallying, or are you really after unique IDs?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep1.flow,True,,,,,,0.0,0
 local9,baseline,2,True,0.069863,20791,22428,2,3520,15192,2115,0,1041,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition almost certainly comes from a **read-modify-write in your application code** rather than in the database. Something like this:
 
 ```js
@@ -3588,8 +3588,8 @@ The problem isn't Postgres — it's that the read and the write were two separat
 
 If you share your actual endpoint code I can point at the exact line and give you the drop-in replacement.
 
-Want me to look at the code in this repo, or is this a standalone snippet?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep2.flow,True,,,,,,0.0,0
-local8,atelier,4,True,0.05640350000000001,17386,15515,1,5185,16507,0,0,889,['claude-opus-4-8'],False,False,"Multi-stage: build deps + compile in a fat stage, ship only prod `node_modules` + `dist`.
+Want me to look at the code in this repo, or is this a standalone snippet?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep2.flow,True,,,,,,0.0,0
+local8,lemoncrow,4,True,0.05640350000000001,17386,15515,1,5185,16507,0,0,889,['claude-opus-4-8'],False,False,"Multi-stage: build deps + compile in a fat stage, ship only prod `node_modules` + `dist`.
 
 ```dockerfile
 # ---- Stage 1: build ----
@@ -3644,8 +3644,8 @@ Dockerfile
 
 Adjust: `22`→your Node major, `npm run build` must match your `tsconfig` `outDir: dist`, `EXPOSE`/`CMD` entry to your actual port + emitted entrypoint. Native addons (`bcrypt`, `sharp`) → add `RUN apk add --no-cache python3 make g++` to the build stage only.
 
-For the smallest possible runtime, swap stage 3 base for `gcr.io/distroless/nodejs22-debian12` (no shell/pkg-mgr) — trades debuggability for size + attack surface.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_atelier_rep4.flow,True,,,,,,0.0718,20912
-local9,atelier,0,True,0.048271,15429,13479,1,5229,16502,0,0,555,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code — `SELECT val`, `val+1` in Node, `UPDATE`. Two requests read the same value before either writes → same result. Not atomic.
+For the smallest possible runtime, swap stage 3 base for `gcr.io/distroless/nodejs22-debian12` (no shell/pkg-mgr) — trades debuggability for size + attack surface.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local8_lemoncrow_rep4.flow,True,,,,,,0.0718,20912
+local9,lemoncrow,0,True,0.048271,15429,13479,1,5229,16502,0,0,555,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code — `SELECT val`, `val+1` in Node, `UPDATE`. Two requests read the same value before either writes → same result. Not atomic.
 
 Fix: let PostgreSQL do the increment atomically and return it in one statement:
 
@@ -3668,8 +3668,8 @@ Why alternatives are worse:
 - App-level mutex / retry loop — doesn't survive multiple Node processes or instances; DB is the only shared serialization point.
 - Sequences (`nextval`) — atomic and gap-tolerant, good if you just need unique increasing ids and don't need an exact updatable count.
 
-If you must keep a separate read, wrap in a transaction with `SELECT ... FOR UPDATE` to lock the row — but the `RETURNING` one-liner is strictly simpler and correct.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_atelier_rep0.flow,True,,,,,,0.0221,-398
-local9,atelier,1,True,0.04847100000000001,12348,10588,1,5229,16502,0,0,563,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code. Two requests both `SELECT` the same value, both `+1`, both write → same result. The gap between read and write isn't atomic.
+If you must keep a separate read, wrap in a transaction with `SELECT ... FOR UPDATE` to lock the row — but the `RETURNING` one-liner is strictly simpler and correct.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_lemoncrow_rep0.flow,True,,,,,,0.0221,-398
+local9,lemoncrow,1,True,0.04847100000000001,12348,10588,1,5229,16502,0,0,563,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code. Two requests both `SELECT` the same value, both `+1`, both write → same result. The gap between read and write isn't atomic.
 
 Fix — do the increment in one atomic SQL statement, let Postgres serialize it:
 
@@ -3688,8 +3688,8 @@ Why alternatives are worse:
 - App-level mutex / advisory lock — only helps within one process; breaks across multiple Node instances or pods. DB-level atomicity doesn't.
 - Sequences (`nextval`) — if you never need to reset or read exact-count and just want unique monotonic values, `CREATE SEQUENCE` + `nextval()` is lock-free and faster. But gaps appear on rollback.
 
-If the counter is currently read and written across separate awaits inside a transaction, collapsing to the one statement above removes the race. Any other endpoint doing read-then-write on the same row needs the same collapse.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_atelier_rep1.flow,True,,,,,,0.0259,-244
-local9,atelier,2,True,0.045726,11020,9162,1,5185,16502,0,0,462,['claude-opus-4-8'],False,False,"Read-modify-write race: you `SELECT` the value, add 1 in JS, then `UPDATE` — two concurrent requests read the same starting value and write the same result. The gap between read and write is where they collide.
+If the counter is currently read and written across separate awaits inside a transaction, collapsing to the one statement above removes the race. Any other endpoint doing read-then-write on the same row needs the same collapse.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_lemoncrow_rep1.flow,True,,,,,,0.0259,-244
+local9,lemoncrow,2,True,0.045726,11020,9162,1,5185,16502,0,0,462,['claude-opus-4-8'],False,False,"Read-modify-write race: you `SELECT` the value, add 1 in JS, then `UPDATE` — two concurrent requests read the same starting value and write the same result. The gap between read and write is where they collide.
 
 Fix — make the increment atomic in one statement, let PostgreSQL serialize it:
 
@@ -3707,7 +3707,7 @@ const value = rows[0].value;
 
 Why it works: a single `UPDATE ... value + 1` takes a row lock; concurrent updates queue and each computes from the committed prior value. `RETURNING` hands back this request's own post-increment value in the same round trip — no separate `SELECT`, no gap.
 
-Applies to any read-modify-write on a shared row: do the arithmetic in SQL, not in JS. If you must split read and write, `SELECT ... FOR UPDATE` inside a transaction locks the row for the duration — but the single atomic `UPDATE` is simpler and one round trip.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_atelier_rep2.flow,True,,,,,,0.0241,-281
+Applies to any read-modify-write on a shared row: do the arithmetic in SQL, not in JS. If you must split read and write, `SELECT ... FOR UPDATE` inside a transaction locks the row for the duration — but the single atomic `UPDATE` is simpler and one round trip.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_lemoncrow_rep2.flow,True,,,,,,0.0241,-281
 local9,baseline,3,True,0.07441299999999999,18308,19279,2,3520,15192,2115,0,1223,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition almost certainly comes from a **read-modify-write** pattern in your application code — something like this:
 
 ```js
@@ -3760,7 +3760,7 @@ const newValue = rows[0].value;
 
 For your case, switch to the single atomic `UPDATE ... RETURNING` statement and the duplicate-value problem disappears.
 
-If you paste your actual endpoint code, I can point at the exact lines and give you the corrected version.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep3.flow,True,,,,,,0.0,0
+If you paste your actual endpoint code, I can point at the exact lines and give you the corrected version.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep3.flow,True,,,,,,0.0,0
 local9,baseline,4,True,0.06871300000000001,14241,15558,2,3520,15192,2115,0,995,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition almost certainly comes from a **read-modify-write** pattern in your application code — something like:
 
 ```js
@@ -3802,8 +3802,8 @@ const value = rows[0].count;
    RETURNING count;
    ```
 
-If you paste your actual endpoint code, I can point to the exact line causing the lost update and give you the drop-in replacement.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep4.flow,True,,,,,,0.0,0
-local9,atelier,3,True,0.04687600000000001,11212,9545,1,5185,16502,0,0,508,['claude-opus-4-8'],False,False,"Read-modify-write race: your code does `SELECT counter` → increment in JS → `UPDATE`. Two concurrent requests read the same value, both write value+1. Lost update.
+If you paste your actual endpoint code, I can point to the exact line causing the lost update and give you the drop-in replacement.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_baseline_rep4.flow,True,,,,,,0.0,0
+local9,lemoncrow,3,True,0.04687600000000001,11212,9545,1,5185,16502,0,0,508,['claude-opus-4-8'],False,False,"Read-modify-write race: your code does `SELECT counter` → increment in JS → `UPDATE`. Two concurrent requests read the same value, both write value+1. Lost update.
 
 Fix — make the increment atomic in a single SQL statement so PostgreSQL serializes it, and use `RETURNING` to get the new value back:
 
@@ -3821,8 +3821,8 @@ Key rule: never read a value into JS, compute, and write it back for counters. D
 
 Two caveats:
 - If the increment is part of a larger multi-statement transaction, still safe — the row lock is held to commit. Just don't split read and write.
-- `INSERT ... ON CONFLICT (id) DO UPDATE SET value = counters.value + 1 RETURNING value` if the row may not exist yet (upsert-and-increment, also atomic).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_atelier_rep3.flow,True,,,,,,0.0275,-145
-local9,atelier,4,True,0.050251000000000004,14394,12716,1,5185,16502,0,0,643,['claude-opus-4-8'],False,False,"Race: read-modify-write in app code (`SELECT` → `+1` → `UPDATE`, or ORM `counter++ then save`) isn't atomic — two requests read the same value, both write back the same increment.
+- `INSERT ... ON CONFLICT (id) DO UPDATE SET value = counters.value + 1 RETURNING value` if the row may not exist yet (upsert-and-increment, also atomic).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_lemoncrow_rep3.flow,True,,,,,,0.0275,-145
+local9,lemoncrow,4,True,0.050251000000000004,14394,12716,1,5185,16502,0,0,643,['claude-opus-4-8'],False,False,"Race: read-modify-write in app code (`SELECT` → `+1` → `UPDATE`, or ORM `counter++ then save`) isn't atomic — two requests read the same value, both write back the same increment.
 
 Fix: make the increment atomic in the DB. Single statement, let Postgres do the add:
 
@@ -3850,7 +3850,7 @@ Rules:
 - Never read-then-write a counter in app code. One `value = value + 1` statement.
 - Need the value returned → `RETURNING`, not a follow-up `SELECT`.
 - New counter → `bigserial`/`GENERATED ... AS IDENTITY` or a sequence (`nextval`) if gaps are acceptable and you only need uniqueness, not gap-free ordering.
-- Don't reach for `SERIALIZABLE`/advisory locks/`SELECT FOR UPDATE` here — the single atomic `UPDATE` already covers it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_atelier_rep4.flow,True,,,,,,0.0185,-508
+- Don't reach for `SERIALIZABLE`/advisory locks/`SELECT FOR UPDATE` here — the single atomic `UPDATE` already covers it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local9_lemoncrow_rep4.flow,True,,,,,,0.0185,-508
 local10,baseline,0,True,0.19246449999999998,33871,34412,5,3523,75221,8514,0,2183,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `ErrorBoundary.tsx`. It's a class component (required for `componentDidCatch`) that:
 
 1. **Catches render errors** — `getDerivedStateFromError` stores the error and triggers the fallback render; `componentDidCatch` receives the error + component stack.
@@ -3874,7 +3874,7 @@ Two things worth knowing about React error boundaries in general:
 - They only catch errors during **render, lifecycle methods, and constructors** of children — not in event handlers, async code, or SSR. Wrap those in `try/catch` yourself.
 - If the underlying condition still fails, ""Try again"" will just re-throw. For transient errors (a failed fetch, a race) it works well; for deterministic ones you'd typically pair retry with resetting the state that caused it.
 
-If you have an actual project (JavaScript instead of TypeScript, a specific components directory, or an existing logging setup), tell me and I'll adapt it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep0.flow,True,,,,,,0.0,0
+If you have an actual project (JavaScript instead of TypeScript, a specific components directory, or an existing logging setup), tell me and I'll adapt it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep0.flow,True,,,,,,0.0,0
 local10,baseline,1,True,0.1894495,34599,35462,5,3523,75351,8603,0,2025,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `ErrorBoundary.jsx`. Note: this repo is actually a benchmark-reports directory with no React setup, so I dropped in a self-contained component rather than wiring into existing conventions.
 
 What it does:
@@ -3893,7 +3893,7 @@ Usage:
 
 Two things worth knowing:
 - Error boundaries only catch errors during render/lifecycle of **children** — not event handlers, async code, or errors thrown by the boundary itself.
-- Plain retry re-renders the same tree; if the underlying cause persists it'll error again. For data-fetch failures, pair the retry with a `key` prop reset or refetch.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep1.flow,True,,,,,,0.0,0
+- Plain retry re-renders the same tree; if the underlying cause persists it'll error again. For data-fetch failures, pair the retry with a `key` prop reset or refetch.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep1.flow,True,,,,,,0.0,0
 local10,baseline,2,True,0.20550349999999998,38111,38911,7,3527,115179,7142,0,2455,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I created `ErrorBoundary.tsx`. Here's how it works and how to use it.
 
 **Why a class component:** React only exposes error catching through the `getDerivedStateFromError` and `componentDidCatch` lifecycle methods — there is no Hook equivalent, so an error boundary must be a class.
@@ -3932,7 +3932,7 @@ import { ErrorBoundary } from ""./ErrorBoundary"";
 1. They do **not** catch errors in event handlers, async code (`setTimeout`, promises), or SSR — use `try/catch` for those.
 2. Retry only recovers if the underlying cause is transient. If the same render throws again, the boundary re-catches it. For data-fetch errors, pair `reset` with a refetch/`resetKeys` so retry actually changes the inputs.
 
-If you're on plain JS instead of TypeScript, or want a `resetKeys` prop that auto-resets when a value changes, say the word and I'll adjust.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep2.flow,True,,,,,,0.0,0
+If you're on plain JS instead of TypeScript, or want a `resetKeys` prop that auto-resets when a value changes, say the word and I'll adjust.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep2.flow,True,,,,,,0.0,0
 local10,baseline,3,True,0.21761999999999998,38442,39035,7,3527,116292,8244,0,2475,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `ErrorBoundary.jsx`. Key points:
 
 **Why a class component** — Error boundaries require `getDerivedStateFromError` / `componentDidCatch`, which have no Hook equivalent. There's no way to build one purely with function components.
@@ -3962,18 +3962,18 @@ local10,baseline,3,True,0.21761999999999998,38442,39035,7,3527,116292,8244,0,247
 1. **Boundaries only catch render-phase errors** — not event handlers, `setTimeout`/promises, SSR, or errors thrown by the boundary itself. For those, use a regular `try/catch`.
 2. **Plain retry may loop.** If the error is deterministic (e.g., bad data in a parent), clicking ""Try again"" re-renders the same broken tree and crashes again. For those cases, pair retry with a `resetKeys` prop (reset when a dependency changes) or fix the upstream cause. If you'd rather not maintain this yourself, [`react-error-boundary`](https://github.com/bvaughn/react-error-boundary) is the well-established library covering these patterns.
 
-I placed the file at the repo root since this is a scratch repo with no `src/` layout — let me know if you'd like it moved or converted to TypeScript.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep3.flow,True,,,,,,0.0,0
-local10,atelier,0,True,0.23487650000000002,52508,43433,5,5237,108853,10669,0,1903,['claude-opus-4-8'],False,False,"done: `frontend/src/components/ErrorBoundary.tsx` already implements it — no new code needed, all three requirements met:
+I placed the file at the repo root since this is a scratch repo with no `src/` layout — let me know if you'd like it moved or converted to TypeScript.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep3.flow,True,,,,,,0.0,0
+local10,lemoncrow,0,True,0.23487650000000002,52508,43433,5,5237,108853,10669,0,1903,['claude-opus-4-8'],False,False,"done: `frontend/src/components/ErrorBoundary.tsx` already implements it — no new code needed, all three requirements met:
 - **catches render errors** → `getDerivedStateFromError` + `componentDidCatch`
 - **fallback UI + retry** → default `Card` fallback with Retry `Button` (`retry` resets state, bumps `retryCount` key → remounts children so stale state clears); overridable via `fallback` prop
 - **logs details** → `console.error([label] error, componentStack)` + optional `onError` sink; dev-only stack-trace `<details>`
 
 verified: `npx tsc --noEmit` → exit 0; Card `tone`/Button `variant=""danger""`/`icon`/`size` props all exist.
 
-risk: component is not imported anywhere yet — implemented but unwired. Wiring into `App.tsx`/pages not requested (scope); say the word and I'll wrap the app tree.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_atelier_rep0.flow,True,,,,,,-0.0424,-37221
-local10,atelier,2,True,0.32821949999999994,50452,43191,8,5639,200159,14292,0,2281,['claude-opus-4-8'],False,False,"done: frontend `ErrorBoundary` (already implemented — render-error catch, red fallback Card, Retry button that remounts subtree via `key`, `console.error` + `onError` logging, DEV stack trace) was dead code — now mounted in `main.tsx` wrapping `<App>` inside `TimeRangeProvider`. → verified: `npm run typecheck` (tsc) clean.
+risk: component is not imported anywhere yet — implemented but unwired. Wiring into `App.tsx`/pages not requested (scope); say the word and I'll wrap the app tree.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_lemoncrow_rep0.flow,True,,,,,,-0.0424,-37221
+local10,lemoncrow,2,True,0.32821949999999994,50452,43191,8,5639,200159,14292,0,2281,['claude-opus-4-8'],False,False,"done: frontend `ErrorBoundary` (already implemented — render-error catch, red fallback Card, Retry button that remounts subtree via `key`, `console.error` + `onError` logging, DEV stack trace) was dead code — now mounted in `main.tsx` wrapping `<App>` inside `TimeRangeProvider`. → verified: `npm run typecheck` (tsc) clean.
 
-Note: a second, standalone copy exists at repo-root `src/components/ErrorBoundary.tsx` (inline-styled, not part of the Vite frontend) — left untouched. assumption: target = the `frontend/` React app.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_atelier_rep2.flow,True,,,,,,-0.1227,-94068
+Note: a second, standalone copy exists at repo-root `src/components/ErrorBoundary.tsx` (inline-styled, not part of the Vite frontend) — left untouched. assumption: target = the `frontend/` React app.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_lemoncrow_rep2.flow,True,,,,,,-0.1227,-94068
 local10,baseline,4,True,0.18876699999999996,37880,39657,6,3525,94026,6843,0,2327,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `ErrorBoundary.tsx`. Here's what it does and how to use it.
 
 **Behavior**
@@ -4008,8 +4008,8 @@ import { ErrorBoundary } from ""./ErrorBoundary"";
 - They **don't** catch errors in event handlers, async code (`setTimeout`, promises), or SSR — those need try/catch. This is a React limitation, not something the boundary can work around.
 - If the same error reproduces immediately on retry, the fallback will just reappear; retry is meant for transient failures. For a hard reset you can pass a `key` to the boundary and change it.
 
-The directory was empty (and not a git repo, despite the environment note), so I made this a standalone `.tsx` with `react` as the only assumed dependency. If your project uses plain JavaScript/JSX instead of TypeScript, let me know and I'll drop the type annotations.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep4.flow,True,,,,,,0.0,0
-local10,atelier,1,True,0.43273700000000004,98595,82104,13,5382,334314,14137,0,3892,['claude-opus-4-8'],False,False,"done: `ErrorBoundary` component already implemented + valid at **`frontend/src/components/ErrorBoundary.tsx`** (the app's real React tree).
+The directory was empty (and not a git repo, despite the environment note), so I made this a standalone `.tsx` with `react` as the only assumed dependency. If your project uses plain JavaScript/JSX instead of TypeScript, let me know and I'll drop the type annotations.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_baseline_rep4.flow,True,,,,,,0.0,0
+local10,lemoncrow,1,True,0.43273700000000004,98595,82104,13,5382,334314,14137,0,3892,['claude-opus-4-8'],False,False,"done: `ErrorBoundary` component already implemented + valid at **`frontend/src/components/ErrorBoundary.tsx`** (the app's real React tree).
 
 Meets all three requirements:
 - catches render/lifecycle errors → `getDerivedStateFromError` + `componentDidCatch`
@@ -4020,10 +4020,10 @@ verified: `npx tsc -p frontend/tsconfig.json --noEmit` → 0 errors (Card `tone=
 
 Notes (not touched — outside ""implement the component""):
 - Not mounted anywhere yet — wrap a subtree (e.g. `<ErrorBoundary label=""…""><Route…/></ErrorBoundary>` around routes in `App.tsx` or children in `main.tsx`) for it to actually catch. Say the word.
-- Stray duplicate at top-level `src/components/ErrorBoundary.tsx` (plain inline-styled variant, orphaned — not in any tsconfig, unreferenced). Left in place; delete not authorized by task. Recommend removing to avoid confusion.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_atelier_rep1.flow,True,,,,,,-0.2433,-268223
-local10,atelier,3,True,0.44232649999999996,71723,53006,10,5772,294463,19536,0,2835,['claude-opus-4-8'],False,False,"verified: `npm test` → 15 files, 70 passed (incl. `App.test.tsx`). done.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_atelier_rep3.flow,False,no task keyword overlap,,,,,-0.2247,-192068
-local10,atelier,4,True,0.1991835,40989,35246,5,5237,103137,8903,0,1296,['claude-opus-4-8'],False,False,"done: `frontend/src/components/ErrorBoundary.tsx` already fully implements the request — class boundary via `getDerivedStateFromError`/`componentDidCatch`, red `Card` fallback + `RotateCcw` Retry button (remounts subtree via `retryCount` key), logs `console.error([label] …, error, componentStack)` + optional `onError` callback, DEV-only stack `<details>`. Deps (`ui/card`, `ui/button`, `lib/utils`) present; wired in `main.tsx` + `App.tsx`.
+- Stray duplicate at top-level `src/components/ErrorBoundary.tsx` (plain inline-styled variant, orphaned — not in any tsconfig, unreferenced). Left in place; delete not authorized by task. Recommend removing to avoid confusion.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_lemoncrow_rep1.flow,True,,,,,,-0.2433,-268223
+local10,lemoncrow,3,True,0.44232649999999996,71723,53006,10,5772,294463,19536,0,2835,['claude-opus-4-8'],False,False,"verified: `npm test` → 15 files, 70 passed (incl. `App.test.tsx`). done.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_lemoncrow_rep3.flow,False,no task keyword overlap,,,,,-0.2247,-192068
+local10,lemoncrow,4,True,0.1991835,40989,35246,5,5237,103137,8903,0,1296,['claude-opus-4-8'],False,False,"done: `frontend/src/components/ErrorBoundary.tsx` already fully implements the request — class boundary via `getDerivedStateFromError`/`componentDidCatch`, red `Card` fallback + `RotateCcw` Retry button (remounts subtree via `retryCount` key), logs `console.error([label] …, error, componentStack)` + optional `onError` callback, DEV-only stack `<details>`. Deps (`ui/card`, `ui/button`, `lib/utils`) present; wired in `main.tsx` + `App.tsx`.
 
 verified: `npx tsc --noEmit` → clean, no ErrorBoundary diagnostics.
 
-No new code needed. Want a variant (e.g. reset-on-route-change, or an error-reporting sink to your logging service) instead?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_atelier_rep4.flow,True,,,,,,-0.0104,-11852
+No new code needed. Want a variant (e.g. reset-on-route-change, or an error-reporting sink to your logging service) instead?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch0/local10_lemoncrow_rep4.flow,True,,,,,,-0.0104,-11852

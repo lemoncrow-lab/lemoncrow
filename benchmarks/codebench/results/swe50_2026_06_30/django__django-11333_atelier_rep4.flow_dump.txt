@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def get_resolver", "path": "django/urls"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def get_resolver", "path": "django/urls"}
 [usage] input=3819 cache_read=5070 cache_write=0 output=134
 
 === Turn 2 ===
 [user] [tool_result] MCP error -32000: No module named 'numpy'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"def get_resolver\" django/urls/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"def get_resolver\" django/urls/"}
 [usage] input=2 cache_read=5070 cache_write=3979 output=79
 
 === Turn 3 ===
@@ -74,7 +74,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 mode
   Input should be 'content', 'map', 'paths' or 'counts' [type=literal_error, input_value='file_paths_with_content', input_type=str]
     For further information visit https://errors.pydantic.dev/2.13/v/literal_error
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/urls/resolvers.py:head=120"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/urls/resolvers.py:head=120"]}
 [usage] input=2 cache_read=9049 cache_write=198 output=78
 
 === Turn 4 ===
@@ -200,12 +200,12 @@ def _route_to_regex(route, is_endpoint=False):
 
 class RoutePattern(CheckURLMixin):
 ... [truncated]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/urls/resolvers.py", "old": "@functools.lru_cache(maxsize=None)\ndef get_resolver(urlconf=None):\n    if urlconf is None:\n        urlconf = settings.ROOT_URLCONF\n    return URLResolver(RegexPattern(r'^/'), urlconf)", "new": "def get_resolver(urlconf=None):\n    if urlconf is None:\n        urlconf = settings.ROOT_URLCONF\n    return _get_cached_resolver(urlconf)\n\n\n@functools.lru_cache(maxsize=None)\ndef _get_cached_resolver(urlconf=None):\n    return URLResolver(RegexPattern(r'^/'), urlconf)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/urls/resolvers.py", "old": "@functools.lru_cache(maxsize=None)\ndef get_resolver(urlconf=None):\n    if urlconf is None:\n        urlconf = settings.ROOT_URLCONF\n    return URLResolver(RegexPattern(r'^/'), urlconf)", "new": "def get_resolver(urlconf=None):\n    if urlconf is None:\n        urlconf = settings.ROOT_URLCONF\n    return _get_cached_resolver(urlconf)\n\n\n@functools.lru_cache(maxsize=None)\ndef _get_cached_resolver(urlconf=None):\n    return URLResolver(RegexPattern(r'^/'), urlconf)"}]}
 [usage] input=2 cache_read=9247 cache_write=1307 output=372
 
 === Turn 5 ===
 [user] [tool_result] {"FIXME":{"reason":"Must update: these callers still use the contract this edit changed.","sites":[{"line":95,"new":"get_resolver.cache_clear no longer exists","old":"@lru_cache on get_resolver()","path":"django/urls/base.py","snippet":"get_resolver.cache_clear()"}]},"applied":["django/urls/resolvers.py:66-70"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/urls/base.py:L88-L100"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/urls/base.py:L88-L100"]}
 [usage] input=2 cache_read=10554 cache_write=513 output=77
 
 === Turn 6 ===
@@ -223,12 +223,12 @@ def clear_url_caches():
 
 def set_script_prefix(prefix):
     """
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/urls/base.py", "old": "    get_resolver.cache_clear()", "new": "    _get_cached_resolver.cache_clear()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/urls/base.py", "old": "    get_resolver.cache_clear()", "new": "    _get_cached_resolver.cache_clear()"}]}
 [usage] input=2 cache_read=11067 cache_write=187 output=119
 
 === Turn 7 ===
 [user] [tool_result] applied django/urls/base.py:95
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"get_resolver\\|get_callable\\|get_ns_resolver\" django/urls/base.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"get_resolver\\|get_callable\\|get_ns_resolver\" django/urls/base.py | head"}
 [usage] input=2 cache_read=11254 cache_write=136 output=98
 
 === Turn 8 ===
@@ -241,7 +241,7 @@ def set_script_prefix(prefix):
 96:    get_ns_resolver.cache_clear()
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/urls/base.py", "old": "from .resolvers import get_ns_resolver, get_resolver", "new": "from .resolvers import _get_cached_resolver, get_ns_resolver, get_resolver"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/urls/base.py", "old": "from .resolvers import get_ns_resolver, get_resolver", "new": "from .resolvers import _get_cached_resolver, get_ns_resolver, get_resolver"}]}
 [usage] input=2 cache_read=11390 cache_write=285 output=141
 
 === Turn 9 ===
@@ -270,13 +270,13 @@ Previously the `lru_cache` was on `get_resolver` itself, so calling it with `Non
 === Turn 10 ===
 [user] Stop hook feedback:
 verify-before-done: edited 2 file(s) (base.py, resolvers.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py urlpatterns_reverse 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py urlpatterns_reverse 2>&1 | tail -20"}
 [usage] input=2 cache_read=11833 cache_write=465 output=93
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] The `urlpatterns_reverse` suite passes (`OK`). Let me also run the `urlpatterns` and `i18n` URL tests since they exercise `get_resolver`/`clear_url_caches`.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py urlpatterns 2>&1 | tail -3"}
+[assistant] The `urlpatterns_reverse` suite passes (`OK`). Let me also run the `urlpatterns` and `i18n` URL tests since they exercise `get_resolver`/`clear_url_caches`.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py urlpatterns 2>&1 | tail -3"}
 [usage] input=131 cache_read=12298 cache_write=370 output=160
 
 === Turn 12 ===

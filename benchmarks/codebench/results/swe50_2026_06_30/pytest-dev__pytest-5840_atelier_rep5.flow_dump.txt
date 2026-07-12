@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,13 +61,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unique_path normalize case Windows path resolve"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "conftest import rootdir insert_missing_modules unique_path"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unique_path normalize case Windows path resolve"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "conftest import rootdir insert_missing_modules unique_path"}
 [usage] input=3818 cache_read=4817 cache_write=0 output=296
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["src/_pytest/monkeypatch.py","src/_pytest/config/__init__.py","src/_pytest/tmpdir.py","testing/test_conftest.py","src/_pytest/python.py","src/_pytest/cacheprovider.py","src/_pytest/assertion/rewrite.py"],"exact_match":true,"files":[{"path":"src/_pytest/pathlib.py","sections":[{"content":"340\tdef unique_path(path):\n341\t    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n342\t    systems such as Windows.\n343\t\n344\t    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n345\t    natively with ``resolve()``.\"\"\"\n346\t    return type(path)(normcase(str(path.realpath())))","end_line":346,"line":340,"path":"src/_pytest/pathlib.py","qualified_name":"unique_path"}]}],"related_symbols":["unique_path @ src/_pytest/pathlib.py:340","resolve @ src/_pytest/monkeypatch.py:39"]}
 [tool_result] {"candidate_files":["src/_pytest/config/__init__.py","src/_pytest/python.py","src/_pytest/fixtures.py","src/_pytest/main.py","src/_pytest/pytester.py","testing/test_conftest.py","src/_pytest/assertion/rewrite.py"],"exact_match":true,"files":[{"path":"src/_pytest/pathlib.py","sections":[{"content":"340\tdef unique_path(path):\n341\t    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n342\t    systems such as Windows.\n343\t\n344\t    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n345\t    natively with ``resolve()``.\"\"\"\n346\t    return type(path)(normcase(str(path.realpath())))","end_line":346,"line":340,"path":"src/_pytest/pathlib.py","qualified_name":"unique_path"}]}],"related_symbols":["unique_path @ src/_pytest/pathlib.py:340"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unique_path usage call site import normcase"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/pathlib.py:L1-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unique_path usage call site import normcase"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/pathlib.py:L1-L40"]}
 [usage] input=2 cache_read=4817 cache_write=4972 output=365
 
 === Turn 3 ===
@@ -113,22 +113,22 @@ def ensure_reset_dir(path):
         rm_rf(path)
     path.mkdir()
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unique_path\" src/ testing/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unique_path\" src/ testing/"}
 [usage] input=2 cache_read=9789 cache_write=1160 output=108
 
 === Turn 4 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unique_path\" ."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unique_path\" ."}
 [usage] input=2 cache_read=10949 cache_write=129 output=73
 
 === Turn 5 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_try_load_conftest _importconftest _getconftestmodules conftest path"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_try_load_conftest _importconftest _getconftestmodules conftest path"}
 [usage] input=2 cache_read=11078 cache_write=94 output=87
 
 === Turn 6 ===
 [user] [tool_result] {"candidate_files":["src/_pytest/main.py","src/_pytest/python.py","src/_pytest/doctest.py","testing/test_conftest.py","src/_pytest/assertion/rewrite.py","src/_pytest/hookspec.py","src/_pytest/helpconfig.py"],"exact_match":true,"files":[{"path":"src/_pytest/config/__init__.py","sections":[{"content":"391\t    def _try_load_conftest(self, anchor):\n392\t        self._getconftestmodules(anchor)\n393\t        # let's also consider test* subdirs\n394\t        if anchor.check(dir=1):\n395\t            for x in anchor.listdir(\"test*\"):\n396\t                if x.check(dir=1):\n397\t                    self._getconftestmodules(x)\n398\t\n399\t    @lru_cache(maxsize=128)\n400\t    def _getconftestmodules(self, path):\n401\t        if self._noconftest:\n402\t            return []\n403\t\n404\t        if path.isfile():\n405\t            directory = path.dirpath()\n406\t        else:\n407\t            directory = path\n408\t\n409\t        directory = unique_path(directory)\n410\t\n411\t        # XXX these days we may rather want to use config.rootdir\n412\t        # and allow users to opt into looking into the rootdir parent\n413\t        # directories instead of requiring to specify confcutdir\n414\t        clist = []\n415\t        for parent in directory.parts():\n416\t            if self._confcutdir and self._confcutdir.relto(parent):\n417\t                continue\n418\t            conftestpath = parent.join(\"conftest.py\")\n419\t            if conftestpath.isfile():\n420\t                mod = self._importconftest(conftestpath)\n421\t                clist.append(mod)\n422\t        self._dirpath2confmods[directory] = clist\n423\t        return clist","end_line":423,"line":391,"path":"src/_pytest/config/__init__.py","qualified_name":"PytestPluginManager._try_load_conftest"},{"content":"434\tdef _importconftest(self, conftestpath):\n435\t        # Use realpath to avoid loading the same conftest twice\n436\t        # with build systems that create build directories containing\n437\t        # symlinks to actual files.\n438\t        conftestpath = unique_path(conftestpath)\n439\t        try:\n440\t            return self._conftestpath2mod[conftestpath]\n441\t        except KeyError:\n442\t            pkgpath = conftestpath.pypkgpath()\n443\t            if pkgpath is None:\n444\t                _ensure_removed_sysmodule(conftestpath.purebasename)\n445\t            try:\n446\t                mod = conftestpath.pyimport()\n447\t                if (\n448\t                    hasattr(mod, \"pytest_plugins\")\n449\t                    and self._configured\n450\t                    and not self._using_pyargs\n451\t                ):\n452\t                    _fail_on_non_top_pytest_plugins(conftestpath, self._confcutdir)\n453\t            except Exception:\n454\t                raise ConftestImportFailure(conftestpath, sys.exc_info())\n455\t\n456\t            self._conftest_plugins.add(mod)\n457\t            self._conftestpath2mod[conftestpath] = mod\n458\t            dirpath = conftestpath.dirpath()\n459\t            if dirpath in self._dirpath2confmods:\n460\t                for path, mods in self._dirpath2confmods.items():\n461\t                    if path and path.relto(dirpath) or path == dirpath:\n462\t                        assert mod not in mods\n463\t                        mods.append(mod)\n464\t            self.trace(\"loaded conftestmodule %r\" % (mod))\n465\t            self.consider_conftest(mod)\n466\t            return mod","end_line":466,"line":434,"path":"src/_pytest/config/__init__.py","qualified_name":"PytestPluginManager._importconftest"}]}],"related_symbols":["PytestPluginManager._try_load_conftest @ src/_pytest/config/__init__.py:391","PytestPluginManager._importconftest @ src/_pytest/config/__init__.py:434","PytestPluginManager._getconftestmodules @ src/_pytest/config/__init__.py:400"]}
-[assistant] This is pytest issue #5792 — `unique_path` lowercases paths via `normcase` on Windows, which breaks conftest import. Let me look at the relevant code and its usages.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unique_path\\|_dirpath2confmods\\|_conftestpath2mod\\|from _pytest.pathlib\\|import pathlib\\|from pathlib\" src/_pytest/config/__init__.py"}
+[assistant] This is pytest issue #5792 — `unique_path` lowercases paths via `normcase` on Windows, which breaks conftest import. Let me look at the relevant code and its usages.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unique_path\\|_dirpath2confmods\\|_conftestpath2mod\\|from _pytest.pathlib\\|import pathlib\\|from pathlib\" src/_pytest/config/__init__.py"}
 [usage] input=2 cache_read=11172 cache_write=1628 output=1945
 
 === Turn 7 ===
@@ -146,25 +146,25 @@ def ensure_reset_dir(path):
 460:                for path, mods in self._dirpath2confmods.items():
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/config/__init__.py:L360-L375"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/config/__init__.py:L360-L375"]}
 [usage] input=2 cache_read=12800 cache_write=2218 output=83
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] This is pytest issue #5792. The fix: stop using `unique_path` (which lowercases via `normcase`) and instead use `Path(...).resolve()` as a dedup key, which resolves to correct case on Windows without lowercasing. Let me check `normcase` usage elsewhere before removing.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"normcase\\|unique_path\" src/_pytest/ testing/"}
+[assistant] This is pytest issue #5792. The fix: stop using `unique_path` (which lowercases via `normcase`) and instead use `Path(...).resolve()` as a dedup key, which resolves to correct case on Windows without lowercasing. Let me check `normcase` usage elsewhere before removing.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"normcase\\|unique_path\" src/_pytest/ testing/"}
 [usage] input=131 cache_read=15018 cache_write=337 output=1539
 
 === Turn 9 ===
 [user] [tool_result] {"content": [], "verdict": "absent"}
 
-[atelier] 10 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/pathlib.py:L1-L40, src/_pytest/config/__init__.py:L360-L375. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] Now I'll apply the fix in one batch.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/config/__init__.py", "old": "from _pytest.pathlib import unique_path\n", "new": ""}, {"path": "src/_pytest/config/__init__.py", "old": "        self._confcutdir = (\n            unique_path(current.join(namespace.confcutdir, abs=True))\n            if namespace.confcutdir\n            else None\n        )", "new": "        self._confcutdir = (\n            current.join(namespace.confcutdir, abs=True)\n            if namespace.confcutdir\n            else None\n        )"}, {"path": "src/_pytest/config/__init__.py", "old": "            directory = path\n\n        directory = unique_path(directory)\n\n        # XXX", "new": "            directory = path\n\n        # XXX"}, {"path": "src/_pytest/config/__init__.py", "old": "    def _importconftest(self, conftestpath):\n        # Use realpath to avoid loading the same conftest twice\n        # with build systems that create build directories containing\n        # symlinks to actual files.\n        conftestpath = unique_path(conftestpath)\n        try:\n            return self._conftestpath2mod[conftestpath]\n        except KeyError:", "new": "    def _importconftest(self, conftestpath):\n        # Use a resolved Path object as key to avoid loading the same conftest twice\n        # with build systems that create build directories containing\n        # symlinks to actual files.\n        # Using Path().resolve() is better than py.path.realpath because\n        # it resolves to the correct path/drive in case-insensitive file systems (#5792)\n        key = Path(str(conftestpath)).resolve()\n        try:\n            return self._conftestpath2mod[key]\n        except KeyError:"}, {"path": "src/_pytest/config/__init__.py", "old": "            self._conftest_plugins.add(mod)\n            self._conftestpath2mod[conftestpath] = mod", "new": "            self._conftest_plugins.add(mod)\n            self._conftestpath2mod[key] = mod"}, {"path": "src/_pytest/pathlib.py", "old": "from os.path import isabs\nfrom os.path import normcase\nfrom os.path import sep", "new": "from os.path import isabs\nfrom os.path import sep"}, {"path": "src/_pytest/pathlib.py", "old": "\n\ndef unique_path(path):\n    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n    systems such as Windows.\n\n    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n    natively with ``resolve()``.\"\"\"\n    return type(path)(normcase(str(path.realpath())))", "new": ""}]}
+[lemoncrow] 10 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/pathlib.py:L1-L40, src/_pytest/config/__init__.py:L360-L375. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] Now I'll apply the fix in one batch.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/config/__init__.py", "old": "from _pytest.pathlib import unique_path\n", "new": ""}, {"path": "src/_pytest/config/__init__.py", "old": "        self._confcutdir = (\n            unique_path(current.join(namespace.confcutdir, abs=True))\n            if namespace.confcutdir\n            else None\n        )", "new": "        self._confcutdir = (\n            current.join(namespace.confcutdir, abs=True)\n            if namespace.confcutdir\n            else None\n        )"}, {"path": "src/_pytest/config/__init__.py", "old": "            directory = path\n\n        directory = unique_path(directory)\n\n        # XXX", "new": "            directory = path\n\n        # XXX"}, {"path": "src/_pytest/config/__init__.py", "old": "    def _importconftest(self, conftestpath):\n        # Use realpath to avoid loading the same conftest twice\n        # with build systems that create build directories containing\n        # symlinks to actual files.\n        conftestpath = unique_path(conftestpath)\n        try:\n            return self._conftestpath2mod[conftestpath]\n        except KeyError:", "new": "    def _importconftest(self, conftestpath):\n        # Use a resolved Path object as key to avoid loading the same conftest twice\n        # with build systems that create build directories containing\n        # symlinks to actual files.\n        # Using Path().resolve() is better than py.path.realpath because\n        # it resolves to the correct path/drive in case-insensitive file systems (#5792)\n        key = Path(str(conftestpath)).resolve()\n        try:\n            return self._conftestpath2mod[key]\n        except KeyError:"}, {"path": "src/_pytest/config/__init__.py", "old": "            self._conftest_plugins.add(mod)\n            self._conftestpath2mod[conftestpath] = mod", "new": "            self._conftest_plugins.add(mod)\n            self._conftestpath2mod[key] = mod"}, {"path": "src/_pytest/pathlib.py", "old": "from os.path import isabs\nfrom os.path import normcase\nfrom os.path import sep", "new": "from os.path import isabs\nfrom os.path import sep"}, {"path": "src/_pytest/pathlib.py", "old": "\n\ndef unique_path(path):\n    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n    systems such as Windows.\n\n    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n    natively with ``resolve()``.\"\"\"\n    return type(path)(normcase(str(path.realpath())))", "new": ""}]}
 [usage] input=2 cache_read=15355 cache_write=1806 output=1104
 
 === Turn 10 ===
 [user] [tool_result] applied src/_pytest/config/__init__.py:33-34,368-372,406-410,431-438,455-456, src/_pytest/pathlib.py:13-15,337-345
-[assistant] Let me verify the edits are coherent and run the conftest tests.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/config/__init__.py:L399-L465"]}
+[assistant] Let me verify the edits are coherent and run the conftest tests.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/config/__init__.py:L399-L465"]}
 [usage] input=2 cache_read=17161 cache_write=1167 output=279
 
 === Turn 11 ===
@@ -236,7 +236,7 @@ def ensure_reset_dir(path):
             self.trace("loaded conftestmodule %r" % (mod))
             self.consider_conftest(mod)
             return mod
-[assistant] Edits are coherent. Now run the conftest tests.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest testing/test_conftest.py -q 2>&1 | tail -25"}
+[assistant] Edits are coherent. Now run the conftest tests.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest testing/test_conftest.py -q 2>&1 | tail -25"}
 [usage] input=2 cache_read=18328 cache_write=1201 output=109
 
 === Turn 12 ===
@@ -252,7 +252,7 @@ E   ImportError: cannot import name 'unique_path' from '_pytest.pathlib' (/testb
 FAILED testing/test_conftest.py
 !!!!!!!!!!!!!!!!!!! Interrupted: 1 errors during collection !!!!!!!!!!!!!!!!!!!!
 1 error in 0.06s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"unique_path\" testing/test_conftest.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"unique_path\" testing/test_conftest.py"}
 [usage] input=2 cache_read=19529 cache_write=388 output=115
 
 === Turn 13 ===
@@ -261,18 +261,18 @@ FAILED testing/test_conftest.py
 150:    assert values[0].__file__.startswith(str(unique_path(conf)))
 159:    assert values[0].__file__.startswith(str(unique_path(conf)))
 169:        assert unique_path(subconftest) in conftest._conftestpath2mod
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["testing/test_conftest.py:L130-L175"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["testing/test_conftest.py:L130-L175"]}
 [usage] input=2 cache_read=19917 cache_write=253 output=79
 
 === Turn 14 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] I need to update the tests to match the new key approach (`Path(...).resolve()`).[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "from _pytest.pathlib import unique_path\n", "new": ""}, {"path": "testing/test_conftest.py", "old": "    conftest._importconftest(conf)\n    values = conftest._getconftestmodules(conf.dirpath())\n    assert values[0].__file__.startswith(str(unique_path(conf)))\n    # and all sub paths get updated properly\n    values = conftest._getconftestmodules(p)\n    assert len(values) == 1\n    assert values[0].__file__.startswith(str(unique_path(conf)))", "new": "    conftest._importconftest(conf)\n    values = conftest._getconftestmodules(conf.dirpath())\n    assert values[0].__file__.startswith(str(conf))\n    # and all sub paths get updated properly\n    values = conftest._getconftestmodules(p)\n    assert len(values) == 1\n    assert values[0].__file__.startswith(str(conf))"}, {"path": "testing/test_conftest.py", "old": "    assert len(values) == 1\n    assert values[0].__file__.startswith(str(unique_path(conf)))\n\n\n@pytest.mark.parametrize(\"name\", \"test tests whatever .dotdir\".split())", "new": "    assert len(values) == 1\n    assert values[0].__file__.startswith(str(conf))\n\n\n@pytest.mark.parametrize(\"name\", \"test tests whatever .dotdir\".split())"}, {"path": "testing/test_conftest.py", "old": "        assert unique_path(subconftest) in conftest._conftestpath2mod", "new": "        assert Path(str(subconftest)).resolve() in conftest._conftestpath2mod"}]}
+[assistant] I need to update the tests to match the new key approach (`Path(...).resolve()`).[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "from _pytest.pathlib import unique_path\n", "new": ""}, {"path": "testing/test_conftest.py", "old": "    conftest._importconftest(conf)\n    values = conftest._getconftestmodules(conf.dirpath())\n    assert values[0].__file__.startswith(str(unique_path(conf)))\n    # and all sub paths get updated properly\n    values = conftest._getconftestmodules(p)\n    assert len(values) == 1\n    assert values[0].__file__.startswith(str(unique_path(conf)))", "new": "    conftest._importconftest(conf)\n    values = conftest._getconftestmodules(conf.dirpath())\n    assert values[0].__file__.startswith(str(conf))\n    # and all sub paths get updated properly\n    values = conftest._getconftestmodules(p)\n    assert len(values) == 1\n    assert values[0].__file__.startswith(str(conf))"}, {"path": "testing/test_conftest.py", "old": "    assert len(values) == 1\n    assert values[0].__file__.startswith(str(unique_path(conf)))\n\n\n@pytest.mark.parametrize(\"name\", \"test tests whatever .dotdir\".split())", "new": "    assert len(values) == 1\n    assert values[0].__file__.startswith(str(conf))\n\n\n@pytest.mark.parametrize(\"name\", \"test tests whatever .dotdir\".split())"}, {"path": "testing/test_conftest.py", "old": "        assert unique_path(subconftest) in conftest._conftestpath2mod", "new": "        assert Path(str(subconftest)).resolve() in conftest._conftestpath2mod"}]}
 [usage] input=131 cache_read=20170 cache_write=861 output=697
 
 === Turn 15 ===
 [user] [tool_result] applied testing/test_conftest.py:9-10,143-149,157-161,168
-[assistant] Now ensure `Path` is imported in the test file.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"^import\\|^from\\|import Path\\|pathlib\" testing/test_conftest.py | head -20"}
+[assistant] Now ensure `Path` is imported in the test file.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"^import\\|^from\\|import Path\\|pathlib\" testing/test_conftest.py | head -20"}
 [usage] input=2 cache_read=21031 cache_write=857 output=147
 
 === Turn 16 ===
@@ -282,19 +282,19 @@ FAILED testing/test_conftest.py
 6:import pytest
 7:from _pytest.config import PytestPluginManager
 8:from _pytest.main import ExitCode
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "import os.path\nimport textwrap\n", "new": "import os.path\nimport textwrap\nfrom pathlib import Path\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "import os.path\nimport textwrap\n", "new": "import os.path\nimport textwrap\nfrom pathlib import Path\n"}]}
 [usage] input=2 cache_read=21888 cache_write=213 output=131
 
 === Turn 17 ===
 [user] [tool_result] applied testing/test_conftest.py:1-3
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest testing/test_conftest.py -q 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest testing/test_conftest.py -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=22101 cache_write=152 output=90
 
 === Turn 18 ===
 [user] [tool_result] =========================== short test summary info ============================
 SKIPPED [1] testing/test_conftest.py:280: only relevant for case insensitive file systems
 52 passed, 1 skipped in 0.92s
-[assistant] All tests pass. Let me check the existing case-insensitive test (line 280) that references this scenario.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["testing/test_conftest.py:L270-L300"]}
+[assistant] All tests pass. Let me check the existing case-insensitive test (line 280) that references this scenario.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["testing/test_conftest.py:L270-L300"]}
 [usage] input=2 cache_read=22253 cache_write=161 output=312
 
 === Turn 19 ===

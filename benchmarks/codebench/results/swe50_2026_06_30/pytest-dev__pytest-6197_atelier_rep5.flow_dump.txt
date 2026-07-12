@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && git log --oneline -15 2>/dev/null; echo ---; ls"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "collect __init__.py package matchnodes _collectfile"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && git log --oneline -15 2>/dev/null; echo ---; ls"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "collect __init__.py package matchnodes _collectfile"}
 [usage] input=3819 cache_read=5788 cache_write=0 output=321
 
 === Turn 2 ===
@@ -105,7 +105,7 @@ src
 testing
 tox.ini
 [tool_result] {"candidate_files":["src/_pytest/config/__init__.py","src/_pytest/assertion/rewrite.py","src/_pytest/fixtures.py","src/_pytest/doctest.py","src/_pytest/main.py","src/_pytest/pytester.py","src/_pytest/assertion/__init__.py"],"exact_match":false,"files":[{"path":"src/_pytest/python.py","sections":[{"content":"311\tclass PyCollector(PyobjMixin, nodes.Collector):\n312\t    def funcnamefilter(self, name):\n313\t        return self._matches_prefix_or_glob_option(\"python_functions\", name)\n314\t\n315\t    def isnosetest(self, obj):\n316\t        \"\"\" Look for the __test__ attribute, which is applied by the\n317\t        @nose.tools.istest decorator\n318\t        \"\"\"\n319\t        # We explicitly check for \"is True\" here to not mistakenly treat\n320\t        # classes with a custom __getattr__ returning something truthy (like a\n321\t        # function) as test classes.\n322\t        return safe_getattr(obj, \"__test__\", False) is True\n323\t\n324\t    def classnamefilter(self, name):\n325\t        return self._matches_prefix_or_glob_option(\"python_classes\", name)\n326\t\n327\t    def istestfunction(self, obj, name):\n328\t        if self.funcnamefilter(name) or self.isnosetest(obj):\n329\t            if isinstance(obj, staticmethod):\n330\t                # static methods need to be unwrapped\n331\t                obj = safe_getattr(obj, \"__func__\", False)\n332\t            return (\n333\t                safe_getattr(obj, \"__call__\", False)\n334\t                and fixtures.getfixturemarker(obj) is None\n335\t            )\n336\t        else:\n337\t            return False\n338\t\n339\t    def istestclass(self, obj, name):\n340\t        return self.classnamefilter(name) or self.isnosetest(obj)\n341\t\n342\t    def _matches_prefix_or_glob_option(self, option_name, name):\n343\t        \"\"\"\n344\t        checks if the given name matches the prefix or glob-pattern defined\n345\t        in ini configuration.\n346\t        \"\"\"\n347\t        for option in self.config.getini(option_name):\n348\t            if name.startswith(option):\n349\t                return True\n350\t            # check that name looks like a glob-string before calling fnmatch\n351\t            # because this is called for every name in each collected module,\n352\t            # and fnmatch is somewhat expensive to call\n... [truncated — L311-L429]","end_line":429,"line":311,"path":"src/_pytest/python.py","qualified_name":"PyCollector"},{"content":"560\tdef __init__(self, fspath, parent=None, config=None, session=None, nodeid=None):\n561\t        session = parent.session\n562\t        nodes.FSCollector.__init__(\n563\t            self, fspath, parent=parent, config=config, session=session, nodeid=nodeid\n564\t        )\n565\t        self.name = fspath.dirname\n566\t        self.trace = session.trace\n567\t        self._norecursepatterns = session._norecursepatterns\n568\t        self.fspath = fspath","end_line":568,"line":560,"path":"src/_pytest/python.py","qualified_name":"Package.__init__"}]}],"related_symbols":["PytestPluginManager @ src/_pytest/config/__init__.py:236","AssertionRewriter @ src/_pytest/assertion/rewrite.py:512","PyCollector @ src/_pytest/python.py:311","TestMetafuncFunctional @ testing/python/metafunc.py:913","FixtureManager @ src/_pytest/fixtures.py:1198","TestFillFixtures @ testing/python/fixtures.py:86","TerminalReporter.__init__ @ src/_pytest/terminal.py:219","TestRequestBasic @ testing/python/fixtures.py:485"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/python.py:L550-L680"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_collectfile gethookproxy isinitpath def collect Session"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/python.py:L550-L680"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_collectfile gethookproxy isinitpath def collect Session"}
 [usage] input=2 cache_read=5788 cache_write=6224 output=208
 
 === Turn 3 ===
@@ -242,7 +242,7 @@ def _call_with_optional_argument(func, arg):
     if arg_count:
         func(arg)
 [tool_result] {"candidate_files":["src/_pytest/unittest.py","src/_pytest/python.py","src/_pytest/doctest.py","src/_pytest/nodes.py","testing/example_scripts/issue88_initial_file_multinodes/conftest.py","doc/en/example/nonpython/conftest.py","doc/en/example/py2py3/conftest.py"],"exact_match":false,"files":[{"path":"src/_pytest/main.py","sections":[{"content":"365\tclass Session(nodes.FSCollector):\n366\t    Interrupted = Interrupted\n367\t    Failed = Failed\n368\t\n369\t    def __init__(self, config):\n370\t        nodes.FSCollector.__init__(\n371\t            self, config.rootdir, parent=None, config=config, session=self, nodeid=\"\"\n372\t        )\n373\t        self.testsfailed = 0\n374\t        self.testscollected = 0\n375\t        self.shouldstop = False\n376\t        self.shouldfail = False\n377\t        self.trace = config.trace.root.get(\"collection\")\n378\t        self._norecursepatterns = config.getini(\"norecursedirs\")\n379\t        self.startdir = config.invocation_dir\n380\t        self._initialpaths = frozenset()\n381\t        # Keep track of any collected nodes in here, so we don't duplicate fixtures\n382\t        self._node_cache = {}\n383\t        self._bestrelpathcache = _bestrelpath_cache(config.rootdir)\n384\t        # Dirnames of pkgs with dunder-init files.\n385\t        self._pkg_roots = {}\n386\t\n387\t        self.config.pluginmanager.register(self, name=\"session\")\n388\t\n389\t    def __repr__(self):\n390\t        return \"<%s %s exitstatus=%r testsfailed=%d testscollected=%d>\" % (\n391\t            self.__class__.__name__,\n392\t            self.name,\n393\t            getattr(self, \"exitstatus\", \"<UNSET>\"),\n394\t            self.testsfailed,\n395\t            self.testscollected,\n396\t        )\n397\t\n398\t    def _node_location_to_relpath(self, node_path):\n399\t        # bestrelpath is a quite slow function\n400\t        return self._bestrelpathcache[node_path]\n401\t\n402\t    @hookimpl(tryfirst=True)\n403\t    def pytest_collectstart(self):\n404\t        if self.shouldfail:\n405\t            raise self.Failed(self.shouldfail)\n406\t        if self.shouldstop:\n407\t            raise self.Interrupted(self.shouldstop)\n408\t\n409\t    @hookimpl(tryfirst=True)\n410\t    def pytest_runtest_logreport(self, report):\n411\t        if report.failed and not hasattr(report, \"wasxfail\"):\n412\t            self.testsfailed += 1\n... [truncated — L365-L707]","end_line":707,"line":365,"path":"src/_pytest/main.py","qualified_name":"Session"},{"content":"449\tdef _perform_collect(self, args, genitems):","end_line":479,"line":449,"path":"src/_pytest/main.py","qualified_name":"Session._perform_collect"},{"content":"481\tdef collect(self):\n482\t        for initialpart in self._initialparts:\n483\t            arg = \"::\".join(map(str, initialpart))\n484\t            self.trace(\"processing argument\", arg)\n485\t            self.trace.root.indent += 1\n486\t            try:\n487\t                yield from self._collect(arg)\n488\t            except NoMatch:\n489\t                # we are inside a make_report hook so\n490\t                # we cannot directly pass through the exception\n491\t                self._notfound.append((arg, sys.exc_info()[1]))\n492\t\n493\t            self.trace.root.indent -= 1","end_line":493,"line":481,"path":"src/_pytest/main.py","qualified_name":"Session.collect"},{"content":"495\tdef _collect(self, arg):","end_line":575,"line":495,"path":"src/_pytest/main.py","qualified_name":"Session._collect"},{"content":"577\tdef _collectfile(self, path, handle_dupes=True):\n578\t        assert (\n579\t            path.isfile()\n580\t        ), \"{!r} is not a file (isdir={!r}, exists={!r}, islink={!r})\".format(\n581\t            path, path.isdir(), path.exists(), path.islink()\n582\t        )\n583\t        ihook = self.gethookproxy(path)\n584\t        if not self.isinitpath(path):\n585\t            if ihook.pytest_ignore_collect(path=path, config=self.config):\n586\t                return ()\n587\t\n588\t        if handle_dupes:\n589\t            keepduplicates = self.config.getoption(\"keepduplicates\")\n590\t            if not keepduplicates:\n591\t                duplicate_paths = self.config.pluginmanager._duplicatepaths\n592\t                if path in duplicate_paths:\n593\t                    return ()\n594\t                else:\n595\t                    duplicate_paths.add(path)\n596\t\n597\t        return ihook.pytest_collect_file(path=path, parent=self)","end_line":597,"line":577,"path":"src/_pytest/main.py","qualified_name":"Session._collectfile"}]}],"related_symbols":["Session.collect @ src/_pytest/main.py:481","UnitTestCase.collect @ src/_pytest/unittest.py:34","TestFixtureUsages @ testing/python/fixtures.py:1003","Session @ src/_pytest/main.py:365","Module.collect @ src/_pytest/python.py:446","Instance.collect @ src/_pytest/python.py:785","Package.collect @ src/_pytest/python.py:641","BaseReport @ src/_pytest/reports.py:34"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/main.py:L495-L575", "src/_pytest/python.py:L170-L240"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/main.py:L495-L575", "src/_pytest/python.py:L170-L240"]}
 [usage] input=2 cache_read=12012 cache_write=4212 output=165
 
 === Turn 4 ===
@@ -401,7 +401,7 @@ def pytest_pycollect_makeitem(collector, name, obj):
 def pytest_make_parametrize_id(config, val, argname=None):
     return None
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline -8 -L 176,185:src/_pytest/python.py 2>/dev/null | head -80"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline -8 -L 176,185:src/_pytest/python.py 2>/dev/null | head -80"}
 [usage] input=2 cache_read=16224 cache_write=2264 output=1134
 
 === Turn 5 ===
@@ -485,7 +485,7 @@ diff --git a/_pytest/python.py b/_pytest/python.py
 
 diff --git a/_pytest/python.py b/_pytest/python.py
 --- a/_pytest/python.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline v5.2.2..HEAD -- src/_pytest/main.py src/_pytest/python.py 2>/dev/null | head; echo \"=== tag check ===\"; git tag | grep 5.2 ; echo \"=== blame _collect parts loop ===\"; git log --oneline -5 -L 509,520:src/_pytest/main.py 2>/dev/null | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline v5.2.2..HEAD -- src/_pytest/main.py src/_pytest/python.py 2>/dev/null | head; echo \"=== tag check ===\"; git tag | grep 5.2 ; echo \"=== blame _collect parts loop ===\"; git log --oneline -5 -L 509,520:src/_pytest/main.py 2>/dev/null | head -60"}
 [usage] input=2 cache_read=18488 cache_write=2310 output=315
 
 === Turn 6 ===
@@ -556,23 +556,23 @@ diff --git a/src/_pytest/main.py b/src/_pytest/main.py
                              if col:
                                  if isinstance(col[0], Package):
 -                                    root = col[0]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff v5.2.2 v5.2.3 -- src/_pytest/main.py src/_pytest/python.py src/_pytest/nodes.py 2>/dev/null | head -200"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff v5.2.2 v5.2.3 -- src/_pytest/main.py src/_pytest/python.py src/_pytest/nodes.py 2>/dev/null | head -200"}
 [usage] input=2 cache_read=20798 cache_write=1275 output=186
 
 === Turn 7 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff --stat v5.2.2 v5.2.3 2>/dev/null | tail -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff --stat v5.2.2 v5.2.3 2>/dev/null | tail -40"}
 [usage] input=2 cache_read=22073 cache_write=197 output=159
 
 === Turn 8 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git rev-parse v5.2.2 v5.2.3 5.2.2 5.2.3 2>&1 | head; echo ===; git log --oneline 5.2.2..5.2.3 2>/dev/null | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git rev-parse v5.2.2 v5.2.3 5.2.2 5.2.3 2>&1 | head; echo ===; git log --oneline 5.2.2..5.2.3 2>/dev/null | head -40"}
 [usage] input=2 cache_read=22270 cache_write=170 output=155
 
 === Turn 9 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git show 9275012ef -- src/_pytest/python.py 2>/dev/null | head -120"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git show 9275012ef -- src/_pytest/python.py 2>/dev/null | head -120"}
 [usage] input=131 cache_read=22440 cache_write=1124 output=199
 
 === Turn 10 ===
@@ -623,8 +623,8 @@ index 913a93bc0..97a3ac805 100644
          init_module = this_path.join("__init__.py")
          if init_module.check(file=1) and path_matches_patterns(
 
-[atelier] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && grep -rn \"_ALLOW_MARKERS\" src/_pytest/ ; echo \"=== test for 5831 ===\"; git show 9275012ef --stat | head -20; echo \"=== test content ===\"; git show 9275012ef -- testing/ | head -80"}
+[lemoncrow] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && grep -rn \"_ALLOW_MARKERS\" src/_pytest/ ; echo \"=== test for 5831 ===\"; git show 9275012ef --stat | head -20; echo \"=== test content ===\"; git show 9275012ef -- testing/ | head -80"}
 [usage] input=2 cache_read=23564 cache_write=1099 output=2735
 
 === Turn 11 ===
@@ -686,8 +686,8 @@ index 8bba479f1..371c3a4db 100644
 +    _, skipped, _ = result.listoutcomes()
 +    assert len(skipped) == 2
 
-[atelier] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/python.py:L245-L275", "src/_pytest/python.py:L420-L445"]}
+[lemoncrow] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/python.py:L245-L275", "src/_pytest/python.py:L420-L445"]}
 [usage] input=2 cache_read=24663 cache_write=3757 output=2503
 
 === Turn 12 ===
@@ -752,7 +752,7 @@ class Module(nodes.File, PyCollector):
         return self._importtestmodule()
 
 
-[atelier] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[lemoncrow] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 [assistant] (no response captured)
 
 === Turn 13 (REPEAT) ===
@@ -817,7 +817,7 @@ class Module(nodes.File, PyCollector):
         return self._importtestmodule()
 
 
-[atelier] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[lemoncrow] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 [assistant] (no response captured)
 
 === Turn 14 (REPEAT) ===
@@ -882,13 +882,13 @@ class Module(nodes.File, PyCollector):
         return self._importtestmodule()
 
 
-[atelier] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] I've found the root cause. The regression comes from commit `9275012ef` ("fix bug with nonskipped first test in package"), which added `self._mount_obj_if_needed()` at the top of `Package.collect()`. This eagerly **imports** every package's `__init__.py` during collection — even packages containing no tests — so a `foobar/__init__.py` with `assert False` now errors out. Let me apply the fix and verify it against both the new case and the `#5830` test it must not regress.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/python.py", "old": "    def collect(self):\n        self._mount_obj_if_needed()\n        this_path = self.fspath.dirpath()", "new": "    def collect(self):\n        this_path = self.fspath.dirpath()"}]}
+[lemoncrow] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/python.py:L550-L680, src/_pytest/main.py:L495-L575, src/_pytest/python.py:L170-L240, src/_pytest/python.py:L245-L275, src/_pytest/python.py:L420-L445. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] I've found the root cause. The regression comes from commit `9275012ef` ("fix bug with nonskipped first test in package"), which added `self._mount_obj_if_needed()` at the top of `Package.collect()`. This eagerly **imports** every package's `__init__.py` during collection — even packages containing no tests — so a `foobar/__init__.py` with `assert False` now errors out. Let me apply the fix and verify it against both the new case and the `#5830` test it must not regress.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/python.py", "old": "    def collect(self):\n        self._mount_obj_if_needed()\n        this_path = self.fspath.dirpath()", "new": "    def collect(self):\n        this_path = self.fspath.dirpath()"}]}
 [usage] input=2 cache_read=31760 cache_write=0 output=4305
 
 === Turn 15 ===
 [user] [tool_result] applied src/_pytest/python.py:641-643
-[assistant] Now let me verify: run the existing `#5830` skip-package test (must still pass) plus a fresh reproduction of the bug.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && tmp=$(mktemp -d) && mkdir -p \"$tmp/foobar\" && echo 'assert False' > \"$tmp/foobar/__init__.py\" && echo 'def test_foo(): pass' > \"$tmp/test_foo.py\" && cd \"$tmp\" && python -m pytest -q 2>&1 | tail -15"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_skipping.py::test_skip_package -q 2>&1 | tail -15"}
+[assistant] Now let me verify: run the existing `#5830` skip-package test (must still pass) plus a fresh reproduction of the bug.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && tmp=$(mktemp -d) && mkdir -p \"$tmp/foobar\" && echo 'assert False' > \"$tmp/foobar/__init__.py\" && echo 'def test_foo(): pass' > \"$tmp/test_foo.py\" && cd \"$tmp\" && python -m pytest -q 2>&1 | tail -15"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_skipping.py::test_skip_package -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=31760 cache_write=4325 output=442
 
 === Turn 16 ===
@@ -905,24 +905,24 @@ test_skip_package.py:3: AssertionError
 =========================== short test summary info ============================
 FAILED testing/test_skipping.py::test_skip_package - AssertionError: assert 1...
 1 failed in 0.06s
-[assistant] The repro is fixed, but as expected this regresses `#5830` — the *first* test in the package is no longer skipped. The reason: package-level markers (from `__init__.py`'s `pytestmark`) must be applied to `Package.own_markers` *during collection*, before the first test's skip is evaluated in `pytest_runtest_setup`. That's why the mount was there. The real fix is to import `__init__.py` only when the package actually yields collectible tests. Let me read the current state and refine.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/python.py:L641-L677"]}
+[assistant] The repro is fixed, but as expected this regresses `#5830` — the *first* test in the package is no longer skipped. The reason: package-level markers (from `__init__.py`'s `pytestmark`) must be applied to `Package.own_markers` *during collection*, before the first test's skip is evaluated in `pytest_runtest_setup`. That's why the mount was there. The real fix is to import `__init__.py` only when the package actually yields collectible tests. Let me read the current state and refine.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/python.py:L641-L677"]}
 [usage] input=2 cache_read=36085 cache_write=692 output=4393
 
 === Turn 17 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now I'll mount the package object (applying its `__init__.py` markers) only at the point the package actually yields collectible items:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/python.py", "old": "        if init_module.check(file=1) and path_matches_patterns(\n            init_module, self.config.getini(\"python_files\")\n        ):\n            yield Module(init_module, self)", "new": "        if init_module.check(file=1) and path_matches_patterns(\n            init_module, self.config.getini(\"python_files\")\n        ):\n            self._mount_obj_if_needed()\n            yield Module(init_module, self)"}, {"path": "src/_pytest/python.py", "old": "            if is_file:\n                yield from self._collectfile(path)\n            elif not path.isdir():", "new": "            if is_file:\n                for x in self._collectfile(path):\n                    # We avoid importing the package's __init__.py (e.g. for\n                    # applying its markers) unless we actually collect something\n                    # from it, so that packages without tests are never imported\n                    # during collection (#6196).\n                    self._mount_obj_if_needed()\n                    yield x\n            elif not path.isdir():"}]}
+[assistant] Now I'll mount the package object (applying its `__init__.py` markers) only at the point the package actually yields collectible items:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/python.py", "old": "        if init_module.check(file=1) and path_matches_patterns(\n            init_module, self.config.getini(\"python_files\")\n        ):\n            yield Module(init_module, self)", "new": "        if init_module.check(file=1) and path_matches_patterns(\n            init_module, self.config.getini(\"python_files\")\n        ):\n            self._mount_obj_if_needed()\n            yield Module(init_module, self)"}, {"path": "src/_pytest/python.py", "old": "            if is_file:\n                yield from self._collectfile(path)\n            elif not path.isdir():", "new": "            if is_file:\n                for x in self._collectfile(path):\n                    # We avoid importing the package's __init__.py (e.g. for\n                    # applying its markers) unless we actually collect something\n                    # from it, so that packages without tests are never imported\n                    # during collection (#6196).\n                    self._mount_obj_if_needed()\n                    yield x\n            elif not path.isdir():"}]}
 [usage] input=131 cache_read=36777 cache_write=4902 output=465
 
 === Turn 18 ===
 [user] [tool_result] applied src/_pytest/python.py:644-647,664-666
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_skipping.py::test_skip_package -q 2>&1 | tail -8; echo \"==== repro (broken empty package) ====\"; tmp=$(mktemp -d) && mkdir -p \"$tmp/foobar\" && echo 'assert False' > \"$tmp/foobar/__init__.py\" && echo 'def test_foo(): pass' > \"$tmp/test_foo.py\" && (cd \"$tmp\" && python -m pytest -q 2>&1 | tail -6)"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_skipping.py::test_skip_package -q 2>&1 | tail -8; echo \"==== repro (broken empty package) ====\"; tmp=$(mktemp -d) && mkdir -p \"$tmp/foobar\" && echo 'assert False' > \"$tmp/foobar/__init__.py\" && echo 'def test_foo(): pass' > \"$tmp/test_foo.py\" && (cd \"$tmp\" && python -m pytest -q 2>&1 | tail -6)"}
 [usage] input=2 cache_read=41679 cache_write=619 output=251
 
 === Turn 19 ===
 [user] [tool_result] 1 passed in 0.03s
 1 passed in 0.00s
-[assistant] Both pass: `#5830` (first test now skipped) and the repro (broken empty package no longer imported). Let me run the broader collection/package test suites to ensure no regressions.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_collection.py testing/python/collect.py testing/test_skipping.py -q 2>&1 | tail -15"}
+[assistant] Both pass: `#5830` (first test now skipped) and the repro (broken empty package no longer imported). Let me run the broader collection/package test suites to ensure no regressions.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest testing/test_collection.py testing/python/collect.py testing/test_skipping.py -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=42298 cache_write=277 output=252
 
 === Turn 20 ===
@@ -932,7 +932,7 @@ XFAIL testing/test_collection.py::TestPrunetraceback::test_collect_report_postpr
 FAILED testing/python/collect.py::TestModule::test_import_prepend_append - De...
 FAILED testing/python/collect.py::TestTracebackCutting::test_filter_traceback_path_no_longer_valid
 2 failed, 219 passed, 1 xfailed in 5.30s
-[assistant] Let me check whether those two failures are pre-existing (unrelated to my change) by stashing the edit:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git stash && python -m pytest \"testing/python/collect.py::TestModule::test_import_prepend_append\" \"testing/python/collect.py::TestTracebackCutting::test_filter_traceback_path_no_longer_valid\" -q 2>&1 | tail -6; git stash pop"}
+[assistant] Let me check whether those two failures are pre-existing (unrelated to my change) by stashing the edit:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git stash && python -m pytest \"testing/python/collect.py::TestModule::test_import_prepend_append\" \"testing/python/collect.py::TestTracebackCutting::test_filter_traceback_path_no_longer_valid\" -q 2>&1 | tail -6; git stash pop"}
 [usage] input=2 cache_read=42575 cache_write=423 output=253
 
 === Turn 21 ===
@@ -952,7 +952,7 @@ Untracked files:
 
 no changes added to commit (use "git add" and/or "git commit -a")
 Dropped refs/stash@{0} (e950e2c555832d75b938f74731c96e0c7c24b698)
-[assistant] Both failures are pre-existing (fail without my change too), so my fix introduces no regressions. Now let me add a regression test. Let me find an appropriate location.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && grep -n \"def test_collect_init_tests\\|class TestCollectPluginHookRelay\\|def test_collect.*init\\|__init__\" testing/test_collection.py | head"}
+[assistant] Both failures are pre-existing (fail without my change too), so my fix introduces no regressions. Now let me add a regression test. Let me find an appropriate location.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && grep -n \"def test_collect_init_tests\\|class TestCollectPluginHookRelay\\|def test_collect.*init\\|__init__\" testing/test_collection.py | head"}
 [usage] input=2 cache_read=42998 cache_write=530 output=328
 
 === Turn 22 ===
@@ -966,23 +966,23 @@ Dropped refs/stash@{0} (e950e2c555832d75b938f74731c96e0c7c24b698)
 965:            "  <Module __init__.py>",
 977:            "  <Module __init__.py>",
 989:            "  <Module __init__.py>",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["testing/test_collection.py:L946-L1010"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["testing/test_collection.py:L946-L1010"]}
 [usage] input=2 cache_read=43528 cache_write=516 output=79
 
 === Turn 23 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] I'll add a regression test right after `test_collect_init_tests`:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "testing/test_collection.py", "old": "    assert \"test_foo\" not in result.stdout.str()\n\n\ndef test_collect_invalid_signature_message(testdir):", "new": "    assert \"test_foo\" not in result.stdout.str()\n\n\ndef test_collect_does_not_import_unrelated_init(testdir):\n    \"\"\"A package's __init__.py must not be imported during collection unless\n    the package actually contributes tests (#6196).\"\"\"\n    testdir.makepyfile(**{\"foobar/__init__.py\": \"assert False\"})\n    testdir.makepyfile(test_foo=\"def test_foo(): pass\")\n    result = testdir.runpytest()\n    result.assert_outcomes(passed=1)\n    assert \"AssertionError\" not in result.stdout.str()\n\n\ndef test_collect_invalid_signature_message(testdir):"}]}
+[assistant] I'll add a regression test right after `test_collect_init_tests`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "testing/test_collection.py", "old": "    assert \"test_foo\" not in result.stdout.str()\n\n\ndef test_collect_invalid_signature_message(testdir):", "new": "    assert \"test_foo\" not in result.stdout.str()\n\n\ndef test_collect_does_not_import_unrelated_init(testdir):\n    \"\"\"A package's __init__.py must not be imported during collection unless\n    the package actually contributes tests (#6196).\"\"\"\n    testdir.makepyfile(**{\"foobar/__init__.py\": \"assert False\"})\n    testdir.makepyfile(test_foo=\"def test_foo(): pass\")\n    result = testdir.runpytest()\n    result.assert_outcomes(passed=1)\n    assert \"AssertionError\" not in result.stdout.str()\n\n\ndef test_collect_invalid_signature_message(testdir):"}]}
 [usage] input=131 cache_read=44044 cache_write=981 output=410
 
 === Turn 24 ===
 [user] [tool_result] applied testing/test_collection.py:1004-1007
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest \"testing/test_collection.py::test_collect_does_not_import_unrelated_init\" \"testing/test_collection.py::test_collect_init_tests\" \"testing/test_skipping.py::test_skip_package\" -q 2>&1 | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && python -m pytest \"testing/test_collection.py::test_collect_does_not_import_unrelated_init\" \"testing/test_collection.py::test_collect_init_tests\" \"testing/test_skipping.py::test_skip_package\" -q 2>&1 | tail -8"}
 [usage] input=2 cache_read=45025 cache_write=561 output=168
 
 === Turn 25 ===
 [user] [tool_result] 3 passed in 0.17s
-[assistant] Let me add a changelog entry, as is the project convention.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && ls changelog | head; echo ---; cat changelog/5830.bugfix.rst"}
+[assistant] Let me add a changelog entry, as is the project convention.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && ls changelog | head; echo ---; cat changelog/5830.bugfix.rst"}
 [usage] input=2 cache_read=45586 cache_write=183 output=128
 
 === Turn 26 ===
@@ -992,12 +992,12 @@ _template.rst
 ---
 
 cat: changelog/5830.bugfix.rst: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "changelog/6196.bugfix.rst", "new": "Fixed a regression where ``__init__.py`` files were imported during collection even for packages that did not contain any tests, which could trigger unrelated import errors.\n", "overwrite": true}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "changelog/6196.bugfix.rst", "new": "Fixed a regression where ``__init__.py`` files were imported during collection even for packages that did not contain any tests, which could trigger unrelated import errors.\n", "overwrite": true}]}
 [usage] input=2 cache_read=45769 cache_write=177 output=149
 
 === Turn 27 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff -- src/_pytest/python.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git diff -- src/_pytest/python.py"}
 [usage] input=2 cache_read=45946 cache_write=156 output=110
 
 === Turn 28 ===

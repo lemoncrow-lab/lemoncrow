@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,13 +61,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "to_native_string data prepare_body content-length"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "super_len getattr len content length"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "to_native_string data prepare_body content-length"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "super_len getattr len content length"}
 [usage] input=3819 cache_read=4786 cache_write=279 output=184
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["requests/sessions.py","requests/auth.py","requests/packages/urllib3/connectionpool.py","requests/packages/urllib3/filepost.py","requests/packages/urllib3/fields.py"],"exact_match":true,"files":[{"path":"requests/utils.py","sections":[{"content":"686\tdef to_native_string(string, encoding='ascii'):\n687\t    \"\"\"\n688\t    Given a string object, regardless of type, returns a representation of that\n689\t    string in the native string type, encoding and decoding where necessary.\n690\t    This assumes ASCII unless told otherwise.\n691\t    \"\"\"\n692\t    out = None\n693\t\n694\t    if isinstance(string, builtin_str):\n695\t        out = string\n696\t    else:\n697\t        if is_py2:\n698\t            out = string.encode(encoding)\n699\t        else:\n700\t            out = string.decode(encoding)\n701\t\n702\t    return out","end_line":702,"line":686,"path":"requests/utils.py","qualified_name":"to_native_string"}]},{"path":"requests/models.py","sections":[{"content":"406\tdef prepare_body(self, data, files, json=None):\n407\t        \"\"\"Prepares the given HTTP body data.\"\"\"\n408\t\n409\t        # Check if file, fo, generator, iterator.\n410\t        # If not, run through normal process.\n411\t\n412\t        # Nottin' on you.\n413\t        body = None\n414\t        content_type = None\n415\t        length = None\n416\t\n417\t        if not data and json is not None:\n418\t            content_type = 'application/json'\n419\t            body = complexjson.dumps(json)\n420\t\n421\t        is_stream = all([\n422\t            hasattr(data, '__iter__'),\n423\t            not isinstance(data, (basestring, list, tuple, dict))\n424\t        ])\n425\t\n426\t        try:\n427\t            length = super_len(data)\n428\t        except (TypeError, AttributeError, UnsupportedOperation):\n429\t            length = None\n430\t\n431\t        if is_stream:\n432\t            body = data\n433\t\n434\t            if files:\n435\t                raise NotImplementedError('Streamed bodies and files are mutually exclusive.')\n436\t\n437\t            if length:\n438\t                self.headers['Content-Length'] = builtin_str(length)\n439\t            else:\n440\t                self.headers['Transfer-Encoding'] = 'chunked'\n441\t        else:\n442\t            # Multi-part file uploads.\n443\t            if files:\n444\t                (body, content_type) = self._encode_files(files, data)\n445\t            else:\n446\t                if data:\n447\t                    body = self._encode_params(data)\n448\t                    if isinstance(data, basestring) or hasattr(data, 'read'):\n449\t                        content_type = None\n450\t                    else:\n451\t                        content_type = 'application/x-www-form-urlencoded'\n452\t\n453\t            self.prepare_content_length(body)\n454\t\n455\t            # Add content-type if it wasn't explicitly provided.\n456\t            if content_type and ('content-type' not in self.headers):\n457\t                self.headers['Content-Type'] = content_type\n458\t\n459\t        self.body = body","end_line":459,"line":406,"path":"requests/models.py","qualified_name":"PreparedRequest.prepare_body"}]},{"path":"requests/packages/urllib3/response.py","sections":[{"content":"159\t    @property\n160\tdef data(self):\n161\t        # For backwords-compat with earlier urllib3 0.4 and earlier.\n162\t        if self._body:\n163\t            return self._body\n164\t\n165\t        if self._fp:\n166\t            return self.read(cache_content=True)","end_line":166,"line":159,"path":"requests/packages/urllib3/response.py","qualified_name":"HTTPResponse.data"}]}],"related_symbols":["to_native_string @ requests/utils.py:686","PreparedRequest.prepare_body @ requests/models.py:406","HTTPResponse.data @ requests/packages/urllib3/response.py:160"]}
 [tool_result] {"candidate_files":["requests/models.py","requests/sessions.py","requests/packages/urllib3/response.py","requests/adapters.py","requests/packages/urllib3/connectionpool.py","requests/packages/urllib3/util/ssl_.py","requests/packages/urllib3/_collections.py"],"exact_match":true,"files":[{"path":"requests/utils.py","sections":[{"content":"50\tdef super_len(o):\n51\t    total_length = 0\n52\t    current_position = 0\n53\t\n54\t    if hasattr(o, '__len__'):\n55\t        total_length = len(o)\n56\t\n57\t    elif hasattr(o, 'len'):\n58\t        total_length = o.len\n59\t\n60\t    elif hasattr(o, 'getvalue'):\n61\t        # e.g. BytesIO, cStringIO.StringIO\n62\t        total_length = len(o.getvalue())\n63\t\n64\t    elif hasattr(o, 'fileno'):\n65\t        try:\n66\t            fileno = o.fileno()\n67\t        except io.UnsupportedOperation:\n68\t            pass\n69\t        else:\n70\t            total_length = os.fstat(fileno).st_size\n71\t\n72\t            # Having used fstat to determine the file length, we need to\n73\t            # confirm that this file was opened up in binary mode.\n74\t            if 'b' not in o.mode:\n75\t                warnings.warn((\n76\t                    \"Requests has determined the content-length for this \"\n77\t                    \"request using the binary size of the file: however, the \"\n78\t                    \"file has been opened in text mode (i.e. without the 'b' \"\n79\t                    \"flag in the mode). This may lead to an incorrect \"\n80\t                    \"content-length. In Requests 3.0, support will be removed \"\n81\t                    \"for files in text mode.\"),\n82\t                    FileModeWarning\n83\t                )\n84\t\n85\t    if hasattr(o, 'tell'):\n86\t        current_position = o.tell()\n87\t\n88\t    return max(0, total_length - current_position)","end_line":88,"line":50,"path":"requests/utils.py","qualified_name":"super_len"}]}],"related_symbols":["super_len @ requests/utils.py:50","Response.content @ requests/models.py:721"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "to_native_string call in prepare body or send"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L461-L500"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "to_native_string call in prepare body or send"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L461-L500"]}
 [usage] input=2 cache_read=5065 cache_write=6426 output=215
 
 === Turn 3 ===
@@ -113,7 +113,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
         This function eventually generates a ``Cookie`` header from the
         given cookies using cookielib. Due to cookielib's design, the header
         will not be regenerated if it already exists, meaning this function
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L82-L130"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L82-L130"]}
 [usage] input=2 cache_read=11491 cache_write=1402 output=146
 
 === Turn 4 ===
@@ -167,7 +167,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
                     new_fields.append(
                         (field.decode('utf-8') if isinstance(field, bytes) else field,
                          v.encode('utf-8') if isinstance(v, str) else v))
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L74-L99"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L74-L99"]}
 [usage] input=2 cache_read=12893 cache_write=786 output=209
 
 === Turn 5 ===
@@ -198,7 +198,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
             return urlencode(result, doseq=True)
         else:
             return data
-[assistant] The fix: bytes data should be returned as-is, not passed to `to_native_string` (which decodes as ASCII and fails on non-ASCII binary payloads).[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"requests/models.py","old":"        if isinstance(data, (str, bytes)):\n            return to_native_string(data)\n        elif hasattr(data, 'read'):","new":"        if isinstance(data, (str, bytes)):\n            return data\n        elif hasattr(data, 'read'):"}]}
+[assistant] The fix: bytes data should be returned as-is, not passed to `to_native_string` (which decodes as ASCII and fails on non-ASCII binary payloads).[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"requests/models.py","old":"        if isinstance(data, (str, bytes)):\n            return to_native_string(data)\n        elif hasattr(data, 'read'):","new":"        if isinstance(data, (str, bytes)):\n            return data\n        elif hasattr(data, 'read'):"}]}
 [usage] input=2 cache_read=13679 cache_write=567 output=224
 
 === Turn 6 ===
@@ -209,13 +209,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 === Turn 7 ===
 [user] Stop hook feedback:
 verify-before-done: edited 1 file(s) (models.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest tests/test_requests.py -k \"encode_params or data or body or binary\" -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest tests/test_requests.py -k \"encode_params or data or body or binary\" -q 2>&1 | tail -30"}
 [usage] input=2 cache_read=14489 cache_write=389 output=125
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && ls test*.py tests/*.py 2>/dev/null; echo \"---\"; ls"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && ls test*.py tests/*.py 2>/dev/null; echo \"---\"; ls"}
 [usage] input=131 cache_read=14878 cache_write=163 output=111
 
 === Turn 9 ===
@@ -238,7 +238,7 @@ requirements.txt
 setup.cfg
 setup.py
 test_requests.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py -k \"params or data or body or binary or unicode or content_length\" -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py -k \"params or data or body or binary or unicode or content_length\" -q 2>&1 | tail -30"}
 [usage] input=2 cache_read=15041 cache_write=360 output=127
 
 === Turn 10 ===
@@ -272,7 +272,7 @@ ERROR test_requests.py::TestRequests::test_params_are_merged_case_sensitive
 ERROR test_requests.py::TestRequests::test_manual_redirect_with_partial_body_read
 ERROR test_requests.py::TestRequests::test_json_param_post_should_not_override_data_param
 1 failed, 6 passed, 145 deselected, 22 warnings, 15 errors in 0.15s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | head -30; echo \"===\"; grep -n \"test_params_bytes_are_encoded\" -A6 test_requests.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | head -30; echo \"===\"; grep -n \"test_params_bytes_are_encoded\" -A6 test_requests.py"}
 [usage] input=2 cache_read=15401 cache_write=1001 output=213
 
 === Turn 11 ===
@@ -314,7 +314,7 @@ arg = b'test=foo'
 159-
 160-    def test_mixed_case_scheme_acceptable(self, httpbin):
 161-        s = requests.Session()
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L355-L400"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L355-L400"]}
 [usage] input=2 cache_read=16402 cache_write=931 output=472
 
 === Turn 12 ===
@@ -365,12 +365,12 @@ arg = b'test=foo'
     def prepare_headers(self, headers):
         """Prepares the given HTTP headers."""
 
-[assistant] The `_encode_params` is shared by both the URL query path (needs a native str) and the body path (binary OK). My change is correct for the body; I need to do the native-string coercion in `prepare_url` where it's actually required.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = to_native_string(url)"}]}
+[assistant] The `_encode_params` is shared by both the URL query path (needs a native str) and the body path (binary OK). My change is correct for the body; I need to do the native-string coercion in `prepare_url` where it's actually required.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = to_native_string(url)"}]}
 [usage] input=2 cache_read=17333 cache_write=988 output=660
 
 === Turn 13 ===
 [user] [tool_result] applied requests/models.py:388-395
-[assistant] I added in the wrong spot — `query` can be bytes going into `urlunparse`, which is what fails. Let me fix it properly by coercing the encoded params to a native string.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L388-L398"]}
+[assistant] I added in the wrong spot — `query` can be bytes going into `urlunparse`, which is what fails. Let me fix it properly by coercing the encoded params to a native string.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L388-L398"]}
 [usage] input=2 cache_read=18321 cache_write=677 output=417
 
 === Turn 14 ===
@@ -386,18 +386,18 @@ arg = b'test=foo'
         self.url = to_native_string(url)
         self.url = url
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = to_native_string(url)\n        self.url = url", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = url"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = to_native_string(url)\n        self.url = url", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params\n\n        url = requote_uri(urlunparse([scheme, netloc, path, None, query, fragment]))\n        self.url = url"}]}
 [usage] input=2 cache_read=18998 cache_write=553 output=324
 
 === Turn 15 ===
 [user] [tool_result] applied requests/models.py:388-397
-[assistant] Now coerce the encoded params to a native string so bytes params still build a valid URL:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            enc_params = to_native_string(enc_params)\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params"}]}
+[assistant] Now coerce the encoded params to a native string so bytes params still build a valid URL:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            enc_params = to_native_string(enc_params)\n            if query:\n                query = '%s&%s' % (query, enc_params)\n            else:\n                query = enc_params"}]}
 [usage] input=2 cache_read=19551 cache_write=341 output=366
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | tail -8; echo \"=== binary body sanity ===\"; python -c \"\nimport requests\nr = requests.Request('PUT', 'http://example.com', data=u'ööö'.encode('utf-8')).prepare()\nprint('body:', r.body)\nprint('len header:', r.headers.get('Content-Length'))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | tail -8; echo \"=== binary body sanity ===\"; python -c \"\nimport requests\nr = requests.Request('PUT', 'http://example.com', data=u'ööö'.encode('utf-8')).prepare()\nprint('body:', r.body)\nprint('len header:', r.headers.get('Content-Length'))\n\""}
 [usage] input=131 cache_read=19892 cache_write=383 output=227
 
 === Turn 17 ===
@@ -412,7 +412,7 @@ test_requests.py::TestRequests::test_params_bytes_are_encoded
 === binary body sanity ===
 body: b'\xc3\xb6\xc3\xb6\xc3\xb6'
 len header: 6
-[assistant] Both pass now. Let me run the broader non-network test set to confirm nothing else regressed.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py -q -k \"params or prepare or url or encode or body or data or content_length or fragment\" 2>&1 | tail -15"}
+[assistant] Both pass now. Let me run the broader non-network test set to confirm nothing else regressed.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py -q -k \"params or prepare or url or encode or body or data or content_length or fragment\" 2>&1 | tail -15"}
 [usage] input=2 cache_read=20275 cache_write=603 output=164
 
 === Turn 18 ===
@@ -431,7 +431,7 @@ ERROR test_requests.py::TestTimeout::test_encoded_methods
 ERROR test_requests.py::test_urllib3_retries
 ERROR test_requests.py::test_urllib3_pool_connection_closed
 19 passed, 132 deselected, 3 warnings, 16 errors in 0.05s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_conflicting_post_params -q 2>&1 | grep -iE \"error|httpbin|fixture|connection\" | head -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest test_requests.py::TestRequests::test_conflicting_post_params -q 2>&1 | grep -iE \"error|httpbin|fixture|connection\" | head -5"}
 [usage] input=2 cache_read=20878 cache_write=662 output=198
 
 === Turn 19 ===

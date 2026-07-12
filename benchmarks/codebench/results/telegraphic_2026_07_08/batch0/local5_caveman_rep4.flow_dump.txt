@@ -66,11 +66,11 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Write] {"file_path": "/tmp/atelier-bench-caveman-6deyhj18/getUser.js", "content": "async function getUser(id) {\n  const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);\n  if (!rows.length) throw new Error('Not found');\n  return rows[0];\n}\n"}
+[assistant] [tool_use: Write] {"file_path": "/tmp/lemoncrow-bench-caveman-6deyhj18/getUser.js", "content": "async function getUser(id) {\n  const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);\n  if (!rows.length) throw new Error('Not found');\n  return rows[0];\n}\n"}
 [usage] input=2973 cache_read=15201 cache_write=4157 output=184
 
 === Turn 3 ===
-[user] [tool_result] Claude requested permissions to write to /tmp/atelier-bench-caveman-6deyhj18/getUser.js, but you haven't granted it yet.
+[user] [tool_result] Claude requested permissions to write to /tmp/lemoncrow-bench-caveman-6deyhj18/getUser.js, but you haven't granted it yet.
 [assistant] Code normal (code block untouched):
 
 ```js

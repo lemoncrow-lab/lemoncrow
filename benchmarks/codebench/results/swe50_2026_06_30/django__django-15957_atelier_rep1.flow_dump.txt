@@ -20,15 +20,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -40,13 +40,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -62,13 +62,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prefetch_one_level get_prefetch_queryset Cannot filter a query once a slice has been taken"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "class Prefetch get_current_queryset to_attr"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prefetch_one_level get_prefetch_queryset Cannot filter a query once a slice has been taken"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "class Prefetch get_current_queryset to_attr"}
 [usage] input=3840 cache_read=4838 cache_write=0 output=246
 
 === Turn 2 ===
 [user] [tool_result] MCP error -32000: No module named 'numpy'
 [tool_result] MCP error -32000: No module named 'numpy'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"Cannot filter a query once a slice\" django/ | head; echo \"---\"; grep -rn \"class Prefetch\" django/db/models/query.py"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"def prefetch_one_level\\|def get_prefetch_queryset\\|def get_current_queryset\\|class Prefetch\\|def prefetch_related_objects\" django/db/models/query.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"Cannot filter a query once a slice\" django/ | head; echo \"---\"; grep -rn \"class Prefetch\" django/db/models/query.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"def prefetch_one_level\\|def get_prefetch_queryset\\|def get_current_queryset\\|class Prefetch\\|def prefetch_related_objects\" django/db/models/query.py"}
 [usage] input=2 cache_read=4838 cache_write=4206 output=259
 
 === Turn 3 ===
@@ -82,7 +82,7 @@ mode
 2428:def prefetch_one_level(instances, prefetcher, lookup, level):
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/query.py:L2142-L2520"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/query.py:L2142-L2520"]}
 [usage] input=2 cache_read=9044 cache_write=568 output=80
 
 === Turn 4 ===
@@ -466,7 +466,7 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
             if as_attr:
                 setattr(obj, to_attr, vals)
             else:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"def get_prefetch_queryset\\|_filter_prefetch_queryset\\|is_sliced\\|query.is_sliced\" django/db/models/fields/related_descriptors.py"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"is_sliced\\|low_mark\\|high_mark\\|set_limits\\|clear_limits\" django/db/models/sql/query.py | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"def get_prefetch_queryset\\|_filter_prefetch_queryset\\|is_sliced\\|query.is_sliced\" django/db/models/fields/related_descriptors.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"is_sliced\\|low_mark\\|high_mark\\|set_limits\\|clear_limits\" django/db/models/sql/query.py | head -40"}
 [usage] input=2 cache_read=9612 cache_write=5375 output=477
 
 === Turn 5 ===
@@ -497,7 +497,7 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
 2090:        return self.high_mark is not None and (self.high_mark - self.low_mark) == 1
 2098:        return not self.is_sliced
 2228:            self.is_sliced or self.distinct_fields or self.select_for_update
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/related_descriptors.py:L124-L180", "django/db/models/fields/related_descriptors.py:L700-L800", "django/db/models/fields/related_descriptors.py:L1040-L1140"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/related_descriptors.py:L124-L180", "django/db/models/fields/related_descriptors.py:L700-L800", "django/db/models/fields/related_descriptors.py:L1040-L1140"]}
 [usage] input=2 cache_read=14987 cache_write=1148 output=138
 
 === Turn 6 ===
@@ -765,23 +765,23 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
                     instance=self.instance,
                     reverse=self.reverse,
                     model=self.model,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/related_descriptors.py:L1-L80"]}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"class GreaterThan\\|class LessThanOrEqual\" django/db/models/lookups.py; echo ---; grep -n \"RowNumber\\|class Window\" django/db/models/functions/window.py django/db/models/expressions.py | head; echo ---features---; grep -n \"supports_over_clause\" django/db/backends/base/features.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/related_descriptors.py:L1-L80"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"class GreaterThan\\|class LessThanOrEqual\" django/db/models/lookups.py; echo ---; grep -n \"RowNumber\\|class Window\" django/db/models/functions/window.py django/db/models/expressions.py | head; echo ---features---; grep -n \"supports_over_clause\" django/db/backends/base/features.py"}
 [usage] input=2 cache_read=16135 cache_write=3577 output=1669
 
 === Turn 7 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now I'll implement the fix. Let me add the helper and update the imports and the two collection-returning managers.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.core.exceptions import FieldError\nfrom django.db import connections, router, transaction\nfrom django.db.models import Q, signals\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):", "new": "from django.core.exceptions import FieldError\nfrom django.db import (\n    DEFAULT_DB_ALIAS,\n    NotSupportedError,\n    connections,\n    router,\n    transaction,\n)\nfrom django.db.models import Q, Window, signals\nfrom django.db.models.functions import RowNumber\nfrom django.db.models.lookups import GreaterThan, LessThanOrEqual\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.field.name: instances}\n            queryset = queryset.filter(**query)\n\n            # Since we just bypassed this class' get_queryset(), we must manage\n            # the reverse relation manually.", "new": "            queryset = _filter_prefetch_queryset(queryset, self.field.name, instances)\n\n            # Since we just bypassed this class' get_queryset(), we must manage\n            # the reverse relation manually."}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.query_field_name: instances}\n            queryset = queryset._next_is_sticky().filter(**query)\n\n            # M2M: need to annotate the query in order to get the primary model", "new": "            queryset = _filter_prefetch_queryset(\n                queryset._next_is_sticky(), self.query_field_name, instances\n            )\n\n            # M2M: need to annotate the query in order to get the primary model"}]}
+[assistant] Now I'll implement the fix. Let me add the helper and update the imports and the two collection-returning managers.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.core.exceptions import FieldError\nfrom django.db import connections, router, transaction\nfrom django.db.models import Q, signals\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):", "new": "from django.core.exceptions import FieldError\nfrom django.db import (\n    DEFAULT_DB_ALIAS,\n    NotSupportedError,\n    connections,\n    router,\n    transaction,\n)\nfrom django.db.models import Q, Window, signals\nfrom django.db.models.functions import RowNumber\nfrom django.db.models.lookups import GreaterThan, LessThanOrEqual\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.field.name: instances}\n            queryset = queryset.filter(**query)\n\n            # Since we just bypassed this class' get_queryset(), we must manage\n            # the reverse relation manually.", "new": "            queryset = _filter_prefetch_queryset(queryset, self.field.name, instances)\n\n            # Since we just bypassed this class' get_queryset(), we must manage\n            # the reverse relation manually."}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.query_field_name: instances}\n            queryset = queryset._next_is_sticky().filter(**query)\n\n            # M2M: need to annotate the query in order to get the primary model", "new": "            queryset = _filter_prefetch_queryset(\n                queryset._next_is_sticky(), self.query_field_name, instances\n            )\n\n            # M2M: need to annotate the query in order to get the primary model"}]}
 [usage] input=131 cache_read=19712 cache_write=3177 output=2199
 
 === Turn 8 ===
 [user] [tool_result] {"FIXME":{"reason":"Must update: these callers still use the contract this edit changed.","sites":[{"line":538,"old":"%s__in","path":"django/contrib/admin/widgets.py","snippet":"**{\"%s__in\" % to_field_name: selected_choices}"},{"line":1621,"old":"%s__in","path":"django/forms/models.py","snippet":"qs = self.queryset.filter(**{\"%s__in\" % key: value})"}]},"applied":["django/db/models/fields/related_descriptors.py:66-75,729-733,1061-1064"]}
-[assistant] The FIXME sites are unrelated `%s__in` usages (admin widgets, forms), not prefetch — ignore. Now add the helper function:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):", "new": "from django.utils.functional import cached_property\n\n\ndef _filter_prefetch_queryset(queryset, field_name, instances):\n    predicate = Q(**{f\"{field_name}__in\": instances})\n    db = queryset._db or DEFAULT_DB_ALIAS\n    if queryset.query.is_sliced:\n        if not connections[db].features.supports_over_clause:\n            raise NotSupportedError(\n                \"Prefetching from a limited queryset is only supported on backends \"\n                \"that support window functions.\"\n            )\n        low_mark, high_mark = queryset.query.low_mark, queryset.query.high_mark\n        order_by = [\n            expr for expr, _ in queryset.query.get_compiler(using=db).get_order_by()\n        ]\n        window = Window(RowNumber(), partition_by=field_name, order_by=order_by)\n        predicate &= GreaterThan(window, low_mark)\n        if high_mark is not None:\n            predicate &= LessThanOrEqual(window, high_mark)\n        queryset.query.clear_limits()\n    return queryset.filter(predicate)\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):"}]}
+[assistant] The FIXME sites are unrelated `%s__in` usages (admin widgets, forms), not prefetch — ignore. Now add the helper function:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.utils.functional import cached_property\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):", "new": "from django.utils.functional import cached_property\n\n\ndef _filter_prefetch_queryset(queryset, field_name, instances):\n    predicate = Q(**{f\"{field_name}__in\": instances})\n    db = queryset._db or DEFAULT_DB_ALIAS\n    if queryset.query.is_sliced:\n        if not connections[db].features.supports_over_clause:\n            raise NotSupportedError(\n                \"Prefetching from a limited queryset is only supported on backends \"\n                \"that support window functions.\"\n            )\n        low_mark, high_mark = queryset.query.low_mark, queryset.query.high_mark\n        order_by = [\n            expr for expr, _ in queryset.query.get_compiler(using=db).get_order_by()\n        ]\n        window = Window(RowNumber(), partition_by=field_name, order_by=order_by)\n        predicate &= GreaterThan(window, low_mark)\n        if high_mark is not None:\n            predicate &= LessThanOrEqual(window, high_mark)\n        queryset.query.clear_limits()\n    return queryset.filter(predicate)\n\n\nclass ForeignKeyDeferredAttribute(DeferredAttribute):"}]}
 [usage] input=2 cache_read=22889 cache_write=2535 output=697
 
 === Turn 9 ===
 [user] [tool_result] applied django/db/models/fields/related_descriptors.py:80-83
-[assistant] Now let me update the documentation for `Prefetch` to mention sliced queryset support.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"sliced\\|slice\" docs/ref/models/querysets.txt | head; echo ---; grep -n \"You can also use\\|prefetch_related\\` operates\\|Prefetch objects\" docs/ref/models/querysets.txt | head"}
+[assistant] Now let me update the documentation for `Prefetch` to mention sliced queryset support.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"sliced\\|slice\" docs/ref/models/querysets.txt | head; echo ---; grep -n \"You can also use\\|prefetch_related\\` operates\\|Prefetch objects\" docs/ref/models/querysets.txt | head"}
 [usage] input=2 cache_read=25424 cache_write=725 output=390
 
 === Turn 10 ===
@@ -795,7 +795,7 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
 ---
 1197:You can also use the normal join syntax to do related fields of related
 3175:You can also use a queryset to dynamically evaluate the list of values
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"When using multiple databases\\|class Prefetch\\|You can use the\\|further control the operation\" docs/ref/models/querysets.txt | head; echo ---; grep -n \"^``Prefetch()``\\|Prefetch()\\`\\`\" docs/ref/models/querysets.txt | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"When using multiple databases\\|class Prefetch\\|You can use the\\|further control the operation\" docs/ref/models/querysets.txt | head; echo ---; grep -n \"^``Prefetch()``\\|Prefetch()\\`\\`\" docs/ref/models/querysets.txt | head"}
 [usage] input=2 cache_read=26149 cache_write=633 output=160
 
 === Turn 11 ===
@@ -805,7 +805,7 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
 ---
 3978:``Prefetch()`` objects
 3983:The ``Prefetch()`` object can be used to control the operation of
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["docs/ref/models/querysets.txt:L1320-L1345"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["docs/ref/models/querysets.txt:L1320-L1345"]}
 [usage] input=2 cache_read=26782 cache_write=293 output=85
 
 === Turn 12 ===
@@ -836,7 +836,7 @@ database selected by the outer query. All of the following are valid::
     ...     Prefetch('pizzas__toppings', queryset=Toppings.objects.using('replica')),
     ... )
     >>>
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["docs/ref/models/querysets.txt:L1258-L1320"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["docs/ref/models/querysets.txt:L1258-L1320"]}
 [usage] input=2 cache_read=27075 cache_write=519 output=85
 
 === Turn 13 ===
@@ -904,18 +904,18 @@ where prefetching with a custom ``QuerySet`` is useful:
 * You want to use a ``QuerySet`` that performs further prefetching
   on related models.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": "    >>> Pizza.objects.prefetch_related(\n    ...     Prefetch('restaurants', queryset=Restaurant.objects.select_related('best_pizza')))\n\nYou can also assign the prefetched result to a custom attribute with the optional", "new": "    >>> Pizza.objects.prefetch_related(\n    ...     Prefetch('restaurants', queryset=Restaurant.objects.select_related('best_pizza')))\n\nYou can also use a sliced queryset to prefetch a limited number of related\nobjects:\n\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas', queryset=Pizza.objects.all()[:5], to_attr='menu'))\n\n.. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions (all the :ref:`built-in backends\n    <database-backends>` except Oracle versions that don't support them).\n\nYou can also assign the prefetched result to a custom attribute with the optional"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": "    >>> Pizza.objects.prefetch_related(\n    ...     Prefetch('restaurants', queryset=Restaurant.objects.select_related('best_pizza')))\n\nYou can also assign the prefetched result to a custom attribute with the optional", "new": "    >>> Pizza.objects.prefetch_related(\n    ...     Prefetch('restaurants', queryset=Restaurant.objects.select_related('best_pizza')))\n\nYou can also use a sliced queryset to prefetch a limited number of related\nobjects:\n\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas', queryset=Pizza.objects.all()[:5], to_attr='menu'))\n\n.. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions (all the :ref:`built-in backends\n    <database-backends>` except Oracle versions that don't support them).\n\nYou can also assign the prefetched result to a custom attribute with the optional"}]}
 [usage] input=2 cache_read=27594 cache_write=1225 output=449
 
 === Turn 14 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": ".. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions (all the :ref:`built-in backends\n    <database-backends>` except Oracle versions that don't support them).\n", "new": ".. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions, and will raise a\n    :exc:`~django.db.NotSupportedError` otherwise.\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": ".. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions (all the :ref:`built-in backends\n    <database-backends>` except Oracle versions that don't support them).\n", "new": ".. note::\n\n    Using a sliced queryset for prefetching is only supported on database\n    backends that support window functions, and will raise a\n    :exc:`~django.db.NotSupportedError` otherwise.\n"}]}
 [usage] input=131 cache_read=28819 cache_write=476 output=338
 
 === Turn 15 ===
 [user] [tool_result] applied docs/ref/models/querysets.txt:1285-1290
-[assistant] Now let me verify the implementation works with a quick test using the existing prefetch_related test suite.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related.tests.PrefetchLimitTests --settings=test_sqlite 2>&1 | tail -30"}
+[assistant] Now let me verify the implementation works with a quick test using the existing prefetch_related test suite.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related.tests.PrefetchLimitTests --settings=test_sqlite 2>&1 | tail -30"}
 [usage] input=2 cache_read=29295 cache_write=494 output=144
 
 === Turn 16 ===
@@ -932,7 +932,7 @@ FAILED (errors=1)
 Testing against Django installed in '/testbed/django' with up to 32 processes
 Found 1 test(s).
 System check identified no issues (0 silenced).
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | tail -15"}
 [usage] input=2 cache_read=29789 cache_write=326 output=147
 
 === Turn 17 ===
@@ -951,13 +951,13 @@ Destroying test database for alias 'other'...
 Destroying test database for alias 'other'...
 Destroying test database for alias 'other'...
 Destroying test database for alias 'other'...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR\" | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR\" | head"}
 [usage] input=2 cache_read=30115 cache_write=376 output=119
 
 === Turn 18 ===
 [user] [tool_result] Ran 109 tests in 0.097s
 OK
-[assistant] Existing tests pass. Now let me add a test for the new sliced-prefetch behavior. Let me check the test models and structure.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && grep -n \"supports_over_clause\\|skipUnlessDBFeature\\|^from\\|^import\\|class .*TestCase\" prefetch_related/tests.py | head -40"}
+[assistant] Existing tests pass. Now let me add a test for the new sliced-prefetch behavior. Let me check the test models and structure.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && grep -n \"supports_over_clause\\|skipUnlessDBFeature\\|^from\\|^import\\|class .*TestCase\" prefetch_related/tests.py | head -40"}
 [usage] input=2 cache_read=30491 cache_write=141 output=166
 
 === Turn 19 ===
@@ -988,7 +988,7 @@ OK
 1695:class DirectPrefetchedObjectCacheReuseTests(TestCase):
 1846:class ReadPrefetchedObjectsCacheTests(TestCase):
 1884:class NestedPrefetchTests(TestCase):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/prefetch_related/models.py:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/prefetch_related/models.py:L1-L60"]}
 [usage] input=2 cache_read=30632 cache_write=738 output=82
 
 === Turn 20 ===
@@ -1053,7 +1053,7 @@ class Book(models.Model):
         ordering = ["id"]
 
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && sed -n '1884,1980p' prefetch_related/tests.py | head -80; echo \"=== EOF ===\"; wc -l prefetch_related/tests.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && sed -n '1884,1980p' prefetch_related/tests.py | head -80; echo \"=== EOF ===\"; wc -l prefetch_related/tests.py"}
 [usage] input=2 cache_read=31370 cache_write=701 output=216
 
 === Turn 21 ===
@@ -1086,13 +1086,13 @@ class Book(models.Model):
             house.rooms.first().house.address
 === EOF ===
 1910 prefetch_related/tests.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/prefetch_related/models.py:L52-L90"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/prefetch_related/models.py:L52-L90"]}
 [usage] input=2 cache_read=32071 cache_write=616 output=82
 
 === Turn 22 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/prefetch_related/tests.py:L13-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/prefetch_related/tests.py:L13-L40"]}
 [usage] input=131 cache_read=32687 cache_write=496 output=105
 
 === Turn 23 ===
@@ -1125,17 +1125,17 @@ from .models import (
 )
 
 
-[assistant] Now let me add the test class. I'll use the Book/Author m2m relation:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/prefetch_related/tests.py", "old": "from django.db import connection\nfrom django.db.models import Prefetch, QuerySet, prefetch_related_objects", "new": "from django.db import NotSupportedError, connection\nfrom django.db.models import Prefetch, QuerySet, prefetch_related_objects"}, {"path": "tests/prefetch_related/tests.py", "old": "from django.test import TestCase, override_settings", "new": "from django.test import (\n    TestCase,\n    override_settings,\n    skipIfDBFeature,\n    skipUnlessDBFeature,\n)"}, {"path": "tests/prefetch_related/tests.py", "old": "        self.assertIs(Room.house.is_cached(self.room), True)\n        with self.assertNumQueries(0):\n            house.rooms.first().house.address", "new": "        self.assertIs(Room.house.is_cached(self.room), True)\n        with self.assertNumQueries(0):\n            house.rooms.first().house.address\n\n\nclass PrefetchLimitTests(TestDataMixin, TestCase):\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_m2m_forward(self):\n        authors = Author.objects.all()  # Meta.ordering\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\"authors\", authors),\n                    Prefetch(\"authors\", authors[1:], to_attr=\"authors_sliced\"),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(book.authors_sliced, list(book.authors.all())[1:])\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_m2m_reverse(self):\n        books = Book.objects.order_by(\"title\")\n        with self.assertNumQueries(3):\n            authors = list(\n                Author.objects.prefetch_related(\n                    Prefetch(\"books\", books),\n                    Prefetch(\"books\", books[1:2], to_attr=\"books_sliced\"),\n                )\n            )\n        for author in authors:\n            with self.subTest(author=author):\n                self.assertEqual(author.books_sliced, list(author.books.all())[1:2])\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_foreignkey_reverse(self):\n        authors = Author.objects.order_by(\"-name\")\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\n                        \"first_time_authors\",\n                        authors,\n                    ),\n                    Prefetch(\n                        \"first_time_authors\",\n                        authors[1:],\n                        to_attr=\"first_time_authors_sliced\",\n                    ),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(\n                    book.first_time_authors_sliced,\n                    list(book.first_time_authors.all())[1:],\n                )\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_reverse_ordering(self):\n        authors = Author.objects.reverse()  # Reverse Meta.ordering\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\"authors\", authors),\n                    Prefetch(\"authors\", authors[1:], to_attr=\"authors_sliced\"),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(book.authors_sliced, list(book.authors.all())[1:])\n\n    @skipIfDBFeature(\"supports_over_clause\")\n    def test_window_not_supported(self):\n        authors = Author.objects.all()\n        msg = (\n            \"Prefetching from a limited queryset is only supported on backends that \"\n            \"support window functions.\"\n        )\n        with self.assertRaisesMessage(NotSupportedError, msg):\n            list(Book.objects.prefetch_related(Prefetch(\"authors\", authors[1:])))"}]}
+[assistant] Now let me add the test class. I'll use the Book/Author m2m relation:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/prefetch_related/tests.py", "old": "from django.db import connection\nfrom django.db.models import Prefetch, QuerySet, prefetch_related_objects", "new": "from django.db import NotSupportedError, connection\nfrom django.db.models import Prefetch, QuerySet, prefetch_related_objects"}, {"path": "tests/prefetch_related/tests.py", "old": "from django.test import TestCase, override_settings", "new": "from django.test import (\n    TestCase,\n    override_settings,\n    skipIfDBFeature,\n    skipUnlessDBFeature,\n)"}, {"path": "tests/prefetch_related/tests.py", "old": "        self.assertIs(Room.house.is_cached(self.room), True)\n        with self.assertNumQueries(0):\n            house.rooms.first().house.address", "new": "        self.assertIs(Room.house.is_cached(self.room), True)\n        with self.assertNumQueries(0):\n            house.rooms.first().house.address\n\n\nclass PrefetchLimitTests(TestDataMixin, TestCase):\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_m2m_forward(self):\n        authors = Author.objects.all()  # Meta.ordering\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\"authors\", authors),\n                    Prefetch(\"authors\", authors[1:], to_attr=\"authors_sliced\"),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(book.authors_sliced, list(book.authors.all())[1:])\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_m2m_reverse(self):\n        books = Book.objects.order_by(\"title\")\n        with self.assertNumQueries(3):\n            authors = list(\n                Author.objects.prefetch_related(\n                    Prefetch(\"books\", books),\n                    Prefetch(\"books\", books[1:2], to_attr=\"books_sliced\"),\n                )\n            )\n        for author in authors:\n            with self.subTest(author=author):\n                self.assertEqual(author.books_sliced, list(author.books.all())[1:2])\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_foreignkey_reverse(self):\n        authors = Author.objects.order_by(\"-name\")\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\n                        \"first_time_authors\",\n                        authors,\n                    ),\n                    Prefetch(\n                        \"first_time_authors\",\n                        authors[1:],\n                        to_attr=\"first_time_authors_sliced\",\n                    ),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(\n                    book.first_time_authors_sliced,\n                    list(book.first_time_authors.all())[1:],\n                )\n\n    @skipUnlessDBFeature(\"supports_over_clause\")\n    def test_reverse_ordering(self):\n        authors = Author.objects.reverse()  # Reverse Meta.ordering\n        with self.assertNumQueries(3):\n            books = list(\n                Book.objects.prefetch_related(\n                    Prefetch(\"authors\", authors),\n                    Prefetch(\"authors\", authors[1:], to_attr=\"authors_sliced\"),\n                )\n            )\n        for book in books:\n            with self.subTest(book=book):\n                self.assertEqual(book.authors_sliced, list(book.authors.all())[1:])\n\n    @skipIfDBFeature(\"supports_over_clause\")\n    def test_window_not_supported(self):\n        authors = Author.objects.all()\n        msg = (\n            \"Prefetching from a limited queryset is only supported on backends that \"\n            \"support window functions.\"\n        )\n        with self.assertRaisesMessage(NotSupportedError, msg):\n            list(Book.objects.prefetch_related(Prefetch(\"authors\", authors[1:])))"}]}
 [usage] input=2 cache_read=33183 cache_write=443 output=1617
 
 === Turn 24 ===
 [user] [tool_result] applied tests/prefetch_related/tests.py:5-6,9,1913-1915
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && grep -n \"class TestDataMixin\" prefetch_related/tests.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && grep -n \"class TestDataMixin\" prefetch_related/tests.py"}
 [usage] input=2 cache_read=33626 cache_write=1650 output=123
 
 === Turn 25 ===
 [user] [tool_result] 46:class TestDataMixin:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/prefetch_related/tests.py:L46-L66"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/prefetch_related/tests.py:L46-L66"]}
 [usage] input=2 cache_read=35276 cache_write=139 output=83
 
 === Turn 26 ===
@@ -1161,19 +1161,19 @@ class TestDataMixin:
         cls.reader1 = Reader.objects.create(name="Amy")
         cls.reader2 = Reader.objects.create(name="Belinda")
 
-[assistant] Good, there's data. Let me run the new tests:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related.tests.PrefetchLimitTests --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR|Error\" | head"}
+[assistant] Good, there's data. Let me run the new tests:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related.tests.PrefetchLimitTests --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR|Error\" | head"}
 [usage] input=2 cache_read=35415 cache_write=520 output=153
 
 === Turn 27 ===
 [user] [tool_result] Ran 5 tests in 0.009s
 OK (skipped=1)
-[assistant] All pass (the `test_window_not_supported` is correctly skipped since SQLite supports window functions). Let me run the full suite plus related tests to confirm no regressions:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR\" | head"}
+[assistant] All pass (the `test_window_not_supported` is correctly skipped since SQLite supports window functions). Let me run the full suite plus related tests to confirm no regressions:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related --settings=test_sqlite 2>&1 | grep -E \"Ran|OK|FAIL|ERROR\" | head"}
 [usage] input=2 cache_read=35935 cache_write=182 output=230
 
 === Turn 28 ===
 [user] [tool_result] Ran 114 tests in 0.128s
 OK (skipped=1)
-[assistant] All tests pass. The implementation is complete. Let me verify the final state of the core change:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/related_descriptors.py:L80-L101"]}
+[assistant] All tests pass. The implementation is complete. Let me verify the final state of the core change:[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/related_descriptors.py:L80-L101"]}
 [usage] input=2 cache_read=36117 cache_write=259 output=442
 
 === Turn 29 ===

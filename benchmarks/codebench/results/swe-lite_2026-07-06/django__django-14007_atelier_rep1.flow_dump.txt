@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - One search → one bulk edit. Lead with `code_search` BEFORE and while writing or editing code: one call = relevant symbols' verbatim source grouped by file + callers/callees/usages + blast-radius summary — more accurate context, far fewer tokens and round-trips than finding and reading files yourself. Returned source = already read; `read` only what it didn't return, all files in ONE call, never the same file twice; ALL edits in ONE `edit` edits[] array.
 - Never grep or read files to find or understand indexed code; never re-verify `code_search` results with shell grep — full index, re-checking wastes context. Grep/cat-style shell over workspace code auto-served from the index where possible, coached otherwise.
 - Known path → `read` (batch files=[...], exact :Lx-Ly ranges, head=/tail=) — never cat/sed/head/tail. `bash` = execution (tests, git, builds), not file content or code search.
@@ -58,7 +58,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "returning_fields insert set attribute pk after insert"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "bulk_create returned_columns set pk from returning"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "returning_fields insert set attribute pk after insert"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "bulk_create returned_columns set pk from returning"}
 [usage] input=2944 cache_read=5344 cache_write=629 output=176
 
 === Turn 2 ===
@@ -144,7 +144,7 @@ candidate_files: django/db/models/options.py, django/db/models/query.py, django/
 525	        return objs
 
 candidate_files: django/db/backends/base/schema.py, django/db/models/sql/compiler.py, django/db/backends/ddl_references.py, django/db/backends/mysql/introspection.py, django/db/models/fields/related_descriptors.py, django/db/backends/oracle/operations.py, django/db/backends/sqlite3/introspection.py, django/db/models/base.py, django/db/backends/postgresql/schema.py, django/db/backends/mysql/features.py, django/db/backends/base/features.py, django/db/backends/base/operations.py, django/db/models/fields/related.py, django/db/backends/mysql/operations.py, django/db/backends/postgresql/operations.py, django/db/backends/base/introspection.py, django/db/backends/oracle/base.py, django/db/models/fields/reverse_related.py, django/contrib/gis/db/backends/spatialite/schema.py, tests/expressions_window/tests.py, django/contrib/auth/management/__init__.py, django/contrib/contenttypes/management/__init__.py, django/db/backends/oracle/features.py, django/db/backends/postgresql/features.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/compiler.py:L1403-L1440"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/base.py:L900-L930"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/compiler.py:L1403-L1440"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/base.py:L900-L930"]}
 [usage] input=2 cache_read=5973 cache_write=5631 output=209
 
 === Turn 3 ===
@@ -219,7 +219,7 @@ class SQLDeleteCompiler(SQLCompiler):
                 # UUIDField), but we allow the save to proceed and rely on the
                 # database to raise an IntegrityError if applicable. If
                 # constraints aren't supported by the database, there's the
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_db_converters apply_converters get_converters compiler"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_db_converters apply_converters get_converters compiler"}
 [usage] input=2 cache_read=11604 cache_write=1387 output=213
 
 === Turn 4 ===
@@ -281,7 +281,7 @@ django/db/models/fields/related.py:L1011-L1015 method ForeignKey.get_db_converte
 candidate_files: django/db/backends/sqlite3/operations.py, django/db/models/expressions.py, django/contrib/gis/db/backends/base/operations.py, django/db/backends/base/operations.py, django/db/models/sql/compiler.py, django/urls/converters.py, django/db/models/fields/__init__.py, django/db/models/query.py, django/db/models/sql/query.py, django/db/models/fields/related.py, django/core/cache/backends/db.py, django/urls/resolvers.py, django/db/backends/base/schema.py, django/contrib/gis/db/backends/postgis/operations.py, django/db/models/sql/where.py, django/db/models/constraints.py, django/contrib/gis/db/backends/oracle/operations.py, django/contrib/gis/db/backends/spatialite/operations.py, django/db/backends/oracle/base.py, django/db/models/lookups.py, django/urls/base.py, django/contrib/gis/db/backends/mysql/operations.py, django/contrib/postgres/constraints.py, django/core/management/commands/migrate.py
 
 (truncated -- narrow with paths= or a more specific query)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/compiler.py:L1053-L1110"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/compiler.py:L1053-L1110"]}
 [usage] input=2 cache_read=12991 cache_write=1699 output=85
 
 === Turn 5 ===
@@ -344,7 +344,7 @@ candidate_files: django/db/backends/sqlite3/operations.py, django/db/models/expr
         return converters
 
     def apply_converters(self, rows, converters):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/compiler.py:L1110-L1135"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/compiler.py:L1110-L1135"]}
 [usage] input=2 cache_read=14690 cache_write=837 output=85
 
 === Turn 6 ===
@@ -375,7 +375,7 @@ candidate_files: django/db/backends/sqlite3/operations.py, django/db/models/expr
         return rows
 
     def has_results(self):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Field.get_col cached_col method"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "Field.get_col cached_col method"}
 [usage] input=2 cache_read=15527 cache_write=482 output=888
 
 === Turn 7 ===
@@ -411,13 +411,13 @@ django/db/models/fields/__init__.py:L404-L406 method Field.cached_col
 django/db/models/fields/__init__.py:L394-L401 method Field.get_col
 
 candidate_files: django/db/models/sql/query.py, django/db/models/sql/compiler.py, django/db/models/query.py, django/contrib/contenttypes/fields.py, django/db/models/fields/related_descriptors.py, django/db/models/base.py, django/db/models/fields/related_lookups.py, django/utils/functional.py, tests/model_fields/test_foreignkey.py, django/urls/resolvers.py, django/db/models/options.py, django/template/loaders/cached.py, django/middleware/cache.py, django/urls/base.py, django/db/models/fields/mixins.py, tests/foreign_object/models/empty_join.py, django/contrib/auth/middleware.py, django/db/models/expressions.py, django/db/models/lookups.py, tests/cache/tests.py, tests/one_to_one/tests.py, django/contrib/postgres/indexes.py, tests/foreign_object/models/article.py, django/db/backends/sqlite3/operations.py
-[assistant] Now I'll modify `execute_sql`:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"django/db/models/sql/compiler.py","old":"        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                return self.connection.ops.fetch_returned_insert_rows(cursor)\n            if self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            return [(self.connection.ops.last_insert_id(\n                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column\n            ),)]","new":"        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                rows = self.connection.ops.fetch_returned_insert_rows(cursor)\n            elif self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                rows = [self.connection.ops.fetch_returned_insert_columns(\n                    cursor, self.returning_params,\n                )]\n            else:\n                rows = [(self.connection.ops.last_insert_id(\n                    cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column,\n                ),)]\n        cols = [field.get_col(self.query.get_meta().db_table) for field in self.returning_fields]\n        converters = self.get_converters(cols)\n        if converters:\n            rows = list(self.apply_converters(rows, converters))\n        return rows"}]}
+[assistant] Now I'll modify `execute_sql`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"django/db/models/sql/compiler.py","old":"        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                return self.connection.ops.fetch_returned_insert_rows(cursor)\n            if self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            return [(self.connection.ops.last_insert_id(\n                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column\n            ),)]","new":"        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                rows = self.connection.ops.fetch_returned_insert_rows(cursor)\n            elif self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                rows = [self.connection.ops.fetch_returned_insert_columns(\n                    cursor, self.returning_params,\n                )]\n            else:\n                rows = [(self.connection.ops.last_insert_id(\n                    cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column,\n                ),)]\n        cols = [field.get_col(self.query.get_meta().db_table) for field in self.returning_fields]\n        converters = self.get_converters(cols)\n        if converters:\n            rows = list(self.apply_converters(rows, converters))\n        return rows"}]}
 [usage] input=2 cache_read=16009 cache_write=1673 output=797
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now check `_do_insert` result consumption in base.py:[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_do_insert results returning_fields setattr attname save_base"}
+[assistant] Now check `_do_insert` result consumption in base.py:[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_do_insert results returning_fields setattr attname save_base"}
 [usage] input=131 cache_read=17682 cache_write=826 output=199
 
 === Turn 9 ===
@@ -483,7 +483,7 @@ candidate_files: django/db/models/sql/query.py, django/db/models/sql/compiler.py
 913	        )
 
 candidate_files: django/db/models/query.py, django/db/models/sql/compiler.py, django/db/models/options.py, django/core/serializers/base.py, django/db/models/fields/related.py, django/db/models/fields/files.py, django/db/models/fields/__init__.py, django/forms/models.py, django/db/models/fields/related_descriptors.py, django/contrib/admin/options.py, django/forms/forms.py, django/db/backends/base/operations.py, django/contrib/postgres/fields/array.py, django/db/backends/mysql/operations.py, django/db/models/deletion.py, django/core/serializers/xml_serializer.py, django/db/backends/oracle/operations.py, django/db/backends/postgresql/operations.py, django/contrib/admin/views/main.py, django/db/models/sql/query.py, django/contrib/contenttypes/fields.py, django/contrib/postgres/fields/ranges.py, django/contrib/contenttypes/forms.py, django/db/migrations/autodetector.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_save_table returning_fields results setattr for value field zip"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_save_table returning_fields results setattr for value field zip"}
 [usage] input=2 cache_read=18508 cache_write=1610 output=80
 
 === Turn 10 ===
@@ -569,13 +569,13 @@ Assumption: no new tests requested — behavior change only.
 === Turn 11 ===
 [user] Stop hook feedback:
 FIXME (verify): edited compiler.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python tests/runtests.py basic bulk_create --parallel=1 2>&1 | tail -30", "cwd": ".", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python tests/runtests.py basic bulk_create --parallel=1 2>&1 | tail -30", "cwd": ".", "timeout": 600}
 [usage] input=2 cache_read=21745 cache_write=462 output=140
 
 === Turn 12 ===
 [user] [tool_result] Ran 89 tests in 0.112s
 OK (skipped=8)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python tests/runtests.py queries custom_pk model_fields --parallel=1 2>&1 | tail -15", "cwd": ".", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python tests/runtests.py queries custom_pk model_fields --parallel=1 2>&1 | tail -15", "cwd": ".", "timeout": 600}
 [usage] input=2 cache_read=22207 cache_write=169 output=144
 
 === Turn 13 ===

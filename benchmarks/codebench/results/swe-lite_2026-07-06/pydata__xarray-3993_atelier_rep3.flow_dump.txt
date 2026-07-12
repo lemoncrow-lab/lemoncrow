@@ -17,7 +17,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -30,8 +30,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -55,7 +55,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def integrate"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def integrate"}
 [usage] input=2691 cache_read=4973 cache_write=487 output=117
 
 === Turn 2 ===
@@ -79,7 +79,7 @@ xarray/coding/times.py:L296-L317 infer_datetime_units
 candidate_files: xarray/core/dataarray.py, xarray/tests/test_dataset.py, xarray/tests/test_units.py, xarray/tests/test_sparse.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/core/dataarray.py:L3483-L3532","xarray/core/dataset.py:L5966-L6023"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/core/dataarray.py:L3483-L3532","xarray/core/dataset.py:L5966-L6023"]}
 [usage] input=2 cache_read=5460 cache_write=3236 output=104
 
 === Turn 3 ===
@@ -194,12 +194,12 @@ candidate_files: xarray/core/dataarray.py, xarray/tests/test_dataset.py, xarray/
         for c in coord:
             result = result._integrate_one(c, datetime_unit=datetime_unit)
         return result
-[assistant] I'll update `DataArray.integrate` to use `coord` with a deprecation cycle for `dim`.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"xarray/core/dataarray.py:L3483-L3532","new":"    def integrate(\n        self,\n        coord: Union[Hashable, Sequence[Hashable]] = None,\n        datetime_unit: str = None,\n        *,\n        dim: Union[Hashable, Sequence[Hashable]] = None,\n    ) -> \"DataArray\":\n        \"\"\" integrate the array with the trapezoidal rule.\n\n        .. note::\n            This feature is limited to simple cartesian geometry, i.e. coord\n            must be one dimensional.\n\n        Parameters\n        ----------\n        coord: hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n        dim : hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n\n            .. deprecated:: 0.17.0\n                Use ``coord`` instead. ``dim`` will be removed in a future\n                version.\n        datetime_unit : {\"Y\", \"M\", \"W\", \"D\", \"h\", \"m\", \"s\", \"ms\", \"us\", \"ns\", \\\n                         \"ps\", \"fs\", \"as\"}, optional\n            Can be used to specify the unit if datetime coordinate is used.\n\n        Returns\n        -------\n        integrated: DataArray\n\n        See also\n        --------\n        numpy.trapz: corresponding numpy function\n\n        Examples\n        --------\n\n        >>> da = xr.DataArray(\n        ...     np.arange(12).reshape(4, 3),\n        ...     dims=[\"x\", \"y\"],\n        ...     coords={\"x\": [0, 0.1, 1.1, 1.2]},\n        ... )\n        >>> da\n        <xarray.DataArray (x: 4, y: 3)>\n        array([[ 0,  1,  2],\n               [ 3,  4,  5],\n               [ 6,  7,  8],\n               [ 9, 10, 11]])\n        Coordinates:\n          * x        (x) float64 0.0 0.1 1.1 1.2\n        Dimensions without coordinates: y\n        >>>\n        >>> da.integrate(\"x\")\n        <xarray.DataArray (y: 3)>\n        array([5.4, 6.6, 7.8])\n        Dimensions without coordinates: y\n        \"\"\"\n        if dim is not None and coord is not None:\n            raise ValueError(\n                \"Cannot pass both 'dim' and 'coord'. Please pass only 'coord' instead.\"\n            )\n\n        if dim is not None and coord is None:\n            coord = dim\n            msg = (\n                \"The `dim` keyword argument to `DataArray.integrate` is \"\n                \"being replaced with `coord`, upon which coordinate values \"\n                \"are surfaced. Use `coord` instead.\"\n            )\n            warnings.warn(msg, FutureWarning, stacklevel=2)\n\n        ds = self._to_temp_dataset().integrate(coord, datetime_unit)\n        return self._from_temp_dataset(ds)"}]}
+[assistant] I'll update `DataArray.integrate` to use `coord` with a deprecation cycle for `dim`.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"xarray/core/dataarray.py:L3483-L3532","new":"    def integrate(\n        self,\n        coord: Union[Hashable, Sequence[Hashable]] = None,\n        datetime_unit: str = None,\n        *,\n        dim: Union[Hashable, Sequence[Hashable]] = None,\n    ) -> \"DataArray\":\n        \"\"\" integrate the array with the trapezoidal rule.\n\n        .. note::\n            This feature is limited to simple cartesian geometry, i.e. coord\n            must be one dimensional.\n\n        Parameters\n        ----------\n        coord: hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n        dim : hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n\n            .. deprecated:: 0.17.0\n                Use ``coord`` instead. ``dim`` will be removed in a future\n                version.\n        datetime_unit : {\"Y\", \"M\", \"W\", \"D\", \"h\", \"m\", \"s\", \"ms\", \"us\", \"ns\", \\\n                         \"ps\", \"fs\", \"as\"}, optional\n            Can be used to specify the unit if datetime coordinate is used.\n\n        Returns\n        -------\n        integrated: DataArray\n\n        See also\n        --------\n        numpy.trapz: corresponding numpy function\n\n        Examples\n        --------\n\n        >>> da = xr.DataArray(\n        ...     np.arange(12).reshape(4, 3),\n        ...     dims=[\"x\", \"y\"],\n        ...     coords={\"x\": [0, 0.1, 1.1, 1.2]},\n        ... )\n        >>> da\n        <xarray.DataArray (x: 4, y: 3)>\n        array([[ 0,  1,  2],\n               [ 3,  4,  5],\n               [ 6,  7,  8],\n               [ 9, 10, 11]])\n        Coordinates:\n          * x        (x) float64 0.0 0.1 1.1 1.2\n        Dimensions without coordinates: y\n        >>>\n        >>> da.integrate(\"x\")\n        <xarray.DataArray (y: 3)>\n        array([5.4, 6.6, 7.8])\n        Dimensions without coordinates: y\n        \"\"\"\n        if dim is not None and coord is not None:\n            raise ValueError(\n                \"Cannot pass both 'dim' and 'coord'. Please pass only 'coord' instead.\"\n            )\n\n        if dim is not None and coord is None:\n            coord = dim\n            msg = (\n                \"The `dim` keyword argument to `DataArray.integrate` is \"\n                \"being replaced with `coord`, upon which coordinate values \"\n                \"are surfaced. Use `coord` instead.\"\n            )\n            warnings.warn(msg, FutureWarning, stacklevel=2)\n\n        ds = self._to_temp_dataset().integrate(coord, datetime_unit)\n        return self._from_temp_dataset(ds)"}]}
 [usage] input=2 cache_read=8696 cache_write=1493 output=1265
 
 === Turn 4 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":3532,"line_start":3483}],"match_mode":"range","path":"xarray/core/dataarray.py:L3483-L3532"}]}
-[assistant] Check `warnings` is imported:[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "^import warnings", "paths": "xarray/core/dataarray.py"}
+[assistant] Check `warnings` is imported:[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "^import warnings", "paths": "xarray/core/dataarray.py"}
 [usage] input=2 cache_read=10189 cache_write=1337 output=112
 
 === Turn 5 ===
@@ -221,7 +221,7 @@ xarray/core/dataarray.py:L221-L4314 class DataArray
 candidate_files: xarray/core/dataset.py, xarray/core/duck_array_ops.py, xarray/core/utils.py, xarray/core/nputils.py, xarray/core/options.py, xarray/core/variable.py, xarray/conventions.py, xarray/core/common.py, xarray/core/extensions.py, xarray/coding/cftimeindex.py, xarray/coding/times.py, xarray/coding/variables.py, xarray/core/computation.py, xarray/core/missing.py, xarray/backends/file_manager.py, xarray/backends/rasterio_.py, xarray/core/groupby.py, xarray/core/resample.py, xarray/core/rolling.py, xarray/plot/utils.py, xarray/core/nanops.py, ci/min_deps_check.py, xarray/backends/plugins.py, xarray/core/accessor_dt.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/core/dataarray.py:L1-L10"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/core/dataarray.py:L1-L10"]}
 [usage] input=2 cache_read=11526 cache_write=739 output=81
 
 === Turn 6 ===
@@ -236,30 +236,30 @@ from typing import (
     Callable,
     Dict,
     Hashable,
-[assistant] `warnings` imported. Now update whatsnew doc.[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Breaking changes New Features whatsnew latest", "paths": "doc/whats-new.rst"}
+[assistant] `warnings` imported. Now update whatsnew doc.[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "Breaking changes New Features whatsnew latest", "paths": "doc/whats-new.rst"}
 [usage] input=2 cache_read=12265 cache_write=170 output=129
 
 === Turn 7 ===
 [user] [tool_result] no exact match -- ranked candidates
 
 candidate_files: xarray/core/dataset.py, xarray/core/dataarray.py, xarray/backends/api.py, xarray/core/missing.py, xarray/plot/plot.py, xarray/core/parallel.py, HOW_TO_RELEASE.md, xarray/backends/zarr.py, xarray/core/variable.py, xarray/tests/test_variable.py, xarray/plot/utils.py, xarray/tests/test_dataset.py, xarray/core/computation.py, xarray/core/common.py, xarray/core/concat.py, xarray/core/merge.py, xarray/coding/cftimeindex.py, xarray/tests/test_dask.py, xarray/tests/test_dataarray.py, xarray/tests/test_backends.py, xarray/core/indexing.py, xarray/core/alignment.py, xarray/core/utils.py, xarray/core/indexes.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["doc/whats-new.rst:L1-L80"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["doc/whats-new.rst:L1-L80"]}
 [usage] input=2 cache_read=12435 cache_write=453 output=79
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"doc/whats-new.rst:L44","new":"New Features\n~~~~~~~~~~~~\n- :py:meth:`DataArray.integrate` now uses the ``coord`` argument for\n  consistency with :py:meth:`Dataset.integrate`, :py:meth:`DataArray.differentiate`\n  and :py:meth:`Dataset.differentiate`. The ``dim`` argument is deprecated\n  (:issue:`3993`, :pull:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"doc/whats-new.rst:L44","new":"New Features\n~~~~~~~~~~~~\n- :py:meth:`DataArray.integrate` now uses the ``coord`` argument for\n  consistency with :py:meth:`Dataset.integrate`, :py:meth:`DataArray.differentiate`\n  and :py:meth:`Dataset.differentiate`. The ``dim`` argument is deprecated\n  (:issue:`3993`, :pull:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
 [usage] input=131 cache_read=12888 cache_write=1714 output=261
 
 === Turn 9 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":44,"line_start":44}],"match_mode":"range","path":"doc/whats-new.rst:L44"}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"doc/whats-new.rst:L44-L50","new":"New Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"doc/whats-new.rst:L44-L50","new":"New Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
 [usage] input=2 cache_read=14602 cache_write=453 output=420
 
 === Turn 10 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"doc/whats-new.rst:L44-L50","edit_index":0,"error":"blind range edit rejected: 'doc/whats-new.rst' changed on disk since this window last read it, so its line numbers may point at different content now -- read the exact range first, or pass old to anchor the edit"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["doc/whats-new.rst:L44-L54"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["doc/whats-new.rst:L44-L54"]}
 [usage] input=2 cache_read=15055 cache_write=551 output=79
 
 === Turn 11 ===
@@ -275,12 +275,12 @@ New Features
 New Features
 ~~~~~~~~~~~~
 - Significantly higher ``unstack`` performance on numpy-backed arrays which
-[assistant] There's a duplicate "New Features" header now. Fix:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"doc/whats-new.rst:L44-L52","new":"New Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_.\n"}]}
+[assistant] There's a duplicate "New Features" header now. Fix:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"doc/whats-new.rst:L44-L52","new":"New Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_.\n"}]}
 [usage] input=2 cache_read=15606 cache_write=314 output=339
 
 === Turn 12 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":52,"line_start":44}],"match_mode":"range","path":"doc/whats-new.rst:L44-L52"}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["doc/whats-new.rst:L42-L56"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["doc/whats-new.rst:L42-L56"]}
 [usage] input=2 cache_read=15920 cache_write=405 output=79
 
 === Turn 13 ===
@@ -300,12 +300,12 @@ New Features
   (:pull:`4746`);
   By `Maximilian Roos <https://github.com/max-sixty>`_.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"doc/whats-new.rst:L42-L51","new":"- remove deprecated ``autoclose`` kwargs from :py:func:`open_dataset` (:pull:`4725`).\n  By `Aureliana Barghini <https://github.com/aurghs>`_.\n\nNew Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"doc/whats-new.rst:L42-L51","new":"- remove deprecated ``autoclose`` kwargs from :py:func:`open_dataset` (:pull:`4725`).\n  By `Aureliana Barghini <https://github.com/aurghs>`_.\n\nNew Features\n~~~~~~~~~~~~\n- Deprecate the ``dim`` argument to :py:meth:`DataArray.integrate` in favor of\n  ``coord``, for consistency with :py:meth:`Dataset.integrate`,\n  :py:meth:`DataArray.differentiate` and :py:meth:`Dataset.differentiate`\n  (:issue:`3993`).\n  By `Justus Magin <https://github.com/keewis>`_."}]}
 [usage] input=2 cache_read=16325 cache_write=442 output=382
 
 === Turn 14 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":51,"line_start":42}],"match_mode":"range","path":"doc/whats-new.rst:L42-L51"}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["doc/whats-new.rst:L42-L58"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["doc/whats-new.rst:L42-L58"]}
 [usage] input=2 cache_read=16767 cache_write=448 output=79
 
 === Turn 15 ===
@@ -327,13 +327,13 @@ New Features
 
 - Performance improvement when constructing DataArrays. Significantly speeds up repr for Datasets with large number of variables.
   By `Deepak Cherian <https://github.com/dcherian>`_.
-[assistant] Now verify the change works and add a test. Let me check the existing DataArray integrate test.[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def test_integrate", "paths": "xarray/tests/test_dataarray.py"}
+[assistant] Now verify the change works and add a test. Let me check the existing DataArray integrate test.[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def test_integrate", "paths": "xarray/tests/test_dataarray.py"}
 [usage] input=2 cache_read=17215 cache_write=495 output=133
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "integrate( test differentiate DataArray", "paths": "xarray/tests/test_dataarray.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "integrate( test differentiate DataArray", "paths": "xarray/tests/test_dataarray.py"}
 [usage] input=131 cache_read=17710 cache_write=1982 output=111
 
 === Turn 17 ===
@@ -348,12 +348,12 @@ xarray/tests/test_dataarray.py:L1994-L1998 method TestDataArray.test_non_overlap
 xarray/tests/test_dataarray.py:L2000-L2004 method TestDataArray.test_empty_dataarrays_return_empty_result
 
 candidate_files: xarray/core/dataarray.py, xarray/core/dataset.py, xarray/tests/test_formatting_html.py, xarray/core/computation.py, xarray/core/common.py, xarray/core/merge.py, xarray/__init__.py, xarray/core/weighted.py, xarray/core/concat.py, xarray/backends/api.py, xarray/core/groupby.py, xarray/core/variable.py, xarray/core/alignment.py, xarray/tests/test_dataarray.py, xarray/core/coordinates.py, xarray/core/rolling.py, xarray/convert.py, xarray/backends/rasterio_.py, xarray/tests/test_dataset.py, xarray/core/combine.py, xarray/core/extensions.py, xarray/core/indexing.py, xarray/core/parallel.py, xarray/core/resample.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"integrate\" xarray/tests/test_dataarray.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"integrate\" xarray/tests/test_dataarray.py"}
 [usage] input=2 cache_read=19692 cache_write=897 output=85
 
 === Turn 18 ===
 [user] [tool_result] exit_code=1
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/tests/test_dataset.py:L6555-L6608"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/tests/test_dataset.py:L6555-L6608"]}
 [usage] input=2 cache_read=20589 cache_write=96 output=178
 
 === Turn 19 ===
@@ -412,17 +412,17 @@ def test_integrate(dask):
 
 @pytest.mark.parametrize("dask", [True, False])
 @pytest.mark.parametrize("which_datetime", ["np", "cftime"])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6604","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6604","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")"}]}
 [usage] input=2 cache_read=20685 cache_write=938 output=536
 
 === Turn 20 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"xarray/tests/test_dataset.py","edit_index":0,"error":"post-edit parse error in test_dataset.py at line 6604: expected an indented block after 'with' statement on line 6603 — edit rolled back. Would-be content around the error:\n6599:     # along x and y\n6600:     actual = da.integrate((\"y\", \"x\"))\n6601:     assert actual.ndim == 0\n6602: \n6603:     with pytest.raises(ValueError):\n6604:     with pytest.raises(ValueError):\n6605:         da.integrate(\"x2d\")\n6606: \n6607: \n6608: @pytest.mark.parametrize(\"dask\", [True, False])\n6609: def test_integrate_deprecation(dask):\nDo NOT resend the same edit. Extend old_string to cover the full region you are replacing (e.g. the entire block through its closing brace); scope with \"file.py:L10-L20\" to disambiguate, or rewrite the whole file with replace=true."}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6603-L6604","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6603-L6604","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")"}]}
 [usage] input=2 cache_read=21623 cache_write=915 output=663
 
 === Turn 21 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"xarray/tests/test_dataset.py:L6603-L6604","edit_index":0,"error":"blind range edit rejected: 'xarray/tests/test_dataset.py' changed on disk since this window last read it, so its line numbers may point at different content now -- read the exact range first, or pass old to anchor the edit"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/tests/test_dataset.py:L6599-L6608"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/tests/test_dataset.py:L6599-L6608"]}
 [usage] input=2 cache_read=22538 cache_write=804 output=85
 
 === Turn 22 ===
@@ -437,23 +437,23 @@ def test_integrate(dask):
 
 @pytest.mark.parametrize("dask", [True, False])
 @pytest.mark.parametrize("which_datetime", ["np", "cftime"])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6603-L6604","old":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"xarray/tests/test_dataset.py:L6603-L6604","old":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])","new":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])"}]}
 [usage] input=2 cache_read=23342 cache_write=230 output=711
 
 === Turn 23 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"xarray/tests/test_dataset.py","edit_index":0,"error":"old_string not found in file","old_string_snippet":"    with pytest.raises(ValueError):\n        da.integrate(\"x2d\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytes…"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"xarray/tests/test_dataset.py","old":"@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])","new":"@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"xarray/tests/test_dataset.py","old":"@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])","new":"@pytest.mark.parametrize(\"dask\", [True, False])\ndef test_integrate_deprecation(dask):\n    rs = np.random.RandomState(42)\n    coord = [0.2, 0.35, 0.4, 0.6, 0.7, 0.75, 0.76, 0.8]\n\n    da = xr.DataArray(\n        rs.randn(8, 6),\n        dims=[\"x\", \"y\"],\n        coords={\"x\": coord},\n    )\n    if dask and has_dask:\n        da = da.chunk({\"x\": 4})\n\n    actual = da.integrate(\"x\")\n\n    # coord is passed as a keyword argument\n    assert_equal(actual, da.integrate(coord=\"x\"))\n\n    # the old `dim` keyword argument still works but raises a FutureWarning\n    with pytest.warns(FutureWarning):\n        assert_equal(actual, da.integrate(dim=\"x\"))\n\n    # passing both raises\n    with pytest.raises(ValueError, match=r\"Cannot pass both\"):\n        da.integrate(coord=\"x\", dim=\"x\")\n\n\n@pytest.mark.parametrize(\"dask\", [True, False])\n@pytest.mark.parametrize(\"which_datetime\", [\"np\", \"cftime\"])"}]}
 [usage] input=2 cache_read=23572 cache_write=858 output=775
 
 === Turn 24 ===
 [user] [tool_result] applied xarray/tests/test_dataset.py:6607-6608
-[assistant] Now run the tests:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest xarray/tests/test_dataset.py -k \"integrate\" -q 2>&1 | tail -30", "cwd": "."}
+[assistant] Now run the tests:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest xarray/tests/test_dataset.py -k \"integrate\" -q 2>&1 | tail -30", "cwd": "."}
 [usage] input=2 cache_read=24430 cache_write=802 output=132
 
 === Turn 25 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Check for any internal callers using `dim=`:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"\\.integrate(dim=\" xarray/ doc/"}
+[assistant] Check for any internal callers using `dim=`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"\\.integrate(dim=\" xarray/ doc/"}
 [usage] input=131 cache_read=25232 cache_write=161 output=191
 
 === Turn 26 ===

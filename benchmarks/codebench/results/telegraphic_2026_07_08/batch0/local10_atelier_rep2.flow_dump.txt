@@ -21,7 +21,7 @@ TaskUpdate
 WebSearch
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -34,8 +34,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "ErrorBoundary componentDidCatch React component"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "ErrorBoundary componentDidCatch React component"}
 [usage] input=3352 cache_read=16539 cache_write=0 output=107
 
 === Turn 2 ===
@@ -100,16 +100,16 @@ related_symbols:
 frontend/src/App.tsx:L20 variable ErrorBoundary
 src/components/ErrorBoundary.tsx:L5 interface ErrorBoundaryProps
 src/components/ErrorBoundary.tsx:L1-L2 variable Component
-src/atelier/core/capabilities/optimization/audit.py:L76-L98 _component
+src/lemoncrow/core/capabilities/optimization/audit.py:L76-L98 _component
 
-candidate_files: frontend/src/App.tsx, src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/capabilities/code_context/engine.py, benchmarks/telegraphic/prompts.json, integrations/claude/plugin/workflows/code-audit.js, integrations/claude/plugin/workflows/gate-benchmark.js, src/atelier/gateway/adapters/mcp_http.py, src/atelier/core/service/api.py, src/atelier/core/foundation/store.py, src/atelier/core/capabilities/semantic_file_memory/graph_analytics.py, BENCHMARKS.md, frontend/src/pages/Optimizations.tsx, src/atelier/core/capabilities/lesson_promotion/draft.py, src/atelier/core/capabilities/optimization/audit.py, frontend/src/pages/System.tsx, src/atelier/core/capabilities/swarm/capability.py, frontend/src/pages/Memory.tsx, services/license-issuer/src/index.ts, src/atelier/core/capabilities/proof_gate/capability.py, src/atelier/infra/storage/postgres_store.py, src/atelier/gateway/adapters/runtime.py, src/atelier/gateway/cli/runtime.py, src/atelier/core/capabilities/owned_execution_lanes.py, src/atelier/core/capabilities/failure_analysis/capability.py
+candidate_files: frontend/src/App.tsx, src/lemoncrow/gateway/adapters/mcp_server.py, src/lemoncrow/core/capabilities/code_context/engine.py, benchmarks/telegraphic/prompts.json, integrations/claude/plugin/workflows/code-audit.js, integrations/claude/plugin/workflows/gate-benchmark.js, src/lemoncrow/gateway/adapters/mcp_http.py, src/lemoncrow/core/service/api.py, src/lemoncrow/core/foundation/store.py, src/lemoncrow/core/capabilities/semantic_file_memory/graph_analytics.py, BENCHMARKS.md, frontend/src/pages/Optimizations.tsx, src/lemoncrow/core/capabilities/lesson_promotion/draft.py, src/lemoncrow/core/capabilities/optimization/audit.py, frontend/src/pages/System.tsx, src/lemoncrow/core/capabilities/swarm/capability.py, frontend/src/pages/Memory.tsx, services/license-issuer/src/index.ts, src/lemoncrow/core/capabilities/proof_gate/capability.py, src/lemoncrow/infra/storage/postgres_store.py, src/lemoncrow/gateway/adapters/runtime.py, src/lemoncrow/gateway/cli/runtime.py, src/lemoncrow/core/capabilities/owned_execution_lanes.py, src/lemoncrow/core/capabilities/failure_analysis/capability.py
 
 (truncated; narrow with paths=)
-[assistant] Two exist already. Reading both to see what's needed.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/ErrorBoundary.tsx:full", "frontend/src/components/ErrorBoundary.tsx:full"]}
+[assistant] Two exist already. Reading both to see what's needed.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/ErrorBoundary.tsx:full", "frontend/src/components/ErrorBoundary.tsx:full"]}
 [usage] input=2 cache_read=16539 cache_write=4538 output=190
 
 === Turn 3 ===
-[user] [tool_result] ## /home/pankaj/Projects/leanchain/atelier/src/components/ErrorBoundary.tsx
+[user] [tool_result] ## /home/pankaj/Projects/leanchain/lemoncrow/src/components/ErrorBoundary.tsx
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 type FallbackRender = (args: { error: Error; reset: () => void }) => ReactNode;
@@ -204,7 +204,7 @@ export class ErrorBoundary extends Component<
 export default ErrorBoundary;
 
 
-## /home/pankaj/Projects/leanchain/atelier/frontend/src/components/ErrorBoundary.tsx
+## /home/pankaj/Projects/leanchain/lemoncrow/frontend/src/components/ErrorBoundary.tsx
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader } from "./ui/card";
@@ -325,7 +325,7 @@ export class ErrorBoundary extends Component<
   }
 }
 
-[assistant] Already implemented — both fully satisfy the spec. `frontend/src/components/ErrorBoundary.tsx` is the live one (wired in `main.tsx`, uses the project's Card/Button). Verifying it typechecks.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i errorboundary; echo \"exit=${PIPESTATUS[0]}\"", "cwd": "/home/pankaj/Projects/leanchain/atelier/frontend"}
+[assistant] Already implemented — both fully satisfy the spec. `frontend/src/components/ErrorBoundary.tsx` is the live one (wired in `main.tsx`, uses the project's Card/Button). Verifying it typechecks.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i errorboundary; echo \"exit=${PIPESTATUS[0]}\"", "cwd": "/home/pankaj/Projects/leanchain/lemoncrow/frontend"}
 [usage] input=2 cache_read=21077 cache_write=2799 output=458
 
 === Turn 4 ===

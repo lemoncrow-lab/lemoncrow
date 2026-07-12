@@ -36,7 +36,7 @@ Cancellation tokens flow through as `Cancel` messages. The acks also feed **resp
 
 - **Local desktop extension host** (`electron-browser/localProcessExtensionHost.ts`): the preferred transport is an Electron **`MessagePort`**. The renderer acquires the port via `acquirePort()` (`base/parts/ipc/electron-browser/ipc.mp.ts`), the connection details are passed to the spawned ext-host process through the environment (`MessagePortExtHostConnection`), and messages flow as `port.postMessage(buffer)` / `port.onmessage → VSBuffer.wrap(e.data)`. Alternative connection types exist for **named pipes / Unix domain sockets (`IPC`)** and raw **Node sockets (`Socket`)**.
 - **Web worker extension host** (`browser/webWorkerExtensionHost.ts`): standard DOM `postMessage` between the worker and the main window.
-- **Remote extension host** (SSH/containers/WSL): a Node socket carried by a `Pers",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep0.flow,True,,,,,,0.0,0
+- **Remote extension host** (SSH/containers/WSL): a Node socket carried by a `Pers",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep0.flow,True,,,,,,0.0,0
 cg_vscode,baseline,1,True,0.4714174,23331,156396,33,3001,1033133,78510,0,9931,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The extension host runs in a **separate process** from the renderer/main process, and they communicate over a layered RPC stack. Here's how it works, from the wire up to the API:
 
 ## The layered architecture
@@ -92,13 +92,13 @@ Arguments are marshalled by `stringifyJsonWithBufferRefs` (`rpcProtocol.ts:42`).
 
 ## In short
 
-When an extension calls something like `vscode.window.showInformationMessage(...)`, the API implementation in the extension host calls a ",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep1.flow,True,,,,,,0.0,0
+When an extension calls something like `vscode.window.showInformationMessage(...)`, the API implementation in the extension host calls a ",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep1.flow,True,,,,,,0.0,0
 cg_vscode,baseline,2,True,0.7428377499999999,9018,234173,52,3314,1674618,85899,0,14045,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The exploration agent's independent sweep confirms my answer and adds one useful nuance worth folding in:
 
 - On the **ext-host process bootstrap** side (`src/vs/workbench/api/node/extensionHostProcess.ts`), the Node host can actually accept its protocol over **MessagePort, socket (`PersistentProtocol`), or a named pipe** depending on how it was launched — the `MessagePortExtHostConnection` I showed from `localProcessExtensionHost.ts` is the renderer-side counterpart of that. So the ""transport is swappable"" point holds at the process-entry level too, not just per host type.
 - It also points to the two underlying IPC primitives: `src/vs/base/parts/ipc/common/ipc.net.ts` (`PersistentProtocol`, with reconnect/replay for remote) and `src/vs/base/parts/ipc/common/ipc.mp.ts` (MessagePort).
 
-Everything else — the proxy/`$`-method convention, `MainContext`/`ExtHostContext` tables, the binary `MessageIO`/`MessageType` wire format, and the `MainThread*`/`ExtHost*` split — matches what I reported. No corrections needed; the picture above is accurate.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep2.flow,True,,,,,,0.0,0
+Everything else — the proxy/`$`-method convention, `MainContext`/`ExtHostContext` tables, the binary `MessageIO`/`MessageType` wire format, and the `MainThread*`/`ExtHost*` split — matches what I reported. No corrections needed; the picture above is accurate.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep2.flow,True,,,,,,0.0,0
 cg_vscode,baseline,3,True,0.44519305,21851,147248,35,2979,1129520,77665,0,9637,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The extension host runs in a **separate process** (or a Web Worker in the browser), so all communication happens over an asynchronous, binary **RPC protocol**. Here's how it works, from the high-level API down to the wire.
 
 ## The layered architecture
@@ -143,14 +143,14 @@ The wire is abstracted by `IMessagePassingProtocol` (`src/vs/base/parts/ipc/comm
 - **Main side:** `extensionHostManager.ts` (`_createExtensionHostCustomers()`) builds the matching `RPCProtocol` and registers the `MainThread*` services.
 
 ## Summary
-The main process and extension host talk via an **asynchronous, promise-based RPC layer over a binary message channel**. You call `$`-prefixed methods on typed proxies; `RPCProtocol` serializes them (`VSBuffer`, with buffer-ref extraction for binary data) and correlates replies; `PersistentProtocol` frames and reliably delivers the bytes over a socket/named pipe (desktop) or `MessagePor",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep3.flow,True,,,,,,0.0,0
+The main process and extension host talk via an **asynchronous, promise-based RPC layer over a binary message channel**. You call `$`-prefixed methods on typed proxies; `RPCProtocol` serializes them (`VSBuffer`, with buffer-ref extraction for binary data) and correlates replies; `PersistentProtocol` frames and reliably delivers the bytes over a socket/named pipe (desktop) or `MessagePor",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep3.flow,True,,,,,,0.0,0
 cg_vscode,baseline,4,True,0.9095438499999999,8873,230010,41,3270,1366126,120781,0,14251,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The exploration agent's findings confirm and extend what I already answered. My response above is accurate and complete. The agent added useful detail on a couple of points worth noting:
 
 - **`PersistentProtocol` reconnection** (for remote/socket hosts): it tracks unacknowledged messages and replays them on reconnect, with a configurable grace time (`VSCODE_RECONNECTION_GRACE_TIME`) before the host is killed — this is what makes remote sessions survive transient network drops. Lives in `src/vs/base/parts/ipc/common/ipc.net.ts`.
 - **The `$` method-name convention**: all RPC-exposed methods are prefixed with `$` (e.g. `$executeCommand`), which is how the proxy layer distinguishes remoteable methods.
 - **The Node entry point** `src/vs/workbench/api/node/extensionHostProcess.ts` historically also supports a raw socket / named-pipe path (with `WebSocketNodeSocket` for compression) in addition to the MessagePort path I described — the socket path is what remote/server hosts use.
 
-My answer already covered the core architecture correctly, so there's nothing to revise. The summary stands: **typed `MainContext`/`ExtHostContext` proxies → `RPCProtocol` marshals calls into binary `VSBuffer` messages keyed by request id → an `IMessagePassingProtocol` carries them over the channel appropriate to the host kind (Electron MessagePort for local, browser MessagePort for web worker, `PersistentProtocol`-over-socket for remote), with everything async, JSON+VSBuffer serialized, and URI/cancellation/responsiveness-aware.**",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep4.flow,True,,,,,,0.0,0
+My answer already covered the core architecture correctly, so there's nothing to revise. The summary stands: **typed `MainContext`/`ExtHostContext` proxies → `RPCProtocol` marshals calls into binary `VSBuffer` messages keyed by request id → an `IMessagePassingProtocol` carries them over the channel appropriate to the host kind (Electron MessagePort for local, browser MessagePort for web worker, `PersistentProtocol`-over-socket for remote), with everything async, JSON+VSBuffer serialized, and URI/cancellation/responsiveness-aware.**",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep4.flow,True,,,,,,0.0,0
 cg_excalidraw,baseline,0,True,0.49899295,22738,229929,66,3249,1427362,80727,0,16488,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both explorations are complete. Here's how Excalidraw renders and updates canvas elements.
 
 ## The big picture: three layered canvases
@@ -198,7 +198,7 @@ The link between mutation and repaint:
 
 Two independent identity systems do the work:
 - **`version` / `versionNonce`** (per element) → collaboration reconciliation.
-- *",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep0.flow,True,,,,,,0.0,0
+- *",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep0.flow,True,,,,,,0.0,0
 cg_excalidraw,baseline,1,True,0.79492505,14644,251508,70,3307,2111588,74953,0,17632,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The exploration confirmed everything above and surfaced one more layer worth adding — the **visibility/memoization stage** between the Scene and the per-element drawing:
 
 ## The middle layer: `Renderer.getRenderableElements()`
@@ -224,7 +224,7 @@ That gives the complete **five-level cache hierarchy**, outermost to innermost:
 
 One more useful detail it flagged: each element carries an immutable `seed` field, which RoughJS uses so the ""hand-drawn"" sketchiness stays **deterministic** across every re-render rather than jittering.
 
-Everything else matches what I described — the `mutateElement → version/versionNonce bump + ShapeCache.delete → triggerUpdate → triggerRender/setState → throttleRAF'd renderStaticScene → per-element caches → blit` flow is the spine of the whole system. Want me to drill into any one layer (e.g. the interactive-scene animation controller, frame clipping, or the SVG export path)?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep1.flow,True,,,,,,0.0,0
+Everything else matches what I described — the `mutateElement → version/versionNonce bump + ShapeCache.delete → triggerUpdate → triggerRender/setState → throttleRAF'd renderStaticScene → per-element caches → blit` flow is the spine of the whole system. Want me to drill into any one layer (e.g. the interactive-scene animation controller, frame clipping, or the SVG export path)?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep1.flow,True,,,,,,0.0,0
 cg_excalidraw,baseline,2,True,0.7508097999999997,28047,301157,72,8676,2054650,119124,0,21466,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both explorations are complete. Here's how Excalidraw renders and updates canvas elements.
 
 ## The big picture
@@ -279,7 +279,7 @@ scene.mutateElement(el, updates, {informMutation:true})
   → version++/versionNonce regenerated + shape cache cleared
   → triggerUpdate(): new sceneNonce + callbacks
   → App.triggerRender(): setState({})
-  → React re-rende",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep2.flow,True,,,,,,0.0,0
+  → React re-rende",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep2.flow,True,,,,,,0.0,0
 cg_excalidraw,baseline,3,True,0.7109257500000004,25328,263099,75,5239,1856947,95725,0,16605,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both explorations are in. Here's how Excalidraw renders and updates canvas elements.
 
 ## The big picture
@@ -321,7 +321,7 @@ If a change affects geometry (dimensions, points, fileId), it calls `ShapeCache.
 
 **The invalidation chain:** `Scene.mutateElement` → version changed → `triggerUpdate()` → `sceneNonce` changes → registered listeners fire.
 
-**Connecting to React** (`packages/excalidraw/components/App.tsx`): the App registers `this.scene.onUpdate(this.triggerRender)` (`:3147`). `triggerRender` calls `setState({})` (`~:4655`) to force a React re-render. During ",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep3.flow,True,,,,,,0.0,0
+**Connecting to React** (`packages/excalidraw/components/App.tsx`): the App registers `this.scene.onUpdate(this.triggerRender)` (`:3147`). `triggerRender` calls `setState({})` (`~:4655`) to force a React re-render. During ",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep3.flow,True,,,,,,0.0,0
 cg_excalidraw,baseline,4,True,0.7590388,26330,318498,85,3292,2233520,109220,0,20288,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both research agents have reported. Here's how Excalidraw renders and updates canvas elements.
 
 ## The big picture: three stacked canvases
@@ -363,7 +363,7 @@ The flow when you mutate an element (e.g. dragging it):
 4. `App.render()` calls `renderer.getRenderableElements()` (`scene/Renderer.ts`), which builds a **`canvasNonce`** from the `sceneNonce` and returns fresh element arrays.
 5. The canvas components are `React.memo`'d with custom `areEqual()` checks. They re-render when `canvasNonce`, `scale`, `elementsMap`, or `visibleElements` change (interactive also watches `selectionNonce`). On re-render, their `useEffect` calls the render function, which pulls shapes from `ShapeCache` — regenerating any that were invalidated.
 
-## Why ",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep4.flow,True,,,,,,0.0,0
+## Why ",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep4.flow,True,,,,,,0.0,0
 cg_django,baseline,0,True,0.35428045,26243,128443,24,6758,475292,44877,0,9969,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how Django's ORM takes you from a `QuerySet` to rows in the database, traced through this repo's source.
 
 ## The big picture: three objects, two phases
@@ -420,7 +420,7 @@ Evaluation happens lazily on first need — iteration (`for x in qs`), `list(qs)
 
 **3. Run it** — `execute_sql()` calls `cursor.execute(sql, params)` (`compiler.py:~1625`) against the raw DB-API cursor and fetches rows (`fetchmany(chunk_size)` for chunked iteration).
 
-**4. Materialize objects** — `compiler.results_iter()` (`:1565`) applies backend type converters and yields raw row tuples. Back in `ModelIterable`, each tuple is turned into a model instance via `model_cls.from_db(...)`, related/annotated fields are populated, and the instance is yielde",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep0.flow,True,,,,,,0.0,0
+**4. Materialize objects** — `compiler.results_iter()` (`:1565`) applies backend type converters and yields raw row tuples. Back in `ModelIterable`, each tuple is turned into a model instance via `model_cls.from_db(...)`, related/annotated fields are populated, and the instance is yielde",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep0.flow,True,,,,,,0.0,0
 cg_django,baseline,1,True,0.3682998,30573,170985,38,2968,836605,44246,0,11931,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Django's ORM turns a QuerySet into SQL in three layers, and crucially **does no database work until you actually consume the results**. Here's the full path, grounded in this repo's code.
 
 ## The three layers
@@ -510,7 +510,7 @@ cursor.execute(sql, params)
 result = cursor_iter(cursor, ..., self.col_count, chunk_size)
 ```
 
-## The three nested iterators that turn rows into ob",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep1.flow,True,,,,,,0.0,0
+## The three nested iterators that turn rows into ob",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep1.flow,True,,,,,,0.0,0
 cg_django,baseline,2,True,0.5865789,12344,221497,41,3481,1125094,63794,0,15034,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The trace confirms everything above and fills in the two pieces I flagged. Here's the addendum:
 
 ## How lookups become JOINs (`build_filter`, `sql/query.py:1488`)
@@ -531,7 +531,7 @@ Between raw cursor tuples and model instances there's a converter pass. `SQLComp
 cursor.fetchmany() → cursor_iter (chunks) → results_iter (type converters) → ModelIterable (from_db → model instance) → _result_cache
 ```
 
-Everything else in my walkthrough stands as written.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep2.flow,True,,,,,,0.0,0
+Everything else in my walkthrough stands as written.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep2.flow,True,,,,,,0.0,0
 cg_django,baseline,3,True,0.5838482000000002,13127,233524,47,3835,1140376,57932,0,14462,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The background trace corroborated everything in my answer and filled in a few finer anchor points worth noting:
 
 - **Filter dispatch detail:** `filter()`/`exclude()` go through `_filter_or_exclude` → `_chain()`/`_clone()` → `_filter_or_exclude_inplace()` (`query.py:1675`), which is what actually calls `self.query.add_q()` on the *clone*. `exclude()` just wraps the condition in a negated `Q`.
@@ -539,7 +539,7 @@ cg_django,baseline,3,True,0.5838482000000002,13127,233524,47,3835,1140376,57932,
 - **WHERE splitting:** `pre_sql_setup` calls `query.where.split_having_qualify()` to separate plain WHERE conditions from aggregate (HAVING) and window (QUALIFY) ones before SQL assembly.
 - **select_related reconstruction:** the per-row joined objects are built by `RelatedPopulator.populate()` (`query.py:3014`), with the populator tree created by `get_related_populators()` (`:3035`) from `klass_info[""related_klass_infos""]` — each slices its own column range out of the same row and calls `Model.from_db` recursively, so no extra queries fire.
 
-No corrections to the answer above — the build → compile → execute → reconstruct path stands as described. Happy to drill into the `JoinPromoter` join-promotion logic or the `RelatedPopulator` tree if useful.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep3.flow,True,,,,,,0.0,0
+No corrections to the answer above — the build → compile → execute → reconstruct path stands as described. Happy to drill into the `JoinPromoter` join-promotion logic or the `RelatedPopulator` tree if useful.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep3.flow,True,,,,,,0.0,0
 cg_django,baseline,4,True,0.42191845,28161,162471,27,10928,687374,61833,0,11559,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how Django's ORM goes from a `QuerySet` to live model instances. The key insight is that there are **three distinct objects** involved, and a hard separation between **building** the query (lazy) and **executing** it (when you iterate).
 
 ## The three layers
@@ -603,7 +603,7 @@ Inside `execute_sql` (`compiler.py:1595`):
 
 ## Phase 4 — Rows back into model instances
 
-`ModelIterable` loops over `compiler.results_iter(results)` (`compiler.py:1565`), which applies **field converters** (`get_converters`) to turn raw DB values into Python types (e.g. a string into a `datetime`/`Decimal`). Then",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep4.flow,True,,,,,,0.0,0
+`ModelIterable` loops over `compiler.results_iter(results)` (`compiler.py:1565`), which applies **field converters** (`get_converters`) to turn raw DB values into Python types (e.g. a string into a `datetime`/`Decimal`). Then",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep4.flow,True,,,,,,0.0,0
 cg_tokio,baseline,0,True,0.24826525,57601,58337,6,5756,101827,14075,0,3319,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I have what I need. Here's how tokio schedules and runs async tasks, grounded in the actual code in this repo (`tokio/src/runtime/scheduler/`).
 
 ## The big picture
@@ -649,7 +649,7 @@ When a task's waker is invoked (e.g. I/O is ready, a channel got a message), `sc
 
 `steal_work` (`worker.rs:1141`) starts at a **random** worker and steals roughly *half* of a victim's run queue. Two throttles keep this from thundering:
 - A worker only steals if it can transition into the **searching** state, and tokio limits searchers to roughly half the workers (`worker.rs:1136` note) so they don't all stampede.
-- When a worker finds work while searching, it notifies *another* idle ",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep0.flow,True,,,,,,0.0,0
+- When a worker finds work while searching, it notifies *another* idle ",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep0.flow,True,,,,,,0.0,0
 cg_tokio,baseline,1,True,0.56586485,40417,217012,34,11204,1453502,96137,0,14877,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how tokio schedules and runs async tasks, grounded in the actual source in this repo.
 
 ## The big picture
@@ -709,7 +709,7 @@ loop {
 }
 ```
 
-**Task selection** — `next_task` (`worker.rs:1062`): every `global_queue_interval` ticks it pulls from the **global queue first** (fairness — stops local work from starving re",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep1.flow,True,,,,,,0.0,0
+**Task selection** — `next_task` (`worker.rs:1062`): every `global_queue_interval` ticks it pulls from the **global queue first** (fairness — stops local work from starving re",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep1.flow,True,,,,,,0.0,0
 cg_tokio,baseline,2,True,0.6038177999999998,37831,206472,29,9301,1136251,100542,0,16145,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how tokio schedules and runs async tasks, grounded in the source in this repo (`tokio/src/runtime/`).
 
 ## The two schedulers
@@ -761,7 +761,7 @@ When a worker runs dry it marks itself ""searching"" and tries to steal (`queue.
 
 ### Parking / unparking
 
-Idle coordination lives in `idle.rs`, which packs `(unparked_count, searching_count)` into one atomic. When a worker finds nothing, it transitions to parked and sleep",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep2.flow,True,,,,,,0.0,0
+Idle coordination lives in `idle.rs`, which packs `(unparked_count, searching_count)` into one atomic. When a worker finds nothing, it transitions to parked and sleep",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep2.flow,True,,,,,,0.0,0
 cg_tokio,baseline,3,True,0.35281675,69303,71577,9,4173,197310,21167,0,4135,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I now have a thorough, source-grounded picture. Here's how tokio actually schedules and runs async tasks.
 
 ## The big picture
@@ -795,7 +795,7 @@ Each worker spins in `Context::run` (`worker.rs:561`). Per iteration (`worker.rs
    - Otherwise it pulls **local first** (`next_local_task` = LIFO slot, then run queue). If local is empty, it pulls a *batch* from the inject queue — roughly `inject.len() / num_workers + 1` tasks — taking a fair share and pushing the rest onto its own local queue.
 3. **Run the task** via `run_task` (`worker.rs:630`): the core is parked in thread-local context, then `task.run()` polls the future under a **cooperative budget** (`coop::budget`, `worker.rs:675`). After the poll, it drains the **LIFO slot** in a loop — running freshly-woken tasks immediately — but only up to `MAX_LIFO_POLLS_PER_TICK` (`worker.rs:743`) to avoid two ping-ponging tasks starving everything else, and only while coop budget remains (`worker.rs:716`).
 4. **Steal** (`worker.rs:1141`): if local and inject are empty, the worker transitions to *searching* and tries to steal. It starts at a **random** worker and walks the list, calling `steal_into`, which moves **half** the victim's queue (`queue.rs:265`) into its own. As a fallback it checks the global queue again.
-5. *",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep3.flow,True,,,,,,0.0,0
+5. *",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep3.flow,True,,,,,,0.0,0
 cg_tokio,baseline,4,True,0.9173415,59435,330021,58,5670,2021717,138672,0,24793,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both explorers are back and their findings line up with what I read directly in `worker.rs`. Here's how Tokio actually schedules and runs async tasks, grounded in this codebase. I'll focus on the multi-threaded runtime, since that's where the interesting machinery lives.
 
 ## The big picture
@@ -864,7 +864,7 @@ The **priority order** for finding the next task:
 4. **Work-stealing** from other workers' queues.
 5. **Park** (sleep) if everything is empty.
 
-When pulling from the global queue while otherwise idle, the worker grabs a *batch* — roughly `inject.len() / num_workers + 1` tasks, capped at half the local-queue capacity — retur",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep4.flow,True,,,,,,0.0,0
+When pulling from the global queue while otherwise idle, the worker grabs a *batch* — roughly `inject.len() / num_workers + 1` tasks, capped at half the local-queue capacity — retur",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep4.flow,True,,,,,,0.0,0
 cg_okhttp,baseline,0,True,0.32920380000000005,6745,94339,16,6148,203695,37178,0,6569,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The agent's findings confirm exactly what I described in my answer above, including the `Interceptor` interface details I hadn't yet quoted. My answer is complete and accurate — the recursive, index-based `proceed()` mechanism, the chain assembly order in `getResponseWithInterceptorChain()`, and the `Interceptor`/`Chain` contract all match the source.
 
 One detail worth adding from the agent's findings on the interface:
@@ -888,12 +888,12 @@ val logging = Interceptor { chain ->
 }
 ```
 
-And the `Chain.connection()` distinction reinforces the application-vs-network split: it returns `null` for application interceptors (no connection exists yet — they run before `ConnectInterceptor`) and the live `Connection` for network interceptors (which run after it). That's the practical reason to choose one over the other. My summary above stands as the full answer.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep0.flow,True,,,,,,0.0,0
+And the `Chain.connection()` distinction reinforces the application-vs-network split: it returns `null` for application interceptors (no connection exists yet — they run before `ConnectInterceptor`) and the live `Connection` for network interceptors (which run after it). That's the practical reason to choose one over the other. My summary above stands as the full answer.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep0.flow,True,,,,,,0.0,0
 cg_okhttp,baseline,1,True,0.36466745,9504,100855,14,8165,232616,42729,0,7544,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The exploration agent's findings fully corroborate the answer above. One mechanism worth making explicit, since it's the hinge of the whole flow:
 
 **`ConnectInterceptor` is the transition point** between the two phases. Everything above it runs with `exchange == null` (application phase); `ConnectInterceptor` calls `call.initExchange(chain)` to open the connection, then continues the chain with a copy that has a non-null `exchange`. That single field is what flips `connection()` from `null` to a live `Connection` and activates the stricter network-interceptor checks (`sameHostAndPort`, `calls == 1`) in `proceed()`. So the same `proceed()` recursion serves both phases — the `exchange` field is the only thing that distinguishes them.
 
-That completes the picture: a flat ordered list, driven by recursive `proceed()` calls, split into an application phase and a network phase by `ConnectInterceptor`, bottoming out at `CallServerInterceptor` which actually talks to the socket.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep1.flow,True,,,,,,0.0,0
+That completes the picture: a flat ordered list, driven by recursive `proceed()` calls, split into an application phase and a network phase by `ConnectInterceptor`, bottoming out at `CallServerInterceptor` which actually talks to the socket.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep1.flow,True,,,,,,0.0,0
 cg_okhttp,baseline,2,True,0.36926315,108539,116328,9,36454,103032,31243,0,10372,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"OkHttp turns a request into a response by pushing it through an ordered **stack of interceptors**, each of which gets a chance to act on the request on the way down and on the response on the way back up. Here's the precise mechanism, grounded in the source.
 
 ## 1. The trigger — `RealCall`
@@ -974,10 +974,10 @@ An interceptor that never calls `proceed()` **short-circuits** the chain (e.g. c
 | 1 | **RetryAndFollowUpInterceptor** | Wraps everything in a `while(true)` loop: retries recoverable connection failures (over alternate routes) and follows up on redirects (3xx), auth challenges (401/407), and 408/503. Returns once `followUpRequest` yields `null`. |
 | 2 | **BridgeInterceptor** | Translates a user request into a wire request: adds `Content-Type`/`Content-Length`/`Transfer-Encoding`, `Host`, `Connection: Keep-Alive`, `User-Agent`, cookies, and `Accept-Encoding: gzip`. On the way back, saves cookies and **transparently gunzips** the response body. |
 | 3 | **CacheInterceptor** | Consults the HTTP cache via `CacheStrategy`. May return a cached response without proceeding, do a conditional GET (and merge a `304 Not Modified` with the cached copy), or write the network response into the cache on the way back. |
-",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep2.flow,True,,,,,,0.0,0
+",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep2.flow,True,,,,,,0.0,0
 cg_okhttp,baseline,3,True,0.34551624999999997,5771,86549,16,12782,233455,50527,0,6483,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The exploration confirms my answer above — including the `Interceptor` interface definition and the per-interceptor implementation details, which align with what I described. No corrections needed.
 
-My earlier response covers the full picture: the chain assembly in `RealCall.getResponseWithInterceptorChain()`, the immutable `copy()`-and-advance mechanism in `RealInterceptorChain.proceed()`, the ordered interceptor stack, the application-vs-network distinction via `exchange`, and the `Interceptor` interface contract. Let me know if you'd like a deeper dive into any single interceptor (e.g. the retry loop or cache strategy logic).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep3.flow,True,,,,,,0.0,0
+My earlier response covers the full picture: the chain assembly in `RealCall.getResponseWithInterceptorChain()`, the immutable `copy()`-and-advance mechanism in `RealInterceptorChain.proceed()`, the ordered interceptor stack, the application-vs-network distinction via `exchange`, and the `Interceptor` interface contract. Let me know if you'd like a deeper dive into any single interceptor (e.g. the retry loop or cache strategy logic).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep3.flow,True,,,,,,0.0,0
 cg_okhttp,baseline,4,True,0.18909299999999998,32659,33048,5,2890,78636,13024,0,2253,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"OkHttp processes every request by passing it down an ordered stack of `Interceptor`s, each one wrapping the next. Here's how it works in this codebase.
 
 ## 1. The chain is assembled per-call
@@ -1035,7 +1035,7 @@ The `exchange` is null for the application-interceptor portion and becomes non-n
 
 ## Summary
 
-A request flows outermost → innermost: app interceptors → retry/follow-up → bridge → cache → connect → network interceptors → call-server, each calling `proceed()` to descend; the response then propagates back out in reverse. The recursion is implemented by `RealInterceptorChain` copying itself with an incremented `index` at each hop.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep4.flow,True,,,,,,0.0,0
+A request flows outermost → innermost: app interceptors → retry/follow-up → bridge → cache → connect → network interceptors → call-server, each calling `proceed()` to descend; the response then propagates back out in reverse. The recursion is implemented by `RealInterceptorChain` copying itself with an incremented `index` at each hop.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep4.flow,True,,,,,,0.0,0
 cg_gin,baseline,0,True,0.30291,33191,33822,4,9944,64925,26682,0,2253,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how gin routes a request through its middleware chain, traced through the actual code in this repo.
 
 ## The core idea: middleware and handlers are one flat slice
@@ -1099,7 +1099,7 @@ ServeHTTP → handleHTTPRequest → tree.getValue() matches route
    to wrap downstream handlers; Abort() jumps index past the end
 ```
 
-The elegant part is that there's no separa",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep0.flow,True,,,,,,0.0,0
+The elegant part is that there's no separa",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep0.flow,True,,,,,,0.0,0
 cg_gin,baseline,1,True,0.161553,37310,38774,5,2885,74336,7784,0,2546,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Now I have the full picture. Here's how gin routes a request through its middleware chain.
 
 ## The key idea: everything is one flat slice of handlers
@@ -1179,7 +1179,7 @@ Since the loop condition is `c.index < len(c.handlers)` and a chain can never re
 2. **Match:** `handleHTTPRequest` finds the method tree, looks up the path, copies that chain onto the `Context`.
 3. **Execute:** `c.Next()` walks the slice with an `int8` cursor; nested `Next()` calls produce wrap-around behavior, and `Abort()` short-circuits by jumping the cursor past the end.
 
-The whole design is just *one slice + one integer cursor* — which is why it's allocation-free per middleware and very fast.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep1.flow,True,,,,,,0.0,0
+The whole design is just *one slice + one integer cursor* — which is why it's allocation-free per middleware and very fast.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep1.flow,True,,,,,,0.0,0
 cg_gin,baseline,2,True,0.2342465,30594,31232,3,10294,31768,18318,0,2189,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how gin routes a request through its middleware chain, traced through the actual code.
 
 ## 1. Chains are pre-built at registration time, not per-request
@@ -1258,7 +1258,7 @@ When no route matches, gin still routes through a chain. It sets `c.handlers = e
 |-------|-------|--------------|
 | Registration | `combineHandlers` | middleware + handler flattened into one slice |
 | Storage | `addRoute` → radix tree | chain stored per (method, path) |
-| Lookup | `handl",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep2.flow,True,,,,,,0.0,0
+| Lookup | `handl",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep2.flow,True,,,,,,0.0,0
 cg_gin,baseline,3,True,0.18657475,44583,45283,6,3730,98602,9283,0,2517,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how gin routes a request through its middleware chain, traced through the actual source in this repo.
 
 ## The key insight: middleware and handlers are one flat slice
@@ -1330,7 +1330,7 @@ Request:  ServeHTTP ──> handleHTTPRequest ──> tree lookup ──> c.hand
           Abort() jumps index to 63 to short-circuit
 ```
 
-The elegance is that there's no separate middleware dispatcher — routing produces a flat slice, and a single index-walking `Next()` loop handles both middleware and the final handler uniformly.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep3.flow,True,,,,,,0.0,0
+The elegance is that there's no separate middleware dispatcher — routing produces a flat slice, and a single index-walking `Next()` loop handles both middleware and the final handler uniformly.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep3.flow,True,,,,,,0.0,0
 cg_gin,baseline,4,True,0.20075474999999998,38970,40161,7,2889,123962,10299,0,2492,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I have what I need. Here's how gin routes a request through its middleware chain.
 
 ## The core idea: one flat handler slice + an index
@@ -1404,7 +1404,7 @@ If a middleware doesn't call `Next()`, the outer loop in the *original* `Next()`
 - **Context pooling** (`sync.Pool` in `ServeHTTP`) → almost zero per-request allocation.
 - **Chain pre-merged into the route tree** → middleware resolution is just a slice copy, not a composition step per request.
 
-One subtle constraint worth noting: because `index` is an `int8` and `abortIndex`/`safeInt8` cap things at 63, a single route's combined middleware + handler count must stay under that limit — `combineHandlers` asserts `finalSize < abortIndex` (`routergroup.go:243`).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep4.flow,True,,,,,,0.0,0
+One subtle constraint worth noting: because `index` is an `int8` and `abortIndex`/`safeInt8` cap things at 63, a single route's combined middleware + handler count must stay under that limit — `combineHandlers` asserts `finalSize < abortIndex` (`routergroup.go:243`).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep4.flow,True,,,,,,0.0,0
 cg_alamofire,baseline,0,True,0.9011126999999999,31916,299876,59,5062,1992967,211828,0,22407,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"All three traces are in. Here's how Alamofire takes a request from call site to validated response.
 
 ## Overview
@@ -1454,7 +1454,7 @@ Validation is opt-in via `.validate()` / `.validate(statusCode:)` / `.validate(c
 Crucially, validators don't run at send time — they run **when the task completes**, synchronously, in `didCompleteTask`:
 
 ```swift
-mutableState.wri",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep0.flow,True,,,,,,0.0,0
+mutableState.wri",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep0.flow,True,,,,,,0.0,0
 cg_alamofire,baseline,1,True,1.23326345,169350,353233,72,24162,2336551,185843,0,24673,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"All three traces are in and corroborate my own reading of `Session.swift` and `Request.swift`. Here's the synthesis.
 
 # How Alamofire Builds, Sends, and Validates a Request
@@ -1491,7 +1491,7 @@ By default `startRequestsImmediately` is on, so `resume()` (`Request.swift:768`)
 
 ## 3. Validate — and serialize the response
 
-You attach valid",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep1.flow,True,,,,,,0.0,0
+You attach valid",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep1.flow,True,,,,,,0.0,0
 cg_alamofire,baseline,2,True,0.7975596500000002,39649,239827,45,3106,1412544,217005,0,20121,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"All three traces are in. Here's how Alamofire takes a request from creation to delivery.
 
 ## The big picture
@@ -1538,7 +1538,7 @@ Calling **`request.resume()`** (`Source/Core/Request.swift` ~768) flips the stat
    - records the mapping in `RequestTaskMap` (a bidirectional `Request ↔ URLSessionTask` map, `RequestTaskMap.swift`)
    - calls `request.didCreateTask(task)`
 
-**`Request.didCreateTask`** (~388) inspects the request's current state and resumes the underlying `URLSessionTask` *only if* the request is `.resumed` — so a request suspended/cancelled before its task existed behaves correctly. Now the OS ",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep2.flow,True,,,,,,0.0,0
+**`Request.didCreateTask`** (~388) inspects the request's current state and resumes the underlying `URLSessionTask` *only if* the request is `.resumed` — so a request suspended/cancelled before its task existed behaves correctly. Now the OS ",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep2.flow,True,,,,,,0.0,0
 cg_alamofire,baseline,3,True,0.7020661,31640,244786,50,19187,1602247,135248,0,16770,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both traces are complete. Here's how Alamofire builds, sends, and validates a request.
 
 ## The big picture
@@ -1583,7 +1583,7 @@ Importantly, **this encoding is lazy** — the struct just stores the inputs. Th
 
 **The state machine** (`Request.swift`, `enum State`): `.initialized → .resumed ⇄ .suspended → .cancelled/.finished` (last two terminal). Because task creation is async, `didCreateTask` switches on current state: if `.resumed`, call `task.resume()`; if `.cancelled`, resume-then-cancel (to still gather metrics); etc. This decouples user-facing `resume()`/`suspend()`/`cancel()` from whether the underlying task exists yet.
 
-**`SessionDelegate`** (`SessionDelegate.swift`) receives `URLSession` callbacks, looks up the `Request` via the task map, and forwards: data chunks → `didReceiveResponse`, metrics → `didGathe",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep3.flow,True,,,,,,0.0,0
+**`SessionDelegate`** (`SessionDelegate.swift`) receives `URLSession` callbacks, looks up the `Request` via the task map, and forwards: data chunks → `didReceiveResponse`, metrics → `didGathe",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep3.flow,True,,,,,,0.0,0
 cg_alamofire,baseline,4,True,1.1946093499999997,134165,290904,51,35082,1836202,228383,0,20878,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"All three traces are in. Here's how Alamofire takes a request from a one-line call to a validated response.
 
 ## The big picture
@@ -1625,8 +1625,8 @@ Inside `performSetupOperations`, on the `requestQueue`:
 
 1. Asks the request to build the task: **`request.task(for: urlRequest, using: session)`** — for a `DataRequest` this is `session.dataTask(with:)` (`DataRequest.swift:119`).
 2. Records the pairing in the **`RequestTaskMap`** (`RequestTaskMap.swift`), a bidirectional `Request ↔ URLSessionTask` map so delegate callbacks can route back.
-3. Calls **`request.didCreateTask(task)`** (`Request.swift:388`), which syncs the task to the request's current state: if the `Request` is already `.resumed`, it calls **`task.resume()`** — **this is the moment bytes go on th",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep4.flow,True,,,,,,0.0,0
-cg_vscode,atelier,4,True,0.151931,27634,25356,3,5629,55382,6917,0,1077,['claude-opus-4-8'],False,False,"No ""extension host""/""main process"" concept in this repo (Python — Atelier). This is VS Code/Electron terminology, so answering generally.
+3. Calls **`request.didCreateTask(task)`** (`Request.swift:388`), which syncs the task to the request's current state: if the `Request` is already `.resumed`, it calls **`task.resume()`** — **this is the moment bytes go on th",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep4.flow,True,,,,,,0.0,0
+cg_vscode,lemoncrow,4,True,0.151931,27634,25356,3,5629,55382,6917,0,1077,['claude-opus-4-8'],False,False,"No ""extension host""/""main process"" concept in this repo (Python — LemonCrow). This is VS Code/Electron terminology, so answering generally.
 
 ## VS Code: extension host ↔ main process
 
@@ -1649,8 +1649,8 @@ The extension host is forked by the renderer/workbench, not the main process dir
 
 **Why this design:** process isolation. A crashing or slow extension can't take down the UI or main process; the ext host can be killed and restarted independently.
 
-If you actually meant a specific codebase (an Electron app in this workspace, or a different project), point me at it — this answer is the stock VS Code architecture.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_atelier_rep4.flow,True,,,,,,0.7576,1435423
-cg_excalidraw,atelier,0,True,0.609975,104929,95242,13,5511,384780,24843,0,5664,['claude-opus-4-8'],False,False,"## Excalidraw rendering & update flow
+If you actually meant a specific codebase (an Electron app in this workspace, or a different project), point me at it — this answer is the stock VS Code architecture.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep4.flow,True,,,,,,0.7576,1435423
+cg_excalidraw,lemoncrow,0,True,0.609975,104929,95242,13,5511,384780,24843,0,5664,['claude-opus-4-8'],False,False,"## Excalidraw rendering & update flow
 
 **Layered canvases.** Three stacked `<canvas>` elements, each a `React.memo` component:
 - `StaticCanvas` — the drawn elements (`renderer/staticScene.ts`)
@@ -1678,8 +1678,8 @@ cg_excalidraw,atelier,0,True,0.609975,104929,95242,13,5511,384780,24843,0,5664,[
 
 **Invalidation.** WeakMaps keyed by element identity, so a mutated element is a cache miss automatically. Explicit `ShapeCache.delete(element)` on edits (App.tsx ~L1513, 3090, 11921); image loads clear via `clearImageShapeCache`. Scene mutations bump `sceneNonce` → new `canvasNonce` → Renderer recompute + StaticCanvas repaint. Element `version`/`versionNonce` propagate through bound-text checks.
 
-Net: React memo gate → nonce-memoized renderable set → viewport cull → RAF-throttled scene paint → shape cache → per-element bitmap cache → blit. Cheap updates (pan, selection) touch only the interactive layer; element edits invalidate that element's caches and repaint the static layer once per frame.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_atelier_rep0.flow,True,,,,,,-0.111,1107028
-cg_excalidraw,atelier,1,True,0.6732654999999999,134322,128763,15,5911,446871,25680,0,6539,['claude-opus-4-8'],False,False,"Traced the full pipeline. Answer:
+Net: React memo gate → nonce-memoized renderable set → viewport cull → RAF-throttled scene paint → shape cache → per-element bitmap cache → blit. Cheap updates (pan, selection) touch only the interactive layer; element edits invalidate that element's caches and repaint the static layer once per frame.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep0.flow,True,,,,,,-0.111,1107028
+cg_excalidraw,lemoncrow,1,True,0.6732654999999999,134322,128763,15,5911,446871,25680,0,6539,['claude-opus-4-8'],False,False,"Traced the full pipeline. Answer:
 
 ## Rendering: layered canvases
 
@@ -1714,8 +1714,8 @@ Two WeakMaps keyed by element identity:
 
 So a scene mutation only busts the caches of the mutated elements (via `ShapeCache.delete`); everything else is copied from its cached canvas. Interactive layer redraws on its own nonces (`selectionNonce`, etc.) independent of element geometry.
 
-Net: **identity + nonce/version invalidation → React memo gate → RAF throttle → per-element bitmap cache**, four layers that each avoid redundant work.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_atelier_rep1.flow,True,,,,,,0.1217,1722479
-cg_excalidraw,atelier,2,True,1.0536642500000002,171608,164988,16,26145,434011,60756,0,10965,['claude-opus-4-8'],False,False,"## Excalidraw rendering & update model
+Net: **identity + nonce/version invalidation → React memo gate → RAF throttle → per-element bitmap cache**, four layers that each avoid redundant work.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep1.flow,True,,,,,,0.1217,1722479
+cg_excalidraw,lemoncrow,2,True,1.0536642500000002,171608,164988,16,26145,434011,60756,0,10965,['claude-opus-4-8'],False,False,"## Excalidraw rendering & update model
 
 **Two-canvas split** — content vs overlay, each independently memoized.
 - `StaticCanvas.tsx` → content layer: shapes/text/images/grid/frame clips. Real `<canvas>` built outside React, injected via `replaceChildren`; `useEffect` → `renderStaticScene`.
@@ -1756,8 +1756,8 @@ Scene.mutateElement(el, updates)          // element/src/Scene.ts
 
 Key subtlety: purely visual mutations (color/opacity — not width/height/fileId/points) bump version but **don't** `ShapeCache.delete`; regeneration then hinges only on `generateElementWithCanvas`'s zoom/theme/boundText/crop/frame/angle checks — otherwise cached bitmap reused. Geometry changes are the only ones that force full shape regeneration.
 
-Files: `components/canvases/{Static,Interactive,NewElement}Canvas.tsx`, `renderer/{staticScene,interactiveScene}.ts`, `scene/Renderer.ts`, `packages/element/src/{renderElement,shape,mutateElement,Scene}.ts`, `components/App.tsx`.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_atelier_rep2.flow,True,,,,,,-0.3029,1672039
-cg_excalidraw,atelier,3,True,0.543577,90127,85065,10,5772,300394,25617,0,4334,['claude-opus-4-8'],False,False,"## Rendering model
+Files: `components/canvases/{Static,Interactive,NewElement}Canvas.tsx`, `renderer/{staticScene,interactiveScene}.ts`, `scene/Renderer.ts`, `packages/element/src/{renderElement,shape,mutateElement,Scene}.ts`, `components/App.tsx`.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep2.flow,True,,,,,,-0.3029,1672039
+cg_excalidraw,lemoncrow,3,True,0.543577,90127,85065,10,5772,300394,25617,0,4334,['claude-opus-4-8'],False,False,"## Rendering model
 
 Excalidraw uses **two stacked `<canvas>` layers**, each a `React.memo` component that redraws only when its inputs change:
 
@@ -1784,8 +1784,8 @@ Each element is rendered from an **offscreen per-element canvas**, not redrawn f
 
 So a redraw is: nonce invalidates the memoized renderable set → React memo lets the changed canvas through → RAF-throttled scene loop → each element blitted from its WeakMap-cached bitmap, regenerating only the few whose visual inputs actually changed. `freedraw`/export paths bypass the cache and draw directly.
 
-Key files: `scene/Renderer.ts`, `scene/Scene.ts` (nonce), `renderer/staticScene.ts`, `renderer/interactiveScene.ts`, `element/renderElement.ts`, `element/shape.ts`, `components/canvases/*`.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_atelier_rep3.flow,True,,,,,,0.1673,1638399
-cg_excalidraw,atelier,4,True,0.660115,139693,133920,16,5913,481930,23921,0,6015,['claude-opus-4-8'],False,False,"Full pipeline traced. Answer:
+Key files: `scene/Renderer.ts`, `scene/Scene.ts` (nonce), `renderer/staticScene.ts`, `renderer/interactiveScene.ts`, `element/renderElement.ts`, `element/shape.ts`, `components/canvases/*`.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep3.flow,True,,,,,,0.1673,1638399
+cg_excalidraw,lemoncrow,4,True,0.660115,139693,133920,16,5913,481930,23921,0,6015,['claude-opus-4-8'],False,False,"Full pipeline traced. Answer:
 
 ## Data model → render
 
@@ -1815,8 +1815,8 @@ Separation means dragging a selection box only repaints the cheap interactive la
 ## Net effect
 Nonce-gated memoization (skip recompute) → RAF throttle (coalesce paints) → per-element WeakMap bitmap cache (skip re-rasterize) → static/interactive layer split (repaint only what moved). A mutation touches one element's version; everything downstream reuses caches for the rest.
 
-Key files: `scene/Renderer.ts`, `renderer/staticScene.ts`, `element/renderElement.ts`, `element/Scene.ts`, `components/App.tsx`, `components/canvases/StaticCanvas.tsx`.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_atelier_rep4.flow,True,,,,,,0.0989,1848541
-cg_django,atelier,0,True,0.0899015,26368,24362,1,5229,14563,2175,0,1389,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — lazy build, single compile+execute at iteration.
+Key files: `scene/Renderer.ts`, `renderer/staticScene.ts`, `element/renderElement.ts`, `element/Scene.ts`, `components/App.tsx`, `components/canvases/StaticCanvas.tsx`.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep4.flow,True,,,,,,0.0989,1848541
+cg_django,lemoncrow,0,True,0.0899015,26368,24362,1,5229,14563,2175,0,1389,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — lazy build, single compile+execute at iteration.
 
 ## 1. QuerySet: lazy accumulator
 `QuerySet` holds a `Query` object (`django.db.models.sql.query.Query`), not results. Each `.filter()`/`.exclude()/.annotate()/.order_by()` **clones** the QuerySet (and its `Query`) and mutates the clone — chaining never hits the DB. Immutability by clone is why chains are side-effect-free.
@@ -1850,8 +1850,8 @@ Results cache in `QuerySet._result_cache` — re-iteration is free; a re-`filter
 ## One-line model
 `filter/annotate` → clone Query (AST) → lazy. Iterate → `SQLCompiler` walks alias_map + where tree → parametrized `(sql, params)` → `cursor.execute` → rows hydrated to objects → cached.
 
-Key files: `db/models/query.py` (QuerySet), `db/models/sql/query.py` (Query), `db/models/sql/compiler.py` (SQLCompiler), `db/models/lookups.py` (lookups), `db/models/sql/where.py` (WhereNode).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_atelier_rep0.flow,True,,,,,,0.2644,513540
-cg_django,atelier,1,True,0.07231900000000001,24194,22325,1,5185,16738,0,0,1521,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — build lazily, compile on demand, execute once, cache:
+Key files: `db/models/query.py` (QuerySet), `db/models/sql/query.py` (Query), `db/models/sql/compiler.py` (SQLCompiler), `db/models/lookups.py` (lookups), `db/models/sql/where.py` (WhereNode).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep0.flow,True,,,,,,0.2644,513540
+cg_django,lemoncrow,1,True,0.07231900000000001,24194,22325,1,5185,16738,0,0,1521,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — build lazily, compile on demand, execute once, cache:
 
 **Build (no DB hit).** A `QuerySet` wraps a `Query` object (`django.db.models.sql.query.Query`). Each `filter`/`exclude`/`annotate`/`order_by` **clones** the QuerySet and mutates the clone's `Query`:
 - `add_q(Q(...))` → resolves field names against the model, adds table aliases/JOINs (`Query.table_alias`, `join()`), builds the WHERE tree as a `WhereNode` of `Lookup` nodes (e.g. `Exact`, `In`).
@@ -1870,8 +1870,8 @@ cg_django,atelier,1,True,0.07231900000000001,24194,22325,1,5185,16738,0,0,1521,[
 
 Key files: `db/models/query.py` (QuerySet), `db/models/sql/query.py` (Query), `db/models/sql/compiler.py` (SQLCompiler), `db/models/sql/where.py` (WhereNode), `db/backends/*/operations.py` (dialect).
 
-Want a worked example tracing one `filter().order_by()` through to the emitted SQL?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_atelier_rep1.flow,True,,,,,,0.296,872306
-cg_django,atelier,2,True,0.073664,28187,26427,1,5229,16738,0,0,1566,['claude-opus-4-8'],False,False,"Conceptual question, no repo in play — answering from mechanism.
+Want a worked example tracing one `filter().order_by()` through to the emitted SQL?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep1.flow,True,,,,,,0.296,872306
+cg_django,lemoncrow,2,True,0.073664,28187,26427,1,5229,16738,0,0,1566,['claude-opus-4-8'],False,False,"Conceptual question, no repo in play — answering from mechanism.
 
 ## Layers
 
@@ -1921,8 +1921,8 @@ Result cached on `queryset._result_cache` — re-iteration hits the cache, not t
 - **`.count()`/`.exists()`/`.aggregate()`** compile a different SQL shape (`SELECT COUNT(*)`, `SELECT 1 … LIMIT 1`) — don't pull rows.
 - Slicing `qs[10:20]` sets `low_mark`/`high_mark` → `LIMIT/OFFSET`, still lazy; `qs[5]` with an int evaluates immediately.
 
-Inspect any of it: `print(qs.query)` renders the compiled SQL; `str(qs.query)` calls the compiler directly.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_atelier_rep2.flow,True,,,,,,0.5129,1183870
-cg_django,atelier,3,True,0.07248900000000001,28229,26451,1,5229,16738,0,0,1519,['claude-opus-4-8'],False,False,"Django ORM query lifecycle: **QuerySet → Query → SQLCompiler → cursor → model instances**. Lazy — nothing hits the DB until the QuerySet is evaluated.
+Inspect any of it: `print(qs.query)` renders the compiled SQL; `str(qs.query)` calls the compiler directly.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep2.flow,True,,,,,,0.5129,1183870
+cg_django,lemoncrow,3,True,0.07248900000000001,28229,26451,1,5229,16738,0,0,1519,['claude-opus-4-8'],False,False,"Django ORM query lifecycle: **QuerySet → Query → SQLCompiler → cursor → model instances**. Lazy — nothing hits the DB until the QuerySet is evaluated.
 
 **1. QuerySet — the lazy API layer** (`django/db/models/query.py`)
 `Model.objects.filter(...)` returns a `QuerySet`. Each chained call (`filter`, `exclude`, `order_by`, `annotate`, `values`) returns a *new* QuerySet (cloned via `_chain()`/`_clone()`), never mutating in place, never querying. It just accumulates state on an underlying `Query` object (`qs.query`).
@@ -1956,8 +1956,8 @@ Compiler builds `results_iter()`; each row runs through `compiler.get_converters
 - `select_related` → JOIN (one query); `prefetch_related` → separate query + Python-side join.
 - `.query` attribute or `str(qs.query)` shows compiled SQL for debugging; `connection.queries` (DEBUG=True) logs executed SQL+params.
 
-Want the same walkthrough against a specific Django version's source, or a particular piece (join generation, WhereNode, prefetch)?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_atelier_rep3.flow,True,,,,,,0.5114,1193119
-cg_django,atelier,4,True,0.064419,21835,19951,1,5185,16738,0,0,1205,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — build phase (lazy) then execute phase (on evaluation):
+Want the same walkthrough against a specific Django version's source, or a particular piece (join generation, WhereNode, prefetch)?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep3.flow,True,,,,,,0.5114,1193119
+cg_django,lemoncrow,4,True,0.064419,21835,19951,1,5185,16738,0,0,1205,['claude-opus-4-8'],False,False,"Django ORM query lifecycle — build phase (lazy) then execute phase (on evaluation):
 
 **1. QuerySet — lazy builder.** `Model.objects.filter(...)` returns a `QuerySet` wrapping a `Query` object (`django.db.models.sql.query.Query`). Each `filter`/`exclude`/`annotate`/`order_by` **clones** the QuerySet + mutates the clone's `Query` — no DB hit. Chaining = accumulating state on `Query`:
 - `filter()` → `Query.add_q(Q(...))` → builds `WhereNode` tree of lookups (`WhereNode`/`Lookup` objects), resolving field names → `Col` expressions, auto-adding JOINs via `Query.setup_joins` (alias map in `Query.alias_map`).
@@ -1978,8 +1978,8 @@ cg_django,atelier,4,True,0.064419,21835,19951,1,5185,16738,0,0,1205,['claude-opu
 **Key consequences:**
 - N+1: each related access on a lazy relation = new query unless `select_related` (JOIN) / `prefetch_related` (separate query + Python join).
 - Re-iterating a QuerySet hits `_result_cache` — no re-query. `.iterator()` bypasses the cache (server-side cursor, streams).
-- Inspect generated SQL: `str(qs.query)` (approx, not param-bound) or `qs.explain()` / `connection.queries`.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_django_atelier_rep4.flow,True,,,,,,0.3575,748566
-cg_tokio,atelier,0,True,0.06671250000000001,22713,20981,1,5229,16515,221,0,1204,['claude-opus-4-8'],False,False,"## Tokio scheduling model
+- Inspect generated SQL: `str(qs.query)` (approx, not param-bound) or `qs.explain()` / `connection.queries`.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep4.flow,True,,,,,,0.3575,748566
+cg_tokio,lemoncrow,0,True,0.06671250000000001,22713,20981,1,5229,16515,221,0,1204,['claude-opus-4-8'],False,False,"## Tokio scheduling model
 
 **Task = spawned future.** `tokio::spawn(fut)` boxes the future into a `Task`, hands it to the runtime. Task is a state machine polled to completion. Tokio owns it via an `Arc`-like intrusive refcount (the `Harness`).
 
@@ -2012,8 +2012,8 @@ Task is **not** re-polled by spinning. It's inert until something calls `waker.w
 ### current-thread runtime
 Single thread, single queue, no stealing, no LIFO-steal concerns. `Runtime::block_on` drives the loop; parks on the reactor when idle. Same waker/budget mechanics, no cross-thread sync.
 
-**One-line model:** tasks live on per-worker queues, workers poll them, a `Poll::Pending` parks a task until its `Waker` fires from the reactor/timer/channel, idle workers steal or park on epoll, and a per-task budget forces yielding for fairness.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_atelier_rep0.flow,True,,,,,,0.1816,101808
-cg_tokio,atelier,1,True,0.0885165,26245,24326,1,5229,14563,2144,0,1346,['claude-opus-4-8'],False,False,"Not a codebase task — conceptual. Answer:
+**One-line model:** tasks live on per-worker queues, workers poll them, a `Poll::Pending` parks a task until its `Waker` fires from the reactor/timer/channel, idle workers steal or park on epoll, and a per-task budget forces yielding for fairness.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep0.flow,True,,,,,,0.1816,101808
+cg_tokio,lemoncrow,1,True,0.0885165,26245,24326,1,5229,14563,2144,0,1346,['claude-opus-4-8'],False,False,"Not a codebase task — conceptual. Answer:
 
 ## Core model
 Tokio task = a `Future` polled to completion. Runtime never ""runs"" a task continuously — it **polls**: calls `Future::poll`, which either finishes (`Ready`) or yields (`Pending`). A task is only polled when there's reason to believe it can make progress. Tasks are cooperatively scheduled — they run until they hit an `.await` that returns `Pending`, then hand control back.
@@ -2054,8 +2054,8 @@ Poll must never block — a blocking syscall stalls the whole worker (and its qu
 ## Mental model
 Runtime = queues + worker threads. Worker = poll loop pulling ready tasks. A task is ""ready"" only when its waker fired. `.await` on `Pending` = park + stash waker; wake = requeue. Everything else (stealing, LIFO, budget) is scheduling policy on top of that primitive.
 
-Want the driver/reactor internals or the actual queue code walked through?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_atelier_rep1.flow,True,,,,,,0.4773,1552438
-cg_tokio,atelier,2,True,0.060548500000000005,21343,19706,1,5229,16707,0,0,1042,['claude-opus-4-8'],False,False,"Tokio = multi-threaded work-stealing scheduler over a fixed thread pool (default: one worker per CPU core). Core mechanism:
+Want the driver/reactor internals or the actual queue code walked through?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep1.flow,True,,,,,,0.4773,1552438
+cg_tokio,lemoncrow,2,True,0.060548500000000005,21343,19706,1,5229,16707,0,0,1042,['claude-opus-4-8'],False,False,"Tokio = multi-threaded work-stealing scheduler over a fixed thread pool (default: one worker per CPU core). Core mechanism:
 
 **Task = spawned future.** `tokio::spawn(fut)` boxes the future into a `Task`, allocates a reference-counted heap cell (the ""harness"") holding the future + state, and pushes it to a run queue. A task is just a state machine polled to completion.
 
@@ -2082,8 +2082,8 @@ cg_tokio,atelier,2,True,0.060548500000000005,21343,19706,1,5229,16707,0,0,1042,[
 
 Key point: cooperative, not preemptive — Tokio can only reschedule at `.await` points where a future yields `Pending`. A `loop {}` with no await pins a worker forever.
 
-Want the reactor/timer-wheel internals or the work-stealing balance in more depth?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_atelier_rep2.flow,True,,,,,,0.5433,1239261
-cg_tokio,atelier,3,True,0.06457850000000001,23831,22141,1,5185,16707,0,0,1212,['claude-opus-4-8'],False,False,"## Tokio scheduling model
+Want the reactor/timer-wheel internals or the work-stealing balance in more depth?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep2.flow,True,,,,,,0.5433,1239261
+cg_tokio,lemoncrow,3,True,0.06457850000000001,23831,22141,1,5185,16707,0,0,1212,['claude-opus-4-8'],False,False,"## Tokio scheduling model
 
 **Task = a `Future` + state.** `tokio::spawn` boxes the future into a `Task` (a heap `Harness` holding the future, a state atomic, and a join handle), hands it to the scheduler. Task is the unit; it's a state machine polled to completion.
 
@@ -2109,8 +2109,8 @@ cg_tokio,atelier,3,True,0.06457850000000001,23831,22141,1,5185,16707,0,0,1212,['
 
 Flow in one line: `spawn` → run queue → worker `poll()` → `Pending` registers Waker & yields thread → resource fires Waker → re-queued → re-polled → `Ready` → task drops, `JoinHandle` resolves.
 
-Want the reactor/Waker wiring or the work-stealing steal path at source level?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_atelier_rep3.flow,True,,,,,,0.2882,203681
-cg_tokio,atelier,4,True,0.0631485,26756,24904,1,5229,16707,0,0,1146,['claude-opus-4-8'],False,False,"Tokio runs a **multi-threaded work-stealing scheduler** (the `multi_thread` runtime; there's also a single-threaded `current_thread` flavor). Core mechanics:
+Want the reactor/Waker wiring or the work-stealing steal path at source level?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep3.flow,True,,,,,,0.2882,203681
+cg_tokio,lemoncrow,4,True,0.0631485,26756,24904,1,5229,16707,0,0,1146,['claude-opus-4-8'],False,False,"Tokio runs a **multi-threaded work-stealing scheduler** (the `multi_thread` runtime; there's also a single-threaded `current_thread` flavor). Core mechanics:
 
 **Task = a spawned future.** `tokio::spawn` boxes the future into a `Task` (a heap-allocated `Harness` holding the future + state) and hands it to the scheduler. A task is just a state machine polled to completion.
 
@@ -2136,8 +2136,8 @@ cg_tokio,atelier,4,True,0.0631485,26756,24904,1,5229,16707,0,0,1146,['claude-opu
 
 Key consequence: futures must be non-blocking and yield often; a single blocking call on a worker thread degrades the whole runtime.
 
-For the authoritative deep-dive: Tokio blog ""Making the Tokio scheduler 10x faster"" (Carl Lerche) and the `tokio::runtime` docs.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_atelier_rep4.flow,True,,,,,,0.8542,2167770
-cg_okhttp,atelier,0,True,0.0584495,17252,15546,1,5229,16509,220,0,874,['claude-opus-4-8'],False,False,"OkHttp request flow through `RealCall.getResponseWithInterceptorChain()`:
+For the authoritative deep-dive: Tokio blog ""Making the Tokio scheduler 10x faster"" (Carl Lerche) and the `tokio::runtime` docs.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep4.flow,True,,,,,,0.8542,2167770
+cg_okhttp,lemoncrow,0,True,0.0584495,17252,15546,1,5229,16509,220,0,874,['claude-opus-4-8'],False,False,"OkHttp request flow through `RealCall.getResponseWithInterceptorChain()`:
 
 **Chain assembly** — interceptors composed into an ordered list, then wrapped in a `RealInterceptorChain`:
 1. client's application interceptors (`OkHttpClient.interceptors()`)
@@ -2159,8 +2159,8 @@ cg_okhttp,atelier,0,True,0.0584495,17252,15546,1,5229,16509,220,0,874,['claude-o
 - application (top) — called once per `call`, sees the final response even from cache, doesn't see redirects/retries, no access to the `Connection`.
 - network (below `ConnectInterceptor`) — called once per network round-trip (so multiple times across redirects/retries), sees intermediate responses, has the `Connection`, sees the exact wire request (with `BridgeInterceptor`'s added headers).
 
-So: `interceptor.intercept()` → mutate/inspect request → `chain.proceed()` recurses to the next → hits the network → response unwinds back up through each interceptor's post-`proceed` code.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_atelier_rep0.flow,True,,,,,,0.2708,230758
-cg_okhttp,atelier,1,True,0.054739499999999996,14873,13117,1,5185,16729,0,0,818,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of interceptors, each wrapping the next, `RealCall` → `getResponseWithInterceptorChain()`.
+So: `interceptor.intercept()` → mutate/inspect request → `chain.proceed()` recurses to the next → hits the network → response unwinds back up through each interceptor's post-`proceed` code.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep0.flow,True,,,,,,0.2708,230758
+cg_okhttp,lemoncrow,1,True,0.054739499999999996,14873,13117,1,5185,16729,0,0,818,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of interceptors, each wrapping the next, `RealCall` → `getResponseWithInterceptorChain()`.
 
 **Chain assembly** (order matters — first added = outermost = runs first on request, last on response):
 1. client's application interceptors (yours, `addInterceptor`)
@@ -2183,8 +2183,8 @@ cg_okhttp,atelier,1,True,0.054739499999999996,14873,13117,1,5185,16729,0,0,818,[
 
 Terminal `CallServerInterceptor` never calls `proceed` — it produces the `Response` that propagates back up.
 
-Want the `getResponseWithInterceptorChain` source walked line-by-line, or a specific interceptor's internals?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_atelier_rep1.flow,True,,,,,,0.3099,268322
-cg_okhttp,atelier,2,True,0.060289499999999996,19606,17900,1,5185,16729,0,0,1040,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of `Interceptor` objects, each wrapping the next via `Chain.proceed(request)`.
+Want the `getResponseWithInterceptorChain` source walked line-by-line, or a specific interceptor's internals?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep1.flow,True,,,,,,0.3099,268322
+cg_okhttp,lemoncrow,2,True,0.060289499999999996,19606,17900,1,5185,16729,0,0,1040,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of `Interceptor` objects, each wrapping the next via `Chain.proceed(request)`.
 
 **Structure.** `RealCall.getResponseWithInterceptorChain()` builds an ordered `List<Interceptor>`, then constructs a `RealInterceptorChain` at index 0 and calls `chain.proceed(request)`.
 
@@ -2210,8 +2210,8 @@ So each `intercept()` body splits at the `proceed` call: code above = request go
 - App interceptor: called once even if the HTTP response is served from cache or a redirect happens; doesn't see intermediate responses; operates on the original request.
 - Network interceptor: sees every network round-trip (each redirect/retry), sees the exact wire request/response including `Content-Encoding: gzip`, has access to the `Connection`.
 
-Custom interceptor = implement `Interceptor`, transform request before `proceed`, transform `Response` after — add via `addInterceptor` (app) or `addNetworkInterceptor` (network).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_atelier_rep2.flow,True,,,,,,0.309,158147
-cg_okhttp,atelier,3,True,0.05791450000000001,18713,16816,1,5185,16729,0,0,945,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of `Interceptor`s wrapped around one `RealCall`, executed sequentially, each one calling the next via a `Chain`.
+Custom interceptor = implement `Interceptor`, transform request before `proceed`, transform `Response` after — add via `addInterceptor` (app) or `addNetworkInterceptor` (network).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep2.flow,True,,,,,,0.309,158147
+cg_okhttp,lemoncrow,3,True,0.05791450000000001,18713,16816,1,5185,16729,0,0,945,['claude-opus-4-8'],False,False,"OkHttp request flow = a chain of `Interceptor`s wrapped around one `RealCall`, executed sequentially, each one calling the next via a `Chain`.
 
 **Mechanism**
 - `RealCall.execute()`/`enqueue()` → builds a `RealInterceptorChain` and calls `chain.proceed(request)`.
@@ -2238,8 +2238,8 @@ So control descends the list on the way to the network, unwinds back up on the w
 - application: always invoked once per call, even on cache hit or redirect; don't see intermediate redirect responses; operate on the logical request.
 - network: invoked per actual network round-trip (once per redirect/retry); see `Connection`, compressed bodies, redirect 3xx responses; skipped entirely on full cache hit.
 
-Add via `OkHttpClient.Builder.addInterceptor(...)` (application) vs `addNetworkInterceptor(...)` (network).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_atelier_rep3.flow,True,,,,,,0.2876,280388
-cg_okhttp,atelier,4,True,0.057742499999999995,19521,17773,1,4874,16345,220,0,920,['claude-opus-4-8'],False,False,"Conceptual answer (OkHttp library internals, no repo in play):
+Add via `OkHttpClient.Builder.addInterceptor(...)` (application) vs `addNetworkInterceptor(...)` (network).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep3.flow,True,,,,,,0.2876,280388
+cg_okhttp,lemoncrow,4,True,0.057742499999999995,19521,17773,1,4874,16345,220,0,920,['claude-opus-4-8'],False,False,"Conceptual answer (OkHttp library internals, no repo in play):
 
 **Entry.** `call.execute()`/`enqueue()` → `RealCall.getResponseWithInterceptorChain()`. Builds an ordered `List<Interceptor>`, then a `RealInterceptorChain` positioned at index 0, calls `chain.proceed(request)`.
 
@@ -2268,8 +2268,8 @@ Response intercept(Chain chain) {
 - application: called once even across redirects/retries; sees the final logical request/response; doesn't see intermediate ones; no access to `Connection`.
 - network: called once per actual network round-trip (once per redirect/retry); sees `Content-Encoding: gzip` and other on-the-wire headers; has `chain.connection()`.
 
-Want me to trace a concrete request (e.g. a 302 redirect or a cache hit) through the stack, or point at the actual source in a checked-out OkHttp?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_atelier_rep4.flow,True,,,,,,0.1314,74444
-cg_gin,atelier,0,True,0.0608575,19504,17733,1,5185,16345,216,0,984,['claude-opus-4-8'],False,False,"Gin — middleware = ordered slice + index cursor advanced by `c.Next()`.
+Want me to trace a concrete request (e.g. a 302 redirect or a cache hit) through the stack, or point at the actual source in a checked-out OkHttp?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep4.flow,True,,,,,,0.1314,74444
+cg_gin,lemoncrow,0,True,0.0608575,19504,17733,1,5185,16345,216,0,984,['claude-opus-4-8'],False,False,"Gin — middleware = ordered slice + index cursor advanced by `c.Next()`.
 
 **Storage.** Each route's handlers live in one flat `HandlersChain` (`[]HandlerFunc`). At registration, `engine.Use(mw...)` appends to the group's chain; `GET(path, h)` does `combineHandlers` = group middleware ++ route handler → one slice. So middleware and the final handler are indistinguishable — all `HandlerFunc`, all in the same array.
 
@@ -2301,8 +2301,8 @@ A middleware that doesn't call `c.Next()` still works — the outer loop advance
 
 **Verified:** mechanism per gin source `context.go` (`Next`/`Abort`/`index`), `gin.go` (`ServeHTTP`, `handleHTTPRequest`), `routergroup.go` (`combineHandlers`).
 
-Want the radix-tree matching side, or `c.Copy()` semantics for goroutines spawned mid-chain?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_atelier_rep0.flow,True,,,,,,0.2421,81074
-cg_gin,atelier,1,True,0.0546755,15703,14007,1,5229,16561,0,0,810,['claude-opus-4-8'],False,False,"Gin's middleware = a slice, not a stack. Mechanism:
+Want the radix-tree matching side, or `c.Copy()` semantics for goroutines spawned mid-chain?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep0.flow,True,,,,,,0.2421,81074
+cg_gin,lemoncrow,1,True,0.0546755,15703,14007,1,5229,16561,0,0,810,['claude-opus-4-8'],False,False,"Gin's middleware = a slice, not a stack. Mechanism:
 
 **Chain assembly.** Each route stores `HandlersChain` = `[]HandlerFunc` — the group's middleware + the final handler, concatenated at registration time (`group.combineHandlers`). Radix tree per HTTP method; on match, `Engine.handleHTTPRequest` sets `c.handlers = node.handlers` and `c.index = -1`, then calls `c.Next()`.
 
@@ -2324,8 +2324,8 @@ Key consequences:
 - ""after"" logic = put it *after* `c.Next()` in your middleware (e.g. logging latency, setting headers pre-write).
 - Ordering = registration order; global `engine.Use(...)` middleware prepended to every route's chain.
 - `int8` index caps a chain at 63 handlers (abortIndex sentinel).
-- 404/405 route to `engine.allNoRoute`/`allNoMethod` chains — global middleware still applied.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_atelier_rep1.flow,True,,,,,,0.1069,64951
-cg_gin,atelier,2,True,0.0531305,18166,16491,1,5185,16561,0,0,757,['claude-opus-4-8'],False,False,"Gin's middleware chain is a **slice + index cursor**, not nested closures.
+- 404/405 route to `engine.allNoRoute`/`allNoMethod` chains — global middleware still applied.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep1.flow,True,,,,,,0.1069,64951
+cg_gin,lemoncrow,2,True,0.0531305,18166,16491,1,5185,16561,0,0,757,['claude-opus-4-8'],False,False,"Gin's middleware chain is a **slice + index cursor**, not nested closures.
 
 Mechanism:
 - Each route stores `HandlersChain` = `[]HandlerFunc` — global/group middleware appended first, then the route's final handler(s). Built at registration by `combineHandlers` (copies group middleware + handler into one flat slice).
@@ -2348,8 +2348,8 @@ Key consequences:
 - Chain order = registration order: `engine.Use(...)` globals → group middleware → route handler.
 - `Context` is `sync.Pool`-reused; index/handlers reset per request.
 
-So: no onion of wrapped functions — one flat handler slice walked by an integer cursor, with `Next`/`Abort` moving or short-circuiting it.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_atelier_rep2.flow,True,,,,,,0.1811,40066
-cg_gin,atelier,3,True,0.054080500000000004,14596,12904,1,5185,16561,0,0,795,['claude-opus-4-8'],False,False,"Gin stores handlers as a flat slice, not a nested wrapper stack. Mechanism:
+So: no onion of wrapped functions — one flat handler slice walked by an integer cursor, with `Next`/`Abort` moving or short-circuiting it.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep2.flow,True,,,,,,0.1811,40066
+cg_gin,lemoncrow,3,True,0.054080500000000004,14596,12904,1,5185,16561,0,0,795,['claude-opus-4-8'],False,False,"Gin stores handlers as a flat slice, not a nested wrapper stack. Mechanism:
 
 **Chain assembly.** Each route = `HandlersChain` ([]HandlerFunc) = global middleware (from `Use`) + group middleware + the route's final handler, concatenated at registration time. Stored in the radix tree node for that method+path.
 
@@ -2380,8 +2380,8 @@ The inner `Next()` advances `index` through the remaining handlers; when they re
 Key consequences:
 - Middleware ordering = registration order; `Use` before route definition.
 - Single shared `Context` across the whole chain — `c.Set/Get` passes data between middleware.
-- `int8` index caps a chain at 63 handlers (`abortIndex = math.MaxInt8`).",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_atelier_rep3.flow,True,,,,,,0.1325,91591
-cg_gin,atelier,4,True,0.0675805,23715,21823,1,5185,16561,0,0,1335,['claude-opus-4-8'],False,False,"Gin precomputes a **flat handler slice** per route, then walks it with an index cursor. No linked list, no per-request wrapping.
+- `int8` index caps a chain at 63 handlers (`abortIndex = math.MaxInt8`).",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep3.flow,True,,,,,,0.1325,91591
+cg_gin,lemoncrow,4,True,0.0675805,23715,21823,1,5185,16561,0,0,1335,['claude-opus-4-8'],False,False,"Gin precomputes a **flat handler slice** per route, then walks it with an index cursor. No linked list, no per-request wrapping.
 
 **Registration (build time)**
 - `engine.Use(mw...)` → appends to `RouterGroup.Handlers`.
@@ -2407,8 +2407,8 @@ Index lives on the `Context` (an `int8`). The loop drives forward. ""Around"" (n
 
 **Stopping** — `c.Abort()` sets `c.index = abortIndex` (`63`), so the `for` guard fails and no further handlers run. `int8` cursor caps a chain at 63 handlers (`abortIndex = math.MaxInt8/2`). `AbortWithStatus` etc. = abort + write status.
 
-Net: routing = radix-tree match → one flat slice; middleware = that slice walked by an index, with `Next()` for wrap-around and `Abort()` to short-circuit.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_atelier_rep4.flow,True,,,,,,0.1332,116561
-cg_alamofire,atelier,0,True,0.14572800000000002,33459,31308,2,5231,33036,6638,0,1467,['claude-opus-4-8'],False,False,"Not in this workspace (Python repo). Answering from Alamofire's architecture (v5).
+Net: routing = radix-tree match → one flat slice; middleware = that slice walked by an index, with `Next()` for wrap-around and `Abort()` to short-circuit.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep4.flow,True,,,,,,0.1332,116561
+cg_alamofire,lemoncrow,0,True,0.14572800000000002,33459,31308,2,5231,33036,6638,0,1467,['claude-opus-4-8'],False,False,"Not in this workspace (Python repo). Answering from Alamofire's architecture (v5).
 
 **Build → Send → Validate pipeline**
 
@@ -2441,8 +2441,8 @@ cg_alamofire,atelier,0,True,0.14572800000000002,33459,31308,2,5231,33036,6638,0,
 
 One-line mental model: `Session.request` → box → `asURLRequest()` (encode) → `adapt` → `URLSessionTask.resume` → delegate collects data → validators → serializer → `DataResponse`. Everything mutating state is funneled through the serial `rootQueue`.
 
-Want the `Encodable` + `ParameterEncoder` path or the `RequestInterceptor`/retry internals in the same depth?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_atelier_rep0.flow,True,,,,,,0.7554,2185892
-cg_alamofire,atelier,1,True,0.16616200000000003,36347,34039,2,5187,33254,7245,0,2046,['claude-opus-4-8'],False,False,"Not in this workspace (this repo is Atelier, Python). Answering from knowledge of Alamofire (Swift, current `Session`-based API).
+Want the `Encodable` + `ParameterEncoder` path or the `RequestInterceptor`/retry internals in the same depth?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep0.flow,True,,,,,,0.7554,2185892
+cg_alamofire,lemoncrow,1,True,0.16616200000000003,36347,34039,2,5187,33254,7245,0,2046,['claude-opus-4-8'],False,False,"Not in this workspace (this repo is LemonCrow, Python). Answering from knowledge of Alamofire (Swift, current `Session`-based API).
 
 ## Build
 - Entry: `Session.request(_:method:parameters:encoding:headers:interceptor:)` — or pass a `URLRequestConvertible` directly (e.g. a `Router` enum).
@@ -2466,8 +2466,8 @@ cg_alamofire,atelier,1,True,0.16616200000000003,36347,34039,2,5187,33254,7245,0,
 - Custom: `.validate { request, response, data in ... }` returning `.success`/`.failure(error)`, or `.validate(statusCode:)` / `.validate(contentType:)`.
 - A failed check yields `AFError.responseValidationFailed(reason:)`, which propagates into the serialized response's `.result` (and can trigger retry).
 
-Chain shape: `session.request(...).validate().responseDecodable(of: T.self) { response in ... }` — validate runs on the task result, serialization only proceeds on a passing validation.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_atelier_rep1.flow,True,,,,,,1.0671,2523497
-cg_alamofire,atelier,2,True,0.14340200000000003,28267,26309,2,5231,33254,6387,0,1470,['claude-opus-4-8'],False,False,"Alamofire isn't in this workspace (this is a Python repo) — answering from the library's design.
+Chain shape: `session.request(...).validate().responseDecodable(of: T.self) { response in ... }` — validate runs on the task result, serialization only proceeds on a passing validation.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep1.flow,True,,,,,,1.0671,2523497
+cg_alamofire,lemoncrow,2,True,0.14340200000000003,28267,26309,2,5231,33254,6387,0,1470,['claude-opus-4-8'],False,False,"Alamofire isn't in this workspace (this is a Python repo) — answering from the library's design.
 
 **Build**
 - `Session` (default `AF`) is the entry point; wraps a `URLSession` + delegate + a serial `rootQueue`.
@@ -2511,8 +2511,8 @@ AF.request(""https://api.example.com/users"",
   }
 ```
 
-Core pipeline: `convertible → URLRequest → ParameterEncoder → RequestAdapter → URLSessionTask → SessionDelegate → validators → serializer → AFDataResponse`. Interceptor sits at both adapt (outbound) and retry (failure) points; everything is marshaled through the `Session`'s serial `rootQueue` for thread-safety.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_atelier_rep2.flow,True,,,,,,0.6542,1606434
-cg_alamofire,atelier,3,True,0.137617,23885,21735,2,5187,33254,6343,0,1265,['claude-opus-4-8'],False,False,"Not in this workspace — Alamofire is Apple's Swift HTTP library. Answering from its architecture (v5.x).
+Core pipeline: `convertible → URLRequest → ParameterEncoder → RequestAdapter → URLSessionTask → SessionDelegate → validators → serializer → AFDataResponse`. Interceptor sits at both adapt (outbound) and retry (failure) points; everything is marshaled through the `Session`'s serial `rootQueue` for thread-safety.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep2.flow,True,,,,,,0.6542,1606434
+cg_alamofire,lemoncrow,3,True,0.137617,23885,21735,2,5187,33254,6343,0,1265,['claude-opus-4-8'],False,False,"Not in this workspace — Alamofire is Apple's Swift HTTP library. Answering from its architecture (v5.x).
 
 **Build** — `Session.request(...)` (or the trailing-closure `RequestConvertible`/`RequestEncodable` overloads) captures a `URLRequestConvertible` (usually a `RequestConvertible`/`RequestEncodableConvertible` wrapping URL + method + params + encoder + headers) and creates a `DataRequest`. Actual `URLRequest` build is deferred and runs on Alamofire's internal `rootQueue`:
 - `convertible.asURLRequest()` → applies method, headers, then the `ParameterEncoding` (`URLEncoding`/`JSONEncoding`) or `ParameterEncoder` (`URLEncodedFormParameterEncoder`/`JSONParameterEncoder`) mutates the request body/query.
@@ -2530,8 +2530,8 @@ cg_alamofire,atelier,3,True,0.137617,23885,21735,2,5187,33254,6343,0,1265,['clau
 
 **Serialize/deliver** — `.responseDecodable(of:)` / `.responseData` / `.responseString` run their `ResponseSerializer` on a background queue, wrap the outcome in `DataResponse<Success, AFError>` (carrying request, response, data, metrics, result), then dispatch to your completion handler on the queue you specified (main by default).
 
-Full lifecycle: `request` → deferred `asURLRequest` → adapt → `URLSessionTask.resume` → delegate callbacks → retry? → validate → serialize → `DataResponse` on your queue.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_atelier_rep3.flow,True,,,,,,0.5644,1727403
-cg_alamofire,atelier,4,True,0.14236700000000002,29589,27288,2,5231,33254,6256,0,1481,['claude-opus-4-8'],False,False,"Not in workspace — answering from the library's architecture (Alamofire 5.x).
+Full lifecycle: `request` → deferred `asURLRequest` → adapt → `URLSessionTask.resume` → delegate callbacks → retry? → validate → serialize → `DataResponse` on your queue.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep3.flow,True,,,,,,0.5644,1727403
+cg_alamofire,lemoncrow,4,True,0.14236700000000002,29589,27288,2,5231,33254,6256,0,1481,['claude-opus-4-8'],False,False,"Not in workspace — answering from the library's architecture (Alamofire 5.x).
 
 ## Build
 
@@ -2563,8 +2563,8 @@ cg_alamofire,atelier,4,True,0.14236700000000002,29589,27288,2,5231,33254,6256,0,
 
 One request's full path: `AF.request(...).validate().responseDecodable(of: T.self) { response in ... }` → build `URLRequest` → adapt → `URLSessionDataTask` → collect → validate → serialize → callback.
 
-Want the equivalent for `UploadRequest`/`DownloadRequest`, or the `EventMonitor`/interceptor internals?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_atelier_rep4.flow,True,,,,,,1.0522,2074323
-cg_vscode,atelier,0,True,0.1335465,21655,19673,2,5187,33033,6537,0,1029,['claude-opus-4-8'],False,False,"Not this repo — atelier is Python, no extension-host concept. Answering the general VS Code architecture question.
+Want the equivalent for `UploadRequest`/`DownloadRequest`, or the `EventMonitor`/interceptor internals?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep4.flow,True,,,,,,1.0522,2074323
+cg_vscode,lemoncrow,0,True,0.1335465,21655,19673,2,5187,33033,6537,0,1029,['claude-opus-4-8'],False,False,"Not this repo — lemoncrow is Python, no extension-host concept. Answering the general VS Code architecture question.
 
 **Extension host ↔ main process** in VS Code:
 
@@ -2579,16 +2579,16 @@ cg_vscode,atelier,0,True,0.1335465,21655,19673,2,5187,33033,6537,0,1029,['claude
 
 Key files: `extHost.protocol.ts` (identifier tables), `rpcProtocol.ts` (transport/dispatch), `extensionHostManager.ts` (lifecycle), `mainThread*.ts` / `extHost*.ts` (the two proxy halves).
 
-Want the actual message wire format or the lazy-proxy dispatch mechanics?",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_atelier_rep0.flow,True,,,,,,0.3737,1441629
-cg_vscode,atelier,1,True,0.16732,23229,20699,3,5629,56100,8385,0,1091,['claude-opus-4-8'],False,False,"No ""extension host"" / ""main process"" split in this repo — that's VS Code/Electron terminology, and this is the **Atelier** Python codebase (no renderer/extension-host architecture).
+Want the actual message wire format or the lazy-proxy dispatch mechanics?",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep0.flow,True,,,,,,0.3737,1441629
+cg_vscode,lemoncrow,1,True,0.16732,23229,20699,3,5629,56100,8385,0,1091,['claude-opus-4-8'],False,False,"No ""extension host"" / ""main process"" split in this repo — that's VS Code/Electron terminology, and this is the **LemonCrow** Python codebase (no renderer/extension-host architecture).
 
 Closest analogue here = **out-of-process subprocesses over JSON-RPC on stdio**, not an Electron IPC bridge:
-- `MCPServerProcess._rpc` — `src/atelier/core/capabilities/mcp_integration/loader.py:264` — JSON-RPC line protocol to spawned MCP server processes.
-- `LspTransport` — `src/atelier/infra/code_intel/lsp/transport.py:23` — LSP framed JSON-RPC to language-server subprocesses.
-- Zoekt search server — `src/atelier/infra/code_intel/zoekt/server.py`.
+- `MCPServerProcess._rpc` — `src/lemoncrow/core/capabilities/mcp_integration/loader.py:264` — JSON-RPC line protocol to spawned MCP server processes.
+- `LspTransport` — `src/lemoncrow/infra/code_intel/lsp/transport.py:23` — LSP framed JSON-RPC to language-server subprocesses.
+- Zoekt search server — `src/lemoncrow/infra/code_intel/zoekt/server.py`.
 
-If you meant VS Code's actual extension host↔main process channel: separate `ExtensionHostProcess` (Node) ↔ main via `MessagePort`/`IPCServer`, `vscode.proxy` RPC over a `MessagePassingProtocol` — but that code isn't in this repo. Point me at the target repo/path if that's what you're working on.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_atelier_rep1.flow,True,,,,,,0.3041,1053370
-cg_vscode,atelier,2,True,0.131264,23354,21056,2,5231,33248,6321,0,1011,['claude-opus-4-8'],False,False,"No ""extension host"" in this repo (Atelier is a Python daemon, not an Electron/VS Code app). Answering the general VS Code architecture question you're describing.
+If you meant VS Code's actual extension host↔main process channel: separate `ExtensionHostProcess` (Node) ↔ main via `MessagePort`/`IPCServer`, `vscode.proxy` RPC over a `MessagePassingProtocol` — but that code isn't in this repo. Point me at the target repo/path if that's what you're working on.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep1.flow,True,,,,,,0.3041,1053370
+cg_vscode,lemoncrow,2,True,0.131264,23354,21056,2,5231,33248,6321,0,1011,['claude-opus-4-8'],False,False,"No ""extension host"" in this repo (LemonCrow is a Python daemon, not an Electron/VS Code app). Answering the general VS Code architecture question you're describing.
 
 VS Code runs the **extension host** as a separate Node.js process from the **main process** (the Electron main / renderer). They never share memory — all communication is **async message-passing over an RPC protocol**.
 
@@ -2601,8 +2601,8 @@ Mechanics:
 
 Why: isolation. A slow or crashing extension can't block or take down the UI, since it's a distinct process reached only through async messages.
 
-If you actually meant an extension host in *this* codebase or a different repo, point me at it — I searched and found only MCP/LSP subprocess RPC (`loader.py:_rpc`, `lsp/transport.py`), no editor extension host.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_atelier_rep2.flow,True,,,,,,0.6116,1732065
-cg_vscode,atelier,3,True,0.131224,21159,19171,2,5187,33248,6339,0,1011,['claude-opus-4-8'],False,False,"Not this codebase — atelier is Python, no extension host. Answering the general VS Code architecture question.
+If you actually meant an extension host in *this* codebase or a different repo, point me at it — I searched and found only MCP/LSP subprocess RPC (`loader.py:_rpc`, `lsp/transport.py`), no editor extension host.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep2.flow,True,,,,,,0.6116,1732065
+cg_vscode,lemoncrow,3,True,0.131224,21159,19171,2,5187,33248,6339,0,1011,['claude-opus-4-8'],False,False,"Not this codebase — lemoncrow is Python, no extension host. Answering the general VS Code architecture question.
 
 **Extension host ↔ main process: JSON-RPC over a message-passing channel (IPC), never shared memory.**
 
@@ -2615,4 +2615,4 @@ Mechanism:
 
 Flow: extension calls `vscode.*` API → thin `ExtHost*` wrapper → `MainThreadContext` proxy → RPC message → main process `MainThread*` handler → does the real work (touches UI/renderer, filesystem, editor state) → reply travels back → promise resolves in the extension host.
 
-Remote/web variant: same `RPCProtocol`, transport swapped to a socket/WebSocket so the extension host can run on a remote server or web worker while main runs locally.",/home/pankaj/Projects/leanchain/atelier/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_atelier_rep3.flow,True,,,,,,0.314,1174016
+Remote/web variant: same `RPCProtocol`, transport swapped to a socket/WebSocket so the extension host can run on a remote server or web worker while main runs locally.",/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep3.flow,True,,,,,,0.314,1174016

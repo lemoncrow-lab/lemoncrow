@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,17 +61,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "contour levels auto-detection _process_contour_level_args", "include_source": true}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "contour levels auto-detection _process_contour_level_args", "include_source": true}
 [usage] input=3819 cache_read=4885 cache_write=660 output=155
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files": ["lib/mpl_toolkits/mplot3d/axes3d.py", "lib/matplotlib/pyplot.py", "lib/matplotlib/tri/_tricontour.py", "lib/matplotlib/axes/_axes.py", "lib/matplotlib/colorbar.py", "src/tri/_tri.h", "src/tri/_tri.cpp"], "exact_match": true, "files": [{"path": "lib/matplotlib/contour.py", "sections": [{"content": "1120\tdef _process_contour_level_args(self, args):\n1121\t        \"\"\"\n1122\t        Determine the contour levels and store in self.levels.\n1123\t        \"\"\"\n1124\t        if self.levels is None:\n1125\t            if len(args) == 0:\n1126\t                levels_arg = 7  # Default, hard-wired.\n1127\t            else:\n1128\t                levels_arg = args[0]\n1129\t        else:\n1130\t            levels_arg = self.levels\n1131\t        if isinstance(levels_arg, Integral):\n1132\t            self.levels = self._autolev(levels_arg)\n1133\t        else:\n1134\t            self.levels = np.asarray(levels_arg, np.float64)\n1135\t\n1136\t        if not self.filled:\n1137\t            inside = (self.levels > self.zmin) & (self.levels < self.zmax)\n1138\t            levels_in = self.levels[inside]\n1139\t            if len(levels_in) == 0:\n1140\t                self.levels = [self.zmin]\n1141\t                _api.warn_external(\n1142\t                    \"No contour levels were found within the data range.\")\n1143\t\n1144\t        if self.filled and len(self.levels) < 2:\n1145\t            raise ValueError(\"Filled contours require at least 2 levels.\")\n1146\t\n1147\t        if len(self.levels) > 1 and np.min(np.diff(self.levels)) <= 0.0:\n1148\t            raise ValueError(\"Contour levels must be increasing\")", "end_line": 1148, "line": 1120, "path": "lib/matplotlib/contour.py", "qualified_name": "ContourSet._process_contour_level_args"}]}], "related_symbols": ["ContourSet._process_contour_level_args @ lib/matplotlib/contour.py:1120", "levels @ examples/images_contours_and_fields/pcolormesh_levels.py:91", "Axes3D.contour @ lib/mpl_toolkits/mplot3d/axes3d.py:1994", "contour @ lib/matplotlib/pyplot.py:2515"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_process_contour_level_args _contour_args _check_xyz process_args", "include_source": true}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_process_contour_level_args _contour_args _check_xyz process_args", "include_source": true}
 [usage] input=2 cache_read=5545 cache_write=4908 output=164
 
 === Turn 3 ===
 [user] [tool_result] {"candidate_files": ["lib/matplotlib/tri/_tricontour.py", "lib/mpl_toolkits/mplot3d/axes3d.py", "src/tri/_tri.h", "src/tri/_tri.cpp", "lib/matplotlib/axes/_axes.py", "lib/matplotlib/axes/_base.py", "lib/matplotlib/pyplot.py"], "exact_match": true, "files": [{"path": "lib/matplotlib/contour.py", "sections": [{"content": "1120\tdef _process_contour_level_args(self, args):\n1121\t        \"\"\"\n1122\t        Determine the contour levels and store in self.levels.\n1123\t        \"\"\"\n1124\t        if self.levels is None:\n1125\t            if len(args) == 0:\n1126\t                levels_arg = 7  # Default, hard-wired.\n1127\t            else:\n1128\t                levels_arg = args[0]\n1129\t        else:\n1130\t            levels_arg = self.levels\n1131\t        if isinstance(levels_arg, Integral):\n1132\t            self.levels = self._autolev(levels_arg)\n1133\t        else:\n1134\t            self.levels = np.asarray(levels_arg, np.float64)\n1135\t\n1136\t        if not self.filled:\n1137\t            inside = (self.levels > self.zmin) & (self.levels < self.zmax)\n1138\t            levels_in = self.levels[inside]\n1139\t            if len(levels_in) == 0:\n1140\t                self.levels = [self.zmin]\n1141\t                _api.warn_external(\n1142\t                    \"No contour levels were found within the data range.\")\n1143\t\n1144\t        if self.filled and len(self.levels) < 2:\n1145\t            raise ValueError(\"Filled contours require at least 2 levels.\")\n1146\t\n1147\t        if len(self.levels) > 1 and np.min(np.diff(self.levels)) <= 0.0:\n1148\t            raise ValueError(\"Contour levels must be increasing\")", "end_line": 1148, "line": 1120, "path": "lib/matplotlib/contour.py", "qualified_name": "ContourSet._process_contour_level_args"}, {"content": "1443\t    def _contour_args(self, args, kwargs):\n1444\t        if self.filled:\n1445\t            fn = 'contourf'\n1446\t        else:\n1447\t            fn = 'contour'\n1448\t        nargs = len(args)\n1449\t        if nargs <= 2:\n1450\t            z = ma.asarray(args[0], dtype=np.float64)\n1451\t            x, y = self._initialize_x_y(z)\n1452\t            args = args[1:]\n1453\t        elif nargs <= 4:\n1454\t            x, y, z = self._check_xyz(args[:3], kwargs)\n1455\t            args = args[3:]\n1456\t        else:\n1457\t            raise _api.nargs_error(fn, takes=\"from 1 to 4\", given=nargs)\n1458\t        z = ma.masked_invalid(z, copy=False)\n1459\t        self.zmax = float(z.max())\n1460\t        self.zmin = float(z.min())\n1461\t        if self.logscale and self.zmin <= 0:\n1462\t            z = ma.masked_where(z <= 0, z)\n1463\t            _api.warn_external('Log scale: values of z <= 0 have been masked')\n1464\t            self.zmin = float(z.min())\n1465\t        self._process_contour_level_args(args)\n1466\t        return (x, y, z)\n1467\t\n1468\t    def _check_xyz(self, args, kwargs):\n1469\t        \"\"\"\n1470\t        Check that the shapes of the input arrays match; if x and y are 1D,\n1471\t        convert them to 2D using meshgrid.\n1472\t        \"\"\"\n1473\t        x, y = args[:2]\n1474\t        x, y = self.axes._process_unit_info([(\"x\", x), (\"y\", y)], kwargs)\n1475\t\n1476\t        x = np.asarray(x, dtype=np.float64)\n1477\t        y = np.asarray(y, dtype=np.float64)\n1478\t        z = ma.asarray(args[2], dtype=np.float64)\n1479\t\n1480\t        if z.ndim != 2:\n1481\t            raise TypeError(f\"Input z must be 2D, not {z.ndim}D\")\n1482\t        if z.shape[0] < 2 or z.shape[1] < 2:\n1483\t            raise TypeError(f\"Input z must be at least a (2, 2) shaped array, \"\n1484\t                            f\"but has shape {z.shape}\")\n1485\t        Ny, Nx = z.shape\n1486\t\n1487\t        if x.ndim != y.ndim:\n1488\t            raise TypeError(f\"Number of dimensions of x ({x.ndim}) and y \"\n... [truncated — L1443-L1510]", "end_line": 1510, "line": 1443, "path": "lib/matplotlib/contour.py", "qualified_name": "QuadContourSet._contour_args"}]}], "related_symbols": ["ContourSet._process_contour_level_args @ lib/matplotlib/contour.py:1120", "TriContourSet._contour_args @ lib/matplotlib/tri/_tricontour.py:53", "QuadContourSet._contour_args @ lib/matplotlib/contour.py:1443", "QuadContourSet._check_xyz @ lib/matplotlib/contour.py:1468"], "truncated": true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/matplotlib/tri/_tricontour.py:L53-L100"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/matplotlib/tri/_tricontour.py:L53-L100"]}
 [usage] input=2 cache_read=10453 cache_write=2167 output=337
 
 === Turn 4 ===
@@ -124,12 +124,12 @@ clarity, pass *triangles* via keyword argument.
 
 Parameters
 ----------
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "    def _process_contour_level_args(self, args):\n        \"\"\"\n        Determine the contour levels and store in self.levels.\n        \"\"\"\n        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels", "new": "    def _process_contour_level_args(self, args, z_dtype):\n        \"\"\"\n        Determine the contour levels and store in self.levels.\n        \"\"\"\n        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels\n        if isinstance(levels_arg, Integral) and z_dtype == bool:\n            if levels_arg == 1:\n                levels_arg = [0.5]\n            else:\n                levels_arg = [0.25, 0.75]"}, {"path": "lib/matplotlib/contour.py", "old": "        if nargs <= 2:\n            z = ma.asarray(args[0], dtype=np.float64)\n            x, y = self._initialize_x_y(z)\n            args = args[1:]\n        elif nargs <= 4:\n            x, y, z = self._check_xyz(args[:3], kwargs)\n            args = args[3:]\n        else:\n            raise _api.nargs_error(fn, takes=\"from 1 to 4\", given=nargs)\n        z = ma.masked_invalid(z, copy=False)\n        self.zmax = float(z.max())\n        self.zmin = float(z.min())\n        if self.logscale and self.zmin <= 0:\n            z = ma.masked_where(z <= 0, z)\n            _api.warn_external('Log scale: values of z <= 0 have been masked')\n            self.zmin = float(z.min())\n        self._process_contour_level_args(args)\n        return (x, y, z)", "new": "        if nargs <= 2:\n            z, *args = args\n            z = ma.asarray(z)\n            x, y = self._initialize_x_y(z)\n        elif nargs <= 4:\n            x, y, z_orig, *args = args\n            x, y, z = self._check_xyz(x, y, z_orig, kwargs)\n        else:\n            raise _api.nargs_error(fn, takes=\"from 1 to 4\", given=nargs)\n\n        z = ma.masked_invalid(z, copy=False)\n        self.zmax = float(z.max())\n        self.zmin = float(z.min())\n        if self.logscale and self.zmin <= 0:\n            z = ma.masked_where(z <= 0, z)\n            _api.warn_external('Log scale: values of z <= 0 have been masked')\n            self.zmin = float(z.min())\n        self._process_contour_level_args(args, z.dtype)\n        return (x, y, z)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "    def _process_contour_level_args(self, args):\n        \"\"\"\n        Determine the contour levels and store in self.levels.\n        \"\"\"\n        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels", "new": "    def _process_contour_level_args(self, args, z_dtype):\n        \"\"\"\n        Determine the contour levels and store in self.levels.\n        \"\"\"\n        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels\n        if isinstance(levels_arg, Integral) and z_dtype == bool:\n            if levels_arg == 1:\n                levels_arg = [0.5]\n            else:\n                levels_arg = [0.25, 0.75]"}, {"path": "lib/matplotlib/contour.py", "old": "        if nargs <= 2:\n            z = ma.asarray(args[0], dtype=np.float64)\n            x, y = self._initialize_x_y(z)\n            args = args[1:]\n        elif nargs <= 4:\n            x, y, z = self._check_xyz(args[:3], kwargs)\n            args = args[3:]\n        else:\n            raise _api.nargs_error(fn, takes=\"from 1 to 4\", given=nargs)\n        z = ma.masked_invalid(z, copy=False)\n        self.zmax = float(z.max())\n        self.zmin = float(z.min())\n        if self.logscale and self.zmin <= 0:\n            z = ma.masked_where(z <= 0, z)\n            _api.warn_external('Log scale: values of z <= 0 have been masked')\n            self.zmin = float(z.min())\n        self._process_contour_level_args(args)\n        return (x, y, z)", "new": "        if nargs <= 2:\n            z, *args = args\n            z = ma.asarray(z)\n            x, y = self._initialize_x_y(z)\n        elif nargs <= 4:\n            x, y, z_orig, *args = args\n            x, y, z = self._check_xyz(x, y, z_orig, kwargs)\n        else:\n            raise _api.nargs_error(fn, takes=\"from 1 to 4\", given=nargs)\n\n        z = ma.masked_invalid(z, copy=False)\n        self.zmax = float(z.max())\n        self.zmin = float(z.min())\n        if self.logscale and self.zmin <= 0:\n            z = ma.masked_where(z <= 0, z)\n            _api.warn_external('Log scale: values of z <= 0 have been masked')\n            self.zmin = float(z.min())\n        self._process_contour_level_args(args, z.dtype)\n        return (x, y, z)"}]}
 [usage] input=2 cache_read=12620 cache_write=1112 output=1314
 
 === Turn 5 ===
 [user] [tool_result] applied lib/matplotlib/contour.py:1120-1130,1454-1471
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/matplotlib/contour.py:L1443-L1530"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/matplotlib/contour.py:L1443-L1530"]}
 [usage] input=2 cache_read=13732 cache_write=1346 output=571
 
 === Turn 6 ===
@@ -222,7 +222,7 @@ Parameters
         If origin is None and extent is not None, then extent
         will give the minimum and maximum values of x and y.
         """
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/matplotlib/contour.py:L1400-L1448"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/matplotlib/contour.py:L1400-L1448"]}
 [usage] input=2 cache_read=15078 cache_write=1898 output=669
 
 === Turn 7 ===
@@ -276,7 +276,7 @@ Parameters
         return kwargs
 
     def _contour_args(self, args, kwargs):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"import contourpy, inspect; print(inspect.getsourcefile(contourpy))\"; python -c \"import contourpy, inspect; src=inspect.getsource(contourpy.contour_generator); print(src[:2000])\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"import contourpy, inspect; print(inspect.getsourcefile(contourpy))\"; python -c \"import contourpy, inspect; src=inspect.getsource(contourpy.contour_generator); print(src[:2000])\""}
 [usage] input=2 cache_read=16976 cache_write=1373 output=1130
 
 === Turn 8 ===
@@ -317,7 +317,7 @@ def contour_generator(
         corner_mask (bool, optional): Enable/disable corner masking, which only has an effect if
             ``z`` is a masked array. If ``False``, any quad touching a masked point is masked out.
             If ``True``, only the triangular corners of
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"import contourpy, inspect; src=inspect.getsource(contourpy.contour_generator); i=src.find('asarray'); print(src[i-500:i+500])\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"import contourpy, inspect; src=inspect.getsource(contourpy.contour_generator); i=src.find('asarray'); print(src[i-500:i+500])\""}
 [usage] input=2 cache_read=18349 cache_write=1955 output=120
 
 === Turn 9 ===
@@ -350,7 +350,7 @@ def contour_generator(
     # Check arguments: x and y.
     if x.ndim != y.ndim:
         raise TypeError(f"Number of dimensions of x ({x.ndim}) and y
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"import contourpy, inspect; src=inspect.getsource(contourpy._remove_z_mask); print(src)\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"import contourpy, inspect; src=inspect.getsource(contourpy._remove_z_mask); print(src)\""}
 [usage] input=2 cache_read=20304 cache_write=567 output=103
 
 === Turn 10 ===
@@ -367,23 +367,23 @@ def contour_generator(
         mask = None
 
     return np.ma.getdata(z_masked), mask  # type: ignore[no-untyped-call]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "    def _check_xyz(self, args, kwargs):\n        \"\"\"\n        Check that the shapes of the input arrays match; if x and y are 1D,\n        convert them to 2D using meshgrid.\n        \"\"\"\n        x, y = args[:2]\n        x, y = self.axes._process_unit_info([(\"x\", x), (\"y\", y)], kwargs)\n\n        x = np.asarray(x, dtype=np.float64)\n        y = np.asarray(y, dtype=np.float64)\n        z = ma.asarray(args[2], dtype=np.float64)\n", "new": "    def _check_xyz(self, x, y, z, kwargs):\n        \"\"\"\n        Check that the shapes of the input arrays match; if x and y are 1D,\n        convert them to 2D using meshgrid.\n        \"\"\"\n        x, y = self.axes._process_unit_info([(\"x\", x), (\"y\", y)], kwargs)\n\n        x = np.asarray(x, dtype=np.float64)\n        y = np.asarray(y, dtype=np.float64)\n        z = ma.asarray(z)\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "    def _check_xyz(self, args, kwargs):\n        \"\"\"\n        Check that the shapes of the input arrays match; if x and y are 1D,\n        convert them to 2D using meshgrid.\n        \"\"\"\n        x, y = args[:2]\n        x, y = self.axes._process_unit_info([(\"x\", x), (\"y\", y)], kwargs)\n\n        x = np.asarray(x, dtype=np.float64)\n        y = np.asarray(y, dtype=np.float64)\n        z = ma.asarray(args[2], dtype=np.float64)\n", "new": "    def _check_xyz(self, x, y, z, kwargs):\n        \"\"\"\n        Check that the shapes of the input arrays match; if x and y are 1D,\n        convert them to 2D using meshgrid.\n        \"\"\"\n        x, y = self.axes._process_unit_info([(\"x\", x), (\"y\", y)], kwargs)\n\n        x = np.asarray(x, dtype=np.float64)\n        y = np.asarray(y, dtype=np.float64)\n        z = ma.asarray(z)\n"}]}
 [usage] input=2 cache_read=20871 cache_write=387 output=727
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now update the tricontour caller to pass `z.dtype`:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/matplotlib/tri/_tricontour.py", "old": "        self._process_contour_level_args(args[1:])\n        return (tri, z)", "new": "        self._process_contour_level_args(args[1:], z.dtype)\n        return (tri, z)"}]}
+[assistant] Now update the tricontour caller to pass `z.dtype`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/matplotlib/tri/_tricontour.py", "old": "        self._process_contour_level_args(args[1:])\n        return (tri, z)", "new": "        self._process_contour_level_args(args[1:], z.dtype)\n        return (tri, z)"}]}
 [usage] input=131 cache_read=21258 cache_write=753 output=263
 
 === Turn 12 ===
 [user] [tool_result] applied lib/matplotlib/tri/_tricontour.py:77-78
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels\n        if isinstance(levels_arg, Integral) and z_dtype == bool:\n            if levels_arg == 1:\n                levels_arg = [0.5]\n            else:\n                levels_arg = [0.25, 0.75]", "new": "        if self.levels is None:\n            if args:\n                levels_arg = args[0]\n            elif np.issubdtype(z_dtype, bool):\n                if self.filled:\n                    levels_arg = [0, .5, 1]\n                else:\n                    levels_arg = [.5]\n            else:\n                levels_arg = 7  # Default, hard-wired.\n        else:\n            levels_arg = self.levels"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/matplotlib/contour.py", "old": "        if self.levels is None:\n            if len(args) == 0:\n                levels_arg = 7  # Default, hard-wired.\n            else:\n                levels_arg = args[0]\n        else:\n            levels_arg = self.levels\n        if isinstance(levels_arg, Integral) and z_dtype == bool:\n            if levels_arg == 1:\n                levels_arg = [0.5]\n            else:\n                levels_arg = [0.25, 0.75]", "new": "        if self.levels is None:\n            if args:\n                levels_arg = args[0]\n            elif np.issubdtype(z_dtype, bool):\n                if self.filled:\n                    levels_arg = [0, .5, 1]\n                else:\n                    levels_arg = [.5]\n            else:\n                levels_arg = 7  # Default, hard-wired.\n        else:\n            levels_arg = self.levels"}]}
 [usage] input=2 cache_read=22011 cache_write=422 output=838
 
 === Turn 13 ===
 [user] [tool_result] applied lib/matplotlib/contour.py:1124-1135
-[assistant] Now let me verify the behavior and run relevant tests:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(python -c \"import matplotlib,os;print(os.path.dirname(os.path.dirname(matplotlib.__file__)))\") 2>/dev/null; python -c \"\nimport numpy as np, matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nii, jj = np.ogrid[:100,:100]; im=(ii+jj)%20<10\ncs = plt.contour(im)\nprint('contour bool levels:', cs.levels)\ncs2 = plt.contourf(im)\nprint('contourf bool levels:', cs2.levels)\ncs3 = plt.contour(im.astype(float))\nprint('float default levels:', cs3.levels)\ncs4 = plt.contour(im, levels=[.5])\nprint('explicit levels:', cs4.levels)\nimport matplotlib.tri as mtri\nx=np.random.rand(20); y=np.random.rand(20); z=(x+y>1)\ntcs=plt.tricontour(x,y,z)\nprint('tri bool levels:', tcs.levels)\n\"\n"}
+[assistant] Now let me verify the behavior and run relevant tests:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(python -c \"import matplotlib,os;print(os.path.dirname(os.path.dirname(matplotlib.__file__)))\") 2>/dev/null; python -c \"\nimport numpy as np, matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nii, jj = np.ogrid[:100,:100]; im=(ii+jj)%20<10\ncs = plt.contour(im)\nprint('contour bool levels:', cs.levels)\ncs2 = plt.contourf(im)\nprint('contourf bool levels:', cs2.levels)\ncs3 = plt.contour(im.astype(float))\nprint('float default levels:', cs3.levels)\ncs4 = plt.contour(im, levels=[.5])\nprint('explicit levels:', cs4.levels)\nimport matplotlib.tri as mtri\nx=np.random.rand(20); y=np.random.rand(20); z=(x+y>1)\ntcs=plt.tricontour(x,y,z)\nprint('tri bool levels:', tcs.levels)\n\"\n"}
 [usage] input=2 cache_read=22433 cache_write=864 output=437
 
 === Turn 14 ===
@@ -392,7 +392,7 @@ contourf bool levels: [0.  0.5 1. ]
 float default levels: [0.   0.15 0.3  0.45 0.6  0.75 0.9  1.05]
 explicit levels: [0.5]
 tri bool levels: [0.5]
-[assistant] All cases work. Now run the existing contour tests to check for regressions:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(python -c \"import matplotlib,os;print(os.path.dirname(os.path.dirname(matplotlib.__file__)))\") 2>/dev/null; python -m pytest lib/matplotlib/tests/test_contour.py -q 2>&1 | tail -20"}
+[assistant] All cases work. Now run the existing contour tests to check for regressions:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(python -c \"import matplotlib,os;print(os.path.dirname(os.path.dirname(matplotlib.__file__)))\") 2>/dev/null; python -m pytest lib/matplotlib/tests/test_contour.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=23297 cache_write=538 output=177
 
 === Turn 15 ===
@@ -400,18 +400,18 @@ tri bool levels: [0.5]
 
 
 no tests ran in 0.00s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=23835 cache_write=224 output=98
 
 === Turn 16 ===
 [user] [tool_result] 65 passed, 1 skipped in 2.18s
-[assistant] Let me add a test covering the new behavior:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"import matplotlib.tests.test_contour as t; print(t.__file__)\""}
+[assistant] Let me add a test covering the new behavior:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"import matplotlib.tests.test_contour as t; print(t.__file__)\""}
 [usage] input=2 cache_read=24059 cache_write=120 output=173
 
 === Turn 17 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "tail -20 /testbed/lib/matplotlib/tests/test_contour.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "tail -20 /testbed/lib/matplotlib/tests/test_contour.py"}
 [usage] input=131 cache_read=24179 cache_write=201 output=89
 
 === Turn 18 ===
@@ -435,18 +435,18 @@ def test_contour_remove():
     assert ax.get_children() != orig_children
     cs.remove()
     assert ax.get_children() == orig_children
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "/testbed/lib/matplotlib/tests/test_contour.py", "old": "def test_contour_remove():", "new": "def test_contour_autolevel_bool():\n    # Boolean z arrays default to a single contour level at 0.5 for\n    # contour, and [0, 0.5, 1] for contourf, so the True/False boundary\n    # is drawn instead of all default levels collapsing together.\n    ii, jj = np.ogrid[:10, :10]\n    z = (ii + jj) % 4 < 2\n\n    ax = plt.figure().add_subplot()\n    assert list(ax.contour(z).levels) == [0.5]\n    assert list(ax.contourf(z).levels) == [0, 0.5, 1]\n    # An explicit levels argument still wins.\n    assert list(ax.contour(z, levels=[0.25]).levels) == [0.25]\n    # Non-bool arrays keep the usual autoscaled levels.\n    assert len(ax.contour(z.astype(float)).levels) > 1\n\n\ndef test_contour_remove():"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "/testbed/lib/matplotlib/tests/test_contour.py", "old": "def test_contour_remove():", "new": "def test_contour_autolevel_bool():\n    # Boolean z arrays default to a single contour level at 0.5 for\n    # contour, and [0, 0.5, 1] for contourf, so the True/False boundary\n    # is drawn instead of all default levels collapsing together.\n    ii, jj = np.ogrid[:10, :10]\n    z = (ii + jj) % 4 < 2\n\n    ax = plt.figure().add_subplot()\n    assert list(ax.contour(z).levels) == [0.5]\n    assert list(ax.contourf(z).levels) == [0, 0.5, 1]\n    # An explicit levels argument still wins.\n    assert list(ax.contour(z, levels=[0.25]).levels) == [0.25]\n    # Non-bool arrays keep the usual autoscaled levels.\n    assert len(ax.contour(z.astype(float)).levels) > 1\n\n\ndef test_contour_remove():"}]}
 [usage] input=2 cache_read=24380 cache_write=543 output=439
 
 === Turn 19 ===
 [user] [tool_result] applied /testbed/lib/matplotlib/tests/test_contour.py:688
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q -k \"autolevel_bool or tricontour or contour_remove\" 2>&1 | tail; echo \"---tri---\"; python -m pytest --pyargs matplotlib.tests.test_triangulation -q 2>&1 | tail -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q -k \"autolevel_bool or tricontour or contour_remove\" 2>&1 | tail; echo \"---tri---\"; python -m pytest --pyargs matplotlib.tests.test_triangulation -q 2>&1 | tail -5"}
 [usage] input=2 cache_read=24923 cache_write=471 output=167
 
 === Turn 20 ===
 [user] [tool_result] 2 passed, 65 deselected in 0.24s
 49 passed, 1 skipped in 1.14s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q 2>&1 | tail -3"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest --pyargs matplotlib.tests.test_contour -q 2>&1 | tail -3"}
 [usage] input=2 cache_read=25394 cache_write=207 output=200
 
 === Turn 21 ===

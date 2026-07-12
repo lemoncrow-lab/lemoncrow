@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unique_path normcase resolve conftest import"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git log --oneline -5 2>/dev/null; echo ---; ls"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unique_path normcase resolve conftest import"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git log --oneline -5 2>/dev/null; echo ---; ls"}
 [usage] input=3818 cache_read=4817 cache_write=0 output=339
 
 === Turn 2 ===
@@ -95,17 +95,17 @@ setup.py
 src
 testing
 tox.ini
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unique_path usage import", "max_files": 10}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unique_path usage import", "max_files": 10}
 [usage] input=2 cache_read=4817 cache_write=4917 output=278
 
 === Turn 3 ===
 [user] [tool_result] {"candidate_files":["src/_pytest/config/__init__.py","testing/test_conftest.py","src/_pytest/python.py","src/_pytest/nodes.py","src/_pytest/main.py","src/_pytest/tmpdir.py","src/_pytest/assertion/rewrite.py","src/_pytest/fixtures.py"],"exact_match":true,"files":[{"path":"src/_pytest/pathlib.py","sections":[{"content":"340\tdef unique_path(path):\n341\t    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n342\t    systems such as Windows.\n343\t\n344\t    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n345\t    natively with ``resolve()``.\"\"\"\n346\t    return type(path)(normcase(str(path.realpath())))","end_line":346,"line":340,"path":"src/_pytest/pathlib.py","qualified_name":"unique_path"}]}],"related_symbols":["unique_path @ src/_pytest/pathlib.py:340"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unique_path\" src testing"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unique_path\" src testing"}
 [usage] input=2 cache_read=9734 cache_write=668 output=75
 
 === Turn 4 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unique_path\" --include=*.py ."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unique_path\" --include=*.py ."}
 [usage] input=2 cache_read=10402 cache_write=96 output=79
 
 === Turn 5 ===
@@ -122,7 +122,7 @@ from _pytest.pathlib import unique_path
             unique_path(current.join(namespace.confcutdir, abs=True))
         directory = unique_path(directory)
         conftestpath = unique_path(conftestpath)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/config/__init__.py:expand"], "symbol": ["_set_initial_conftests", "_getconftestmodules", "_importconftest"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/config/__init__.py:expand"], "symbol": ["_set_initial_conftests", "_getconftestmodules", "_importconftest"]}
 [usage] input=2 cache_read=10498 cache_write=519 output=131
 
 === Turn 6 ===
@@ -218,7 +218,7 @@ from _pytest.pathlib import unique_path
             self.trace("loaded conftestmodule %r" % (mod))
             self.consider_conftest(mod)
             return mod
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls changelog; echo ---; grep -rn \"normcase\\|realpath\" src/_pytest/pathlib.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls changelog; echo ---; grep -rn \"normcase\\|realpath\" src/_pytest/pathlib.py"}
 [usage] input=2 cache_read=11017 cache_write=1371 output=759
 
 === Turn 7 ===
@@ -228,7 +228,7 @@ _template.rst
 ---
 14:from os.path import normcase
 346:    return type(path)(normcase(str(path.realpath())))
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/config/__init__.py:L390-L470"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/config/__init__.py:L390-L470"]}
 [usage] input=2 cache_read=12388 cache_write=821 output=1275
 
 === Turn 8 ===
@@ -314,7 +314,7 @@ _template.rst
     #
     # API for bootstrapping plugin loading
     #
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"unique_path\\|^from\\|^import\\|Path\" testing/test_conftest.py | head -40; echo ===IMPORTS_CONFIG===; grep -n \"^from\\|^import\\|from pathlib\\|import py\" src/_pytest/config/__init__.py | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"unique_path\\|^from\\|^import\\|Path\" testing/test_conftest.py | head -40; echo ===IMPORTS_CONFIG===; grep -n \"^from\\|^import\\|from pathlib\\|import py\" src/_pytest/config/__init__.py | head -40"}
 [usage] input=2 cache_read=13209 cache_write=2302 output=1662
 
 === Turn 9 ===
@@ -366,13 +366,13 @@ _template.rst
 1085:    import pytest
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["testing/test_conftest.py:L130-L175"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["testing/test_conftest.py:L130-L175"]}
 [usage] input=2 cache_read=15511 cache_write=2320 output=118
 
 === Turn 10 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/pathlib.py:L10-L16", "src/_pytest/pathlib.py:L335-L346"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/pathlib.py:L10-L16", "src/_pytest/pathlib.py:L335-L346"]}
 [usage] input=131 cache_read=17831 cache_write=1031 output=806
 
 === Turn 11 ===
@@ -399,8 +399,8 @@ def unique_path(path):
     natively with ``resolve()``."""
     return type(path)(normcase(str(path.realpath())))
 
-[atelier] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/config/__init__.py:expand, src/_pytest/config/__init__.py:L390-L470, testing/test_conftest.py:L130-L175, src/_pytest/pathlib.py:L10-L16, src/_pytest/pathlib.py:L335-L346. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [
+[lemoncrow] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: src/_pytest/config/__init__.py:expand, src/_pytest/config/__init__.py:L390-L470, testing/test_conftest.py:L130-L175, src/_pytest/pathlib.py:L10-L16, src/_pytest/pathlib.py:L335-L346. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [
   {"path": "src/_pytest/pathlib.py", "old": "from os.path import isabs\nfrom os.path import normcase\nfrom os.path import sep", "new": "from os.path import isabs\nfrom os.path import sep"},
   {"path": "src/_pytest/pathlib.py", "old": "\n\ndef unique_path(path):\n    \"\"\"Returns a unique path in case-insensitive (but case-preserving) file\n    systems such as Windows.\n\n    This is needed only for ``py.path.local``; ``pathlib.Path`` handles this\n    natively with ``resolve()``.\"\"\"\n    return type(path)(normcase(str(path.realpath())))", "new": ""},
   {"path": "src/_pytest/config/__init__.py", "old": "from _pytest.pathlib import unique_path\n", "new": ""},
@@ -417,17 +417,17 @@ def unique_path(path):
 
 === Turn 12 ===
 [user] [tool_result] applied src/_pytest/pathlib.py:13-15,337-345, src/_pytest/config/__init__.py:33-34,368-372,405-410,431-438,455-456, testing/test_conftest.py:9-10,143-149,157-161,168
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "import os.path\nimport textwrap\n", "new": "import os.path\nimport textwrap\nfrom pathlib import Path\n"}, {"path": "changelog/5792.bugfix.rst", "new": "Fix ``ImportError`` while loading conftest on Windows due to import folder casing being normalized to lower case. The conftest path is now imported with its original case, while a case-insensitive resolved path is used only as the internal cache key.\n", "overwrite": true}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "testing/test_conftest.py", "old": "import os.path\nimport textwrap\n", "new": "import os.path\nimport textwrap\nfrom pathlib import Path\n"}, {"path": "changelog/5792.bugfix.rst", "new": "Fix ``ImportError`` while loading conftest on Windows due to import folder casing being normalized to lower case. The conftest path is now imported with its original case, while a case-insensitive resolved path is used only as the internal cache key.\n", "overwrite": true}]}
 [usage] input=2 cache_read=20246 cache_write=1730 output=338
 
 === Turn 13 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest testing/test_conftest.py -q -k \"conftestcutdir or setinitial_conftest_subdirs\" 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python -m pytest testing/test_conftest.py -q -k \"conftestcutdir or setinitial_conftest_subdirs\" 2>&1 | tail -20"}
 [usage] input=2 cache_read=21976 cache_write=345 output=315
 
 === Turn 14 ===
 [user] [tool_result] 6 passed, 47 deselected in 0.06s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"unique_path\\|normcase\" src testing | grep -v Binary; echo \"exit:$?\"; python -c \"import _pytest.config, _pytest.pathlib; print('import ok')\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"unique_path\\|normcase\" src testing | grep -v Binary; echo \"exit:$?\"; python -c \"import _pytest.config, _pytest.pathlib; print('import ok')\""}
 [usage] input=2 cache_read=22321 cache_write=337 output=191
 
 === Turn 15 ===

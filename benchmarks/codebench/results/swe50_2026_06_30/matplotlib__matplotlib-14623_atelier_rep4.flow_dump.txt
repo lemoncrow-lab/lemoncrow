@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,13 +61,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "set_ylim set_xlim limit_range_for_scale minpos transform inverted log"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def set_xlim left right reverse sorted swap nonsingular"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "set_ylim set_xlim limit_range_for_scale minpos transform inverted log"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def set_xlim left right reverse sorted swap nonsingular"}
 [usage] input=3819 cache_read=5018 cache_write=0 output=448
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["lib/matplotlib/scale.py","lib/matplotlib/axes/_base.py","lib/matplotlib/projections/geo.py","lib/mpl_toolkits/mplot3d/axes3d.py","tutorials/intermediate/imshow_extent.py","tutorials/advanced/transforms_tutorial.py","lib/mpl_toolkits/mplot3d/proj3d.py"],"exact_match":true,"files":[{"path":"lib/matplotlib/axis.py","sections":[{"content":"807\tdef limit_range_for_scale(self, vmin, vmax):\n808\t        return self._scale.limit_range_for_scale(vmin, vmax, self.get_minpos())","end_line":808,"line":807,"path":"lib/matplotlib/axis.py","qualified_name":"Axis.limit_range_for_scale"}]},{"path":"examples/scales/custom_scale.py","sections":[{"content":"96\tdef limit_range_for_scale(self, vmin, vmax, minpos):\n97\t        \"\"\"\n98\t        Override to limit the bounds of the axis to the domain of the\n99\t        transform.  In the case of Mercator, the bounds should be\n100\t        limited to the threshold that was passed in.  Unlike the\n101\t        autoscaling provided by the tick locators, this range limiting\n102\t        will always be adhered to, whether the axis range is set\n103\t        manually, determined automatically or changed through panning\n104\t        and zooming.\n105\t        \"\"\"\n106\t        return max(vmin, -self.thresh), min(vmax, self.thresh)","end_line":106,"line":96,"path":"examples/scales/custom_scale.py","qualified_name":"MercatorLatitudeScale.limit_range_for_scale"}]}],"related_symbols":["Axis.limit_range_for_scale @ lib/matplotlib/axis.py:807","MercatorLatitudeScale.limit_range_for_scale @ examples/scales/custom_scale.py:96","ScaleBase.limit_range_for_scale @ lib/matplotlib/scale.py:60","LogScale.limit_range_for_scale @ lib/matplotlib/scale.py:420","LogitScale.limit_range_for_scale @ lib/matplotlib/scale.py:696","GeoAxes.set_xlim @ examples/misc/custom_projection.py:262","_AxesBase.set_xlim @ lib/matplotlib/axes/_base.py:3161","GeoAxes.set_xlim @ lib/matplotlib/projections/geo.py:152"],"truncated":true}
 [tool_result] {"candidate_files":["tutorials/advanced/transforms_tutorial.py","lib/mpl_toolkits/mplot3d/axes3d.py","lib/matplotlib/axes/_axes.py","tutorials/advanced/path_tutorial.py","tutorials/intermediate/imshow_extent.py","examples/text_labels_and_annotations/text_alignment.py"],"exact_match":true,"files":[{"path":"lib/matplotlib/axes/_base.py","sections":[{"content":"3161\tdef set_xlim(self, left=None, right=None, emit=True, auto=False,\n3162\t                 *, xmin=None, xmax=None):\n3163\t        \"\"\"\n3164\t        Set the x-axis view limits.\n3165\t\n3166\t        .. ACCEPTS: (left: float, right: float)\n3167\t\n3168\t        Parameters\n3169\t        ----------\n3170\t        left : scalar, optional\n3171\t            The left xlim in data coordinates. Passing *None* leaves the\n3172\t            limit unchanged.\n3173\t\n3174\t            The left and right xlims may be passed as the tuple\n3175\t            (*left*, *right*) as the first positional argument (or as\n3176\t            the *left* keyword argument).\n3177\t\n3178\t        right : scalar, optional\n3179\t            The right xlim in data coordinates. Passing *None* leaves the\n3180\t            limit unchanged.\n3181\t\n3182\t        emit : bool, optional\n3183\t            Whether to notify observers of limit change (default: True).\n3184\t\n3185\t        auto : bool or None, optional\n3186\t            Whether to turn on autoscaling of the x-axis. True turns on,\n3187\t            False turns off (default action), None leaves unchanged.\n3188\t\n3189\t        xmin, xmax : scalar, optional\n3190\t            They are equivalent to left and right respectively,\n3191\t            and it is an error to pass both *xmin* and *left* or\n3192\t            *xmax* and *right*.\n3193\t\n3194\t        Returns\n3195\t        -------\n3196\t        left, right : (float, float)\n3197\t            The new x-axis limits in data coordinates.\n3198\t\n3199\t        See Also\n3200\t        --------\n3201\t        get_xlim\n3202\t        set_xbound, get_xbound\n3203\t        invert_xaxis, xaxis_inverted\n3204\t\n3205\t        Notes\n3206\t        -----\n3207\t        The *left* value may be greater than the *right* value, in which\n3208\t        case the x-axis values will decrease from left to right.\n3209\t\n3210\t        Examples\n3211\t        --------\n3212\t        >>> set_xlim(left, right)\n3213\t        >>> set_xlim((left, right))\n... [truncated — L3161-L3284]","end_line":3284,"line":3161,"path":"lib/matplotlib/axes/_base.py","qualified_name":"_AxesBase.set_xlim"}]},{"path":"lib/matplotlib/projections/geo.py","sections":[{"content":"152\tdef set_xlim(self, *args, **kwargs):\n153\t        raise TypeError(\"It is not possible to change axes limits \"\n154\t                        \"for geographic projections. Please consider \"\n155\t                        \"using Basemap or Cartopy.\")","end_line":155,"line":152,"path":"lib/matplotlib/projections/geo.py","qualified_name":"GeoAxes.set_xlim"}]},{"path":"examples/misc/custom_projection.py","sections":[{"content":"262\tdef set_xlim(self, *args, **kwargs):\n263\t        raise TypeError(\"It is not possible to change axes limits \"\n264\t                        \"for geographic projections. Please consider \"\n265\t                        \"using Basemap or Cartopy.\")","end_line":265,"line":262,"path":"examples/misc/custom_projection.py","qualified_name":"GeoAxes.set_xlim"}]}],"related_symbols":["GeoAxes.set_xlim @ examples/misc/custom_projection.py:262","_AxesBase.set_xlim @ lib/matplotlib/axes/_base.py:3161","GeoAxes.set_xlim @ lib/matplotlib/projections/geo.py:152","Locator.nonsingular @ lib/matplotlib/ticker.py:1523","nonsingular @ lib/matplotlib/transforms.py:2791","right @ tutorials/text/text_props.py:69","AutoDateLocator.nonsingular @ lib/matplotlib/dates.py:1437","right @ examples/pyplots/text_layout.py:14"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/matplotlib/axes/_base.py:L3215-L3284"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/matplotlib/scale.py:L415-L435"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/matplotlib/axes/_base.py:L3215-L3284"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/matplotlib/scale.py:L415-L435"]}
 [usage] input=2 cache_read=5018 cache_write=6945 output=166
 
 === Turn 3 ===
@@ -164,7 +164,7 @@ class FuncScaleLog(LogScale):
     """
     Provide an arbitrary scale with user-supplied function for the axis and
     then put on a logarithmic axes.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": ["Locator.nonsingular", "LogLocator.nonsingular"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": ["Locator.nonsingular", "LogLocator.nonsingular"]}
 [usage] input=2 cache_read=11963 cache_write=1421 output=162
 
 === Turn 4 ===
@@ -195,7 +195,7 @@ class FuncScaleLog(LogScale):
             vmin = _decade_less(vmin, self._base)
             vmax = _decade_greater(vmax, self._base)
         return vmin, vmax
-[assistant] The bug is that `LogLocator.nonsingular` swaps `vmin`/`vmax` when `vmin > vmax`, destroying the inverted order. The fix preserves the requested orientation in `set_xlim`/`set_ylim`. Let me look at `set_ylim`.[tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "_AxesBase.set_ylim"}
+[assistant] The bug is that `LogLocator.nonsingular` swaps `vmin`/`vmax` when `vmin > vmax`, destroying the inverted order. The fix preserves the requested orientation in `set_xlim`/`set_ylim`. Let me look at `set_ylim`.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "_AxesBase.set_ylim"}
 [usage] input=2 cache_read=13384 cache_write=588 output=3261
 
 === Turn 5 ===
@@ -325,12 +325,12 @@ class FuncScaleLog(LogScale):
                         other.figure.canvas.draw_idle()
         self.stale = True
         return bottom, top
-[assistant] Now I'll apply the fix to both methods, preserving the requested orientation:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"lib/matplotlib/axes/_base.py","old":"        left, right = self.xaxis.get_major_locator().nonsingular(left, right)\n        left, right = self.xaxis.limit_range_for_scale(left, right)\n\n        self.viewLim.intervalx = (left, right)","new":"        reverse = left > right\n        left, right = self.xaxis.get_major_locator().nonsingular(left, right)\n        left, right = self.xaxis.limit_range_for_scale(left, right)\n        left, right = sorted([left, right], reverse=bool(reverse))\n\n        self.viewLim.intervalx = (left, right)"},{"path":"lib/matplotlib/axes/_base.py","old":"        bottom, top = self.yaxis.get_major_locator().nonsingular(bottom, top)\n        bottom, top = self.yaxis.limit_range_for_scale(bottom, top)\n\n        self.viewLim.intervaly = (bottom, top)","new":"        reverse = bottom > top\n        bottom, top = self.yaxis.get_major_locator().nonsingular(bottom, top)\n        bottom, top = self.yaxis.limit_range_for_scale(bottom, top)\n        bottom, top = sorted([bottom, top], reverse=bool(reverse))\n\n        self.viewLim.intervaly = (bottom, top)"}]}
+[assistant] Now I'll apply the fix to both methods, preserving the requested orientation:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"lib/matplotlib/axes/_base.py","old":"        left, right = self.xaxis.get_major_locator().nonsingular(left, right)\n        left, right = self.xaxis.limit_range_for_scale(left, right)\n\n        self.viewLim.intervalx = (left, right)","new":"        reverse = left > right\n        left, right = self.xaxis.get_major_locator().nonsingular(left, right)\n        left, right = self.xaxis.limit_range_for_scale(left, right)\n        left, right = sorted([left, right], reverse=bool(reverse))\n\n        self.viewLim.intervalx = (left, right)"},{"path":"lib/matplotlib/axes/_base.py","old":"        bottom, top = self.yaxis.get_major_locator().nonsingular(bottom, top)\n        bottom, top = self.yaxis.limit_range_for_scale(bottom, top)\n\n        self.viewLim.intervaly = (bottom, top)","new":"        reverse = bottom > top\n        bottom, top = self.yaxis.get_major_locator().nonsingular(bottom, top)\n        bottom, top = self.yaxis.limit_range_for_scale(bottom, top)\n        bottom, top = sorted([bottom, top], reverse=bool(reverse))\n\n        self.viewLim.intervaly = (bottom, top)"}]}
 [usage] input=2 cache_read=13972 cache_write=4862 output=566
 
 === Turn 6 ===
 [user] [tool_result] applied lib/matplotlib/axes/_base.py:3267-3270,3649-3652
-[assistant] Now let me verify the fix works:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nimport matplotlib\nmatplotlib.use('Agg')\nimport numpy as np, matplotlib.pyplot as plt\ny = np.linspace(1000e2, 1, 100)\nx = np.exp(-np.linspace(0, 1, y.size))\nfor yscale in ('linear','log'):\n    fig, ax = plt.subplots()\n    ax.plot(x, y)\n    ax.set_yscale(yscale)\n    ax.set_ylim(y.max(), y.min())\n    print(yscale, ax.get_ylim(), 'inverted=', ax.yaxis_inverted())\n\""}
+[assistant] Now let me verify the fix works:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -c \"\nimport matplotlib\nmatplotlib.use('Agg')\nimport numpy as np, matplotlib.pyplot as plt\ny = np.linspace(1000e2, 1, 100)\nx = np.exp(-np.linspace(0, 1, y.size))\nfor yscale in ('linear','log'):\n    fig, ax = plt.subplots()\n    ax.plot(x, y)\n    ax.set_yscale(yscale)\n    ax.set_ylim(y.max(), y.min())\n    print(yscale, ax.get_ylim(), 'inverted=', ax.yaxis_inverted())\n\""}
 [usage] input=2 cache_read=18834 cache_write=606 output=310
 
 === Turn 7 ===
@@ -346,7 +346,7 @@ Rather than changing the locator (its sorting is needed for its singularity logi
 === Turn 8 ===
 [user] Stop hook feedback:
 verify-before-done: edited 1 file(s) (_base.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest lib/matplotlib/tests/test_axes.py -k \"invert or xlim or ylim or scale\" -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest lib/matplotlib/tests/test_axes.py -k \"invert or xlim or ylim or scale\" -q 2>&1 | tail -30"}
 [usage] input=2 cache_read=19791 cache_write=466 output=167
 
 === Turn 9 ===
@@ -365,14 +365,14 @@ Traceback (most recent call last):
   File "/testbed/lib/matplotlib/testing/compare.py", line 158, in __del__
     stream.close()
 BrokenPipeError: [Errno 32] Broken pipe
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" -q 2>&1 | tail -30"}
 [usage] input=2 cache_read=20257 cache_write=658 output=276
 
 === Turn 10 ===
 [user] [tool_result] =========================== short test summary info ============================
 FAILED lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png] - Attr...
 1 failed, 12 warnings in 0.30s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" 2>&1 | grep -A20 \"AttributeError\\|Error\"| head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" 2>&1 | grep -A20 \"AttributeError\\|Error\"| head -40"}
 [usage] input=2 cache_read=20915 cache_write=353 output=162
 
 === Turn 11 ===
@@ -416,7 +416,7 @@ lib/matplotlib/__init__.py:200
 lib/matplotlib/__init__.py:200
 lib/matplotlib/__init__.py:200
 lib/matplotlib/__init__.py:200
-[assistant] These failures are pre-existing (unrelated `np.float` deprecation and pdf image-comparison baseline issues). Let me confirm by checking against the unmodified tree:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && git stash && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" \"lib/matplotlib/tests/test_axes.py::test_log_scales[png]\" -q 2>&1 | tail -5; git stash pop"}
+[assistant] These failures are pre-existing (unrelated `np.float` deprecation and pdf image-comparison baseline issues). Let me confirm by checking against the unmodified tree:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && git stash && python -m pytest \"lib/matplotlib/tests/test_axes.py::test_polar_invertedylim[png]\" \"lib/matplotlib/tests/test_axes.py::test_log_scales[png]\" -q 2>&1 | tail -5; git stash pop"}
 [usage] input=2 cache_read=21268 cache_write=815 output=405
 
 === Turn 12 ===
@@ -432,7 +432,7 @@ Changes not staged for commit:
 
 no changes added to commit (use "git add" and/or "git commit -a")
 Dropped refs/stash@{0} (680a7e8b22d4bdcb72e8ee830b061aa17c84fc67)
-[assistant] Confirmed pre-existing (they fail identically on the unmodified tree — `np.float` deprecation and missing image baselines). Now let me run the non-image-comparison tests relevant to my change:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest lib/matplotlib/tests/test_axes.py -k \"(invert or xlim or ylim or scale) and not png and not pdf and not svg\" lib/matplotlib/tests/test_scale.py -q 2>&1 | tail -15"}
+[assistant] Confirmed pre-existing (they fail identically on the unmodified tree — `np.float` deprecation and missing image baselines). Now let me run the non-image-comparison tests relevant to my change:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && python -m pytest lib/matplotlib/tests/test_axes.py -k \"(invert or xlim or ylim or scale) and not png and not pdf and not svg\" lib/matplotlib/tests/test_scale.py -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=22083 cache_write=674 output=346
 
 === Turn 13 ===

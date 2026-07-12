@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls && git log --oneline -3 2>/dev/null"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "load_middleware adapt async middleware convert_exception_to_response handler chain"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls && git log --oneline -3 2>/dev/null"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "load_middleware adapt async middleware convert_exception_to_response handler chain"}
 [usage] input=3819 cache_read=4885 cache_write=663 output=249
 
 === Turn 2 ===
@@ -88,7 +88,7 @@ tox.ini
 e39e727ded Fixed #31912 -- Removed strict=True in Path.resolve() in project template and CommonPasswordValidator.
 e02738bf55 Refs #31913 -- Corrected comment in PasswordResetTokenGenerator.
 [tool_result] {"candidate_files": ["django/utils/decorators.py", "django/core/handlers/wsgi.py", "django/core/handlers/asgi.py", "django/test/client.py", "tests/middleware_exceptions/tests.py"], "exact_match": true, "files": [{"path": "django/core/handlers/exception.py", "sections": [{"end_line": 51, "line": 21, "path": "django/core/handlers/exception.py", "qualified_name": "convert_exception_to_response", "outline": "convert_exception_to_response: outline only -- read django/core/handlers/exception.py:L21-L51."}]}, {"path": "django/core/handlers/base.py", "sections": [{"end_line": 95, "line": 26, "path": "django/core/handlers/base.py", "qualified_name": "BaseHandler.load_middleware", "outline": "BaseHandler.load_middleware: outline only -- read django/core/handlers/base.py:L26-L95."}]}, {"path": "django/contrib/staticfiles/handlers.py", "sections": [{"content": "23\tdef load_middleware(self):\n24\t        # Middleware are already loaded for self.application; no need to reload\n25\t        # them for self.\n26\t        pass", "end_line": 26, "line": 23, "path": "django/contrib/staticfiles/handlers.py", "qualified_name": "StaticFilesHandlerMixin.load_middleware"}]}], "related_symbols": ["convert_exception_to_response @ django/core/handlers/exception.py:21", "StaticFilesHandlerMixin.load_middleware @ django/contrib/staticfiles/handlers.py:23", "BaseHandler.load_middleware @ django/core/handlers/base.py:26"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/core/handlers/base.py:L1-L160"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/core/handlers/base.py:L1-L160"]}
 [usage] input=2 cache_read=5548 cache_write=4960 output=80
 
 === Turn 3 ===
@@ -253,7 +253,7 @@ class BaseHandler:
     def _get_response(self, request):
         """
         Resolve and call the view, then apply view, exception, and
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/utils/deprecation.py"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/utils/deprecation.py"]}
 [usage] input=2 cache_read=10508 cache_write=2139 output=126
 
 === Turn 4 ===
@@ -406,7 +406,7 @@ class MiddlewareMixin:
                 RemovedInDjango40Warning, stacklevel=3,
             )
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/core/handlers/exception.py:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/core/handlers/exception.py:L1-L60"]}
 [usage] input=2 cache_read=12647 cache_write=1827 output=332
 
 === Turn 5 ===
@@ -471,7 +471,7 @@ def response_for_exception(request, exc):
         else:
             response = get_exception_response(request, get_resolver(get_urlconf()), 404, exc)
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && git log --oneline -5 && python -c \"import django; print(django.VERSION)\""}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "async middleware process_response coroutine test get_response_async middleware_chain", "paths": "tests/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && git log --oneline -5 && python -c \"import django; print(django.VERSION)\""}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "async middleware process_response coroutine test get_response_async middleware_chain", "paths": "tests/"}
 [usage] input=2 cache_read=14474 cache_write=1005 output=3890
 
 === Turn 6 ===
@@ -482,20 +482,20 @@ e02738bf55 Refs #31913 -- Corrected comment in PasswordResetTokenGenerator.
 1251772cb8 Fixed #31936 -- Fixed __in lookup on key transforms for JSONField.
 (3, 2, 0, 'alpha', 0)
 [tool_result] {"candidate_files": ["tests/utils_tests/test_decorators.py", "django/middleware/cache.py", "django/contrib/sessions/middleware.py", "django/contrib/messages/middleware.py", "django/core/handlers/base.py", "django/middleware/security.py", "django/utils/deprecation.py", "django/middleware/gzip.py"], "exact_match": true, "files": [{"path": "django/contrib/flatpages/middleware.py", "sections": [{"content": "8\tdef process_response(self, request, response):\n9\t        if response.status_code != 404:\n10\t            return response  # No need to check for a flatpage for non-404 responses.\n11\t        try:\n12\t            return flatpage(request, request.path_info)\n13\t        # Return the original response if any errors happened. Because this\n14\t        # is a middleware, we can't assume the errors will be caught elsewhere.\n15\t        except Http404:\n16\t            return response\n17\t        except Exception:\n18\t            if settings.DEBUG:\n19\t                raise\n20\t            return response", "end_line": 20, "line": 8, "path": "django/contrib/flatpages/middleware.py", "qualified_name": "FlatpageFallbackMiddleware.process_response"}]}], "related_symbols": ["FlatpageFallbackMiddleware.process_response @ django/contrib/flatpages/middleware.py:8", "MessageMiddleware.process_response @ django/contrib/messages/middleware.py:14", "RedirectFallbackMiddleware.process_response @ django/contrib/redirects/middleware.py:23", "SessionMiddleware.process_response @ django/contrib/sessions/middleware.py:26", "UpdateCacheMiddleware.process_response @ django/middleware/cache.py:78", "XFrameOptionsMiddleware.process_response @ django/middleware/clickjacking.py:24", "CommonMiddleware.process_response @ django/middleware/common.py:99", "BrokenLinkEmailsMiddleware.process_response @ django/middleware/common.py:120"], "truncated": true}
-[assistant] Let me reproduce the actual behavior with a script:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && cat > /tmp/repro.py <<'EOF'\nimport asyncio\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True,\n    ROOT_URLCONF=__name__,\n    ALLOWED_HOSTS=['*'],\n    MIDDLEWARE=[\n        '__main__.DummyMiddleware',\n        '__main__.SecondMiddleware',\n    ],\n    DATABASES={},\n    INSTALLED_APPS=[],\n)\nimport django\ndjango.setup()\n\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.core.handlers.asgi import ASGIHandler\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\nclass SecondMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Second sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nfrom django.urls import path\nurlpatterns = [path('', index)]\n\nfrom django.core.handlers.base import BaseHandler\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nfrom django.test import RequestFactory\n# build an ASGIRequest-ish; use async get_response\nasync def main():\n    from django.core.handlers.asgi import ASGIRequest\n    import io\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[], 'server':('test',80),'client':('test',1234),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.run(main())\nEOF\npython /tmp/repro.py"}
+[assistant] Let me reproduce the actual behavior with a script:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && cat > /tmp/repro.py <<'EOF'\nimport asyncio\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True,\n    ROOT_URLCONF=__name__,\n    ALLOWED_HOSTS=['*'],\n    MIDDLEWARE=[\n        '__main__.DummyMiddleware',\n        '__main__.SecondMiddleware',\n    ],\n    DATABASES={},\n    INSTALLED_APPS=[],\n)\nimport django\ndjango.setup()\n\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.core.handlers.asgi import ASGIHandler\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\nclass SecondMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Second sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nfrom django.urls import path\nurlpatterns = [path('', index)]\n\nfrom django.core.handlers.base import BaseHandler\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nfrom django.test import RequestFactory\n# build an ASGIRequest-ish; use async get_response\nasync def main():\n    from django.core.handlers.asgi import ASGIRequest\n    import io\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[], 'server':('test',80),'client':('test',1234),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.run(main())\nEOF\npython /tmp/repro.py"}
 [usage] input=2 cache_read=15479 cache_write=4897 output=5782
 
 === Turn 7 ===
 [user] [tool_result] status=blocked session_id=
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "repro.py", "overwrite": true, "new": "import asyncio, io\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True, ROOT_URLCONF=__name__, ALLOWED_HOSTS=['*'],\n    MIDDLEWARE=['__main__.DummyMiddleware', '__main__.SecondMiddleware'],\n    DATABASES={}, INSTALLED_APPS=[],\n)\nimport django\ndjango.setup()\n\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.urls import path\nfrom django.core.handlers.base import BaseHandler\nfrom django.core.handlers.asgi import ASGIRequest\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\nclass SecondMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Second sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nurlpatterns = [path('', index)]\n\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nasync def main():\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[],'server':('t',80),'client':('t',1),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.run(main())\n"}]}
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "repro.py", "overwrite": true, "new": "import asyncio, io\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True, ROOT_URLCONF=__name__, ALLOWED_HOSTS=['*'],\n    MIDDLEWARE=['__main__.DummyMiddleware', '__main__.SecondMiddleware'],\n    DATABASES={}, INSTALLED_APPS=[],\n)\nimport django\ndjango.setup()\n\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.urls import path\nfrom django.core.handlers.base import BaseHandler\nfrom django.core.handlers.asgi import ASGIRequest\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\nclass SecondMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Second sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nurlpatterns = [path('', index)]\n\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nasync def main():\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[],'server':('t',80),'client':('t',1),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.run(main())\n"}]}
 [usage] input=2 cache_read=20376 cache_write=6006 output=697
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro.py"}
 [usage] input=131 cache_read=26382 cache_write=704 output=87
 
 === Turn 9 ===
@@ -504,12 +504,12 @@ Traceback (most recent call last):
   File "repro.py", line 42, in <module>
     asyncio.run(main())
 AttributeError: module 'asyncio' has no attribute 'run'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "repro.py", "old": "asyncio.run(main())", "new": "asyncio.get_event_loop().run_until_complete(main())"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "repro.py", "old": "asyncio.run(main())", "new": "asyncio.get_event_loop().run_until_complete(main())"}]}
 [usage] input=2 cache_read=27086 cache_write=291 output=137
 
 === Turn 10 ===
 [user] [tool_result] applied repro.py:42
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python --version && python repro.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python --version && python repro.py"}
 [usage] input=2 cache_read=27377 cache_write=150 output=91
 
 === Turn 11 ===
@@ -521,7 +521,7 @@ final: <class 'django.http.response.HttpResponse'>
 
 stderr:
 Python 3.6.13 :: Anaconda, Inc.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"iscoroutinefunction\\|_is_coroutine\\|markcoroutinefunction\\|async_capable\\|process_response\" tests/middleware_exceptions/ tests/deprecation/ tests/async/ 2>/dev/null | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"iscoroutinefunction\\|_is_coroutine\\|markcoroutinefunction\\|async_capable\\|process_response\" tests/middleware_exceptions/ tests/deprecation/ tests/async/ 2>/dev/null | head -40"}
 [usage] input=2 cache_read=27527 cache_write=245 output=2396
 
 === Turn 12 ===
@@ -529,7 +529,7 @@ Python 3.6.13 :: Anaconda, Inc.
 tests/middleware_exceptions/tests.py:225:            'have at least one of sync_capable/async_capable set to True.'
 tests/deprecation/test_middleware_mixin.py:50:        The process_request() and process_response() hooks must be called with
 tests/deprecation/test_middleware_mixin.py:65:            def process_response(self, request, response):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/deprecation/test_middleware_mixin.py"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/deprecation/test_middleware_mixin.py"]}
 [usage] input=2 cache_read=27772 cache_write=2546 output=82
 
 === Turn 13 ===
@@ -615,12 +615,12 @@ class MiddlewareMixinTests(SimpleTestCase):
         self.assertEqual(len(threads_and_connections), 4)
         self.assertEqual(len(set(threads_and_connections)), 1)
 
-[assistant] My pure 2-middleware repro works. Let me reproduce with the full default middleware stack and instrument which path each takes:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "repro2.py", "overwrite": true, "new": "import asyncio, io\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True, ROOT_URLCONF=__name__, ALLOWED_HOSTS=['*'],\n    SECRET_KEY='x',\n    MIDDLEWARE=[\n        '__main__.DummyMiddleware',\n        'django.middleware.security.SecurityMiddleware',\n        'django.contrib.sessions.middleware.SessionMiddleware',\n        'django.middleware.common.CommonMiddleware',\n        'django.middleware.csrf.CsrfViewMiddleware',\n        'django.contrib.auth.middleware.AuthenticationMiddleware',\n        'django.contrib.messages.middleware.MessageMiddleware',\n        'django.middleware.clickjacking.XFrameOptionsMiddleware',\n    ],\n    DATABASES={'default': {'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}},\n    INSTALLED_APPS=['django.contrib.contenttypes','django.contrib.auth','django.contrib.sessions','django.contrib.messages'],\n    CACHES={'default': {'BACKEND':'django.core.cache.backends.locmem.LocMemCache'}},\n)\nimport django\ndjango.setup()\n\nimport asyncio as _a\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.urls import path\nfrom django.core.handlers.base import BaseHandler\nfrom django.core.handlers.asgi import ASGIRequest\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) get_response iscoroutinefn:\", _a.iscoroutinefunction(self.get_response))\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nurlpatterns = [path('', index)]\n\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nasync def main():\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[],'server':('t',80),'client':('t',1),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.get_event_loop().run_until_complete(main())\n"}]}
+[assistant] My pure 2-middleware repro works. Let me reproduce with the full default middleware stack and instrument which path each takes:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "repro2.py", "overwrite": true, "new": "import asyncio, io\nfrom django.conf import settings\n\nsettings.configure(\n    DEBUG=True, ROOT_URLCONF=__name__, ALLOWED_HOSTS=['*'],\n    SECRET_KEY='x',\n    MIDDLEWARE=[\n        '__main__.DummyMiddleware',\n        'django.middleware.security.SecurityMiddleware',\n        'django.contrib.sessions.middleware.SessionMiddleware',\n        'django.middleware.common.CommonMiddleware',\n        'django.middleware.csrf.CsrfViewMiddleware',\n        'django.contrib.auth.middleware.AuthenticationMiddleware',\n        'django.contrib.messages.middleware.MessageMiddleware',\n        'django.middleware.clickjacking.XFrameOptionsMiddleware',\n    ],\n    DATABASES={'default': {'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}},\n    INSTALLED_APPS=['django.contrib.contenttypes','django.contrib.auth','django.contrib.sessions','django.contrib.messages'],\n    CACHES={'default': {'BACKEND':'django.core.cache.backends.locmem.LocMemCache'}},\n)\nimport django\ndjango.setup()\n\nimport asyncio as _a\nfrom django.utils.deprecation import MiddlewareMixin\nfrom django.http import HttpResponse\nfrom django.urls import path\nfrom django.core.handlers.base import BaseHandler\nfrom django.core.handlers.asgi import ASGIRequest\n\nclass DummyMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        print(\"Dummy(first) get_response iscoroutinefn:\", _a.iscoroutinefunction(self.get_response))\n        print(\"Dummy(first) sees response:\", response.__class__)\n        return response\n\ndef index(request):\n    return HttpResponse(\"ok\")\n\nurlpatterns = [path('', index)]\n\nh = BaseHandler()\nh.load_middleware(is_async=True)\n\nasync def main():\n    scope = {'type':'http','method':'GET','path':'/','query_string':b'','headers':[],'server':('t',80),'client':('t',1),'scheme':'http'}\n    req = ASGIRequest(scope, io.BytesIO(b''))\n    resp = await h.get_response_async(req)\n    print(\"final:\", resp.__class__)\n\nasyncio.get_event_loop().run_until_complete(main())\n"}]}
 [usage] input=2 cache_read=30318 cache_write=1140 output=3136
 
 === Turn 14 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | tail -20"}
 [usage] input=2 cache_read=31458 cache_write=3143 output=99
 
 === Turn 15 ===
@@ -629,13 +629,13 @@ class MiddlewareMixinTests(SimpleTestCase):
 Dummy(first) get_response iscoroutinefn: False
 Dummy(first) sees response: <class 'coroutine'>
 final: <class 'django.http.response.HttpResponse'>
-[assistant] Reproduced. Now let me find which middleware breaks the async chain detection:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "repro2.py", "old": "h = BaseHandler()\nh.load_middleware(is_async=True)", "new": "import django.core.handlers.base as basemod\nimport django.core.handlers.exception as excmod\n_orig = excmod.convert_exception_to_response\ndef traced(get_response):\n    r = _orig(get_response)\n    print('convert: in_iscoro=%s -> out_iscoro=%s  (gr=%r)' % (\n        _a.iscoroutinefunction(get_response), _a.iscoroutinefunction(r),\n        getattr(get_response, '__qualname__', type(get_response).__name__)))\n    return r\nbasemod.convert_exception_to_response = traced\n\nh = BaseHandler()\nh.load_middleware(is_async=True)"}]}
+[assistant] Reproduced. Now let me find which middleware breaks the async chain detection:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "repro2.py", "old": "h = BaseHandler()\nh.load_middleware(is_async=True)", "new": "import django.core.handlers.base as basemod\nimport django.core.handlers.exception as excmod\n_orig = excmod.convert_exception_to_response\ndef traced(get_response):\n    r = _orig(get_response)\n    print('convert: in_iscoro=%s -> out_iscoro=%s  (gr=%r)' % (\n        _a.iscoroutinefunction(get_response), _a.iscoroutinefunction(r),\n        getattr(get_response, '__qualname__', type(get_response).__name__)))\n    return r\nbasemod.convert_exception_to_response = traced\n\nh = BaseHandler()\nh.load_middleware(is_async=True)"}]}
 [usage] input=2 cache_read=34601 cache_write=214 output=1416
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | grep -i \"convert\\|sees\\|iscoro\" "}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | grep -i \"convert\\|sees\\|iscoro\" "}
 [usage] input=131 cache_read=34815 cache_write=1432 output=113
 
 === Turn 17 ===
@@ -652,7 +652,7 @@ convert: in_iscoro=False -> out_iscoro=False  (gr='SecurityMiddleware')
 convert: in_iscoro=False -> out_iscoro=False  (gr='DummyMiddleware')
 Dummy(first) get_response iscoroutinefn: False
 Dummy(first) sees response: <class 'coroutine'>
-[assistant] SecurityMiddleware breaks the chain. Let me inspect it:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/middleware/security.py"]}
+[assistant] SecurityMiddleware breaks the chain. Let me inspect it:[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/middleware/security.py"]}
 [usage] input=2 cache_read=36247 cache_write=678 output=1611
 
 === Turn 18 ===
@@ -716,7 +716,7 @@ class SecurityMiddleware(MiddlewareMixin):
 
         return response
 
-[assistant] Root cause found: `SecurityMiddleware.__init__` overrides `__init__` and sets `self.get_response` but never calls `self._async_check()`, so the instance is never marked as a coroutine function. This breaks async detection for itself and the outer middleware. Let me find all middleware with this problem:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"self.get_response = get_response\" django/ | grep -v deprecation.py"}
+[assistant] Root cause found: `SecurityMiddleware.__init__` overrides `__init__` and sets `self.get_response` but never calls `self._async_check()`, so the instance is never marked as a coroutine function. This breaks async detection for itself and the outer middleware. Let me find all middleware with this problem:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && grep -rn \"self.get_response = get_response\" django/ | grep -v deprecation.py"}
 [usage] input=2 cache_read=36925 cache_write=2591 output=1191
 
 === Turn 19 ===
@@ -725,7 +725,7 @@ django/middleware/security.py:22:        self.get_response = get_response
 django/middleware/cache.py:73:        self.get_response = get_response
 django/middleware/cache.py:135:        self.get_response = get_response
 django/middleware/cache.py:177:        self.get_response = get_response
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/contrib/sessions/middleware.py:L1-L25", "django/middleware/cache.py:L60-L80", "django/middleware/cache.py:L125-L185"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/contrib/sessions/middleware.py:L1-L25", "django/middleware/cache.py:L60-L80", "django/middleware/cache.py:L125-L185"]}
 [usage] input=2 cache_read=39516 cache_write=1319 output=120
 
 === Turn 20 ===
@@ -841,7 +841,7 @@ class CacheMiddleware(UpdateCacheMiddleware, FetchFromCacheMiddleware):
         try:
             key_prefix = kwargs['key_prefix']
             if key_prefix is None:
-[assistant] SessionMiddleware correctly calls `_async_check()`. The bug is in `SecurityMiddleware` and the three cache middleware classes which set `self.get_response` but never call `_async_check()`. Let me view the full CacheMiddleware init:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/middleware/cache.py:L170-L210"]}
+[assistant] SessionMiddleware correctly calls `_async_check()`. The bug is in `SecurityMiddleware` and the three cache middleware classes which set `self.get_response` but never call `_async_check()`. Let me view the full CacheMiddleware init:[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/middleware/cache.py:L170-L210"]}
 [usage] input=2 cache_read=40835 cache_write=1855 output=434
 
 === Turn 21 ===
@@ -880,38 +880,38 @@ class CacheMiddleware(UpdateCacheMiddleware, FetchFromCacheMiddleware):
         self.cache_timeout = cache_timeout
         self.page_timeout = page_timeout
         self.cache = caches[self.cache_alias]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L73", "old": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n\n    def _should_update_cache", "new": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n        self._async_check()\n\n    def _should_update_cache"}, {"path": "django/middleware/cache.py:L135", "old": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n\n    def process_request", "new": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n        self._async_check()\n\n    def process_request"}, {"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L73", "old": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n\n    def _should_update_cache", "new": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n        self._async_check()\n\n    def _should_update_cache"}, {"path": "django/middleware/cache.py:L135", "old": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n\n    def process_request", "new": "        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n        self._async_check()\n\n    def process_request"}, {"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
 [usage] input=2 cache_read=42690 cache_write=1017 output=558
 
 === Turn 22 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"django/middleware/cache.py","edit_index":1,"error":"old_string not found in file","old_string_snippet":"        self.cache = caches[self.cache_alias]\n        self.get_response = get_response\n\n    def _should_update_cache"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L73", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L135", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L73", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py:L135", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}, {"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
 [usage] input=2 cache_read=43707 cache_write=676 output=791
 
 === Turn 23 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/security.py", "old": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response", "new": "        self.referrer_policy = settings.SECURE_REFERRER_POLICY\n        self.get_response = get_response\n        self._async_check()"}]}
 [usage] input=131 cache_read=44383 cache_write=912 output=540
 
 === Turn 24 ===
 [user] [tool_result] applied django/middleware/security.py:21-22
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/cache.py:L73", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/cache.py:L73", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}]}
 [usage] input=2 cache_read=45295 cache_write=689 output=123
 
 === Turn 25 ===
 [user] [tool_result] applied django/middleware/cache.py:L73:73
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/cache.py:L136", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/cache.py:L136", "old": "        self.get_response = get_response", "new": "        self.get_response = get_response\n        self._async_check()"}]}
 [usage] input=2 cache_read=45984 cache_write=145 output=123
 
 === Turn 26 ===
 [user] [tool_result] applied django/middleware/cache.py:L136:136
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/middleware/cache.py", "old": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]", "new": "        self.cache_timeout = cache_timeout\n        self.page_timeout = page_timeout\n        self.cache = caches[self.cache_alias]\n        self._async_check()"}]}
 [usage] input=2 cache_read=46129 cache_write=145 output=202
 
 === Turn 27 ===
 [user] [tool_result] applied django/middleware/cache.py:203-205
-[assistant] Now verify with the repro:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | grep -i \"sees\\|iscoro\\|final\""}
+[assistant] Now verify with the repro:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python repro2.py 2>&1 | grep -i \"sees\\|iscoro\\|final\""}
 [usage] input=2 cache_read=46274 cache_write=223 output=250
 
 === Turn 28 ===
@@ -929,13 +929,13 @@ convert: in_iscoro=True -> out_iscoro=True  (gr='DummyMiddleware')
 Dummy(first) get_response iscoroutinefn: True
 Dummy(first) sees response: <class 'django.http.response.HttpResponse'>
 final: <class 'django.http.response.HttpResponse'>
-[assistant] Fixed. Let me clean up and run the relevant Django test suites:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && rm -f repro.py repro2.py && python tests/runtests.py middleware_exceptions deprecation cache --parallel 1 2>&1 | tail -20"}
+[assistant] Fixed. Let me clean up and run the relevant Django test suites:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && rm -f repro.py repro2.py && python tests/runtests.py middleware_exceptions deprecation cache --parallel 1 2>&1 | tail -20"}
 [usage] input=2 cache_read=46497 cache_write=715 output=306
 
 === Turn 29 ===
 [user] [tool_result] Ran 529 tests in 71.648s
 OK (skipped=117)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python tests/runtests.py handlers async middleware --parallel 1 2>&1 | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\" && python tests/runtests.py handlers async middleware --parallel 1 2>&1 | tail -8"}
 [usage] input=2 cache_read=47212 cache_write=335 output=198
 
 === Turn 30 ===

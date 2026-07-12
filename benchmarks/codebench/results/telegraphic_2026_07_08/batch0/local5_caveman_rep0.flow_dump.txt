@@ -66,7 +66,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "grep -rlE \"util\\.promisify|db\\.query.*await|async function getUser|\\.promise\\(\\)\" /tmp/atelier-bench-caveman-lr3qdqcj 2>/dev/null | head; ls /tmp/atelier-bench-caveman-lr3qdqcj 2>/dev/null", "description": "Check repo for db driver style"}
+[assistant] [tool_use: Bash] {"command": "grep -rlE \"util\\.promisify|db\\.query.*await|async function getUser|\\.promise\\(\\)\" /tmp/lemoncrow-bench-caveman-lr3qdqcj 2>/dev/null | head; ls /tmp/lemoncrow-bench-caveman-lr3qdqcj 2>/dev/null", "description": "Check repo for db driver style"}
 [usage] input=2973 cache_read=15201 cache_write=4157 output=199
 
 === Turn 3 ===

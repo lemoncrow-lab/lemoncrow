@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_regexp_csv_transfomer regexp csv transformer"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_regexp_csv_transfomer regexp csv transformer"}
 [usage] input=3819 cache_read=4369 cache_write=1599 output=107
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["pylint/checkers/base/name_checker/checker.py","pylint/lint/base_options.py","pylint/checkers/design_analysis.py","pylint/checkers/variables.py","pylint/checkers/typecheck.py","pylint/utils/utils.py","pylint/checkers/misc.py"],"exact_match":true,"files":[{"path":"pylint/config/argument.py","sections":[{"content":"114\tdef _regexp_csv_transfomer(value: str) -> Sequence[Pattern[str]]:\n115\t    \"\"\"Transforms a comma separated list of regular expressions.\"\"\"\n116\t    patterns: list[Pattern[str]] = []\n117\t    for pattern in _csv_transformer(value):\n118\t        patterns.append(_regex_transformer(pattern))\n119\t    return patterns","end_line":119,"line":114,"path":"pylint/config/argument.py","qualified_name":"_regexp_csv_transfomer"}]}],"related_symbols":["_regexp_csv_transfomer @ pylint/config/argument.py:114"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/config/argument.py:L1-L140"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/config/argument.py:L1-L140"]}
 [usage] input=2 cache_read=5968 cache_write=4316 output=79
 
 === Turn 3 ===
@@ -211,12 +211,12 @@ _TYPE_TRANSFORMERS: dict[str, Callable[[str], _ArgumentTypes]] = {
     "csv": _csv_transformer,
     "float": float,
     "int": int,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_check_csv _unquote def in utils", "paths": "pylint/utils/utils.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_check_csv _unquote def in utils", "paths": "pylint/utils/utils.py"}
 [usage] input=2 cache_read=10284 cache_write=1890 output=1614
 
 === Turn 4 ===
 [user] [tool_result] {"candidate_files":["pylint/config/argument.py","pylint/config/callback_actions.py","pylint/config/config_initialization.py","pylint/utils/__init__.py","tests/functional/g/generic_alias/generic_alias_side_effects.py","tests/functional/r/regression/regression_2443_duplicate_bases.py","pylint/checkers/utils.py"],"exact_match":true,"files":[{"path":"pylint/utils/utils.py","sections":[{"content":"84\tdef normalize_text(\n85\t    text: str, line_len: int = DEFAULT_LINE_LENGTH, indent: str = \"\"\n86\t) -> str:\n87\t    \"\"\"Wrap the text on the given line length.\"\"\"\n88\t    return \"\\n\".join(\n89\t        textwrap.wrap(\n90\t            text, width=line_len, initial_indent=indent, subsequent_indent=indent\n91\t        )\n92\t    )","end_line":92,"line":84,"path":"pylint/utils/utils.py","qualified_name":"normalize_text"}]}],"related_symbols":["_check_csv @ pylint/utils/utils.py:250","_unquote @ pylint/utils/utils.py:235","normalize_text @ pylint/utils/utils.py:84","cmp @ pylint/utils/utils.py:99","diff_string @ pylint/utils/utils.py:103","get_module_and_frameid @ pylint/utils/utils.py:112","get_rst_title @ pylint/utils/utils.py:129","get_rst_section @ pylint/utils/utils.py:136"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/utils/utils.py:L1-L40", "pylint/utils/utils.py:L235-L270"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/utils/utils.py:L1-L40", "pylint/utils/utils.py:L235-L270"]}
 [usage] input=2 cache_read=12174 cache_write=2188 output=99
 
 === Turn 5 ===
@@ -299,12 +299,12 @@ def _format_option_value(optdict: OptionDict, value: Any) -> str:
     if optdict.get("type", None) == "py_version":
         value = ".".join(str(item) for item in value)
     elif isinstance(value, (list, tuple)):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "def _check_csv(value: list[str] | tuple[str] | str) -> Sequence[str]:\n    if isinstance(value, (list, tuple)):\n        return value\n    return _splitstrip(value)", "new": "def _check_csv(value: list[str] | tuple[str] | str) -> Sequence[str]:\n    if isinstance(value, (list, tuple)):\n        return value\n    return _splitstrip(value)\n\n\ndef _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = []\n        open_square_brackets: int | None = None\n        open_braces = False\n        for char in value:\n            if char == \"[\":\n                open_square_brackets = 0\n            elif char == \"\\\\\":\n                # Do not count escaped brackets/braces\n                continue\n            elif char == \"]\" and open_square_brackets is not None:\n                open_square_brackets = None\n            elif char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not (open_square_brackets is not None or open_braces):\n                regexps.append(\"\")\n            elif regexps:\n                regexps[-1] += char\n            else:\n                regexps.append(char)\n        yield from (regexp.strip() for regexp in regexps)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "def _check_csv(value: list[str] | tuple[str] | str) -> Sequence[str]:\n    if isinstance(value, (list, tuple)):\n        return value\n    return _splitstrip(value)", "new": "def _check_csv(value: list[str] | tuple[str] | str) -> Sequence[str]:\n    if isinstance(value, (list, tuple)):\n        return value\n    return _splitstrip(value)\n\n\ndef _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = []\n        open_square_brackets: int | None = None\n        open_braces = False\n        for char in value:\n            if char == \"[\":\n                open_square_brackets = 0\n            elif char == \"\\\\\":\n                # Do not count escaped brackets/braces\n                continue\n            elif char == \"]\" and open_square_brackets is not None:\n                open_square_brackets = None\n            elif char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not (open_square_brackets is not None or open_braces):\n                regexps.append(\"\")\n            elif regexps:\n                regexps[-1] += char\n            else:\n                regexps.append(char)\n        yield from (regexp.strip() for regexp in regexps)"}]}
 [usage] input=2 cache_read=14362 cache_write=899 output=760
 
 === Turn 6 ===
 [user] [tool_result] applied pylint/utils/utils.py:250-253
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/utils/utils.py:L250-L285"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/utils/utils.py:L250-L285"]}
 [usage] input=2 cache_read=15261 cache_write=782 output=563
 
 === Turn 7 ===
@@ -345,17 +345,17 @@ def _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:
             else:
                 regexps.append(char)
         yield from (regexp.strip() for regexp in regexps)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "def _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = []\n        open_square_brackets: int | None = None\n        open_braces = False\n        for char in value:\n            if char == \"[\":\n                open_square_brackets = 0\n            elif char == \"\\\\\":\n                # Do not count escaped brackets/braces\n                continue\n            elif char == \"]\" and open_square_brackets is not None:\n                open_square_brackets = None\n            elif char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not (open_square_brackets is not None or open_braces):\n                regexps.append(\"\")\n            elif regexps:\n                regexps[-1] += char\n            else:\n                regexps.append(char)\n        yield from (regexp.strip() for regexp in regexps)", "new": "def _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = [\"\"]\n        open_braces = False\n        escaped = False\n        for char in value:\n            if escaped:\n                regexps[-1] += char\n                escaped = False\n                continue\n            if char == \"\\\\\":\n                # Keep escaped characters (e.g. ``\\d`` or ``\\{``) verbatim and\n                # ignore them for the brace tracking below.\n                regexps[-1] += char\n                escaped = True\n                continue\n            if char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not open_braces:\n                regexps.append(\"\")\n            else:\n                regexps[-1] += char\n        yield from (regexp.strip() for regexp in regexps if regexp.strip())"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "def _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = []\n        open_square_brackets: int | None = None\n        open_braces = False\n        for char in value:\n            if char == \"[\":\n                open_square_brackets = 0\n            elif char == \"\\\\\":\n                # Do not count escaped brackets/braces\n                continue\n            elif char == \"]\" and open_square_brackets is not None:\n                open_square_brackets = None\n            elif char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not (open_square_brackets is not None or open_braces):\n                regexps.append(\"\")\n            elif regexps:\n                regexps[-1] += char\n            else:\n                regexps.append(char)\n        yield from (regexp.strip() for regexp in regexps)", "new": "def _check_regexp_csv(value: list[str] | tuple[str] | str) -> Iterable[str]:\n    r\"\"\"Split a comma-separated list of regexps, taking care to avoid splitting\n    a regex employing a comma as quantifier, as in `\\d{1,2}`.\"\"\"\n    if isinstance(value, (list, tuple)):\n        yield from value\n    else:\n        # None is a sentinel value here\n        regexps: list[str] = [\"\"]\n        open_braces = False\n        escaped = False\n        for char in value:\n            if escaped:\n                regexps[-1] += char\n                escaped = False\n                continue\n            if char == \"\\\\\":\n                # Keep escaped characters (e.g. ``\\d`` or ``\\{``) verbatim and\n                # ignore them for the brace tracking below.\n                regexps[-1] += char\n                escaped = True\n                continue\n            if char == \"{\":\n                open_braces = True\n            elif char == \"}\" and open_braces:\n                open_braces = False\n\n            if char == \",\" and not open_braces:\n                regexps.append(\"\")\n            else:\n                regexps[-1] += char\n        yield from (regexp.strip() for regexp in regexps if regexp.strip())"}]}
 [usage] input=2 cache_read=16043 cache_write=1044 output=1149
 
 === Turn 8 ===
 [user] [tool_result] applied pylint/utils/utils.py:256-285
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "from collections.abc import Sequence", "new": "from collections.abc import Iterable, Sequence"}, {"path": "pylint/config/argument.py", "old": "    patterns: list[Pattern[str]] = []\n    for pattern in _csv_transformer(value):\n        patterns.append(_regex_transformer(pattern))\n    return patterns\n\n\ndef _regexp_paths_csv_transfomer", "new": "    patterns: list[Pattern[str]] = []\n    for pattern in pylint_utils._check_regexp_csv(value):\n        patterns.append(_regex_transformer(pattern))\n    return patterns\n\n\ndef _regexp_paths_csv_transfomer"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/utils/utils.py", "old": "from collections.abc import Sequence", "new": "from collections.abc import Iterable, Sequence"}, {"path": "pylint/config/argument.py", "old": "    patterns: list[Pattern[str]] = []\n    for pattern in _csv_transformer(value):\n        patterns.append(_regex_transformer(pattern))\n    return patterns\n\n\ndef _regexp_paths_csv_transfomer", "new": "    patterns: list[Pattern[str]] = []\n    for pattern in pylint_utils._check_regexp_csv(value):\n        patterns.append(_regex_transformer(pattern))\n    return patterns\n\n\ndef _regexp_paths_csv_transfomer"}]}
 [usage] input=2 cache_read=17087 cache_write=1171 output=365
 
 === Turn 9 ===
 [user] [tool_result] applied pylint/utils/utils.py:25, pylint/config/argument.py:116-122
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && python -c \"\nfrom pylint.utils.utils import _check_regexp_csv\nprint(list(_check_regexp_csv('(foo{1,3})')))\nprint(list(_check_regexp_csv('foo,bar')))\nprint(list(_check_regexp_csv(r'\\d{1,2},[a,b],baz')))\nfrom pylint.config.argument import _regexp_csv_transfomer\nprint(_regexp_csv_transfomer('(foo{1,3}),bar'))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && python -c \"\nfrom pylint.utils.utils import _check_regexp_csv\nprint(list(_check_regexp_csv('(foo{1,3})')))\nprint(list(_check_regexp_csv('foo,bar')))\nprint(list(_check_regexp_csv(r'\\d{1,2},[a,b],baz')))\nfrom pylint.config.argument import _regexp_csv_transfomer\nprint(_regexp_csv_transfomer('(foo{1,3}),bar'))\n\""}
 [usage] input=2 cache_read=18258 cache_write=400 output=291
 
 === Turn 10 ===
@@ -378,13 +378,13 @@ Traceback (most recent call last):
   File "/testbed/pylint/config/argument.py", line 117, in _regexp_csv_transfomer
     for pattern in pylint_utils._check_regexp_csv(value):
 AttributeError: module 'pylint.utils' has no attribute '_check_regexp_csv'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -n \"_check_csv\\|_check_regexp\\|from pylint.utils.utils\" pylint/utils/__init__.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -n \"_check_csv\\|_check_regexp\\|from pylint.utils.utils\" pylint/utils/__init__.py"}
 [usage] input=2 cache_read=18658 cache_write=635 output=295
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["pylint/utils/__init__.py:L13-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["pylint/utils/__init__.py:L13-L60"]}
 [usage] input=131 cache_read=19293 cache_write=335 output=81
 
 === Turn 12 ===
@@ -428,30 +428,30 @@ __all__ = [
     "ModuleStats",
     "print_full_documentation",
 ]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "pylint/utils/__init__.py", "old": "    _check_csv,\n    _splitstrip,\n    _unquote,\n    decoding_stream,", "new": "    _check_csv,\n    _check_regexp_csv,\n    _splitstrip,\n    _unquote,\n    decoding_stream,"}, {"path": "pylint/utils/__init__.py", "old": "    \"_check_csv\",\n    \"_splitstrip\",", "new": "    \"_check_csv\",\n    \"_check_regexp_csv\",\n    \"_splitstrip\","}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "pylint/utils/__init__.py", "old": "    _check_csv,\n    _splitstrip,\n    _unquote,\n    decoding_stream,", "new": "    _check_csv,\n    _check_regexp_csv,\n    _splitstrip,\n    _unquote,\n    decoding_stream,"}, {"path": "pylint/utils/__init__.py", "old": "    \"_check_csv\",\n    \"_splitstrip\",", "new": "    \"_check_csv\",\n    \"_check_regexp_csv\",\n    \"_splitstrip\","}]}
 [usage] input=2 cache_read=19628 cache_write=574 output=267
 
 === Turn 13 ===
 [user] [tool_result] applied pylint/utils/__init__.py:16-19,35-36
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom pylint.config.argument import _regexp_csv_transfomer\nprint(_regexp_csv_transfomer('(foo{1,3}),bar'))\nprint(_regexp_csv_transfomer('foo,bar'))\n\" 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom pylint.config.argument import _regexp_csv_transfomer\nprint(_regexp_csv_transfomer('(foo{1,3}),bar'))\nprint(_regexp_csv_transfomer('foo,bar'))\n\" 2>/dev/null"}
 [usage] input=2 cache_read=20202 cache_write=294 output=157
 
 === Turn 14 ===
 [user] [tool_result] [re.compile('(foo{1,3})'), re.compile('bar')]
 [re.compile('foo'), re.compile('bar')]
-[assistant] The fix works. Let me check whether there's a related option that uses the old behavior — the `_regexp_csv` argument type registration and any existing tests.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -rn \"regexp_csv\\|bad-name-rgxs\\|bad_name_rgxs\" pylint/config/argument.py tests/config/ | head -30"}
+[assistant] The fix works. Let me check whether there's a related option that uses the old behavior — the `_regexp_csv` argument type registration and any existing tests.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -rn \"regexp_csv\\|bad-name-rgxs\\|bad_name_rgxs\" pylint/config/argument.py tests/config/ | head -30"}
 [usage] input=2 cache_read=20496 cache_write=207 output=171
 
 === Turn 15 ===
 [user] [tool_result] pylint/config/argument.py:114:def _regexp_csv_transfomer(value: str) -> Sequence[Pattern[str]]:
 pylint/config/argument.py:117:    for pattern in pylint_utils._check_regexp_csv(value):
 pylint/config/argument.py:147:    "regexp_csv": _regexp_csv_transfomer,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -rln \"regexp_csv\\|_regexp_csv_transfomer\\|bad_names_rgxs\\|bad-name-rgxs\" tests/ | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -rln \"regexp_csv\\|_regexp_csv_transfomer\\|bad_names_rgxs\\|bad-name-rgxs\" tests/ | head"}
 [usage] input=2 cache_read=20703 cache_write=297 output=158
 
 === Turn 16 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && ls tests/config/ && echo \"---\" && grep -rln \"_csv_transformer\\|argument\" tests/config/*.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && ls tests/config/ && echo \"---\" && grep -rln \"_csv_transformer\\|argument\" tests/config/*.py"}
 [usage] input=2 cache_read=21000 cache_write=169 output=144
 
 === Turn 17 ===
@@ -468,7 +468,7 @@ test_per_directory_config.py
 ---
 tests/config/test_argparse_config.py
 tests/config/test_config.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/config/test_config.py"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/config/test_config.py"]}
 [usage] input=2 cache_read=21169 cache_write=253 output=73
 
 === Turn 18 ===
@@ -695,30 +695,30 @@ def test_enable_before_disable_all_takes_effect() -> None:
     )
     assert toml_runner.linter.is_message_enabled("fixme")
 
-[assistant] The existing `test_csv_regex_error` asserts the *buggy* behavior. I need to update it and add a positive test.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/config/test_config.py", "old": "def test_csv_regex_error(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly error when an option is passed and one\n    of its comma-separated regular expressions values is an invalid regular expression.\n    \"\"\"\n    with pytest.raises(SystemExit):\n        Run(\n            [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3})\"],\n            exit=False,\n        )\n    output = capsys.readouterr()\n    assert (\n        r\"Error in provided regular expression: (foo{1 beginning at index 0: missing ), unterminated subpattern\"\n        in output.err\n    )", "new": "def test_csv_regex_comma_in_quantifier(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly parse a comma-separated regex when there are\n    commas within quantifier expressions such as ``{1,3}``.\n    \"\"\"\n    runner = Run(\n        [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3})\"],\n        exit=False,\n    )\n    assert any(\n        pattern.pattern == \"(foo{1,3})\"\n        for pattern in runner.linter.config.bad_names_rgxs\n    )\n\n\ndef test_csv_regex_error(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly error when an option is passed and one\n    of its comma-separated regular expressions values is an invalid regular expression.\n    \"\"\"\n    with pytest.raises(SystemExit):\n        Run(\n            [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3}),(bar\"],\n            exit=False,\n        )\n    output = capsys.readouterr()\n    assert (\n        r\"Error in provided regular expression: (bar beginning at index 0: missing ), unterminated subpattern\"\n        in output.err\n    )"}]}
+[assistant] The existing `test_csv_regex_error` asserts the *buggy* behavior. I need to update it and add a positive test.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/config/test_config.py", "old": "def test_csv_regex_error(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly error when an option is passed and one\n    of its comma-separated regular expressions values is an invalid regular expression.\n    \"\"\"\n    with pytest.raises(SystemExit):\n        Run(\n            [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3})\"],\n            exit=False,\n        )\n    output = capsys.readouterr()\n    assert (\n        r\"Error in provided regular expression: (foo{1 beginning at index 0: missing ), unterminated subpattern\"\n        in output.err\n    )", "new": "def test_csv_regex_comma_in_quantifier(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly parse a comma-separated regex when there are\n    commas within quantifier expressions such as ``{1,3}``.\n    \"\"\"\n    runner = Run(\n        [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3})\"],\n        exit=False,\n    )\n    assert any(\n        pattern.pattern == \"(foo{1,3})\"\n        for pattern in runner.linter.config.bad_names_rgxs\n    )\n\n\ndef test_csv_regex_error(capsys: CaptureFixture) -> None:\n    \"\"\"Check that we correctly error when an option is passed and one\n    of its comma-separated regular expressions values is an invalid regular expression.\n    \"\"\"\n    with pytest.raises(SystemExit):\n        Run(\n            [str(EMPTY_MODULE), r\"--bad-names-rgx=(foo{1,3}),(bar\"],\n            exit=False,\n        )\n    output = capsys.readouterr()\n    assert (\n        r\"Error in provided regular expression: (bar beginning at index 0: missing ), unterminated subpattern\"\n        in output.err\n    )"}]}
 [usage] input=2 cache_read=21422 cache_write=3520 output=1281
 
 === Turn 19 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest tests/config/test_config.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest tests/config/test_config.py -q 2>&1 | tail -20"}
 [usage] input=131 cache_read=24942 cache_write=1302 output=97
 
 === Turn 20 ===
 [user] [tool_result] 17 passed in 1.40s
-[assistant] All 17 tests pass. Let me also verify the original crash scenario from the bug report works end-to-end with a config file.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && mkdir -p /tmp/badname && cat > /tmp/badname/pyproject.toml <<'EOF'\n[tool.pylint.basic]\nbad-name-rgxs = \"(foo{1,3})\"\nEOF\necho \"x = 1\" > /tmp/badname/foo.py\ncd /tmp/badname && python -m pylint --rcfile=pyproject.toml foo.py 2>&1 | tail -5"}
+[assistant] All 17 tests pass. Let me also verify the original crash scenario from the bug report works end-to-end with a config file.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && mkdir -p /tmp/badname && cat > /tmp/badname/pyproject.toml <<'EOF'\n[tool.pylint.basic]\nbad-name-rgxs = \"(foo{1,3})\"\nEOF\necho \"x = 1\" > /tmp/badname/foo.py\ncd /tmp/badname && python -m pylint --rcfile=pyproject.toml foo.py 2>&1 | tail -5"}
 [usage] input=2 cache_read=26244 cache_write=241 output=250
 
 === Turn 21 ===
 [user] [tool_result] status=blocked session_id=
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "/testbed/tmp_badname/pyproject.toml", "new": "[tool.pylint.basic]\nbad-name-rgxs = \"(foo{1,3})\"\n", "overwrite": true}, {"path": "/testbed/tmp_badname/foo.py", "new": "x = 1\n", "overwrite": true}]}
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "/testbed/tmp_badname/pyproject.toml", "new": "[tool.pylint.basic]\nbad-name-rgxs = \"(foo{1,3})\"\n", "overwrite": true}, {"path": "/testbed/tmp_badname/foo.py", "new": "x = 1\n", "overwrite": true}]}
 [usage] input=2 cache_read=26485 cache_write=474 output=181
 
 === Turn 22 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed/tmp_badname && python -m pylint --rcfile=pyproject.toml foo.py 2>&1 | tail -8; cd /testbed && rm -r tmp_badname 2>/dev/null; echo done"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed/tmp_badname && python -m pylint --rcfile=pyproject.toml foo.py 2>&1 | tail -8; cd /testbed && rm -r tmp_badname 2>/dev/null; echo done"}
 [usage] input=2 cache_read=26959 cache_write=188 output=139
 
 === Turn 23 ===

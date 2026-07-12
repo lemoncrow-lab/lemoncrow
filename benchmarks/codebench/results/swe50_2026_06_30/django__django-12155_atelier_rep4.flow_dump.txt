@@ -27,12 +27,12 @@ The problem is that the indentation of the first line is 0.
 The solution is to skip the first line:
 indent = min(len(line) - len(line.lstrip()) for line in lines[1:] if line.lstrip())
 Thanks.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def trim_docstring"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def trim_docstring"}
 [usage] input=2 cache_read=17831 cache_write=444 output=85
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["django/contrib/admindocs/views.py"],"exact_match":true,"files":[{"path":"tests/admin_docs/test_utils.py","sections":[{"content":"34\tdef test_trim_docstring(self):\n35\t        trim_docstring_output = trim_docstring(self.docstring)\n36\t        trimmed_docstring = (\n37\t            'This __doc__ output is required for testing. I copied this '\n38\t            'example from\\n`admindocs` documentation. (TITLE)\\n\\n'\n39\t            'Display an individual :model:`myapp.MyModel`.\\n\\n'\n40\t            '**Context**\\n\\n``RequestContext``\\n\\n``mymodel``\\n'\n41\t            '    An instance of :model:`myapp.MyModel`.\\n\\n'\n42\t            '**Template:**\\n\\n:template:`myapp/my_template.html` '\n43\t            '(DESCRIPTION)\\n\\nsome_metadata: some data'\n44\t        )\n45\t        self.assertEqual(trim_docstring_output, trimmed_docstring)","end_line":45,"line":34,"path":"tests/admin_docs/test_utils.py","qualified_name":"TestUtils.test_trim_docstring"}]},{"path":"django/contrib/admindocs/utils.py","sections":[{"content":"27\tdef trim_docstring(docstring):\n28\t    \"\"\"\n29\t    Uniformly trim leading/trailing whitespace from docstrings.\n30\t\n31\t    Based on https://www.python.org/dev/peps/pep-0257/#handling-docstring-indentation\n32\t    \"\"\"\n33\t    if not docstring or not docstring.strip():\n34\t        return ''\n35\t    # Convert tabs to spaces and split into lines\n36\t    lines = docstring.expandtabs().splitlines()\n37\t    indent = min(len(line) - len(line.lstrip()) for line in lines if line.lstrip())\n38\t    trimmed = [lines[0].lstrip()] + [line[indent:].rstrip() for line in lines[1:]]\n39\t    return \"\\n\".join(trimmed).strip()","end_line":39,"line":27,"path":"django/contrib/admindocs/utils.py","qualified_name":"trim_docstring"}]}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"django/contrib/admindocs/utils.py","old":"    indent = min(len(line) - len(line.lstrip()) for line in lines if line.lstrip())","new":"    indent = min(len(line) - len(line.lstrip()) for line in lines[1:] if line.lstrip())"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"django/contrib/admindocs/utils.py","old":"    indent = min(len(line) - len(line.lstrip()) for line in lines if line.lstrip())","new":"    indent = min(len(line) - len(line.lstrip()) for line in lines[1:] if line.lstrip())"}]}
 [usage] input=2 cache_read=18275 cache_write=924 output=166
 
 === Turn 3 ===
@@ -43,12 +43,12 @@ Thanks.
 === Turn 4 ===
 [user] Stop hook feedback:
 verify-before-done: edited 1 file(s) (utils.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null || true; python -m pytest tests/admin_docs/test_utils.py -q 2>&1 | tail -20 || (cd tests && python runtests.py admin_docs.test_utils 2>&1 | tail -20)"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null || true; python -m pytest tests/admin_docs/test_utils.py -q 2>&1 | tail -20 || (cd tests && python runtests.py admin_docs.test_utils 2>&1 | tail -20)"}
 [usage] input=2 cache_read=19391 cache_write=157 output=147
 
 === Turn 5 ===
 [user] [tool_result] /opt/miniconda3/envs/testbed/bin/python: No module named pytest
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py admin_docs.test_utils 2>&1 | tail -25"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py admin_docs.test_utils 2>&1 | tail -25"}
 [usage] input=2 cache_read=19548 cache_write=180 output=93
 
 === Turn 6 ===

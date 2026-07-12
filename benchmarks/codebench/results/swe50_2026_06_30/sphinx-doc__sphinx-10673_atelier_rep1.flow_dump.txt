@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "toctree contains reference to nonexisting document"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "toctree contains reference to nonexisting document"}
 [usage] input=3819 cache_read=5045 cache_write=0 output=134
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["sphinx/environment/__init__.py","sphinx/addnodes.py","sphinx/environment/adapters/toctree.py","sphinx/util/nodes.py","sphinx/builders/_epub_base.py","sphinx/themes/basic/static/jquery-3.6.0.js","sphinx/domains/std.py"],"exact_match":false,"files":[{"path":"sphinx/directives/other.py","sections":[{"content":"34\tclass TocTree(SphinxDirective):\n35\t    \"\"\"\n36\t    Directive to notify Sphinx about the hierarchical structure of the docs,\n37\t    and to include a table-of-contents like tree in the current document.\n38\t    \"\"\"\n39\t    has_content = True\n40\t    required_arguments = 0\n41\t    optional_arguments = 0\n42\t    final_argument_whitespace = False\n43\t    option_spec = {\n44\t        'maxdepth': int,\n45\t        'name': directives.unchanged,\n46\t        'caption': directives.unchanged_required,\n47\t        'glob': directives.flag,\n48\t        'hidden': directives.flag,\n49\t        'includehidden': directives.flag,\n50\t        'numbered': int_or_nothing,\n51\t        'titlesonly': directives.flag,\n52\t        'reversed': directives.flag,\n53\t    }\n54\t\n55\t    def run(self) -> List[Node]:\n56\t        subnode = addnodes.toctree()\n57\t        subnode['parent'] = self.env.docname\n58\t\n59\t        # (title, ref) pairs, where ref may be a document, or an external link,\n60\t        # and title may be None if the document's title is to be used\n61\t        subnode['entries'] = []\n62\t        subnode['includefiles'] = []\n63\t        subnode['maxdepth'] = self.options.get('maxdepth', -1)\n64\t        subnode['caption'] = self.options.get('caption')\n65\t        subnode['glob'] = 'glob' in self.options\n66\t        subnode['hidden'] = 'hidden' in self.options\n67\t        subnode['includehidden'] = 'includehidden' in self.options\n68\t        subnode['numbered'] = self.options.get('numbered', 0)\n69\t        subnode['titlesonly'] = 'titlesonly' in self.options\n70\t        self.set_source_info(subnode)\n71\t        wrappernode = nodes.compound(classes=['toctree-wrapper'])\n72\t        wrappernode.append(subnode)\n73\t        self.add_name(wrappernode)\n74\t\n75\t        ret = self.parse_content(subnode)\n76\t        ret.append(wrappernode)\n77\t        return ret\n78\t\n79\t    def parse_content(self, toctree: addnodes.toctree) -> List[Node]:\n80\t        suffixes = self.config.source_suffix\n81\n... [truncated — L34-L147]","end_line":147,"line":34,"path":"sphinx/directives/other.py","qualified_name":"TocTree"}]}],"related_symbols":["TocTree @ sphinx/directives/other.py:34","BuildEnvironment.resolve_toctree @ sphinx/environment/__init__.py:551","toctree @ sphinx/addnodes.py:81","TocTree.parse_content @ sphinx/directives/other.py:79","TocTree.resolve @ sphinx/environment/adapters/toctree.py:41","TocTreeCollector.assign_section_numbers @ sphinx/environment/collectors/toctree.py:126","document @ sphinx/addnodes.py:20","TocTreeCollector @ sphinx/environment/collectors/toctree.py:22"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/directives/other.py:L79-L160"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/directives/other.py:L79-L160"]}
 [usage] input=2 cache_read=5045 cache_write=5282 output=80
 
 === Turn 3 ===
@@ -153,7 +153,7 @@ class Author(SphinxDirective):
     final_argument_whitespace = True
     option_spec: OptionSpec = {}
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/environment/adapters/toctree.py:L41-L180"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/environment/adapters/toctree.py:L41-L180"]}
 [usage] input=2 cache_read=10327 cache_write=1195 output=151
 
 === Turn 4 ===
@@ -298,12 +298,12 @@ class Author(SphinxDirective):
                     # sub-toctrees
                     if titles_only:
                         # children of toc are:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "genindex modindex search special pages link generation"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "genindex modindex search special pages link generation"}
 [usage] input=2 cache_read=11522 cache_write=2392 output=368
 
 === Turn 5 ===
 [user] [tool_result] {"candidate_files":["sphinx/builders/_epub_base.py","sphinx/builders/html/__init__.py","sphinx/domains/__init__.py","sphinx/domains/std.py","sphinx/themes/basic/layout.html","sphinx/ext/viewcode.py","sphinx/themes/basic/static/jquery-3.6.0.js","tests/test_build_html.py"],"exact_match":false,"files":[],"related_symbols":["test_search_index_gen_zh @ tests/test_search.py:263","EpubBuilder.fix_genindex @ sphinx/builders/_epub_base.py:369","load_searchindex @ tests/test_search.py:40","Config @ sphinx/config.py:66","test_githubpages @ tests/test_ext_duration.py:10","SearchJapanese @ sphinx/search/ja.py:511","_is_specialization @ sphinx/domains/cpp.py:4168","SearchChinese @ sphinx/search/zh.py:216"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/environment/adapters/toctree.py:L180-L320"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/environment/adapters/toctree.py:L180-L320"]}
 [usage] input=2 cache_read=13914 cache_write=722 output=403
 
 === Turn 6 ===
@@ -449,17 +449,17 @@ class Author(SphinxDirective):
             kwargs['maxdepth'] = 0
         else:
             kwargs['maxdepth'] = int(kwargs['maxdepth'])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "genindex Index modindex Python Module Index search Search Page labels", "paths": "sphinx/domains/std.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "genindex Index modindex Python Module Index search Search Page labels", "paths": "sphinx/domains/std.py"}
 [usage] input=2 cache_read=14636 cache_write=2643 output=503
 
 === Turn 7 ===
 [user] [tool_result] {"candidate_files":["sphinx/themes/basic/defindex.html","sphinx/builders/html/__init__.py","sphinx/domains/python.py","sphinx/builders/_epub_base.py","sphinx/themes/basic/static/searchtools.js","sphinx/ext/viewcode.py","tests/test_build_html.py"],"exact_match":false,"files":[{"path":"sphinx/domains/std.py","sections":[{"content":"683\t    @property\n684\t    def labels(self) -> Dict[str, Tuple[str, str, str]]:\n685\t        return self.data.setdefault('labels', {})  # labelname -> docname, labelid, sectionname\n686\t\n687\t    @property\n688\t    def anonlabels(self) -> Dict[str, Tuple[str, str]]:\n689\t        return self.data.setdefault('anonlabels', {})  # labelname -> docname, labelid","end_line":689,"line":683,"path":"sphinx/domains/std.py","qualified_name":"StandardDomain.labels"}]}],"related_symbols":["StandardDomain.labels @ sphinx/domains/std.py:684","GenericObject.add_target_and_index @ sphinx/domains/std.py:57","Cmdoption.add_target_and_index @ sphinx/domains/std.py:219","StandardDomain.anonlabels @ sphinx/domains/std.py:688","GenericObject @ sphinx/domains/std.py:40","GenericObject.handle_signature @ sphinx/domains/std.py:47","GenericObject.make_old_id @ sphinx/domains/std.py:75","EnvVar @ sphinx/domains/std.py:84"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "initial_data labels genindex modindex search 'Python Module Index'", "paths": "sphinx/domains/std.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "initial_data labels genindex modindex search 'Python Module Index'", "paths": "sphinx/domains/std.py"}
 [usage] input=2 cache_read=17279 cache_write=1098 output=116
 
 === Turn 8 ===
 [user] [tool_result] {"candidate_files":["sphinx/domains/python.py","sphinx/domains/__init__.py","tests/test_build_html.py","sphinx/themes/basic/static/searchtools.js","sphinx/builders/html/__init__.py","sphinx/domains/javascript.py","sphinx/themes/basic/static/jquery-3.6.0.js"],"exact_match":false,"files":[{"path":"sphinx/domains/std.py","sections":[{"content":"683\t    @property\n684\t    def labels(self) -> Dict[str, Tuple[str, str, str]]:\n685\t        return self.data.setdefault('labels', {})  # labelname -> docname, labelid, sectionname\n686\t\n687\t    @property\n688\t    def anonlabels(self) -> Dict[str, Tuple[str, str]]:\n689\t        return self.data.setdefault('anonlabels', {})  # labelname -> docname, labelid","end_line":689,"line":683,"path":"sphinx/domains/std.py","qualified_name":"StandardDomain.labels"}]}],"related_symbols":["StandardDomain.labels @ sphinx/domains/std.py:684","GenericObject.add_target_and_index @ sphinx/domains/std.py:57","Cmdoption.add_target_and_index @ sphinx/domains/std.py:219","StandardDomain.anonlabels @ sphinx/domains/std.py:688","GenericObject @ sphinx/domains/std.py:40","GenericObject.handle_signature @ sphinx/domains/std.py:47","GenericObject.make_old_id @ sphinx/domains/std.py:75","EnvVar @ sphinx/domains/std.py:84"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"genindex\\|modindex\\|'search'\\|Module Index\" sphinx/domains/std.py | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"genindex\\|modindex\\|'search'\\|Module Index\" sphinx/domains/std.py | head -40"}
 [usage] input=2 cache_read=18377 cache_write=716 output=101
 
 === Turn 9 ===
@@ -471,7 +471,7 @@ class Author(SphinxDirective):
 598:            'search':   ('search', ''),
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/domains/std.py:L580-L600"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/domains/std.py:L580-L600"]}
 [usage] input=2 cache_read=19093 cache_write=261 output=80
 
 === Turn 10 ===
@@ -497,13 +497,13 @@ class Author(SphinxDirective):
             'search':   ('search', ''),
         },
     }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def get_relative_uri get_target_uri genindex search html builder", "paths": "sphinx/builders"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def get_relative_uri get_target_uri genindex search html builder", "paths": "sphinx/builders"}
 [usage] input=2 cache_read=19354 cache_write=421 output=3064
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/builders/html/__init__.py:L1015-L1035"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/builders/html/__init__.py:L1015-L1035"]}
 [usage] input=131 cache_read=19775 cache_write=4322 output=123
 
 === Turn 12 ===
@@ -530,8 +530,8 @@ class Author(SphinxDirective):
         default_baseuri = default_baseuri.rsplit('#', 1)[0]
 
 
-[atelier] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/environment/adapters/toctree.py:L1-L40"]}
+[lemoncrow] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/environment/adapters/toctree.py:L1-L40"]}
 [usage] input=2 cache_read=24097 cache_write=815 output=2448
 
 === Turn 13 ===
@@ -577,8 +577,8 @@ class TocTree:
         self.env.toctree_includes.setdefault(docname, []).extend(includefiles)
 
 
-[atelier] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035, sphinx/environment/adapters/toctree.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class NoUri\" sphinx/ ; grep -rn \"import NoUri\" sphinx/environment/__init__.py sphinx/builders/__init__.py | head"}
+[lemoncrow] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035, sphinx/environment/adapters/toctree.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class NoUri\" sphinx/ ; grep -rn \"import NoUri\" sphinx/environment/__init__.py sphinx/builders/__init__.py | head"}
 [usage] input=2 cache_read=24912 cache_write=3204 output=1353
 
 === Turn 14 ===
@@ -586,19 +586,19 @@ class TocTree:
 mode
   Input should be 'content', 'map', 'paths' or 'counts' [type=literal_error, input_value='file_paths_with_content', input_type=str]
     For further information visit https://errors.pydantic.dev/2.13/v/literal_error
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"NoUri\" sphinx/errors.py sphinx/util/__init__.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"NoUri\" sphinx/errors.py sphinx/util/__init__.py | head"}
 [usage] input=2 cache_read=28116 cache_write=1472 output=95
 
 === Turn 15 ===
 [user] [tool_result] sphinx/errors.py:118:class NoUri(Exception):
 
-[atelier] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035, sphinx/environment/adapters/toctree.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] Now I'll make the edits:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"sphinx/directives/other.py","old":"                if url_re.match(ref) or ref == 'self':\n                    toctree['entries'].append((title, ref))\n                elif docname not in self.env.found_docs:","new":"                if url_re.match(ref) or ref == 'self':\n                    toctree['entries'].append((title, ref))\n                elif docname in ('genindex', 'modindex', 'search'):\n                    # add a special entry pointing to the special pages\n                    # (these are generated by the builder and have no source\n                    # document of their own)\n                    toctree['entries'].append((title, docname))\n                elif docname not in self.env.found_docs:"},{"path":"sphinx/environment/adapters/toctree.py","old":"from sphinx import addnodes\nfrom sphinx.locale import __","new":"from sphinx import addnodes\nfrom sphinx.errors import NoUri\nfrom sphinx.locale import __"},{"path":"sphinx/environment/adapters/toctree.py","old":"                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    else:","new":"                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    elif ref in ('genindex', 'modindex', 'search'):\n                        # special pages generated by the builder\n                        labels = self.env.get_domain('std').labels\n                        special_docname, _, sectionname = labels[ref]\n                        if not title:\n                            title = sectionname\n                        reference = nodes.reference('', '', internal=True,\n                                                    refuri=special_docname,\n                                                    anchorname='',\n                                                    *[nodes.Text(title)])\n                        para = addnodes.compact_paragraph('', '', reference)\n                        item = nodes.list_item('', para)\n                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    else:"},{"path":"sphinx/environment/adapters/toctree.py","old":"        for refnode in newnode.findall(nodes.reference):\n            if not url_re.match(refnode['refuri']):\n                refnode['refuri'] = builder.get_relative_uri(\n                    docname, refnode['refuri']) + refnode['anchorname']\n        return newnode","new":"        for refnode in newnode.findall(nodes.reference):\n            if not url_re.match(refnode['refuri']):\n                try:\n                    refnode['refuri'] = builder.get_relative_uri(\n                        docname, refnode['refuri']) + refnode['anchorname']\n                except NoUri:\n                    # ignore references to pages that are not available for\n                    # the current builder (e.g. genindex for non-HTML builders)\n                    refnode.parent.remove(refnode)\n        return newnode"}]}
+[lemoncrow] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: sphinx/directives/other.py:L79-L160, sphinx/environment/adapters/toctree.py:L41-L180, sphinx/environment/adapters/toctree.py:L180-L320, sphinx/domains/std.py:L580-L600, sphinx/builders/html/__init__.py:L1015-L1035, sphinx/environment/adapters/toctree.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] Now I'll make the edits:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"sphinx/directives/other.py","old":"                if url_re.match(ref) or ref == 'self':\n                    toctree['entries'].append((title, ref))\n                elif docname not in self.env.found_docs:","new":"                if url_re.match(ref) or ref == 'self':\n                    toctree['entries'].append((title, ref))\n                elif docname in ('genindex', 'modindex', 'search'):\n                    # add a special entry pointing to the special pages\n                    # (these are generated by the builder and have no source\n                    # document of their own)\n                    toctree['entries'].append((title, docname))\n                elif docname not in self.env.found_docs:"},{"path":"sphinx/environment/adapters/toctree.py","old":"from sphinx import addnodes\nfrom sphinx.locale import __","new":"from sphinx import addnodes\nfrom sphinx.errors import NoUri\nfrom sphinx.locale import __"},{"path":"sphinx/environment/adapters/toctree.py","old":"                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    else:","new":"                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    elif ref in ('genindex', 'modindex', 'search'):\n                        # special pages generated by the builder\n                        labels = self.env.get_domain('std').labels\n                        special_docname, _, sectionname = labels[ref]\n                        if not title:\n                            title = sectionname\n                        reference = nodes.reference('', '', internal=True,\n                                                    refuri=special_docname,\n                                                    anchorname='',\n                                                    *[nodes.Text(title)])\n                        para = addnodes.compact_paragraph('', '', reference)\n                        item = nodes.list_item('', para)\n                        # don't show subitems\n                        toc = nodes.bullet_list('', item)\n                    else:"},{"path":"sphinx/environment/adapters/toctree.py","old":"        for refnode in newnode.findall(nodes.reference):\n            if not url_re.match(refnode['refuri']):\n                refnode['refuri'] = builder.get_relative_uri(\n                    docname, refnode['refuri']) + refnode['anchorname']\n        return newnode","new":"        for refnode in newnode.findall(nodes.reference):\n            if not url_re.match(refnode['refuri']):\n                try:\n                    refnode['refuri'] = builder.get_relative_uri(\n                        docname, refnode['refuri']) + refnode['anchorname']\n                except NoUri:\n                    # ignore references to pages that are not available for\n                    # the current builder (e.g. genindex for non-HTML builders)\n                    refnode.parent.remove(refnode)\n        return newnode"}]}
 [usage] input=2 cache_read=29588 cache_write=330 output=1141
 
 === Turn 16 ===
 [user] [tool_result] applied sphinx/directives/other.py:119-121, sphinx/environment/adapters/toctree.py:8-9,141-143,270-274
-[assistant] Let me find the relevant tests to verify:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rln \"nonexisting document\\|toctree\" tests/test_environment_toctree.py tests/test_directive_other.py 2>/dev/null; ls tests/roots/ | grep -i toctree"}
+[assistant] Let me find the relevant tests to verify:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rln \"nonexisting document\\|toctree\" tests/test_environment_toctree.py tests/test_directive_other.py 2>/dev/null; ls tests/roots/ | grep -i toctree"}
 [usage] input=2 cache_read=29918 cache_write=1204 output=422
 
 === Turn 17 ===
@@ -609,7 +609,7 @@ test-toctree-duplicated
 test-toctree-empty
 test-toctree-glob
 test-toctree-maxdepth
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls tests/roots/test-toctree/; echo ---; cat tests/test_directive_other.py | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls tests/roots/test-toctree/; echo ---; cat tests/test_directive_other.py | head -60"}
 [usage] input=2 cache_read=31122 cache_write=499 output=98
 
 === Turn 18 ===
@@ -682,28 +682,28 @@ def test_toctree_urls_and_titles(app):
                          (None, 'https://readthedocs.org/'),
                          ('The BAR', 'bar/index')],
                 includefiles=['bar/index'])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/test_directive_other.py:L60-L110"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/test_directive_other.py:L60-L110"]}
 [usage] input=2 cache_read=31621 cache_write=1055 output=103
 
 === Turn 19 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_directive_other.py", "old": "@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_glob(app):", "new": "@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_special_pages(app):\n    text = (\".. toctree::\\n\"\n            \"\\n\"\n            \"   genindex\\n\"\n            \"   modindex\\n\"\n            \"   search\\n\")\n\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    assert_node(doctree, [nodes.document, nodes.compound, addnodes.toctree])\n    assert_node(doctree[0][0],\n                entries=[(None, 'genindex'), (None, 'modindex'), (None, 'search')],\n                includefiles=[])\n\n\n@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_glob(app):"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_directive_other.py", "old": "@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_glob(app):", "new": "@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_special_pages(app):\n    text = (\".. toctree::\\n\"\n            \"\\n\"\n            \"   genindex\\n\"\n            \"   modindex\\n\"\n            \"   search\\n\")\n\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    assert_node(doctree, [nodes.document, nodes.compound, addnodes.toctree])\n    assert_node(doctree[0][0],\n                entries=[(None, 'genindex'), (None, 'modindex'), (None, 'search')],\n                includefiles=[])\n\n\n@pytest.mark.sphinx(testroot='toctree-glob')\ndef test_toctree_glob(app):"}]}
 [usage] input=131 cache_read=32676 cache_write=869 output=428
 
 === Turn 20 ===
 [user] [tool_result] applied tests/test_directive_other.py:63-64
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_directive_other.py::test_toctree_special_pages -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_directive_other.py::test_toctree_special_pages -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=33545 cache_write=579 output=116
 
 === Turn 21 ===
 [user] [tool_result] 1 passed in 0.19s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_directive_other.py tests/test_environment_toctree.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_directive_other.py tests/test_environment_toctree.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=34124 cache_write=131 output=201
 
 === Turn 22 ===
 [user] [tool_result] 17 passed in 0.26s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; grep -n \"def test\\|resolve_toctree\\|testroot\" tests/test_environment_toctree.py | head -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; grep -n \"def test\\|resolve_toctree\\|testroot\" tests/test_environment_toctree.py | head -30"}
 [usage] input=2 cache_read=34255 cache_write=216 output=243
 
 === Turn 23 ===
@@ -725,29 +725,29 @@ def test_toctree_urls_and_titles(app):
 273:def test_get_toctree_for_maxdepth(app):
 317:@pytest.mark.sphinx('xml', testroot='toctree')
 319:def test_get_toctree_for_includehidden(app):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; cat > /tmp/t_resolve.py <<'EOF'\nimport pytest\nfrom docutils import nodes\nfrom sphinx import addnodes\nfrom sphinx.testing import restructuredtext\n\n@pytest.mark.sphinx('html', testroot='toctree-glob')\ndef test_resolve_special(app):\n    text = (\".. toctree::\\n\\n   genindex\\n   modindex\\n   search\\n\")\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    app.env.resolve_references = app.env.resolve_references\n    toctree = doctree[0][0]\n    from sphinx.environment.adapters.toctree import TocTree\n    result = TocTree(app.env).resolve('index', app.builder, toctree)\n    uris = [r['refuri'] for r in result.findall(nodes.reference)]\n    print(\"URIS\", uris)\n    assert 'genindex.html' in uris\n    assert 'py-modindex.html' in uris\n    assert 'search.html' in uris\nEOF\npython -m pytest /tmp/t_resolve.py -q -s 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; cat > /tmp/t_resolve.py <<'EOF'\nimport pytest\nfrom docutils import nodes\nfrom sphinx import addnodes\nfrom sphinx.testing import restructuredtext\n\n@pytest.mark.sphinx('html', testroot='toctree-glob')\ndef test_resolve_special(app):\n    text = (\".. toctree::\\n\\n   genindex\\n   modindex\\n   search\\n\")\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    app.env.resolve_references = app.env.resolve_references\n    toctree = doctree[0][0]\n    from sphinx.environment.adapters.toctree import TocTree\n    result = TocTree(app.env).resolve('index', app.builder, toctree)\n    uris = [r['refuri'] for r in result.findall(nodes.reference)]\n    print(\"URIS\", uris)\n    assert 'genindex.html' in uris\n    assert 'py-modindex.html' in uris\n    assert 'search.html' in uris\nEOF\npython -m pytest /tmp/t_resolve.py -q -s 2>&1 | tail -15"}
 [usage] input=2 cache_read=34471 cache_write=650 output=569
 
 === Turn 24 ===
 [user] [tool_result] status=blocked session_id=
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_resolve_special_tmp.py", "overwrite": true, "new": "import pytest\nfrom docutils import nodes\nfrom sphinx.testing import restructuredtext\nfrom sphinx.environment.adapters.toctree import TocTree\n\n\n@pytest.mark.sphinx('html', testroot='toctree-glob')\ndef test_resolve_special(app):\n    text = (\".. toctree::\\n\\n   genindex\\n   modindex\\n   search\\n\")\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    toctree = doctree[0][0]\n    result = TocTree(app.env).resolve('index', app.builder, toctree)\n    uris = [r['refuri'] for r in result.findall(nodes.reference)]\n    print(\"URIS\", uris)\n    assert 'genindex.html' in uris\n    assert 'py-modindex.html' in uris\n    assert 'search.html' in uris\n"}]}
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_resolve_special_tmp.py", "overwrite": true, "new": "import pytest\nfrom docutils import nodes\nfrom sphinx.testing import restructuredtext\nfrom sphinx.environment.adapters.toctree import TocTree\n\n\n@pytest.mark.sphinx('html', testroot='toctree-glob')\ndef test_resolve_special(app):\n    text = (\".. toctree::\\n\\n   genindex\\n   modindex\\n   search\\n\")\n    app.env.find_files(app.config, app.builder)\n    doctree = restructuredtext.parse(app, text, 'index')\n    toctree = doctree[0][0]\n    result = TocTree(app.env).resolve('index', app.builder, toctree)\n    uris = [r['refuri'] for r in result.findall(nodes.reference)]\n    print(\"URIS\", uris)\n    assert 'genindex.html' in uris\n    assert 'py-modindex.html' in uris\n    assert 'search.html' in uris\n"}]}
 [usage] input=2 cache_read=35121 cache_write=793 output=430
 
 === Turn 25 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_resolve_special_tmp.py -q -s 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; python -m pytest tests/test_resolve_special_tmp.py -q -s 2>&1 | tail -15"}
 [usage] input=2 cache_read=35914 cache_write=437 output=112
 
 === Turn 26 ===
 [user] [tool_result] 1 passed in 0.10s
-[assistant] The end-to-end resolution works correctly. Let me clean up the temporary test file:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /repo 2>/dev/null; rm -f tests/test_resolve_special_tmp.py; echo done"}
+[assistant] The end-to-end resolution works correctly. Let me clean up the temporary test file:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /repo 2>/dev/null; rm -f tests/test_resolve_special_tmp.py; echo done"}
 [usage] input=2 cache_read=36351 cache_write=127 output=127
 
 === Turn 27 ===
 [user] [tool_result] done
-[assistant] Let me verify the final edits look correct:[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sphinx/environment/adapters/toctree.py:L133-L156"]}
+[assistant] Let me verify the final edits look correct:[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sphinx/environment/adapters/toctree.py:L133-L156"]}
 [usage] input=2 cache_read=36478 cache_write=133 output=147
 
 === Turn 28 ===

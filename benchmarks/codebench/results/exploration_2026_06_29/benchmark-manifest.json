@@ -13,7 +13,7 @@
   "corpus": {
     "dataset_name": "codebench",
     "dataset_version": "ported-local",
-    "source_root": "/home/pankaj/Projects/leanchain/benchmarks/atelier/codebench-tasks",
+    "source_root": "/home/pankaj/Projects/leanchain/benchmarks/lemoncrow/codebench-tasks",
     "tasks": [
       {
         "id": "cg_vscode",
@@ -97,7 +97,7 @@
   "frozen_at": "2026-06-29T23:43:22.528594+00:00",
   "protocol": {
     "arm_agents": {
-      "atelier": "atelier:code",
+      "lemoncrow": "lemoncrow:code",
       "baseline": "host-default"
     },
     "baseline_arm": "baseline",
@@ -111,7 +111,7 @@
     },
     "reps": 5,
     "treatment_arms": [
-      "atelier"
+      "lemoncrow"
     ]
   },
   "suite": "codebench"

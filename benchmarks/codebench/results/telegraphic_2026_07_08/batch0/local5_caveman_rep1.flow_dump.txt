@@ -66,7 +66,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "grep -rl \"getUser\" /tmp/atelier-bench-caveman-snv713j9 2>/dev/null | head", "description": "Find getUser in repo"}
+[assistant] [tool_use: Bash] {"command": "grep -rl \"getUser\" /tmp/lemoncrow-bench-caveman-snv713j9 2>/dev/null | head", "description": "Find getUser in repo"}
 [usage] input=2973 cache_read=15201 cache_write=4155 output=149
 
 === Turn 3 ===

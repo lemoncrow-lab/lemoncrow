@@ -70,12 +70,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 [usage] input=2973 cache_read=15192 cache_write=2184 output=167
 
 === Turn 3 ===
-[user] [tool_result] /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T133626Z/batch0/local7_atelier_rep0.flow_dump.txt
-/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T133626Z/batch0/local5_atelier_rep0.flow_dump.txt
-/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/local7_atelier_rep0.flow_dump.txt
+[user] [tool_result] /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T133626Z/batch0/local7_lemoncrow_rep0.flow_dump.txt
+/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T133626Z/batch0/local5_lemoncrow_rep0.flow_dump.txt
+/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/local7_lemoncrow_rep0.flow_dump.txt
 /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/results.csv
 /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/results.jsonl
-/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/local5_atelier_rep0.flow_dump.txt
+/tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T131009Z/batch0/local5_lemoncrow_rep0.flow_dump.txt
 /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T141112Z/batch0/results.jsonl
 /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T115542Z/results.jsonl
 /tmp/codebench_workspaces/batch0-fa5c44a92d05/local5_baseline_rep1/reports/benchmark/telegraphic/20260708T140005Z/batch0/results.csv

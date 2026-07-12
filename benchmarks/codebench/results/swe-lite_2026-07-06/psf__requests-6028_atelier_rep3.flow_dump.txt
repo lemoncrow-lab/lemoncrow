@@ -17,7 +17,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -30,8 +30,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -55,7 +55,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git remote -v 2>/dev/null; ls; git log --oneline -5 2>/dev/null"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "proxy authorization header proxy_headers CONNECT tunnel"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git remote -v 2>/dev/null; ls; git log --oneline -5 2>/dev/null"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "proxy authorization header proxy_headers CONNECT tunnel"}
 [usage] input=2691 cache_read=4973 cache_write=682 output=700
 
 === Turn 2 ===
@@ -107,7 +107,7 @@ ab38e2c7 Make the `data` vs `json` parameters more clear (#5382)
 393	        return headers
 
 candidate_files: requests/sessions.py, requests/auth.py, requests/utils.py, tests/test_requests.py, requests/status_codes.py, requests/exceptions.py, requests/api.py, requests/models.py, requests/cookies.py, tests/test_lowlevel.py, HISTORY.md, requests/structures.py, tests/test_utils.py, tests/test_testserver.py, setup.py, requests/__version__.py, requests/compat.py, tests/test_structures.py, README.md, requests/__init__.py, docs/conf.py
-[assistant] This is the psf/requests repo. Let me investigate the proxy handling code.[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_auth_from_url urlparse username password proxy"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "select_proxy proxy_bypass rebuild_proxies urlparse scheme"}
+[assistant] This is the psf/requests repo. Let me investigate the proxy handling code.[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_auth_from_url urlparse username password proxy"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "select_proxy proxy_bypass rebuild_proxies urlparse scheme"}
 [usage] input=2 cache_read=5655 cache_write=4194 output=1045
 
 === Turn 3 ===
@@ -193,7 +193,7 @@ candidate_files: requests/adapters.py, requests/sessions.py, requests/models.py,
 299	        return new_proxies
 
 candidate_files: requests/adapters.py, requests/compat.py, tests/test_utils.py, tests/test_requests.py, HISTORY.md, requests/cookies.py, tests/test_lowlevel.py, requests/api.py, requests/auth.py, requests/exceptions.py, requests/models.py, requests/status_codes.py, tests/testserver/server.py, docs/conf.py, README.md, docs/_static/custom.css
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "resolve_proxies proxy_from_env should_bypass_proxies environ proxies dict"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/adapters.py:L390-L470"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "resolve_proxies proxy_from_env should_bypass_proxies environ proxies dict"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/adapters.py:L390-L470"]}
 [usage] input=2 cache_read=9849 cache_write=2507 output=1586
 
 === Turn 4 ===
@@ -353,7 +353,7 @@ candidate_files: requests/sessions.py, requests/compat.py, requests/adapters.py,
                         low_conn.putheader(header, value)
 
                     low_conn.endheaders()
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prepend_scheme_if_needed urldefrag netloc path proxy scheme"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prepend_scheme_if_needed urldefrag netloc path proxy scheme"}
 [usage] input=2 cache_read=12356 cache_write=4111 output=1171
 
 === Turn 5 ===
@@ -389,13 +389,13 @@ candidate_files: requests/sessions.py, requests/compat.py, requests/adapters.py,
 982	    return urlunparse((scheme, netloc, path, '', query, fragment))
 
 candidate_files: requests/adapters.py, requests/models.py, requests/sessions.py, requests/cookies.py, tests/test_requests.py, requests/auth.py, tests/test_lowlevel.py, requests/compat.py, HISTORY.md, requests/exceptions.py, requests/api.py, .github/workflows/codeql-analysis.yml, requests/status_codes.py, setup.py, docs/conf.py, requests/__init__.py, README.md, tests/conftest.py, .github/CONTRIBUTING.md, docs/Makefile
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; git show --stat HEAD | head -40; echo \"====DIFF====\"; git show HEAD -- requests/ | head -120"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/utils.py:L955-L998"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; git show --stat HEAD | head -40; echo \"====DIFF====\"; git show HEAD -- requests/ | head -120"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/utils.py:L955-L998"]}
 [usage] input=2 cache_read=16467 cache_write=1840 output=1046
 
 === Turn 6 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; git log --oneline -5 -- requests/utils.py; echo ---; grep -n \"parse_url\\|urlparse\\|urlunparse\" requests/utils.py | head; echo ---IMPORTS---; grep -n \"import\" requests/utils.py | grep -i \"urllib\\|parse\""}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/test_utils.py:L575-L607"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; git log --oneline -5 -- requests/utils.py; echo ---; grep -n \"parse_url\\|urlparse\\|urlunparse\" requests/utils.py | head; echo ---IMPORTS---; grep -n \"import\" requests/utils.py | grep -i \"urllib\\|parse\""}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/test_utils.py:L575-L607"]}
 [usage] input=131 cache_read=18307 cache_write=1718 output=1517
 
 === Turn 7 ===
@@ -454,7 +454,7 @@ def test_parse_header_links(value, expected):
     ))
 def test_prepend_scheme_if_needed(value, expected):
     assert prepend_scheme_if_needed(value, 'http') == expected
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; grep version requests/__version__.py; echo ---; python -c \"import sys; print(sys.version)\"; echo ---; python -c \"from urllib3.util import parse_url; print(parse_url('http://user:pass@host:8080'))\"; echo ---testcase---; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','user:pass@host:8080','//user:pass@host:8080','example.com:80','http://:8080','http://user:pass@host.com','localhost:1234']:\n    print(repr(u), '->', repr(p(u,'http')))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; grep version requests/__version__.py; echo ---; python -c \"import sys; print(sys.version)\"; echo ---; python -c \"from urllib3.util import parse_url; print(parse_url('http://user:pass@host:8080'))\"; echo ---testcase---; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','user:pass@host:8080','//user:pass@host:8080','example.com:80','http://:8080','http://user:pass@host.com','localhost:1234']:\n    print(repr(u), '->', repr(p(u,'http')))\n\""}
 [usage] input=2 cache_read=20025 cache_write=2587 output=560
 
 === Turn 8 ===
@@ -472,7 +472,7 @@ http://user:pass@host:8080
 'http://:8080' -> 'http://:8080'
 'http://user:<redacted-email>' -> 'http://host.com'
 'localhost:1234' -> 'localhost:///1234'
-[assistant] Found it. `prepend_scheme_if_needed` drops proxy credentials (`user:pass@`) because urllib3's `parse_url(...).netloc` excludes auth. That strips Proxy-Authorization → 407. Let me confirm parse_url's fields.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom urllib3.util import parse_url\nfor u in ['http://user:pass@host:8080','localhost:1234','example.com:80','//user:pass@host','user:pass@host:8080']:\n    p=parse_url(u)\n    print(repr(u),'| scheme=',p.scheme,'auth=',p.auth,'host=',p.host,'port=',p.port,'path=',p.path,'netloc=',p.netloc)\n\""}
+[assistant] Found it. `prepend_scheme_if_needed` drops proxy credentials (`user:pass@`) because urllib3's `parse_url(...).netloc` excludes auth. That strips Proxy-Authorization → 407. Let me confirm parse_url's fields.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom urllib3.util import parse_url\nfor u in ['http://user:pass@host:8080','localhost:1234','example.com:80','//user:pass@host','user:pass@host:8080']:\n    p=parse_url(u)\n    print(repr(u),'| scheme=',p.scheme,'auth=',p.auth,'host=',p.host,'port=',p.port,'path=',p.path,'netloc=',p.netloc)\n\""}
 [usage] input=2 cache_read=22612 cache_write=797 output=2034
 
 === Turn 9 ===
@@ -481,17 +481,17 @@ http://user:pass@host:8080
 'example.com:80' | scheme= None auth= None host= example.com port= 80 path= None netloc= example.com:80
 '//user:pass@host' | scheme= None auth= user:pass host= host port= None path= None netloc= host
 'user:pass@host:8080' | scheme= user auth= None host= None port= None path= /pass@host:8080 netloc= None
-[assistant] Confirmed: `.netloc` never includes auth. Applying the fix.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"requests/utils.py","old":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if scheme is None:\n        scheme = new_scheme\n    if path is None:\n        path = ''\n\n    return urlunparse((scheme, netloc, path, '', query, fragment))","new":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with auth\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n    if scheme is None:\n        scheme = new_scheme\n    if path is None:\n        path = ''\n\n    return urlunparse((scheme, netloc, path, '', query, fragment))"}]}
+[assistant] Confirmed: `.netloc` never includes auth. Applying the fix.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"requests/utils.py","old":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if scheme is None:\n        scheme = new_scheme\n    if path is None:\n        path = ''\n\n    return urlunparse((scheme, netloc, path, '', query, fragment))","new":"    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with auth\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n    if scheme is None:\n        scheme = new_scheme\n    if path is None:\n        path = ''\n\n    return urlunparse((scheme, netloc, path, '', query, fragment))"}]}
 [usage] input=2 cache_read=23409 cache_write=2244 output=616
 
 === Turn 10 ===
 [user] [tool_result] applied requests/utils.py:973-982
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','http://user:pass@host.com','//user:pass@host:8080','example.com:80','example.com/path','//example.com/path']:\n    print(repr(u), '->', repr(p(u,'http')))\n\"; echo ---tests---; python -m pytest tests/test_utils.py -k \"prepend_scheme_if_needed or get_auth_from_url\" -q 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','http://user:pass@host.com','//user:pass@host:8080','example.com:80','example.com/path','//example.com/path']:\n    print(repr(u), '->', repr(p(u,'http')))\n\"; echo ---tests---; python -m pytest tests/test_utils.py -k \"prepend_scheme_if_needed or get_auth_from_url\" -q 2>&1 | tail -15"}
 [usage] input=2 cache_read=25653 cache_write=634 output=255
 
 === Turn 11 ===
 [user] [tool_result] 10 passed, 202 deselected in 0.04s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','http://user:pass@host.com','//user:pass@host:8080']:\n    print(repr(u), '->', repr(p(u,'http')))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; python -c \"\nfrom requests.utils import prepend_scheme_if_needed as p\nfor u in ['http://user:pass@host:8080','http://user:pass@host.com','//user:pass@host:8080']:\n    print(repr(u), '->', repr(p(u,'http')))\n\""}
 [usage] input=2 cache_read=26287 cache_write=277 output=214
 
 === Turn 12 ===

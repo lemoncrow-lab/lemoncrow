@@ -10,11 +10,11 @@ EnterWork
 
 === Turn 2 ===
 [user] [tool_result] <tool_use_error>Error: No such tool available: code_search</tool_use_error>
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "to_native_string prepare_content_length body"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "to_native_string prepare_content_length body"}
 
 === Turn 3 ===
 [user] [tool_result] {"additional_relevant_files":[],"cache_hit":false,"entry_points":[{"end_line":702,"id":"bef78150f084346f8abb495b","kind":"function","line":686,"name":"to_native_string","path":"requests/utils.py","provenance":"local","qualified_name":"to_native_string","score":1498.0932994062764},{"end
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "PreparedRequest.prepare_body"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "PreparedRequest.prepare_body"}
 
 === Turn 4 ===
 [user] [tool_result] ### requests/models.py:L406-L459 (method)
@@ -26,19 +26,19 @@ EnterWork
 
         # Nottin' on you.
         body = None
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "PreparedRequest._encode_params"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "PreparedRequest._encode_params"}
 
 === Turn 5 ===
 [user] [tool_result] MCP error -32000: symbol not found
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_encode_params staticmethod urlencode"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_encode_params staticmethod urlencode"}
 
 === Turn 6 ===
 [user] [tool_result] {"additional_relevant_files":[],"cache_hit":false,"entry_points":[{"end_line":99,"id":"c6569b94fa26e10b4cbee672","kind":"method","line":75,"name":"_encode_params","path":"requests/models.py","provenance":"local","qualified_name":"RequestEncodingMixin._encode_params","score":1420.925219
-[assistant] The bug is in `_encode_params`: it calls `to_native_string(data)` on `bytes`, which forces an ASCII decode and fails for non-ASCII binary payloads. Binary data should pass through untouched.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        if isinstance(data, (str, bytes)):\n            return to_native_string(data)\n        elif hasattr(data, 'read'):", "new": "        if isinstance(data, (str, bytes)):\n            return data\n        elif hasattr(data, 'read'):"}]}
+[assistant] The bug is in `_encode_params`: it calls `to_native_string(data)` on `bytes`, which forces an ASCII decode and fails for non-ASCII binary payloads. Binary data should pass through untouched.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        if isinstance(data, (str, bytes)):\n            return to_native_string(data)\n        elif hasattr(data, 'read'):", "new": "        if isinstance(data, (str, bytes)):\n            return data\n        elif hasattr(data, 'read'):"}]}
 
 === Turn 7 ===
 [user] [tool_result] applied requests/models.py:83-85
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"to_native_string\" requests/models.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"to_native_string\" requests/models.py"}
 
 === Turn 8 ===
 [user] [tool_result] 30:    iter_slices, guess_json_utf, super_len, to_native_string)
@@ -50,18 +50,18 @@ EnterWork
 === Turn 9 ===
 [user] Stop hook feedback:
 verify-before-done: edited 1 file(s) (models.py) but ran no tests. Run the project's test suite.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest test_requests.py -k \"data\" -q 2>&1 | tail -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest test_requests.py -k \"data\" -q 2>&1 | tail -30"}
 
 === Turn 10 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest test_requests.py -k \"body or encode or binary or unicode\" -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest test_requests.py -k \"body or encode or binary or unicode\" -q 2>&1 | tail -20"}
 
 === Turn 11 ===
 [user] [tool_result] /testbed/requests/packages/urllib3/_collections.py:2: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
     from collections import Mapping, MutableMapping
 
 test_requests
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | grep -A20 \"def test_params_bytes_are_encoded\\|TypeError\\|Error\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | grep -A20 \"def test_params_bytes_are_encoded\\|TypeError\\|Error\""}
 
 === Turn 12 ===
 [user] [tool_result] def test_params_bytes_are_encoded(self):
@@ -71,7 +71,7 @@ test_requests
 test_requests.py:156: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 requests/mo
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "PreparedRequest.prepare_url"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "PreparedRequest.prepare_url"}
 
 === Turn 13 ===
 [user] [tool_result] ### requests/models.py:L324-L396 (method)
@@ -80,15 +80,15 @@ requests/mo
         #: Accept objects that have string representations.
         #: We're unable to blindly call unicode/str functions
         #: as this will include the byt
-[assistant] My `_encode_params` change is correct for the body, but `_encode_params` is also used by `prepare_url` for the query string — and `urlunparse` needs a native `str` there. I need to coerce to native string at that call site instead.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:", "new": "        enc_params = self._encode_params(params)\n        if isinstance(enc_params, bytes):\n            enc_params = enc_params.decode('utf-8')\n        if enc_params:"}]}
+[assistant] My `_encode_params` change is correct for the body, but `_encode_params` is also used by `prepare_url` for the query string — and `urlunparse` needs a native `str` there. I need to coerce to native string at that call site instead.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if enc_params:", "new": "        enc_params = self._encode_params(params)\n        if isinstance(enc_params, bytes):\n            enc_params = enc_params.decode('utf-8')\n        if enc_params:"}]}
 
 === Turn 14 ===
 [user] [tool_result] applied requests/models.py:388-389
-[assistant] On py2 `bytes is str`, so unconditional decode would wrongly turn the query into unicode there. `to_native_string` already handles both versions correctly — use it.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if isinstance(enc_params, bytes):\n            enc_params = enc_params.decode('utf-8')\n        if enc_params:", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            enc_params = to_native_string(enc_params)"}]}
+[assistant] On py2 `bytes is str`, so unconditional decode would wrongly turn the query into unicode there. `to_native_string` already handles both versions correctly — use it.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/models.py", "old": "        enc_params = self._encode_params(params)\n        if isinstance(enc_params, bytes):\n            enc_params = enc_params.decode('utf-8')\n        if enc_params:", "new": "        enc_params = self._encode_params(params)\n        if enc_params:\n            enc_params = to_native_string(enc_params)"}]}
 
 === Turn 15 ===
 [user] [tool_result] applied requests/models.py:388-391
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/models.py:L386-L396"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/models.py:L386-L396"]}
 
 === Turn 16 ===
 [user] [tool_result] ## requests/models.py:L386-L396
@@ -99,11 +99,11 @@ requests/mo
             enc_params = to_native_string(enc_params)
             if query:
                 query = '%s&%s' % (query, enc_params)
-[assistant] Now let me verify both the regression test and the original binary-payload scenario pass:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | tail -5\necho \"---- binary body repro ----\"\npython -c \"\nimport requests\nreq = requests.Request('PUT', 'http://httpbin.org/put', data=u'ööö'.encode('utf-8')).prepare()\nprint('body:', req.body)\nprint('content-length:', req.headers.get('Content-Length'))\nprint('OK')\n\""}
+[assistant] Now let me verify both the regression test and the original binary-payload scenario pass:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest test_requests.py::TestRequests::test_params_bytes_are_encoded -q 2>&1 | tail -5\necho \"---- binary body repro ----\"\npython -c \"\nimport requests\nreq = requests.Request('PUT', 'http://httpbin.org/put', data=u'ööö'.encode('utf-8')).prepare()\nprint('body:', req.body)\nprint('content-length:', req.headers.get('Content-Length'))\nprint('OK')\n\""}
 
 === Turn 17 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has 
-[assistant] Both pass. Now let me run the broader local (non-network) test suite to confirm no other regressions:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest test_requests.py -q -p no:cacheprovider 2>&1 | grep -E \"passed|failed|FAILED\" | grep -v \"ERROR\" | tail -20"}
+[assistant] Both pass. Now let me run the broader local (non-network) test suite to confirm no other regressions:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest test_requests.py -q -p no:cacheprovider 2>&1 | grep -E \"passed|failed|FAILED\" | grep -v \"ERROR\" | tail -20"}
 
 === Turn 18 ===
 [user] [tool_result] FAILED test_requests.py::TestRequests::test_connection_error_invalid_domain

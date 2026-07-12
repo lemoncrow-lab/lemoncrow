@@ -38,7 +38,7 @@ Same shallow-comparison issue — inline JSX children or objects created in the 
 
 ---
 
-If you paste the actual component and its parent, I can point to the specific cause rather than the general ones.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep3.flow,True,,,,,,0.0,0
+If you paste the actual component and its parent, I can point to the specific cause rather than the general ones.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep3.flow,True,,,,,,0.0,0
 local1,baseline,1,True,0.062911,12651,13860,2,3503,15192,2077,0,778,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A React component re-renders when its parent re-renders **by default** — that's just how React works. When a parent renders, it re-renders its entire subtree regardless of whether props changed. So this behavior is expected, not a bug in itself.
 
 The question is usually: *how do I stop unnecessary re-renders?* Here's what to check:
@@ -86,7 +86,7 @@ function Parent() {
 
 ---
 
-If you paste the actual component and how the parent passes props, I can point at the specific culprit. Do you have `memo` on it already, or are props being created inline in the parent's JSX?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep1.flow,True,,,,,,0.0,0
+If you paste the actual component and how the parent passes props, I can point at the specific culprit. Do you have `memo` on it already, or are props being created inline in the parent's JSX?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep1.flow,True,,,,,,0.0,0
 local1,baseline,0,True,0.061836,14436,15790,2,3503,15192,2077,0,735,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Your component re-renders because **React re-renders all children by default when a parent re-renders** — regardless of whether that child's props actually changed. This is expected behavior, not a bug. Re-rendering isn't inherently bad (React diffs the virtual DOM and often skips actual DOM updates), but if the render is expensive or causing problems, here's how to control it.
 
 ## The usual causes & fixes
@@ -129,7 +129,7 @@ const onClick = useCallback(() => doThing(), []);
 
 Ask whether the re-render actually costs anything. Premature `memo`/`useCallback`/`useMemo` everywhere adds complexity and its own overhead. Reach for them when you've measured a real performance problem or when a child is genuinely expensive to render.
 
-If you share the actual component + parent code, I can point to the specific reference that's breaking memoization.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep0.flow,True,,,,,,0.0,0
+If you share the actual component + parent code, I can point to the specific reference that's breaking memoization.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep0.flow,True,,,,,,0.0,0
 local1,baseline,2,True,0.066441,20017,21376,2,3503,15192,2077,0,920,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"React components re-render when their parent re-renders by default — that's just how React works. When a parent re-renders, React recursively re-renders all its children, regardless of whether their props actually changed. This is usually fine and fast, but here's how to control it when it matters.
 
 ## Why it happens
@@ -191,8 +191,8 @@ Re-renders are often cheap — React re-rendering ≠ the DOM updating. Don't re
 
 If you share the actual component, I can point at the specific cause — it's usually either a missing `memo` or an unstable prop reference.
 
-Want me to look at the code?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep2.flow,True,,,,,,0.0,0
-local1,atelier,3,True,0.047289,12808,11063,1,5036,16468,0,0,555,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → all children re-render, regardless of whether props changed. Not a bug.
+Want me to look at the code?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep2.flow,True,,,,,,0.0,0
+local1,lemoncrow,3,True,0.047289,12808,11063,1,5036,16468,0,0,555,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → all children re-render, regardless of whether props changed. Not a bug.
 
 **Fix — only if re-render is actually costly** (measure first; most are cheap):
 
@@ -211,8 +211,8 @@ Decision path:
 
 Don't add `memo` everywhere — shallow-compare has its own cost; apply to demonstrably expensive subtrees only.
 
-Paste the parent + child + how props are passed → exact fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_atelier_rep3.flow,True,,,,,,0.0141,-568
-local1,atelier,0,True,0.049309,13707,11865,1,5185,16468,0,0,606,['claude-opus-4-8'],False,False,"Default React behavior: a parent re-render re-renders **all** its children, regardless of whether props changed. Nothing is ""wrong"" — that's the model. Reference equality, not value equality, drives it.
+Paste the parent + child + how props are passed → exact fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_lemoncrow_rep3.flow,True,,,,,,0.0141,-568
+local1,lemoncrow,0,True,0.049309,13707,11865,1,5185,16468,0,0,606,['claude-opus-4-8'],False,False,"Default React behavior: a parent re-render re-renders **all** its children, regardless of whether props changed. Nothing is ""wrong"" — that's the model. Reference equality, not value equality, drives it.
 
 Common causes when you didn't expect it:
 
@@ -235,8 +235,8 @@ Verify: React DevTools Profiler → ""Highlight updates"" or ""Why did this rend
 
 One caveat cutting the other way — memo helps only when the child is expensive *and* re-renders often with identical props; otherwise it's net cost.
 
-Paste the parent + child + how the child's props are built → I'll point at the exact offending line.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_atelier_rep0.flow,True,,,,,,0.0125,-752
-local1,atelier,1,True,0.047584,16745,14786,1,5185,16468,0,0,537,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → **all** children re-render, regardless of whether their props changed. React doesn't diff props to decide *whether* to run the child; it re-runs the child then diffs the output. Nothing wrong by default — usually cheap.
+Paste the parent + child + how the child's props are built → I'll point at the exact offending line.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_lemoncrow_rep0.flow,True,,,,,,0.0125,-752
+local1,lemoncrow,1,True,0.047584,16745,14786,1,5185,16468,0,0,537,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → **all** children re-render, regardless of whether their props changed. React doesn't diff props to decide *whether* to run the child; it re-runs the child then diffs the output. Nothing wrong by default — usually cheap.
 
 Fix only if profiling shows it matters:
 
@@ -256,8 +256,8 @@ Key distinction: re-render ≠ DOM update. React re-running your function is che
 
 To confirm which reason applies: React DevTools Profiler → ""why did this render"" shows props vs. parent-render as the trigger.
 
-Want me to look at the actual component? Point me at the file.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_atelier_rep1.flow,True,,,,,,0.0153,-640
-local1,atelier,2,True,0.046759,12427,10754,1,5185,16468,0,0,504,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → **all** children re-render, regardless of prop changes. Not a bug — React re-renders the subtree by default.
+Want me to look at the actual component? Point me at the file.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_lemoncrow_rep1.flow,True,,,,,,0.0153,-640
+local1,lemoncrow,2,True,0.046759,12427,10754,1,5185,16468,0,0,504,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → **all** children re-render, regardless of prop changes. Not a bug — React re-renders the subtree by default.
 
 Common causes it's *actually* a problem:
 
@@ -278,7 +278,7 @@ Both `memo` + stable props required — either alone won't stop it.
 
 Diagnose which: React DevTools Profiler → ""why did this render"" shows changed props. Or check if props are objects/functions created inline in parent.
 
-Note: re-render ≠ DOM update. React still diffs; unnecessary re-renders only matter if the subtree is expensive or renders are frequent. Measure before memoizing everything.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_atelier_rep2.flow,True,,,,,,0.0197,-465
+Note: re-render ≠ DOM update. React still diffs; unnecessary re-renders only matter if the subtree is expensive or renders are frequent. Measure before memoizing everything.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_lemoncrow_rep2.flow,True,,,,,,0.0197,-465
 local1,baseline,4,True,0.061910999999999994,11204,12129,2,3503,15192,2077,0,738,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The most common cause is that **the parent re-rendering triggers the child to re-render by default** — that's just how React works. When a component renders, React re-renders all of its children, regardless of whether their props changed.
 
 Here are the usual culprits and fixes:
@@ -326,7 +326,7 @@ const value = useMemo(() => ({ user, setUser }), [user]);
 
 ---
 
-If you paste the actual component and its parent, I can point to the specific reason yours re-renders and whether it's even worth fixing.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep4.flow,True,,,,,,0.0,0
+If you paste the actual component and its parent, I can point to the specific reason yours re-renders and whether it's even worth fixing.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_baseline_rep4.flow,True,,,,,,0.0,0
 local2,baseline,0,True,0.077254,22398,23896,2,3496,15192,2070,0,1354,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Database connection pooling is a technique for reusing a set of pre-established database connections instead of opening and closing a new one for every request.
 
 ## The problem it solves
@@ -386,7 +386,7 @@ Requests ──▶  [ borrow ]  ──▶  Pool: [conn1][conn2][conn3]...[connN]
 
 **In short:** connection pooling trades a small amount of idle resource (warm connections) for a large reduction in per-request overhead and a hard cap on database load — one of the highest-impact optimizations for any database-backed application.
 
-Want me to go deeper on a specific angle — sizing math, a particular language/framework's pooler, or PgBouncer's pooling modes (session vs. transaction vs. statement)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep0.flow,True,,,,,,0.0,0
+Want me to go deeper on a specific angle — sizing math, a particular language/framework's pooler, or PgBouncer's pooling modes (session vs. transaction vs. statement)?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep0.flow,True,,,,,,0.0,0
 local2,baseline,1,True,0.075779,21655,22896,2,3496,15192,2070,0,1295,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Database connection pooling is a technique for managing and reusing database connections so that applications don't pay the cost of opening a new connection for every query.
 
 ## The problem it solves
@@ -448,8 +448,8 @@ App threads          Pool                 Database
 
 **In short:** connection pooling trades a small amount of memory (keeping connections open) for large savings in latency and stability by reusing a controlled set of connections instead of constantly creating and tearing them down.
 
-Want me to go deeper on any part — sizing math, PgBouncer's pooling modes, or a code example in a specific language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep1.flow,True,,,,,,0.0,0
-local1,atelier,4,True,0.045454,13660,11806,1,5229,16468,0,0,443,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → all children re-render, regardless of prop changes. Not a bug.
+Want me to go deeper on any part — sizing math, PgBouncer's pooling modes, or a code example in a specific language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep1.flow,True,,,,,,0.0,0
+local1,lemoncrow,4,True,0.045454,13660,11806,1,5229,16468,0,0,443,['claude-opus-4-8'],False,False,"Default React behavior: parent re-renders → all children re-render, regardless of prop changes. Not a bug.
 
 Causes + fixes:
 
@@ -468,7 +468,7 @@ const Child = React.memo(function Child({ onClick }) { ... });
 const onClick = useCallback(() => {...}, [deps]);
 ```
 
-Paste the component + how the parent passes props → I'll point to the exact trigger.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_atelier_rep4.flow,True,,,,,,0.0165,-630
+Paste the component + how the parent passes props → I'll point to the exact trigger.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local1_lemoncrow_rep4.flow,True,,,,,,0.0165,-630
 local2,baseline,2,True,0.074504,20759,21708,2,3496,15192,2070,0,1244,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Database connection pooling is a technique for managing and reusing database connections rather than opening a new one for every request.
 
 ## The problem it solves
@@ -528,8 +528,8 @@ Request ─► [ borrow ] ─► use connection ─► [ return ]
 
 Bigger isn't better. A common starting formula is roughly `connections ≈ (2 × CPU cores) + effective spindle count` on the database, then tune with real metrics. Many high-traffic systems run well with surprisingly small pools (10–20 per instance).
 
-Want me to go deeper on a specific angle — sizing math, handling serverless, or a code example in a particular language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep2.flow,True,,,,,,0.0,0
-local2,atelier,0,True,0.057080500000000006,19107,17419,1,5185,16461,0,0,917,['claude-opus-4-8'],False,False,"**Database connection pooling** — reuse a fixed set of open DB connections instead of opening/closing one per request.
+Want me to go deeper on a specific angle — sizing math, handling serverless, or a code example in a particular language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep2.flow,True,,,,,,0.0,0
+local2,lemoncrow,0,True,0.057080500000000006,19107,17419,1,5185,16461,0,0,917,['claude-opus-4-8'],False,False,"**Database connection pooling** — reuse a fixed set of open DB connections instead of opening/closing one per request.
 
 **Why:** TCP handshake + auth + TLS + backend process spawn = expensive (ms-scale, plus DB-side memory per connection). Under load, per-request connects exhaust DB max connections and dominate latency.
 
@@ -554,8 +554,8 @@ local2,atelier,0,True,0.057080500000000006,19107,17419,1,5185,16461,0,0,917,['cl
 
 **Serverless caveat:** per-invocation processes can't hold a pool → each cold start opens a connection → exhaustion. Use an external proxy (RDS Proxy / PgBouncer) as the shared pool.
 
-Want a config example for a specific stack (Hikari/SQLAlchemy/pg/PgBouncer)?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_atelier_rep0.flow,True,,,,,,0.0202,-451
-local2,atelier,2,True,0.055380500000000006,17727,16020,1,5185,16461,0,0,849,['claude-opus-4-8'],False,False,"Database connection pooling: reuse a fixed set of open DB connections instead of opening/closing one per request.
+Want a config example for a specific stack (Hikari/SQLAlchemy/pg/PgBouncer)?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_lemoncrow_rep0.flow,True,,,,,,0.0202,-451
+local2,lemoncrow,2,True,0.055380500000000006,17727,16020,1,5185,16461,0,0,849,['claude-opus-4-8'],False,False,"Database connection pooling: reuse a fixed set of open DB connections instead of opening/closing one per request.
 
 **Problem it solves.** TCP handshake + TLS + auth + backend process spawn = ~ms–tens of ms per new connection. Under load, that cost dominates, and DBs cap concurrent connections (Postgres default 100). Open-per-request → latency + exhaustion.
 
@@ -583,7 +583,7 @@ local2,atelier,2,True,0.055380500000000006,17727,16020,1,5185,16461,0,0,849,['cl
 - *Oversized* — DB hits `max_connections`, rejects new backends; or too many active queries thrash the server.
 - *Stale* — connection cut by network/DB-side idle kill; validation or `max lifetime` prevents handing out a dead socket.
 
-Rule of thumb: reuse over reconnect, cap below the server limit, always release, recycle old connections.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_atelier_rep2.flow,True,,,,,,0.0191,-493
+Rule of thumb: reuse over reconnect, cap below the server limit, always release, recycle old connections.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_lemoncrow_rep2.flow,True,,,,,,0.0191,-493
 local2,baseline,3,True,0.07507899999999999,20609,21622,2,3496,15192,2070,0,1267,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# Database Connection Pooling
 
 Connection pooling is a technique for managing database connections efficiently by **reusing a cached set of open connections** rather than opening and closing a new one for every request.
@@ -648,8 +648,8 @@ Too large a pool causes contention on the DB (context switching, lock waits) and
 
 **In one sentence:** connection pooling trades a little memory (idle open connections) for large gains in latency and throughput by reusing connections instead of paying the setup/teardown cost on every query.
 
-Want me to go deeper on any part — sizing math, a specific language/library, or PgBouncer's pooling modes?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep3.flow,True,,,,,,0.0,0
-local2,atelier,1,True,0.0543555,20396,18641,1,5185,16461,0,0,808,['claude-opus-4-8'],False,False,"Pool = fixed set of pre-opened DB connections, reused across requests instead of opened/closed per query.
+Want me to go deeper on any part — sizing math, a specific language/library, or PgBouncer's pooling modes?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep3.flow,True,,,,,,0.0,0
+local2,lemoncrow,1,True,0.0543555,20396,18641,1,5185,16461,0,0,808,['claude-opus-4-8'],False,False,"Pool = fixed set of pre-opened DB connections, reused across requests instead of opened/closed per query.
 
 **Why.** Opening a connection is expensive: TCP handshake, TLS, auth, backend process/thread spawn (Postgres forks a process per connection). Per-query open/close adds 1–50ms latency and caps throughput. A pool amortizes that cost — connections stay warm and get handed out.
 
@@ -672,7 +672,7 @@ local2,atelier,1,True,0.0543555,20396,18641,1,5185,16461,0,0,808,['claude-opus-4
 
 **Transaction pitfall.** Reusing connections leaks state — open transactions, session vars (`SET`), temp tables, prepared statements. Pool must reset or the next borrower inherits it. PgBouncer's `transaction` mode returns the connection at each commit; incompatible with session-level features.
 
-Common pools: HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool` (Python), `pg.Pool` (Node), `database/sql` built-in (Go).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_atelier_rep1.flow,True,,,,,,0.0214,-401
+Common pools: HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool` (Python), `pg.Pool` (Node), `database/sql` built-in (Go).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_lemoncrow_rep1.flow,True,,,,,,0.0214,-401
 local3,baseline,0,True,0.06329599999999999,10761,11819,2,3498,15192,2074,0,794,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"**TCP** (Transmission Control Protocol) and **UDP** (User Datagram Protocol) are the two main transport-layer protocols. The core trade-off is **reliability vs. speed**.
 
 ## TCP — Connection-oriented, reliable
@@ -707,7 +707,7 @@ local3,baseline,0,True,0.06329599999999999,10761,11819,2,3498,15192,2074,0,794,"
 - **TCP:** Web (HTTP/HTTPS), email, file transfer (SSH, FTP) — anything where every byte must arrive correctly.
 - **UDP:** Live video/voice (VoIP), gaming, DNS lookups, streaming — where speed matters more than perfect delivery, and a dropped packet is better than a delayed one.
 
-**One nuance:** Modern protocols blur the line. QUIC (used by HTTP/3) is built *on top of* UDP but adds TCP-like reliability and ordering in user space, getting the best of both.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep0.flow,False,off-task capability/list response (list_items=12),,,,,0.0,0
+**One nuance:** Modern protocols blur the line. QUIC (used by HTTP/3) is built *on top of* UDP but adds TCP-like reliability and ordering in user space, getting the best of both.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep0.flow,False,off-task capability/list response (list_items=12),,,,,0.0,0
 local3,baseline,1,True,0.062691,10556,13265,2,3498,15192,2074,0,769,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"TCP and UDP are both transport-layer protocols, but they make opposite tradeoffs between reliability and speed.
 
 ## TCP (Transmission Control Protocol)
@@ -740,7 +740,7 @@ local3,baseline,1,True,0.062691,10556,13265,2,3498,15192,2074,0,769,"['claude-ha
 
 **Rule of thumb:** use TCP when you can't afford to lose data, UDP when you can't afford to wait. (Newer protocols like QUIC/HTTP-3 actually build reliability *on top of* UDP to get the best of both.)
 
-Want me to go deeper on anything — the handshake, congestion control, or how QUIC changes the picture?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep1.flow,False,off-task capability/list response (list_items=12),,,,,0.0,0
+Want me to go deeper on anything — the handshake, congestion control, or how QUIC changes the picture?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep1.flow,False,off-task capability/list response (list_items=12),,,,,0.0,0
 local2,baseline,4,True,0.07297899999999999,20082,21111,2,3496,15192,2070,0,1183,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Database connection pooling is a technique for managing and reusing database connections rather than opening a new one for every request. Here's how it works and why it matters.
 
 ## The problem it solves
@@ -794,8 +794,8 @@ When all connections are in use, new requests **queue** (up to the connection ti
 
 Pooling trades a small amount of memory and complexity for a large reduction in per-request latency and a hard cap that shields your database from connection exhaustion.
 
-Want me to go deeper on any part — sizing math, PgBouncer's pooling modes, or how a specific library implements this?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep4.flow,True,,,,,,0.0,0
-local2,atelier,3,True,0.0556055,19034,17192,1,5185,16461,0,0,858,['claude-opus-4-8'],False,False,"Connection pooling: reuse a fixed set of open DB connections instead of opening one per request.
+Want me to go deeper on any part — sizing math, PgBouncer's pooling modes, or how a specific library implements this?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_baseline_rep4.flow,True,,,,,,0.0,0
+local2,lemoncrow,3,True,0.0556055,19034,17192,1,5185,16461,0,0,858,['claude-opus-4-8'],False,False,"Connection pooling: reuse a fixed set of open DB connections instead of opening one per request.
 
 **Why.** TCP handshake + TLS + DB auth + session setup = expensive (ms-scale, often dwarfs the query). Under load, open-per-request also exhausts the DB's connection cap (each connection = server memory + a backend process/thread).
 
@@ -821,8 +821,8 @@ Connection stays open across many requests → handshake cost paid once, amortiz
 
 **Where it lives.** In-process library (HikariCP, `psycopg_pool`, SQLAlchemy `QueuePool`, Go `database/sql`) or an external proxy (PgBouncer, ProxySQL) that pools on behalf of many app instances — needed when instance count × per-instance pool would blow the DB cap. PgBouncer modes: session (connection per client session), transaction (per transaction — highest reuse, but breaks session-scoped features like prepared statements/`SET`), statement.
 
-Serverless caveat: many short-lived processes each holding a pool = anti-pattern → use an external pooler or a data proxy.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_atelier_rep3.flow,True,,,,,,0.0195,-479
-local3,atelier,0,True,0.044632500000000006,9524,7727,1,5185,16465,0,0,419,['claude-opus-4-8'],False,False,"TCP vs UDP — both transport-layer (L4), different guarantees:
+Serverless caveat: many short-lived processes each holding a pool = anti-pattern → use an external pooler or a data proxy.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_lemoncrow_rep3.flow,True,,,,,,0.0195,-479
+local3,lemoncrow,0,True,0.044632500000000006,9524,7727,1,5185,16465,0,0,419,['claude-opus-4-8'],False,False,"TCP vs UDP — both transport-layer (L4), different guarantees:
 
 **TCP** — connection-oriented, reliable.
 - Handshake first (SYN/SYN-ACK/ACK) before data.
@@ -840,8 +840,8 @@ local3,atelier,0,True,0.044632500000000006,9524,7727,1,5185,16465,0,0,419,['clau
 - Low overhead/latency; 8-byte header. Supports broadcast/multicast.
 - Use: DNS, VoIP, video streaming, games, QUIC/HTTP3 — where speed/timeliness > perfect delivery.
 
-Core tradeoff: TCP buys reliability with latency + state; UDP buys speed by pushing reliability (if wanted) up to the app.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_atelier_rep0.flow,False,off-task capability/list response (list_items=12),,,,,0.0187,-511
-local3,atelier,1,True,0.04625750000000001,12468,10747,1,5185,16465,0,0,484,['claude-opus-4-8'],False,False,"**TCP** — connection-oriented, reliable. **UDP** — connectionless, best-effort.
+Core tradeoff: TCP buys reliability with latency + state; UDP buys speed by pushing reliability (if wanted) up to the app.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_lemoncrow_rep0.flow,False,off-task capability/list response (list_items=12),,,,,0.0187,-511
+local3,lemoncrow,1,True,0.04625750000000001,12468,10747,1,5185,16465,0,0,484,['claude-opus-4-8'],False,False,"**TCP** — connection-oriented, reliable. **UDP** — connectionless, best-effort.
 
 | | TCP | UDP |
 |---|---|---|
@@ -858,7 +858,7 @@ local3,atelier,1,True,0.04625750000000001,12468,10747,1,5185,16465,0,0,484,['cla
 **Use TCP:** HTTP(S), SSH, email, file transfer — anything where a missing byte corrupts the result.
 **Use UDP:** DNS, VoIP, live video, games — where a late packet is worse than a lost one; app handles loss if needed.
 
-Note: HTTP/3 (QUIC) runs reliability *over* UDP to escape TCP's head-of-line blocking — reliable delivery without the kernel TCP stack.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_atelier_rep1.flow,False,no task keyword overlap,,,,,0.0164,-601
+Note: HTTP/3 (QUIC) runs reliability *over* UDP to escape TCP's head-of-line blocking — reliable delivery without the kernel TCP stack.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_lemoncrow_rep1.flow,False,no task keyword overlap,,,,,0.0164,-601
 local3,baseline,2,True,0.06516599999999999,12729,13766,2,3498,15192,2074,0,868,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"TCP and UDP are both transport-layer protocols that sit on top of IP, but they make opposite trade-offs between reliability and speed.
 
 ## TCP (Transmission Control Protocol)
@@ -898,8 +898,8 @@ local3,baseline,2,True,0.06516599999999999,12729,13766,2,3498,15192,2074,0,868,"
 
 **Rule of thumb**: Use TCP when you can't afford to lose data; use UDP when you can't afford to wait. (Note: modern protocols like QUIC/HTTP-3 build reliability *on top of* UDP to get the best of both.)
 
-Want me to go deeper on any part — the handshake, congestion control, or how QUIC changes the picture?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep2.flow,False,off-task capability/list response (list_items=11),,,,,0.0,0
-local2,atelier,4,True,0.054380500000000005,16815,15017,1,5185,16461,0,0,809,['claude-opus-4-8'],False,False,"Database connection pooling = reuse a fixed set of open DB connections across many requests instead of opening/closing one per query.
+Want me to go deeper on any part — the handshake, congestion control, or how QUIC changes the picture?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep2.flow,False,off-task capability/list response (list_items=11),,,,,0.0,0
+local2,lemoncrow,4,True,0.054380500000000005,16815,15017,1,5185,16461,0,0,809,['claude-opus-4-8'],False,False,"Database connection pooling = reuse a fixed set of open DB connections across many requests instead of opening/closing one per query.
 
 **Why.** Opening a connection is expensive: TCP handshake, TLS, auth, backend process/thread spawn (Postgres forks a process per connection). Per-request cost = tens of ms + memory. DBs also cap total connections; unbounded opens → exhaustion, refused connections.
 
@@ -923,7 +923,7 @@ local2,atelier,4,True,0.054380500000000005,16815,15017,1,5185,16461,0,0,809,['cl
 
 **Common failure.** Connection leak — borrow without release (missing `finally`/context manager) → pool drains → every request blocks on acquire timeout. Always release in `finally` / use the pool's context-manager API.
 
-Serverless caveat: many short-lived function instances each open a pool → DB connection storm; use an external pooler or a proxy there.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_atelier_rep4.flow,True,,,,,,0.0186,-514
+Serverless caveat: many short-lived function instances each open a pool → DB connection storm; use an external pooler or a proxy there.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local2_lemoncrow_rep4.flow,True,,,,,,0.0186,-514
 local3,baseline,3,True,0.06566599999999999,14031,15060,2,3498,15192,2074,0,888,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"TCP and UDP are both transport-layer protocols, but they make opposite trade-offs between reliability and speed.
 
 ## TCP (Transmission Control Protocol)
@@ -965,7 +965,7 @@ A useful mental model: **TCP is a phone call** (you establish a connection, conf
 
 One note: newer protocols like **QUIC** (used by HTTP/3) are built on UDP but add TCP-like reliability in userspace to get the best of both — an increasingly common pattern.
 
-Want me to go deeper on anything — the TCP handshake, congestion control algorithms, or how QUIC works?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep3.flow,False,off-task capability/list response (list_items=11),,,,,0.0,0
+Want me to go deeper on anything — the TCP handshake, congestion control algorithms, or how QUIC works?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep3.flow,False,off-task capability/list response (list_items=11),,,,,0.0,0
 local3,baseline,4,True,0.06570100000000001,13824,14852,2,3498,15192,2074,0,891,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a general networking question, not a task involving your codebase. Here's the breakdown:
 
 ## TCP vs UDP
@@ -1004,8 +1004,8 @@ Both are transport-layer protocols that sit on top of IP, but they make opposite
 
 **Note:** Modern protocols sometimes rebuild reliability on top of UDP to get the best of both — e.g. **QUIC** (used by HTTP/3) runs over UDP but adds its own ordering, retransmission, and congestion control while avoiding TCP's handshake latency.
 
-Want me to go deeper on any part — the handshake, congestion control algorithms, or how QUIC works?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep4.flow,True,,,,,,0.0,0
-local3,atelier,2,True,0.04448250000000001,13878,11964,1,5185,16465,0,0,413,['claude-opus-4-8'],False,False,"Both transport-layer protocols over IP; differ in guarantees vs speed.
+Want me to go deeper on any part — the handshake, congestion control algorithms, or how QUIC works?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_baseline_rep4.flow,True,,,,,,0.0,0
+local3,lemoncrow,2,True,0.04448250000000001,13878,11964,1,5185,16465,0,0,413,['claude-opus-4-8'],False,False,"Both transport-layer protocols over IP; differ in guarantees vs speed.
 
 **TCP** — connection-oriented, reliable.
 - Handshake (SYN/SYN-ACK/ACK) before data.
@@ -1021,8 +1021,8 @@ local3,atelier,2,True,0.04448250000000001,13878,11964,1,5185,16465,0,0,413,['cla
 - Lower overhead/latency; header 8 bytes.
 - Use: DNS, VoIP, video streaming, gaming, QUIC — where speed > perfection and app tolerates/handles loss.
 
-Core tradeoff: TCP buys reliability + ordering with latency and state; UDP buys speed + simplicity by pushing any reliability up to the application.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_atelier_rep2.flow,False,off-task capability/list response (list_items=10),,,,,0.0207,-431
-local3,atelier,3,True,0.045632500000000006,10569,8690,1,5185,16465,0,0,459,['claude-opus-4-8'],False,False,"Core difference: **TCP** = reliable, connection-oriented, ordered. **UDP** = fast, connectionless, best-effort.
+Core tradeoff: TCP buys reliability + ordering with latency and state; UDP buys speed + simplicity by pushing any reliability up to the application.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_lemoncrow_rep2.flow,False,off-task capability/list response (list_items=10),,,,,0.0207,-431
+local3,lemoncrow,3,True,0.045632500000000006,10569,8690,1,5185,16465,0,0,459,['claude-opus-4-8'],False,False,"Core difference: **TCP** = reliable, connection-oriented, ordered. **UDP** = fast, connectionless, best-effort.
 
 | | TCP | UDP |
 |---|---|---|
@@ -1040,8 +1040,8 @@ local3,atelier,3,True,0.045632500000000006,10569,8690,1,5185,16465,0,0,459,['cla
 - TCP — correctness matters: HTTP(S), file transfer, email, SSH, databases.
 - UDP — latency > completeness, or app handles reliability: video/voice (VoIP, streaming), gaming, DNS, DHCP.
 
-Note: QUIC (HTTP/3) builds TCP-like reliability *on top of* UDP to get both control and speed.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_atelier_rep3.flow,True,,,,,,0.02,-457
-local3,atelier,4,True,0.0444075,9649,7900,1,5185,16465,0,0,410,['claude-opus-4-8'],False,False,"Both transport-layer protocols; differ in reliability vs speed tradeoff.
+Note: QUIC (HTTP/3) builds TCP-like reliability *on top of* UDP to get both control and speed.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_lemoncrow_rep3.flow,True,,,,,,0.02,-457
+local3,lemoncrow,4,True,0.0444075,9649,7900,1,5185,16465,0,0,410,['claude-opus-4-8'],False,False,"Both transport-layer protocols; differ in reliability vs speed tradeoff.
 
 **TCP** — connection-oriented, reliable, ordered.
 - Handshake (SYN/SYN-ACK/ACK) before data.
@@ -1058,7 +1058,7 @@ local3,atelier,4,True,0.0444075,9649,7900,1,5185,16465,0,0,410,['claude-opus-4-8
 - Low overhead (8-byte header), low latency.
 - Use: DNS, VoIP, video streaming, games, QUIC/HTTP-3 — where speed beats occasional loss.
 
-One line: TCP = reliable stream, pays latency for guarantees; UDP = fast datagrams, drops the guarantees.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_atelier_rep4.flow,False,off-task capability/list response (list_items=11),,,,,0.0213,-405
+One line: TCP = reliable stream, pays latency for guarantees; UDP = fast datagrams, drops the guarantees.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local3_lemoncrow_rep4.flow,False,off-task capability/list response (list_items=11),,,,,0.0213,-405
 local4,baseline,0,True,0.077534,21657,23508,2,3506,15192,2081,0,1362,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a practical playbook for tracking down and fixing a memory leak in a long-running Node.js process.
 
 ## 1. Confirm it's actually a leak
@@ -1122,7 +1122,7 @@ Re-run the same load test and confirm `heapUsed` returns to a stable baseline af
 
 ---
 
-If you share the actual symptom (which metric is climbing, or a suspect snapshot diff) or point me at the code, I can help narrow it to the specific culprit. Is this happening in a particular service in this repo, or a general question?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep0.flow,True,,,,,,0.0,0
+If you share the actual symptom (which metric is climbing, or a suspect snapshot diff) or point me at the code, I can help narrow it to the specific culprit. Is this happening in a particular service in this repo, or a general question?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep0.flow,True,,,,,,0.0,0
 local4,baseline,2,True,0.073809,18826,19843,2,3506,15192,2081,0,1213,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a practical playbook for tracking down and fixing a memory leak in a long-running Node.js process.
 
 ## 1. Confirm it's actually a leak
@@ -1187,7 +1187,7 @@ If you tell me a bit more, I can get specific:
 - Is it `heapUsed` or `external`/`rss` that's growing?
 - Anything obvious that runs per-request (caches, listeners, timers)?
 
-And if this is happening in **this repo**, point me at the entry point and I'll help you instrument it and hunt down the actual retainer.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep2.flow,True,,,,,,0.0,0
+And if this is happening in **this repo**, point me at the entry point and I'll help you instrument it and hunt down the actual retainer.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep2.flow,True,,,,,,0.0,0
 local4,baseline,1,True,0.075609,20552,21867,2,3506,15192,2081,0,1285,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Debugging a Node.js memory leak comes down to three phases: **confirm it's real**, **find what's retained**, and **fix the retention**. Here's the practical workflow.
 
 ## 1. Confirm it's actually a leak
@@ -1252,7 +1252,7 @@ Load the `.heapsnapshot` files into Chrome DevTools afterward. `clinic heapprofi
 - Track GC pressure with `--trace-gc`.
 - Add a memory-usage alert in production so you catch regressions early.
 
-If you have a specific process here you want to profile, point me at it and I can help set up snapshots and read the retainer chains — or tell me what the memory graph looks like (`heapUsed` vs `rss` vs `external`) and I'll narrow down the likely cause.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep1.flow,True,,,,,,0.0,0
+If you have a specific process here you want to profile, point me at it and I can help set up snapshots and read the retainer chains — or tell me what the memory graph looks like (`heapUsed` vs `rss` vs `external`) and I'll narrow down the likely cause.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep1.flow,True,,,,,,0.0,0
 local4,baseline,3,True,0.07195900000000001,21728,22982,2,3506,15192,2081,0,1139,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Fixing a Node.js memory leak is a two-phase job: **find it**, then **fix it**. Most people jump to fixes and guess wrong, so lead with measurement.
 
 ## 1. Confirm it's actually a leak
@@ -1312,8 +1312,8 @@ Almost all Node leaks are one of these — something keeps a reference alive:
 
 If you can share the symptom — is `heapUsed` climbing or is it `rss`/`external`? and what does the process do (HTTP server, worker, queue consumer)? — I can point you at the likely cause and help read a heap snapshot diff.
 
-Want me to look at the actual code? If you point me at the repo or the suspect file, I'll hunt for the retained references directly.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep3.flow,True,,,,,,0.0,0
-local4,atelier,0,True,0.055486,22355,20658,1,5185,16472,0,0,853,['claude-opus-4-8'],False,False,"Not a codebase task — general methodology. Answer:
+Want me to look at the actual code? If you point me at the repo or the suspect file, I'll hunt for the retained references directly.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep3.flow,True,,,,,,0.0,0
+local4,lemoncrow,0,True,0.055486,22355,20658,1,5185,16472,0,0,853,['claude-opus-4-8'],False,False,"Not a codebase task — general methodology. Answer:
 
 **Fix = find the retained-object graph, cut the reference.** Node leaks are almost always unintended references keeping objects alive across the event loop.
 
@@ -1337,8 +1337,8 @@ Three snapshots (baseline → load → idle); objects present in all three and g
 
 Tooling: `clinic doctor` / `clinic heapprofiler` (autocannon load), or `node --heapsnapshot-near-heap-limit=3 --max-old-space-size=…` to auto-dump before OOM.
 
-If you have the actual process/code, point me at it — I'll snapshot-diff and cut the reference rather than guess.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_atelier_rep0.flow,True,,,,,,0.022,-369
-local4,atelier,1,True,0.053331,17298,15576,1,5229,16472,0,0,758,['claude-opus-4-8'],False,False,"No repo given → general methodology.
+If you have the actual process/code, point me at it — I'll snapshot-diff and cut the reference rather than guess.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_lemoncrow_rep0.flow,True,,,,,,0.022,-369
+local4,lemoncrow,1,True,0.053331,17298,15576,1,5229,16472,0,0,758,['claude-opus-4-8'],False,False,"No repo given → general methodology.
 
 **Diagnose first, don't guess.** Confirm it's a real leak: `--max-old-space-size` aside, log `process.memoryUsage().heapUsed` on an interval. Steady climb across GCs = leak; sawtooth that returns to baseline = normal.
 
@@ -1359,8 +1359,8 @@ local4,atelier,1,True,0.053331,17298,15576,1,5229,16472,0,0,758,['claude-opus-4-
 
 Verify the fix: run with `--expose-gc`, force `global.gc()` between iterations, confirm `heapUsed` flat over N cycles — not just ""looks better.""
 
-Share the code (or a snapshot diff) and I'll pinpoint it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_atelier_rep1.flow,True,,,,,,0.0223,-395
-local4,atelier,3,True,0.051211,15036,13281,1,5185,16472,0,0,682,['claude-opus-4-8'],False,False,"Diagnose first, then fix — a leak is retained references, not just ""high memory.""
+Share the code (or a snapshot diff) and I'll pinpoint it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_lemoncrow_rep1.flow,True,,,,,,0.0223,-395
+local4,lemoncrow,3,True,0.051211,15036,13281,1,5185,16472,0,0,682,['claude-opus-4-8'],False,False,"Diagnose first, then fix — a leak is retained references, not just ""high memory.""
 
 **Find it**
 - Run with `node --expose-gc` and take heap snapshots via Chrome DevTools (`node --inspect`) at intervals. Load 3 snapshots, use the ""Comparison"" view — objects whose count grows monotonically across snapshots are the leak.
@@ -1379,8 +1379,8 @@ local4,atelier,3,True,0.051211,15036,13281,1,5185,16472,0,0,682,['claude-opus-4-
 2. Cut that reference — bound, weak-ref, or explicitly remove.
 3. Re-run the same load, confirm `heapUsed` plateaus instead of climbing.
 
-Point me at the process (repo, or the snapshot/`memoryUsage` trend) and I'll locate the specific retainer and patch it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_atelier_rep3.flow,True,,,,,,0.0207,-421
-local4,atelier,2,True,0.057881,19841,17959,1,5229,16472,0,0,940,['claude-opus-4-8'],False,False,"No repo context → general guidance.
+Point me at the process (repo, or the snapshot/`memoryUsage` trend) and I'll locate the specific retainer and patch it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_lemoncrow_rep3.flow,True,,,,,,0.0207,-421
+local4,lemoncrow,2,True,0.057881,19841,17959,1,5229,16472,0,0,940,['claude-opus-4-8'],False,False,"No repo context → general guidance.
 
 **1. Confirm it's a leak.** Watch RSS/heap over time under steady load. `node --expose-gc`, log `process.memoryUsage().heapUsed` on interval. Rising heap that never drops after GC = leak. Rising RSS with flat heap = native/buffer leak, not JS objects.
 
@@ -1405,7 +1405,7 @@ local4,atelier,2,True,0.057881,19841,17959,1,5229,16472,0,0,940,['claude-opus-4-
 
 Fastest path: two heap snapshots under load, Comparison view, sort by Delta, look at what's retained and *why* (the retainer chain names the exact reference holding it). That names the leak in minutes.
 
-Want me to look at actual code — paste the process's hot path (caches, listeners, timers, request handler) and I'll point at the specific retainer.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_atelier_rep2.flow,True,,,,,,0.0159,-649
+Want me to look at actual code — paste the process's hot path (caches, listeners, timers, request handler) and I'll point at the specific retainer.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_lemoncrow_rep2.flow,True,,,,,,0.0159,-649
 local5,baseline,0,True,0.066007,13336,14467,2,3499,15192,2078,0,900,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query *before* (or instead of) actually running it. It's the primary tool for diagnosing why a query is slow.
 
 ## What it tells you
@@ -1444,7 +1444,7 @@ Details vary by database:
 - **Oracle** — `EXPLAIN PLAN FOR ...` then query `DBMS_XPLAN`
 - **SQLite** — `EXPLAIN QUERY PLAN`
 
-Want me to walk through reading an actual `EXPLAIN` output for a specific query and database?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep0.flow,True,,,,,,0.0,0
+Want me to walk through reading an actual `EXPLAIN` output for a specific query and database?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep0.flow,True,,,,,,0.0,0
 local4,baseline,4,True,0.077284,21976,23204,2,3506,15192,2081,0,1352,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a practical playbook for tracking down and fixing memory leaks in a long-running Node.js process.
 
 ## 1. Confirm it's actually a leak
@@ -1515,7 +1515,7 @@ After a fix, re-run the same load and confirm the heap floor stabilizes. A fix i
 
 ---
 
-If you can share what you're seeing — which metric climbs (`heapUsed` vs `external` vs `rss`), and roughly what the process does (HTTP server, queue worker, WebSockets, etc.) — I can point you at the most likely cause and help read a snapshot diff. If it's a specific codebase, I can also dig into the source directly.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep4.flow,True,,,,,,0.0,0
+If you can share what you're seeing — which metric climbs (`heapUsed` vs `external` vs `rss`), and roughly what the process does (HTTP server, queue worker, WebSockets, etc.) — I can point you at the most likely cause and help read a snapshot diff. If it's a specific codebase, I can also dig into the source directly.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_baseline_rep4.flow,True,,,,,,0.0,0
 local5,baseline,2,True,0.065232,12681,13808,2,3499,15192,2078,0,869,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query. Instead of executing the query (or in some cases while executing it), it reports the strategy the query optimizer chose.
 
 ## What it tells you
@@ -1558,7 +1558,7 @@ It's the primary tool for **diagnosing slow queries**. Common red flags to look 
 - Plain `EXPLAIN` — estimates only; does **not** execute the query. Safe and instant.
 - `EXPLAIN ANALYZE` — **actually executes** the query and reports real timings and row counts. Be careful with `INSERT`/`UPDATE`/`DELETE`, since it will perform the writes (wrap in a transaction and roll back if needed).
 
-Want me to walk through reading an example plan for a specific query or database?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep2.flow,True,,,,,,0.0,0
+Want me to walk through reading an example plan for a specific query or database?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep2.flow,True,,,,,,0.0,0
 local5,baseline,1,True,0.066657,14383,16195,2,3499,15192,2078,0,926,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query, *without actually running it* (in most cases). It's the primary tool for diagnosing why a query is slow.
 
 ## What it tells you
@@ -1605,8 +1605,8 @@ Compare **estimated rows vs. actual rows** using `EXPLAIN ANALYZE`. A large mism
 
 ⚠️ `EXPLAIN ANALYZE` **executes the query**, including `INSERT`/`UPDATE`/`DELETE`. Wrap those in a transaction and roll back if you don't want the changes to persist.
 
-Syntax and output differ by engine (PostgreSQL, MySQL, SQL Server's `SET SHOWPLAN`, Oracle's `EXPLAIN PLAN`). Want me to walk through a specific query or database?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep1.flow,True,,,,,,0.0,0
-local5,atelier,0,True,0.0505045,14803,12795,1,5229,16469,0,0,645,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` shows the **query execution plan** — how the database *intends* to run your query, without (or with, if you ask) running it.
+Syntax and output differ by engine (PostgreSQL, MySQL, SQL Server's `SET SHOWPLAN`, Oracle's `EXPLAIN PLAN`). Want me to walk through a specific query or database?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep1.flow,True,,,,,,0.0,0
+local5,lemoncrow,0,True,0.0505045,14803,12795,1,5229,16469,0,0,645,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` shows the **query execution plan** — how the database *intends* to run your query, without (or with, if you ask) running it.
 
 What it tells you:
 
@@ -1624,8 +1624,8 @@ Estimates vs. reality: plain `EXPLAIN` only *plans* — numbers are the optimize
 
 How to read it: the key tell is **estimated rows vs. actual rows** — a large mismatch means stale statistics (fix: `ANALYZE`) and explains bad plan choices. Then hunt seq scans on large tables and sorts/hashes that spill to disk.
 
-Syntax/output differs by engine — say which DB and I'll give the exact flags and a worked example.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_atelier_rep0.flow,True,,,,,,0.0155,-674
-local5,atelier,1,True,0.047859500000000006,12770,10869,1,5185,16469,0,0,548,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` = the query planner's execution plan for a statement — *how* the DB will run it, without (usually) running it.
+Syntax/output differs by engine — say which DB and I'll give the exact flags and a worked example.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_lemoncrow_rep0.flow,True,,,,,,0.0155,-674
+local5,lemoncrow,1,True,0.047859500000000006,12770,10869,1,5185,16469,0,0,548,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` = the query planner's execution plan for a statement — *how* the DB will run it, without (usually) running it.
 
 Tells you:
 - **Access method** per table — full table/seq scan vs index scan vs index-only scan. Seq scan on a big table = missing/unused index.
@@ -1641,8 +1641,8 @@ Dialect notes:
 - MySQL: `EXPLAIN` gives `type`, `key`, `rows`, `Extra` (watch for `Using filesort`/`Using temporary`); `EXPLAIN ANALYZE` (8.0+) runs it.
 - SQLite: `EXPLAIN QUERY PLAN` for the readable version.
 
-Key caveat: plain `EXPLAIN` = estimates; `EXPLAIN ANALYZE` = measured reality. For tuning, use ANALYZE and compare estimated vs actual rows.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_atelier_rep1.flow,True,,,,,,0.0188,-507
-local5,atelier,2,True,0.0483095,15483,13507,1,5185,16469,0,0,566,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` shows the database's **query execution plan** — how the engine intends to run a statement, without (usually) running it.
+Key caveat: plain `EXPLAIN` = estimates; `EXPLAIN ANALYZE` = measured reality. For tuning, use ANALYZE and compare estimated vs actual rows.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_lemoncrow_rep1.flow,True,,,,,,0.0188,-507
+local5,lemoncrow,2,True,0.0483095,15483,13507,1,5185,16469,0,0,566,['claude-opus-4-8'],False,False,"SQL `EXPLAIN` shows the database's **query execution plan** — how the engine intends to run a statement, without (usually) running it.
 
 Tells you:
 - **Access method** per table — full/sequential scan vs. index scan vs. index-only scan. The single biggest signal: seq scan on a large table = missing/unused index.
@@ -1657,8 +1657,8 @@ Variants (Postgres):
 
 MySQL: `EXPLAIN` gives `type` (ALL = full scan, ref/eq_ref/range = index use), `key` (index chosen), `rows` (estimated scanned); `EXPLAIN ANALYZE` (8.0.18+) runs it for real timings.
 
-Read it to answer: is an index used, and is the plan's cost dominated by one node you can fix?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_atelier_rep2.flow,True,,,,,,0.0169,-582
-local4,atelier,4,True,0.059886,21629,19946,1,5185,16472,0,0,1029,['claude-opus-4-8'],False,False,"Not a code task — no repo to inspect. Here's the workflow.
+Read it to answer: is an index used, and is the plan's cost dominated by one node you can fix?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_lemoncrow_rep2.flow,True,,,,,,0.0169,-582
+local4,lemoncrow,4,True,0.059886,21629,19946,1,5185,16472,0,0,1029,['claude-opus-4-8'],False,False,"Not a code task — no repo to inspect. Here's the workflow.
 
 ## 1. Confirm it's actually a leak
 Log heap over time: `process.memoryUsage().heapUsed`. Real leak = monotonic rise across GC cycles that never recovers. Sawtooth that returns to baseline = normal. Run with `--expose-gc` and force `global.gc()` before sampling to rule out lazy GC.
@@ -1688,7 +1688,7 @@ Apply the eviction/removal, then **soak test**: drive sustained load (autocannon
 
 Most common single answer: **an unbounded cache or an un-removed event listener on a hot path.** Snapshot-diff to find which; bound or remove to fix; soak to prove.
 
-Want me to inspect a specific process — share the file/repo and I'll find the actual retained set.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_atelier_rep4.flow,True,,,,,,0.0174,-555
+Want me to inspect a specific process — share the file/repo and I'll find the actual retained set.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local4_lemoncrow_rep4.flow,True,,,,,,0.0174,-555
 local5,baseline,4,True,0.063007,12796,13855,2,3499,15192,2078,0,780,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query, without (usually) actually running it. It's the primary tool for understanding and diagnosing query performance.
 
 ## What it tells you
@@ -1727,7 +1727,7 @@ Plain `EXPLAIN` shows the optimizer's **estimates**. Most engines have a variant
 
 The key skill is reading it: look for full scans on large tables, big gaps between estimated and actual row counts, and expensive sorts — those are your optimization targets.
 
-Which database are you using? I can walk through interpreting a specific plan if you share one.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep4.flow,True,,,,,,0.0,0
+Which database are you using? I can walk through interpreting a specific plan if you share one.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep4.flow,True,,,,,,0.0,0
 local5,baseline,3,True,0.067912,15184,16353,2,3499,15192,2078,0,977,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The SQL `EXPLAIN` command shows you the **query execution plan** — how the database engine intends to run your query, without (usually) actually running it. It's your primary tool for understanding and diagnosing query performance.
 
 ## What it tells you
@@ -1758,7 +1758,7 @@ local5,baseline,3,True,0.067912,15184,16353,2,3499,15192,2078,0,977,"['claude-ha
 3. Expensive sorts or hash operations spilling to disk.
 4. Join order and type that could be improved with an index.
 
-If you tell me which database you're using and share a specific query and its `EXPLAIN` output, I can help you read it and find the bottleneck.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep3.flow,True,,,,,,0.0,0
+If you tell me which database you're using and share a specific query and its `EXPLAIN` output, I can help you read it and find the bottleneck.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_baseline_rep3.flow,True,,,,,,0.0,0
 local6,baseline,0,True,0.063641,14812,16329,2,3498,15192,2072,0,807,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a general computer-science question, so no codebase work is needed.
 
 A hash table handles collisions — cases where two keys hash to the same bucket index — using one of two main strategies:
@@ -1793,7 +1793,7 @@ Both approaches degrade as the table fills, measured by the **load factor** (ent
 
 **In short:** collisions are inevitable (pigeonhole principle), so hash tables either *chain* colliding entries together in each bucket or *probe* for alternative slots — and resize to keep collisions infrequent.
 
-Want me to show a concrete implementation of either approach in a particular language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep0.flow,True,,,,,,0.0,0
+Want me to show a concrete implementation of either approach in a particular language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep0.flow,True,,,,,,0.0,0
 local6,baseline,1,True,0.063466,11986,14229,2,3498,15192,2072,0,800,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a conceptual question, so let me answer directly.
 
 Hash tables handle collisions — when two keys hash to the same bucket index — using two main families of strategies:
@@ -1823,8 +1823,8 @@ Both approaches depend on the **load factor** α = n/m (entries ÷ buckets). As 
 
 A newer variant worth knowing: **Robin Hood hashing** (an open-addressing tweak) evens out probe distances by having ""richer"" entries yield slots to ""poorer"" ones, tightening worst-case behavior.
 
-Want me to show a concrete implementation of either approach in a specific language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep1.flow,True,,,,,,0.0,0
-local5,atelier,4,True,0.0494095,12092,10423,1,5185,16469,0,0,610,['claude-opus-4-8'],False,False,"SQL EXPLAIN shows the **query execution plan** — how the database engine intends to run a query, without running it (add `ANALYZE` to actually run it and get real numbers).
+Want me to show a concrete implementation of either approach in a specific language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep1.flow,True,,,,,,0.0,0
+local5,lemoncrow,4,True,0.0494095,12092,10423,1,5185,16469,0,0,610,['claude-opus-4-8'],False,False,"SQL EXPLAIN shows the **query execution plan** — how the database engine intends to run a query, without running it (add `ANALYZE` to actually run it and get real numbers).
 
 What it tells you:
 
@@ -1843,8 +1843,8 @@ Syntax varies by engine:
 - **MySQL**: `EXPLAIN SELECT …` / `EXPLAIN ANALYZE` (8.0+) / `EXPLAIN FORMAT=JSON`
 - **SQLite**: `EXPLAIN QUERY PLAN SELECT …`
 
-Read plans **bottom-up, inner-to-outer** — deepest/most-indented node runs first.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_atelier_rep4.flow,True,,,,,,0.0136,-715
-local6,atelier,0,True,0.046301499999999995,10925,9000,1,5229,16463,0,0,477,['claude-opus-4-8'],False,False,"Collisions = two keys hashing to the same bucket. Two main strategies:
+Read plans **bottom-up, inner-to-outer** — deepest/most-indented node runs first.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_lemoncrow_rep4.flow,True,,,,,,0.0136,-715
+local6,lemoncrow,0,True,0.046301499999999995,10925,9000,1,5229,16463,0,0,477,['claude-opus-4-8'],False,False,"Collisions = two keys hashing to the same bucket. Two main strategies:
 
 **1. Separate chaining** — each bucket holds a linked list (or dynamic array/tree) of entries. Colliding keys append to the bucket's list. Lookup: hash → bucket → scan list comparing keys. Java's `HashMap` uses this (converts list→red-black tree past 8 entries per bucket).
 
@@ -1857,8 +1857,8 @@ Lookup replays the same probe sequence until key found or empty slot hit. Deleti
 
 **Load factor** (n/buckets) drives both: past a threshold (~0.75 chaining, ~0.7 open addressing) the table resizes and rehashes all entries — keeps average O(1) operations from degrading toward O(n).
 
-Trade-off: chaining tolerates high load + easy deletes but costs pointer indirection; open addressing wins on cache locality but degrades sharply near full.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_atelier_rep0.flow,True,,,,,,0.0173,-600
-local5,atelier,3,True,0.050704500000000007,12957,11123,1,5229,16469,0,0,653,['claude-opus-4-8'],False,False,"`EXPLAIN` shows the query planner's chosen **execution plan** for a statement — how the DB *intends* to run it, without running it. `EXPLAIN ANALYZE` actually runs it and adds measured timings/row counts.
+Trade-off: chaining tolerates high load + easy deletes but costs pointer indirection; open addressing wins on cache locality but degrades sharply near full.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_lemoncrow_rep0.flow,True,,,,,,0.0173,-600
+local5,lemoncrow,3,True,0.050704500000000007,12957,11123,1,5229,16469,0,0,653,['claude-opus-4-8'],False,False,"`EXPLAIN` shows the query planner's chosen **execution plan** for a statement — how the DB *intends* to run it, without running it. `EXPLAIN ANALYZE` actually runs it and adds measured timings/row counts.
 
 What you read from it:
 
@@ -1876,8 +1876,8 @@ Syntax varies by engine:
 - MySQL: `EXPLAIN <query>`; `EXPLAIN ANALYZE` (8.0+); `EXPLAIN FORMAT=JSON`.
 - SQLite: `EXPLAIN QUERY PLAN <query>` for the readable version.
 
-Caveat: `ANALYZE` executes the statement — for `INSERT/UPDATE/DELETE` wrap in a transaction and roll back, or it mutates data.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_atelier_rep3.flow,True,,,,,,0.0172,-605
-local6,atelier,1,True,0.049806500000000004,12582,10851,1,5185,16463,0,0,626,['claude-opus-4-8'],False,False,"Two main strategies:
+Caveat: `ANALYZE` executes the statement — for `INSERT/UPDATE/DELETE` wrap in a transaction and roll back, or it mutates data.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local5_lemoncrow_rep3.flow,True,,,,,,0.0172,-605
+local6,lemoncrow,1,True,0.049806500000000004,12582,10851,1,5185,16463,0,0,626,['claude-opus-4-8'],False,False,"Two main strategies:
 
 **Chaining (separate chaining).** Each bucket holds a pointer to a secondary structure — linked list, dynamic array, or (for worst-case bounds) a balanced tree. Colliding keys append to that bucket's list. Lookup: hash to bucket → scan the chain comparing keys. Load factor α = n/m can exceed 1; cost is O(1 + α) average. Java's `HashMap` (list, promoting to a red-black tree past 8 entries) works this way.
 
@@ -1893,7 +1893,7 @@ Cross-cutting mechanisms:
 - **Good hash + prime/power-of-two table size** — spreads keys, minimizes collisions upstream.
 - **Adversary resistance** — randomized seed (SipHash) prevents deliberate collision-flooding DoS.
 
-Rule of thumb: chaining tolerates high load and easy deletion; open addressing wins on memory locality and cache performance at moderate load.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_atelier_rep1.flow,True,,,,,,0.0137,-712
+Rule of thumb: chaining tolerates high load and easy deletion; open addressing wins on memory locality and cache performance at moderate load.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_lemoncrow_rep1.flow,True,,,,,,0.0137,-712
 local6,baseline,2,True,0.06675099999999999,13692,15494,2,3498,15192,2072,0,933,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A hash table handles collisions — cases where two different keys hash to the same bucket index — using a few well-established strategies. The two main families are **separate chaining** and **open addressing**.
 
 ## 1. Separate Chaining
@@ -1935,7 +1935,7 @@ All entries live in the array itself. On a collision, you *probe* for the next f
 
 **Rule of thumb:** chaining is the safe, general-purpose default; open addressing wins when memory is tight and you can keep the load factor moderate.
 
-Want me to show a concrete implementation of either approach in a specific language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep2.flow,True,,,,,,0.0,0
+Want me to show a concrete implementation of either approach in a specific language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep2.flow,True,,,,,,0.0,0
 local6,baseline,3,True,0.065241,13458,14621,2,3498,15192,2072,0,871,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A hash table handles collisions — when two different keys hash to the same bucket index — using one of two main strategies:
 
 ## 1. Separate Chaining
@@ -1972,7 +1972,7 @@ Lookup follows the same probe sequence until it finds the key or an empty slot. 
 ## The real defense: keeping collisions rare
 Both strategies degrade as the table fills, so implementations **resize** (typically double the bucket count and rehash everything) once the *load factor* (entries ÷ buckets) crosses a threshold. Combined with a good hash function that distributes keys uniformly, this keeps the average bucket small and lookups close to **O(1)**.
 
-Want me to go deeper on any one of these — e.g. show a worked example, or discuss real-world implementations like Python's dict or Go's map?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep3.flow,True,,,,,,0.0,0
+Want me to go deeper on any one of these — e.g. show a worked example, or discuss real-world implementations like Python's dict or Go's map?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep3.flow,True,,,,,,0.0,0
 local6,baseline,4,True,0.068846,14771,16077,2,3498,15192,2072,0,1016,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a general computer science question, not a task about your codebase, so I'll just answer directly.
 
 # Hash Table Collision Handling
@@ -2022,7 +2022,7 @@ All entries live **directly in the bucket array**. On collision, you *probe* for
 
 **In short:** collisions are resolved either by *storing multiple items per bucket* (chaining) or by *finding a different bucket* (open addressing), backed by a good hash function and resizing to keep collisions rare.
 
-Want me to show a concrete implementation of either approach in a specific language?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep4.flow,True,,,,,,0.0,0
+Want me to show a concrete implementation of either approach in a specific language?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_baseline_rep4.flow,True,,,,,,0.0,0
 local7,baseline,0,True,0.068259,16456,17710,2,3501,15192,2077,0,992,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"CORS (Cross-Origin Resource Sharing) errors happen when your browser blocks a request because the **server** at the target origin didn't return the headers the browser requires to allow a page from a *different* origin to read the response. It's a browser-enforced security rule — the request often actually reaches the server; the browser just refuses to hand the response back to your JS.
 
 ## What counts as ""cross-origin""
@@ -2049,8 +2049,8 @@ I can give you a targeted fix if you share:
 2. **Your stack** — what's serving the API (Express, FastAPI, nginx, etc.)
 3. The **two origins** involved (page URL and request URL)
 
-Want me to look through your project's server/frontend config to spot the missing CORS setup? If so, just point me at the backend directory or tell me the framework.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep0.flow,True,,,,,,0.0,0
-local6,atelier,2,True,0.04480150000000001,9971,8196,1,5229,16463,0,0,417,['claude-opus-4-8'],False,False,"Collisions = two keys hash to same bucket. Two main strategies:
+Want me to look through your project's server/frontend config to spot the missing CORS setup? If so, just point me at the backend directory or tell me the framework.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep0.flow,True,,,,,,0.0,0
+local6,lemoncrow,2,True,0.04480150000000001,9971,8196,1,5229,16463,0,0,417,['claude-opus-4-8'],False,False,"Collisions = two keys hash to same bucket. Two main strategies:
 
 **Chaining** — each bucket holds a list (or tree) of entries. Colliding keys append to that bucket's list. Lookup: hash → bucket → scan list comparing keys. Simple, degrades gracefully; extra pointer memory. Java `HashMap` uses this (converts list→red-black tree past 8 entries per bucket).
 
@@ -2061,8 +2061,8 @@ local6,atelier,2,True,0.04480150000000001,9971,8196,1,5229,16463,0,0,417,['claud
 
 Lookup follows the same probe sequence until key or empty slot. Deletion needs tombstones (marker slots) so probe chains stay intact. Python `dict`, Go maps use open addressing.
 
-Cross-cutting: performance holds while **load factor** α (entries/buckets) stays low — both degrade toward O(n) as it climbs, so tables **resize + rehash** (typically at α≈0.7 open addressing, ≈0.75 chaining) to keep average O(1).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_atelier_rep2.flow,True,,,,,,0.0219,-414
-local6,atelier,3,True,0.04670150000000001,10958,9227,1,5229,16463,0,0,493,['claude-opus-4-8'],False,False,"Collisions = two keys hashing to same bucket. Two main strategies:
+Cross-cutting: performance holds while **load factor** α (entries/buckets) stays low — both degrade toward O(n) as it climbs, so tables **resize + rehash** (typically at α≈0.7 open addressing, ≈0.75 chaining) to keep average O(1).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_lemoncrow_rep2.flow,True,,,,,,0.0219,-414
+local6,lemoncrow,3,True,0.04670150000000001,10958,9227,1,5229,16463,0,0,493,['claude-opus-4-8'],False,False,"Collisions = two keys hashing to same bucket. Two main strategies:
 
 **Chaining** — each bucket holds a list (or tree) of entries. Collision → append to that bucket's list. Lookup: hash to bucket, scan list comparing keys. Simple; degrades to O(n) per bucket if many collide. Java `HashMap` upgrades long chains to red-black trees (O(log n)).
 
@@ -2078,8 +2078,8 @@ Cross-cutting:
 - Open addressing needs α < 1 always; chaining tolerates α > 1.
 - Good hash function spreading keys uniformly is the first defense.
 
-Which does what: chaining = simpler, handles high load, extra pointer memory; open addressing = better cache locality, no pointers, sensitive to load factor and clustering.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_atelier_rep3.flow,True,,,,,,0.0185,-552
-local6,atelier,4,True,0.046631500000000006,12523,10770,1,5185,16463,0,0,499,['claude-opus-4-8'],False,False,"Two main strategies:
+Which does what: chaining = simpler, handles high load, extra pointer memory; open addressing = better cache locality, no pointers, sensitive to load factor and clustering.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_lemoncrow_rep3.flow,True,,,,,,0.0185,-552
+local6,lemoncrow,4,True,0.046631500000000006,12523,10770,1,5185,16463,0,0,499,['claude-opus-4-8'],False,False,"Two main strategies:
 
 **Separate chaining** — each bucket holds a secondary structure (linked list, or a tree once long). Collision → append to that bucket's list. Lookup: hash to bucket, scan the chain comparing keys. Simple, tolerates high load factor, but pointer-chasing hurts cache.
 
@@ -2094,8 +2094,8 @@ Cross-cutting:
 - **Load factor** α = entries/buckets drives collision rate. Exceed threshold (chaining ~1.0, open addressing ~0.7) → **resize + rehash** all entries into a larger table.
 - **Hash quality** matters — a poor hash clusters keys and degrades O(1) average toward O(n).
 
-Real-world: Java `HashMap` = chaining, converts a bucket to a red-black tree past 8 entries (O(log n) worst case); Python `dict` and Go maps = open addressing variants.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_atelier_rep4.flow,True,,,,,,0.0222,-369
-local7,atelier,0,True,0.049809,13185,11478,1,5185,16468,0,0,626,['claude-opus-4-8'],False,False,"CORS errors are the browser enforcing the server's policy — not a bug in your JS. The browser sends a request cross-origin (different scheme/host/port than the page), and the **server** didn't return the headers that authorize it. Fix is on the server, not the frontend.
+Real-world: Java `HashMap` = chaining, converts a bucket to a red-black tree past 8 entries (O(log n) worst case); Python `dict` and Go maps = open addressing variants.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local6_lemoncrow_rep4.flow,True,,,,,,0.0222,-369
+local7,lemoncrow,0,True,0.049809,13185,11478,1,5185,16468,0,0,626,['claude-opus-4-8'],False,False,"CORS errors are the browser enforcing the server's policy — not a bug in your JS. The browser sends a request cross-origin (different scheme/host/port than the page), and the **server** didn't return the headers that authorize it. Fix is on the server, not the frontend.
 
 **Read the exact console message** — it names the cause:
 
@@ -2110,7 +2110,7 @@ Server fix by stack:
 
 Local dev shortcut: dev-server proxy (Vite `server.proxy`, CRA `proxy`) so the browser sees same-origin.
 
-Paste the exact error line + your stack (frontend origin, API origin, whether you send cookies/auth) → I give the precise header set.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_atelier_rep0.flow,True,,,,,,0.0185,-517
+Paste the exact error line + your stack (frontend origin, API origin, whether you send cookies/auth) → I give the precise header set.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_lemoncrow_rep0.flow,True,,,,,,0.0185,-517
 local7,baseline,1,True,0.06477899999999999,13211,14074,2,3501,15192,2077,0,852,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"CORS errors happen when your browser blocks a request because the server didn't explicitly say your frontend's origin is allowed to talk to it. It's a browser-enforced security rule (the server still receives the request — the browser just hides the response from your JS).
 
 ## The usual causes
@@ -2135,7 +2135,7 @@ Tell me (or point me at the code) and I can give you the exact fix:
 - What's the **frontend origin** and the **API URL** you're calling?
 - What's your **backend stack** (Express, Flask, FastAPI, nginx, etc.)?
 
-If this is your current project, I can look through it directly — just let me know.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep1.flow,True,,,,,,0.0,0
+If this is your current project, I can look through it directly — just let me know.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep1.flow,True,,,,,,0.0,0
 local7,baseline,2,True,0.059659,11782,14906,2,3501,15192,2077,0,648,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"CORS errors happen when your browser blocks a request from your frontend to a server (usually your API) because the server didn't explicitly say ""this origin is allowed."" It's a browser security feature — the request often actually reaches the server, but the browser throws away the response because the required headers are missing.
 
 **The most common causes:**
@@ -2151,7 +2151,7 @@ local7,baseline,2,True,0.059659,11782,14906,2,3501,15192,2077,0,648,"['claude-ha
 
 I can also look directly at your code if you tell me — is the API part of this project? I can find the server setup and check how CORS is configured.
 
-Want me to dig into the codebase, or would you rather share the error message first?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep2.flow,True,,,,,,0.0,0
+Want me to dig into the codebase, or would you rather share the error message first?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep2.flow,True,,,,,,0.0,0
 local7,baseline,3,True,0.065359,14033,15851,2,3501,15192,2077,0,876,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"CORS errors come from a browser security mechanism, not from a bug in your code per se. Here's what's actually happening and how to fix it.
 
 ## What the error means
@@ -2185,8 +2185,8 @@ It'd help to know:
 - Your **frontend framework** and the URL it's served from
 - Your **backend framework** and the API URL
 
-If you point me at this project, I can look at how requests are made and where the server is configured and give you a concrete change. Want me to dig in?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep3.flow,True,,,,,,0.0,0
-local7,atelier,1,True,0.050159,12912,11164,1,5185,16468,0,0,640,['claude-opus-4-8'],False,False,"CORS = browser enforcing same-origin policy. Your JS on origin A (`https://app.example.com`) calls API on origin B (different scheme/host/port) → browser demands B return `Access-Control-Allow-Origin` covering A. Missing/mismatched → browser blocks the response, logs the error. The failure is server-side config, not your fetch code.
+If you point me at this project, I can look at how requests are made and where the server is configured and give you a concrete change. Want me to dig in?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep3.flow,True,,,,,,0.0,0
+local7,lemoncrow,1,True,0.050159,12912,11164,1,5185,16468,0,0,640,['claude-opus-4-8'],False,False,"CORS = browser enforcing same-origin policy. Your JS on origin A (`https://app.example.com`) calls API on origin B (different scheme/host/port) → browser demands B return `Access-Control-Allow-Origin` covering A. Missing/mismatched → browser blocks the response, logs the error. The failure is server-side config, not your fetch code.
 
 Diagnose from the console text:
 
@@ -2198,7 +2198,7 @@ Key point: only the **server** fixes CORS. Frontend changes can't. If you don't 
 
 Which framework serves the API? Name it → exact header/middleware snippet.
 
-Fastest triage: DevTools → Network → click the failed request → check response headers + whether an `OPTIONS` preflight preceded it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_atelier_rep1.flow,True,,,,,,0.0146,-671
+Fastest triage: DevTools → Network → click the failed request → check response headers + whether an `OPTIONS` preflight preceded it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_lemoncrow_rep1.flow,True,,,,,,0.0146,-671
 local7,baseline,4,True,0.07095900000000001,20660,23851,2,3501,15192,2077,0,1100,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"CORS errors happen when your browser blocks a request because the server didn't return headers explicitly permitting your page's origin to read the response. It's a browser-enforced security policy (the request often *does* reach the server — the browser just refuses to hand the response to your JS).
 
 ## What the error is actually telling you
@@ -2236,8 +2236,8 @@ I can give you a specific fix if you tell me (or point me at the code):
 - The **exact** console error text.
 - Are you sending cookies/auth headers?
 
-Want me to look through this repo for the server setup and CORS config?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep4.flow,True,,,,,,0.0,0
-local7,atelier,2,True,0.05048400000000001,16875,15048,1,5185,16468,0,0,653,['claude-opus-4-8'],False,False,"CORS errors = server, not browser bug. Browser blocks a cross-origin response because the server didn't return the right `Access-Control-Allow-*` headers. Frontend origin ≠ API origin (different scheme/host/port) → browser enforces.
+Want me to look through this repo for the server setup and CORS config?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_baseline_rep4.flow,True,,,,,,0.0,0
+local7,lemoncrow,2,True,0.05048400000000001,16875,15048,1,5185,16468,0,0,653,['claude-opus-4-8'],False,False,"CORS errors = server, not browser bug. Browser blocks a cross-origin response because the server didn't return the right `Access-Control-Allow-*` headers. Frontend origin ≠ API origin (different scheme/host/port) → browser enforces.
 
 Fix on the **server** (API), not the client:
 
@@ -2254,8 +2254,8 @@ Read the exact console line — it names the cause:
 
 Common real fixes: enable CORS middleware (`cors` in Express, `CORSMiddleware` in FastAPI, `django-cors-headers`), or proxy the API under the same origin (dev proxy / reverse proxy) so it's not cross-origin at all.
 
-Paste the exact error line + your stack (frontend origin, API origin, framework) → I'll give the specific config.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_atelier_rep2.flow,True,,,,,,0.0092,-888
-local7,atelier,3,True,0.049659,12862,10962,1,5185,16468,0,0,620,['claude-opus-4-8'],False,False,"CORS = browser blocking a cross-origin request because the server didn't return the headers the browser requires. It's a *server* decision enforced *client-side* — your JS is fine; the response is missing the grant.
+Paste the exact error line + your stack (frontend origin, API origin, framework) → I'll give the specific config.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_lemoncrow_rep2.flow,True,,,,,,0.0092,-888
+local7,lemoncrow,3,True,0.049659,12862,10962,1,5185,16468,0,0,620,['claude-opus-4-8'],False,False,"CORS = browser blocking a cross-origin request because the server didn't return the headers the browser requires. It's a *server* decision enforced *client-side* — your JS is fine; the response is missing the grant.
 
 Mechanism: page at origin A (`https://app.com`) calls origin B (`https://api.com`). Browser sends the request, then checks the response for `Access-Control-Allow-Origin`. Missing or mismatched → browser discards it and logs the CORS error. The request often *reached* the server and ran — only the browser refuses to hand you the result.
 
@@ -2268,7 +2268,7 @@ Read the exact console line — it names the missing piece (""No 'Access-Control
 
 Can't touch the server (third-party API)? Proxy through your own backend — server-to-server calls have no CORS.
 
-Paste the exact error + whether the API is yours, and I'll give the specific fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_atelier_rep3.flow,True,,,,,,0.0157,-627
+Paste the exact error + whether the API is yours, and I'll give the specific fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_lemoncrow_rep3.flow,True,,,,,,0.0157,-627
 local8,baseline,0,True,0.06423700000000002,14365,17733,2,3504,15192,2076,0,833,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A debouncer on a search input solves a specific problem: **you don't want to react to every single keystroke**.
 
 Without debouncing, if a user types ""laptop"", you'd fire off work on every intermediate state — `l`, `la`, `lap`, `lapt`, `lapto`, `laptop` — six times. A debouncer waits until the user *pauses* typing (say, 300ms of no new input) before actually running the handler, so you only act on `laptop`.
@@ -2293,8 +2293,8 @@ Worth knowing the distinction, since people mix them up:
 
 For a search box, debounce is almost always what you want — the intermediate keystrokes have no value, only the moment the user settles on a query.
 
-One caveat: debouncing is a UX optimization, **not a correctness guarantee**. You still want request cancellation (e.g. `AbortController`) or response-ordering checks to fully defend against stale results, since a debounced request can still be superseded if the user resumes typing after it fires.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep0.flow,True,,,,,,0.0,0
-local7,atelier,4,True,0.048653999999999996,13307,11341,1,5229,16468,0,0,571,['claude-opus-4-8'],False,False,"CORS errors = your browser blocked a cross-origin request because the **server's** response didn't include the right `Access-Control-Allow-*` headers. Not a browser bug, not your JS — the server must opt in.
+One caveat: debouncing is a UX optimization, **not a correctness guarantee**. You still want request cancellation (e.g. `AbortController`) or response-ordering checks to fully defend against stale results, since a debounced request can still be superseded if the user resumes typing after it fires.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep0.flow,True,,,,,,0.0,0
+local7,lemoncrow,4,True,0.048653999999999996,13307,11341,1,5229,16468,0,0,571,['claude-opus-4-8'],False,False,"CORS errors = your browser blocked a cross-origin request because the **server's** response didn't include the right `Access-Control-Allow-*` headers. Not a browser bug, not your JS — the server must opt in.
 
 Mechanism: browser sends `Origin: https://yoursite.com`. For it to succeed, the response needs `Access-Control-Allow-Origin` matching that origin (or `*`). Non-simple requests (custom headers, `PUT`/`DELETE`, JSON content-type) first send an `OPTIONS` preflight — server must answer that with the allow headers too.
 
@@ -2308,7 +2308,7 @@ Read the exact console line — it names the cause:
 
 Fix is server-side, e.g. Express: `app.use(cors({ origin: 'https://yoursite.com', credentials: true }))`. Can't touch the server (third-party API) → proxy through your own backend; browsers don't enforce CORS on server-to-server calls.
 
-Paste the exact error line + your stack → I give the precise fix.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_atelier_rep4.flow,True,,,,,,0.0223,-398
+Paste the exact error line + your stack → I give the precise fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local7_lemoncrow_rep4.flow,True,,,,,,0.0223,-398
 local8,baseline,2,True,0.062232,12661,13773,2,3504,15192,2076,0,752,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A debouncer on a search input delays running the ""expensive"" work until the user *stops* typing for a short interval (say 300ms). Without it, every keystroke fires immediately. Here's why that matters:
 
 ## The core problems it solves
@@ -2332,7 +2332,7 @@ The cost is a small perceived latency — results appear a beat after the user s
 - **Debounce**: wait until activity *stops*, then fire once. Best for search-as-you-type, where you only care about the final value.
 - **Throttle**: fire at most once every N ms *during* continuous activity. Better for things like scroll or resize handlers where you want periodic updates throughout.
 
-For a search box, debounce is almost always the right choice because the intermediate values (""k"", ""ke"") have no standalone value — you only care where the user lands.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep2.flow,True,,,,,,0.0,0
+For a search box, debounce is almost always the right choice because the intermediate values (""k"", ""ke"") have no standalone value — you only care where the user lands.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep2.flow,True,,,,,,0.0,0
 local8,baseline,1,True,0.060977,13706,14742,2,3504,15192,2076,0,701,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A debouncer on a search input delays running the search until the user *stops* typing for a short window (say 300ms), instead of firing on every keystroke. The point:
 
 **1. Fewer wasted requests / work.** If someone types ""laptop"", that's 6 keystrokes. Without debouncing you fire 6 searches — for ""l"", ""la"", ""lap"", etc. — and only the last one matters. Debouncing collapses that into a single request once they pause.
@@ -2350,8 +2350,8 @@ A few practical notes:
 - **Typical delay:** 200–400ms. Too short defeats the purpose; too long feels laggy.
 - **Complementary technique:** pair it with **cancelling stale requests** (e.g. `AbortController`) so the out-of-order problem is fully solved, not just made less likely.
 
-So the short version: a debouncer trades a tiny, deliberate delay for far fewer requests, less load, fewer race bugs, and a calmer UI.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep1.flow,True,,,,,,0.0,0
-local8,atelier,0,True,0.0423285,12101,10405,1,5229,16467,0,0,318,['claude-opus-4-8'],False,False,"Debouncer waits for a pause in typing before firing the search — so it fires once per settled query, not once per keystroke.
+So the short version: a debouncer trades a tiny, deliberate delay for far fewer requests, less load, fewer race bugs, and a calmer UI.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep1.flow,True,,,,,,0.0,0
+local8,lemoncrow,0,True,0.0423285,12101,10405,1,5229,16467,0,0,318,['claude-opus-4-8'],False,False,"Debouncer waits for a pause in typing before firing the search — so it fires once per settled query, not once per keystroke.
 
 Without it, typing ""laptop"" = 6 requests (l, la, lap...), each hitting the backend/API. Points:
 
@@ -2362,8 +2362,8 @@ Without it, typing ""laptop"" = 6 requests (l, la, lap...), each hitting the bac
 
 Typical delay: 200–300ms — long enough to catch a typing burst, short enough to feel instant.
 
-Distinct from **throttle** (fires at a fixed max rate *during* activity); debounce fires only *after* activity stops — the right choice for ""user finished typing.""",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_atelier_rep0.flow,True,,,,,,0.0219,-409
-local8,atelier,1,True,0.0407535,8065,6347,1,5229,16467,0,0,255,['claude-opus-4-8'],False,False,"Debouncer delays firing the query until input pauses (e.g. 300ms after last keystroke).
+Distinct from **throttle** (fires at a fixed max rate *during* activity); debounce fires only *after* activity stops — the right choice for ""user finished typing.""",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_lemoncrow_rep0.flow,True,,,,,,0.0219,-409
+local8,lemoncrow,1,True,0.0407535,8065,6347,1,5229,16467,0,0,255,['claude-opus-4-8'],False,False,"Debouncer delays firing the query until input pauses (e.g. 300ms after last keystroke).
 
 Why:
 - **Fewer API calls** — one request per pause, not per keystroke. ""react"" = 1 call, not 5.
@@ -2373,8 +2373,8 @@ Why:
 
 Net: one request for the query the user actually meant, once they stop typing.
 
-Related: *throttle* fires at a fixed max rate during typing — use debounce for search (act on the final value), throttle for continuous events like scroll/resize.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_atelier_rep1.flow,True,,,,,,0.0202,-478
-local8,atelier,2,True,0.043333500000000004,9410,7429,1,5185,16467,0,0,367,['claude-opus-4-8'],False,False,"Cut wasted work. Fire the search only after the user stops typing (or pauses ~300ms), instead of once per keystroke.
+Related: *throttle* fires at a fixed max rate during typing — use debounce for search (act on the final value), throttle for continuous events like scroll/resize.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_lemoncrow_rep1.flow,True,,,,,,0.0202,-478
+local8,lemoncrow,2,True,0.043333500000000004,9410,7429,1,5185,16467,0,0,367,['claude-opus-4-8'],False,False,"Cut wasted work. Fire the search only after the user stops typing (or pauses ~300ms), instead of once per keystroke.
 
 Concretely:
 - **Fewer requests** — ""laptop"" = 6 keystrokes = 6 API calls without debounce; 1 with. Saves network, backend load, rate-limit budget.
@@ -2384,7 +2384,7 @@ Concretely:
 
 Debounce vs throttle: debounce = wait for a pause (right for ""user finished typing""); throttle = at most once per interval (right for continuous streams like scroll). Search input → debounce.
 
-Caveat: adds latency = debounce delay; keep ~150–300ms so it feels instant.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_atelier_rep2.flow,True,,,,,,0.0189,-495
+Caveat: adds latency = debounce delay; keep ~150–300ms so it feels instant.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_lemoncrow_rep2.flow,True,,,,,,0.0189,-495
 local8,baseline,3,True,0.062282,14859,16868,2,3504,15192,2076,0,754,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A debouncer on a search input delays firing your search logic until the user *stops typing* for a short interval (e.g. 300ms). Instead of reacting to every keystroke, you wait for a pause.
 
 Here's why that matters:
@@ -2409,7 +2409,7 @@ Results stop jumping around on every keystroke; they settle once the user pauses
 
 - **Pick the delay carefully** — Too short (~100ms) and you barely save anything; too long (~800ms+) and it feels laggy. 250–400ms is the usual sweet spot.
 
-In short: it trades a tiny, imperceptible delay for far less redundant work and a more stable, correct result set.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep3.flow,True,,,,,,0.0,0
+In short: it trades a tiny, imperceptible delay for far less redundant work and a more stable, correct result set.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep3.flow,True,,,,,,0.0,0
 local8,baseline,4,True,0.061402,12714,14021,2,3504,15192,2076,0,718,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"A debouncer on a search input delays acting on the user's typing until they've paused (e.g., stopped typing for 300ms), instead of firing on every keystroke. The main reasons:
 
 **1. Fewer wasted network requests**
@@ -2432,7 +2432,7 @@ Even for purely local filtering over a big dataset, running the filter on every 
 
 For a search box, **debounce** is almost always what you want. A typical delay is 200–400ms — long enough to batch a burst of typing, short enough to still feel responsive.
 
-One caveat: debouncing adds latency to when results appear, so don't set the delay too high, and pair it with request cancellation (e.g., `AbortController`) if stale-response ordering matters.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep4.flow,True,,,,,,0.0,0
+One caveat: debouncing adds latency to when results appear, so don't set the delay too high, and pair it with request cancellation (e.g., `AbortController`) if stale-response ordering matters.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_baseline_rep4.flow,True,,,,,,0.0,0
 local9,baseline,1,True,0.062972,12156,13151,2,3499,15192,2073,0,783,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both integrate changes from one branch into another, but they do it differently:
 
 ## `git merge`
@@ -2479,7 +2479,7 @@ D---E---F---G  (main)
 - Use **merge** to integrate a finished feature into a shared branch (often `--no-ff` to preserve context).
 - A common workflow: rebase your local work to clean it up, then merge it into `main`.
 
-Want an example walkthrough of resolving conflicts during a rebase, or how interactive rebase (`git rebase -i`) lets you squash/reorder commits?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep1.flow,True,,,,,,0.0,0
+Want an example walkthrough of resolving conflicts during a rebase, or how interactive rebase (`git rebase -i`) lets you squash/reorder commits?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep1.flow,True,,,,,,0.0,0
 local9,baseline,0,True,0.064667,13718,14785,2,3499,15192,2073,0,850,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# Git Rebase vs Git Merge
 
 Both integrate changes from one branch into another, but they do it differently and produce different history.
@@ -2544,8 +2544,8 @@ git rebase main
 - **Merge** to bring a completed feature into `main`, preserving the context that it was a distinct piece of work.
 - A common hybrid: rebase locally to clean up, then merge with `--no-ff` to record the integration point.
 
-Want me to show what either looks like in this repo, or walk through resolving conflicts during a rebase?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep0.flow,True,,,,,,0.0,0
-local8,atelier,3,True,0.0428835,11145,8952,1,5185,16467,0,0,349,['claude-opus-4-8'],False,False,"Debouncer delays firing the search until the user pauses typing (e.g. 300ms of no keystrokes) — so one request per intent, not one per keystroke.
+Want me to show what either looks like in this repo, or walk through resolving conflicts during a rebase?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep0.flow,True,,,,,,0.0,0
+local8,lemoncrow,3,True,0.0428835,11145,8952,1,5185,16467,0,0,349,['claude-opus-4-8'],False,False,"Debouncer delays firing the search until the user pauses typing (e.g. 300ms of no keystrokes) — so one request per intent, not one per keystroke.
 
 Point:
 - **Fewer requests** — ""laptop"" = 1 call, not 6 (l, la, lap...). Cuts backend/DB load, API cost, rate-limit risk.
@@ -2555,8 +2555,8 @@ Point:
 
 Debounce vs throttle: debounce = wait for a *pause* (right for ""user done typing""); throttle = at most once per interval (right for continuous streams like scroll). Search input → debounce.
 
-Caveat: pair with **request cancellation** (abort stale in-flight requests) — debounce reduces races but doesn't eliminate them.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_atelier_rep3.flow,True,,,,,,0.0194,-475
-local8,atelier,4,True,0.0394585,8466,6729,1,5185,16467,0,0,212,['claude-opus-4-8'],False,False,"Debounce delays the action until the user stops typing for N ms, so keystroke bursts fire one call, not one per key.
+Caveat: pair with **request cancellation** (abort stale in-flight requests) — debounce reduces races but doesn't eliminate them.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_lemoncrow_rep3.flow,True,,,,,,0.0194,-475
+local8,lemoncrow,4,True,0.0394585,8466,6729,1,5185,16467,0,0,212,['claude-opus-4-8'],False,False,"Debounce delays the action until the user stops typing for N ms, so keystroke bursts fire one call, not one per key.
 
 Point:
 - Fewer network requests → less server/API load, lower cost.
@@ -2566,8 +2566,8 @@ Point:
 
 Typical: 200–300ms. Trailing-edge debounce.
 
-Distinct from **throttle** (fire at most once per interval — for continuous streams like scroll/resize). Search input → debounce.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_atelier_rep4.flow,True,,,,,,0.0219,-374
-local9,atelier,1,True,0.045852000000000004,11239,9281,1,5229,16464,0,0,459,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how history is recorded*.
+Distinct from **throttle** (fire at most once per interval — for continuous streams like scroll/resize). Search input → debounce.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local8_lemoncrow_rep4.flow,True,,,,,,0.0219,-374
+local9,lemoncrow,1,True,0.045852000000000004,11239,9281,1,5229,16464,0,0,459,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how history is recorded*.
 
 **Merge** — non-destructive. Creates a new merge commit joining the two branch tips; both histories preserved as-is.
 - `git checkout main && git merge feature`
@@ -2585,8 +2585,8 @@ Rule of thumb:
 - Integrating a finished feature into a shared branch → merge (or squash-merge).
 - Golden rule: rebase private history, merge public history.
 
-Conflict handling differs too: merge resolves once in the merge commit; rebase may surface conflicts per replayed commit (resolve, `git rebase --continue`).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_atelier_rep1.flow,True,,,,,,0.0171,-605
-local9,atelier,0,True,0.044757000000000005,12526,10781,1,5185,16464,0,0,424,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* history results.
+Conflict handling differs too: merge resolves once in the merge commit; rebase may surface conflicts per replayed commit (resolve, `git rebase --continue`).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_lemoncrow_rep1.flow,True,,,,,,0.0171,-605
+local9,lemoncrow,0,True,0.044757000000000005,12526,10781,1,5185,16464,0,0,424,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* history results.
 
 **merge** — creates a merge commit joining two branch tips. History preserved as-is, non-linear. `feature` + `main` → new commit with two parents.
 - Non-destructive; existing commits untouched.
@@ -2605,7 +2605,7 @@ Rule of thumb:
 - Integrating shared/public branches → merge (safe, auditable).
 - Common flow: rebase your feature onto latest `main` to catch up, then merge (often `--no-ff`) into `main`.
 
-Mnemonic: merge *preserves* history, rebase *rewrites* it.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_atelier_rep0.flow,True,,,,,,0.0199,-459
+Mnemonic: merge *preserves* history, rebase *rewrites* it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_lemoncrow_rep0.flow,True,,,,,,0.0199,-459
 local9,baseline,2,True,0.06179200000000001,12192,13167,2,3499,15192,2073,0,735,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Both integrate changes from one branch into another, but they do it differently:
 
 ## git merge
@@ -2653,7 +2653,7 @@ D---E---F---G  (main)
 
 A common workflow combines both: rebase your feature branch onto `main` to linearize, then do a `--no-ff` merge to record the integration point.
 
-Want me to walk through a concrete example in this repo, or explain interactive rebase?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep2.flow,True,,,,,,0.0,0
+Want me to walk through a concrete example in this repo, or explain interactive rebase?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep2.flow,True,,,,,,0.0,0
 local9,baseline,3,True,0.061522,12136,13249,2,3499,15192,2073,0,725,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Git rebase and git merge both integrate changes from one branch into another, but they do it in fundamentally different ways.
 
 ## git merge
@@ -2706,7 +2706,7 @@ Takes the changes from one branch and combines them into another via a **merge c
 - Use **rebase** to keep a feature branch up to date with `main` locally and to tidy up commits before sharing (`git rebase -i`).
 - Use **merge** to integrate a completed feature into `main`, preserving the record that it was developed on a branch.
 
-A common workflow combines both: rebase your feature branch onto the latest `main` to stay current, then merge it in when done.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep3.flow,True,,,,,,0.0,0
+A common workflow combines both: rebase your feature branch onto the latest `main` to stay current, then merge it in when done.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep3.flow,True,,,,,,0.0,0
 local9,baseline,4,True,0.062792,12927,15141,2,3499,15192,2073,0,775,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Git rebase and merge both integrate changes from one branch into another, but they do it differently:
 
 ## `git merge`
@@ -2753,8 +2753,8 @@ A common workflow combines both: rebase your feature branch onto the latest `mai
 
 A related option is `git merge --squash` or `git rebase -i`, which let you collapse many small commits into one before integrating.
 
-Want me to walk through a concrete example in this repo?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep4.flow,True,,,,,,0.0,0
-local9,atelier,2,True,0.047807,12820,11027,1,5185,16464,0,0,546,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* and in resulting history.
+Want me to walk through a concrete example in this repo?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_baseline_rep4.flow,True,,,,,,0.0,0
+local9,lemoncrow,2,True,0.047807,12820,11027,1,5185,16464,0,0,546,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* and in resulting history.
 
 **merge** — combines divergent branches with a merge commit (unless fast-forward). History preserved as-is: two parent lineages join at a node.
 - Non-destructive; original commits/hashes untouched.
@@ -2774,7 +2774,7 @@ Key differences:
 
 Golden rule: **never rebase commits already pushed/shared** — rewritten SHAs diverge from others' copies → forced-push pain. Rebase local/private work; merge (or fast-forward) shared branches.
 
-Common combo: rebase feature onto latest main to linearize, then fast-forward merge → clean linear history.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_atelier_rep2.flow,True,,,,,,0.014,-696
+Common combo: rebase feature onto latest main to linearize, then fast-forward merge → clean linear history.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_lemoncrow_rep2.flow,True,,,,,,0.014,-696
 local10,baseline,0,True,0.067775,17296,18237,2,3502,15192,2079,0,971,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Good architectural question. The short version: **use a queue when a message should be processed once by one consumer, and a topic when the same message should reach many independent consumers.**
 
 ## Queue (point-to-point)
@@ -2825,8 +2825,8 @@ Real systems often combine them: publish an event to a topic, and each subscribe
 | Scale by adding workers | Queue (competing consumers) |
 | Decouple producer from unknown future consumers | Topic |
 
-If you tell me which system you're on (RabbitMQ, Kafka, SQS/SNS, Service Bus, etc.), I can get more concrete — the semantics and terminology differ a fair bit between them.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep0.flow,True,,,,,,0.0,0
-local9,atelier,3,True,0.04682700000000001,12109,10215,1,5229,16464,0,0,498,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* and in resulting history.
+If you tell me which system you're on (RabbitMQ, Kafka, SQS/SNS, Service Bus, etc.), I can get more concrete — the semantics and terminology differ a fair bit between them.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep0.flow,True,,,,,,0.0,0
+local9,lemoncrow,3,True,0.04682700000000001,12109,10215,1,5229,16464,0,0,498,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how* and in resulting history.
 
 **merge** — combines via a new merge commit with two parents. Non-destructive; preserves actual history and branch topology.
 - `git checkout main && git merge feature`
@@ -2846,8 +2846,8 @@ Key differences:
 
 Rule of thumb: rebase local/private work to keep history clean before sharing; merge to integrate shared branches and preserve context. ""Golden rule"": never rebase a branch others have pulled.
 
-Related: `git pull --rebase` (linear pulls), `git rebase -i` (squash/reorder/edit before sharing).",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_atelier_rep3.flow,True,,,,,,0.0147,-702
-local9,atelier,4,True,0.044632000000000005,9928,8209,1,5185,16464,0,0,419,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how history is recorded*.
+Related: `git pull --rebase` (linear pulls), `git rebase -i` (squash/reorder/edit before sharing).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_lemoncrow_rep3.flow,True,,,,,,0.0147,-702
+local9,lemoncrow,4,True,0.044632000000000005,9928,8209,1,5185,16464,0,0,419,['claude-opus-4-8'],False,False,"Both integrate changes from one branch into another; differ in *how history is recorded*.
 
 **merge** — creates a new merge commit joining the two branch tips. History non-linear, preserves exact topology (branch points visible). Existing commits untouched → safe on shared branches. `git merge feature`.
 
@@ -2859,7 +2859,7 @@ Key contrasts:
 - Conflicts: merge resolves once; rebase can surface per-replayed-commit.
 - Traceability: merge shows when/where branches joined; rebase discards that context for cleaner log.
 
-Rule of thumb: rebase local/private work to tidy up before sharing; merge to integrate shared branches. Common combo: `git rebase` your feature onto latest `main`, then `git merge` (fast-forward) into `main`.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_atelier_rep4.flow,True,,,,,,0.0182,-529
+Rule of thumb: rebase local/private work to tidy up before sharing; merge to integrate shared branches. Common combo: `git rebase` your feature onto latest `main`, then `git merge` (fast-forward) into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local9_lemoncrow_rep4.flow,True,,,,,,0.0182,-529
 local10,baseline,1,True,0.06619499999999999,18232,19551,2,3502,15192,2079,0,907,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Short version: use a **queue** when a message should be processed once by one consumer, and a **topic** when the same message should be broadcast to many independent consumers.
 
 ## Queue (point-to-point)
@@ -2899,7 +2899,7 @@ Concrete implementations:
 - **AWS SNS + SQS** — SNS topic fans out to multiple SQS queues, one per consuming service.
 - **Azure Service Bus** — offers both `queue` and `topic` primitives directly.
 
-**Rule of thumb:** if you're describing *""a job to be done,""* reach for a queue. If you're describing *""a thing that happened that others should know about,""* reach for a topic.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep1.flow,True,,,,,,0.0,0
+**Rule of thumb:** if you're describing *""a job to be done,""* reach for a queue. If you're describing *""a thing that happened that others should know about,""* reach for a topic.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep1.flow,True,,,,,,0.0,0
 local10,baseline,2,True,0.063175,13207,14149,2,3502,15192,2079,0,787,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Short version: use a **queue** when a message should be processed by exactly one consumer (work distribution), and a **topic** when a message should be broadcast to many independent consumers (event notification).
 
 ## Queue (point-to-point)
@@ -2937,8 +2937,8 @@ Most real systems combine them. Each subscriber to a topic has its **own queue**
 
 So it's rarely queue *vs* topic in the large — it's topic to decouple services, queue to distribute work inside each one.
 
-Want me to map this onto a specific broker you're using?",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep2.flow,True,,,,,,0.0,0
-local10,atelier,0,True,0.051435,16887,14998,1,5185,16470,0,0,691,['claude-opus-4-8'],False,False,"**Queue** = point-to-point, competing consumers. One message → delivered to exactly one consumer. Work distributes across a consumer pool; each message processed once. Use when the message is a *task* someone must do.
+Want me to map this onto a specific broker you're using?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep2.flow,True,,,,,,0.0,0
+local10,lemoncrow,0,True,0.051435,16887,14998,1,5185,16470,0,0,691,['claude-opus-4-8'],False,False,"**Queue** = point-to-point, competing consumers. One message → delivered to exactly one consumer. Work distributes across a consumer pool; each message processed once. Use when the message is a *task* someone must do.
 
 **Topic** = publish/subscribe, fan-out. One message → copied to every subscriber. Use when the message is an *event* many parties independently care about.
 
@@ -2959,7 +2959,7 @@ Common hybrid (the usual real answer): **topic → per-subscriber queue**. Publi
 Gotchas:
 - Topic subscriber must exist/be durable *before* publish, or it misses messages (unless the broker retains — Kafka retains by offset, classic pub/sub does not).
 - Queue gives you natural retry/backpressure/competing-consumer scaling; a raw topic fan-out does not — each subscriber owns its own backlog.
-- Ordering: single queue consumer or partition key preserves order; fan-out across parallel consumers does not.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_atelier_rep0.flow,True,,,,,,0.0163,-602
+- Ordering: single queue consumer or partition key preserves order; fan-out across parallel consumers does not.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_lemoncrow_rep0.flow,True,,,,,,0.0163,-602
 local10,baseline,3,True,0.06785000000000001,18398,19830,2,3502,15192,2079,0,974,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Short version: use a **queue** when a message should be processed by exactly one consumer, and a **topic** when a message should be delivered to many independent consumers.
 
 ## Queue (point-to-point)
@@ -3003,8 +3003,8 @@ This shows up under different names depending on the tech:
 - **Late subscribers** on a plain topic miss past messages (unless the system retains a log, like Kafka does). Queues hold messages until someone consumes them.
 - **Retries/DLQs** are more natural on the queue side, since there's a clear ""this consumer failed to process it.""
 
-If you tell me which broker you're using (Kafka, RabbitMQ, SQS/SNS, etc.), I can make this concrete for your setup.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep3.flow,True,,,,,,0.0,0
-local10,atelier,1,True,0.04556,11853,10174,1,5185,16470,0,0,456,['claude-opus-4-8'],False,False,"**Queue** — point-to-point, work distribution. One message → exactly one consumer. Competing consumers share the load; each message processed once.
+If you tell me which broker you're using (Kafka, RabbitMQ, SQS/SNS, etc.), I can make this concrete for your setup.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep3.flow,True,,,,,,0.0,0
+local10,lemoncrow,1,True,0.04556,11853,10174,1,5185,16470,0,0,456,['claude-opus-4-8'],False,False,"**Queue** — point-to-point, work distribution. One message → exactly one consumer. Competing consumers share the load; each message processed once.
 - Use when: task/job processing, load balancing across workers, ordered work, exactly-once handoff.
 - Adding consumers = more throughput (parallelism), not duplicate delivery.
 
@@ -3020,8 +3020,8 @@ Combine: topic → each subscriber is itself a queue (fan-out then load-balance 
 
 Caveats:
 - Queue ordering breaks under competing consumers unless partitioned/keyed.
-- Topic needs durable/persistent subscriptions or subscribers miss messages sent while offline.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_atelier_rep1.flow,True,,,,,,0.0206,-431
-local10,atelier,2,True,0.047885000000000004,13477,11623,1,5185,16470,0,0,549,['claude-opus-4-8'],False,False,"**Queue** = point-to-point, one consumer processes each message. **Topic** = publish/subscribe, every subscriber gets its own copy.
+- Topic needs durable/persistent subscriptions or subscribers miss messages sent while offline.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_lemoncrow_rep1.flow,True,,,,,,0.0206,-431
+local10,lemoncrow,2,True,0.047885000000000004,13477,11623,1,5185,16470,0,0,549,['claude-opus-4-8'],False,False,"**Queue** = point-to-point, one consumer processes each message. **Topic** = publish/subscribe, every subscriber gets its own copy.
 
 Decide by fan-out:
 
@@ -3041,7 +3041,7 @@ Rule of thumb: *command* (do this) → queue. *event* (this happened) → topic.
 Edge cases:
 - Need pub/sub fan-out **and** load-balancing within each subscriber → topic + consumer groups (Kafka consumer group, SNS→SQS per service, JMS shared durable subscription). Best of both: one copy per group, competing consumers inside a group.
 - Ordering: single queue/partition preserves order; scaling consumers on a queue breaks strict order unless you partition by key.
-- Log-style systems (Kafka, Pulsar) blur the line — a topic with consumer groups replaces both; replayable because messages aren't deleted on ack.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_atelier_rep2.flow,True,,,,,,0.0153,-644
+- Log-style systems (Kafka, Pulsar) blur the line — a topic with consumer groups replaces both; replayable because messages aren't deleted on ack.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_lemoncrow_rep2.flow,True,,,,,,0.0153,-644
 local10,baseline,4,True,0.06622499999999999,16092,17118,2,3502,15192,2079,0,909,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Short version: use a **queue** when a message should be processed by exactly one consumer (work distribution), and a **topic** when a message should be broadcast to many independent consumers (event notification).
 
 ## Queue (point-to-point)
@@ -3082,8 +3082,8 @@ One message → every subscriber gets its own copy. Consumers are decoupled and 
 - **Kafka blurs the line.** A Kafka topic with **consumer groups** acts like a queue *within* a group (partitions split across group members) and like pub/sub *across* groups. So ""topic"" in Kafka ≠ ""topic"" in classic JMS/AMQP.
 - **Rule of thumb:** command → queue, event → topic. If the message name is imperative (`ResizeImage`), queue. If it's past-tense (`ImageUploaded`), topic.
 
-Want me to map this to a specific broker (RabbitMQ, Kafka, SQS/SNS, Azure Service Bus, Pulsar)? The terminology and defaults differ meaningfully between them.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep4.flow,True,,,,,,0.0,0
-local10,atelier,3,True,0.049460000000000004,14049,12320,1,5185,16470,0,0,612,['claude-opus-4-8'],False,False,"Queue = point-to-point, one consumer processes each message. Topic = pub/sub, every subscriber gets its own copy.
+Want me to map this to a specific broker (RabbitMQ, Kafka, SQS/SNS, Azure Service Bus, Pulsar)? The terminology and defaults differ meaningfully between them.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_baseline_rep4.flow,True,,,,,,0.0,0
+local10,lemoncrow,3,True,0.049460000000000004,14049,12320,1,5185,16470,0,0,612,['claude-opus-4-8'],False,False,"Queue = point-to-point, one consumer processes each message. Topic = pub/sub, every subscriber gets its own copy.
 
 Decide by the delivery semantic you need:
 
@@ -3105,8 +3105,8 @@ Nuance — modern brokers blur the line:
 - **SNS+SQS** (fan-out pattern): publish to a topic, each subscriber is its own queue → broadcast delivery *plus* per-consumer durable buffering and independent retry. Common default when you want both.
 - **RabbitMQ**: exchange (routing/fan-out) → queues; the ""topic"" is the exchange, durability lives in the queues.
 
-Practical default: publish domain *events* to a topic; each consuming service binds its own queue. Producers stay decoupled, each consumer scales and retries independently.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_atelier_rep3.flow,True,,,,,,0.0184,-520
-local10,atelier,4,True,0.04471000000000001,11409,9538,1,5185,16470,0,0,422,['claude-opus-4-8'],False,False,"**Queue (point-to-point):** one message → exactly one consumer. Work distribution, load balancing, task processing.
+Practical default: publish domain *events* to a topic; each consuming service binds its own queue. Producers stay decoupled, each consumer scales and retries independently.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_lemoncrow_rep3.flow,True,,,,,,0.0184,-520
+local10,lemoncrow,4,True,0.04471000000000001,11409,9538,1,5185,16470,0,0,422,['claude-opus-4-8'],False,False,"**Queue (point-to-point):** one message → exactly one consumer. Work distribution, load balancing, task processing.
 - Competing consumers: scale workers, each message handled once
 - Order processing, job/task dispatch, RPC-style request handling
 - Need: work done once, backpressure, retries per message
@@ -3120,4 +3120,4 @@ local10,atelier,4,True,0.04471000000000001,11409,9538,1,5185,16470,0,0,422,['cla
 - One → queue.
 - Many independent → topic.
 
-**Nuance:** modern systems blur this. Kafka topic + consumer groups = pub/sub *and* per-group queue semantics (each group's partitions load-balance across its members). SQS = pure queue; SNS→SQS fan-out = topic feeding queues, the common hybrid: broadcast the event (topic), then each subsystem buffers + processes durably at its own pace (queue). Reach for that when you want both fan-out and per-consumer retry/backpressure.",/tmp/atelier-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_atelier_rep4.flow,True,,,,,,0.0215,-395
+**Nuance:** modern systems blur this. Kafka topic + consumer groups = pub/sub *and* per-group queue semantics (each group's partitions load-balance across its members). SQS = pure queue; SNS→SQS fan-out = topic feeding queues, the common hybrid: broadcast the event (topic), then each subsystem buffers + processes durably at its own pace (queue). Reach for that when you want both fan-out and per-consumer retry/backpressure.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260708T141112Z/batch1/local10_lemoncrow_rep4.flow,True,,,,,,0.0215,-395

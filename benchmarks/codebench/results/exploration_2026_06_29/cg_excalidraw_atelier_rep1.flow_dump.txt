@@ -32,16 +32,16 @@ claude.ai Google Drive
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
-- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- lemoncrow:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -54,8 +54,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -65,13 +65,13 @@ Atelier replaces the grep→read→re-read loop.
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:atelier: Extras manager.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
-- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
-- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- lemoncrow:lemoncrow: Extras manager.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- lemoncrow:recall: Retrieve what LemonCrow already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does LemonCrow remember', or /recall. Read-only; importing, indexing, and extraction run in the LemonCrow background.
+- lemoncrow:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -88,29 +88,29 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "render canvas elements renderScene renderStaticScene"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "render canvas elements renderScene renderStaticScene"}
 [usage] input=5185 cache_read=16417 cache_write=863 output=130
 
 === Turn 2 ===
 [user] [tool_result] no exact match -- ranked candidates
 
-## src/atelier/core/capabilities/prompt_compilation/lint_rules/ordering.py
-_session_before_static — read src/atelier/core/capabilities/prompt_compilation/lint_rules/ordering.py:L35-L51
+## src/lemoncrow/core/capabilities/prompt_compilation/lint_rules/ordering.py
+_session_before_static — read src/lemoncrow/core/capabilities/prompt_compilation/lint_rules/ordering.py:L35-L51
 
 related_symbols:
-src/atelier/core/runtime/engine.py:L432-L469 method AtelierRuntimeCore._static_sql_inspect
-src/atelier/core/capabilities/prefix_cache/planner.py:L58 variable _STATIC_STABILITIES
-src/atelier/core/capabilities/prefix_cache/planner.py:L74-L95 method PrefixCachePlanner.plan
-src/atelier/core/capabilities/prefix_cache/planner.py:L120-L129 _detect_invalidation_reason
-src/atelier/core/capabilities/counterfactual/pricing.py:L105-L123 _build_candidates
+src/lemoncrow/core/runtime/engine.py:L432-L469 method LemonCrowRuntimeCore._static_sql_inspect
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L58 variable _STATIC_STABILITIES
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L74-L95 method PrefixCachePlanner.plan
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L120-L129 _detect_invalidation_reason
+src/lemoncrow/core/capabilities/counterfactual/pricing.py:L105-L123 _build_candidates
 benchmarks/codebench/eval_external_provider_mrr.py:L1248-L1345 class CmmProvider
-src/atelier/core/capabilities/prompt_compilation/models.py:L24-L35 class Stability
-src/atelier/core/capabilities/web_fetch.py:L1047-L1078 _markdownify_html
+src/lemoncrow/core/capabilities/prompt_compilation/models.py:L24-L35 class Stability
+src/lemoncrow/core/capabilities/web_fetch.py:L1047-L1078 _markdownify_html
 
-candidate_files: src/atelier/core/runtime/engine.py, src/atelier/core/capabilities/prefix_cache/planner.py, src/atelier/core/capabilities/web_fetch.py, src/atelier/core/capabilities/code_context/engine.py, src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/service/api.py, src/atelier/core/capabilities/semantic_file_memory/treesitter_ast.py, frontend/src/components/ErrorBoundary.tsx, src/atelier/core/capabilities/prompt_compilation/compiler.py, tests/benchmarks/fixtures/sample.swift, tests/benchmarks/fixtures/Sample.java, tests/benchmarks/fixtures/sample.c, scripts/lib/common.sh, src/atelier/core/capabilities/code_context/renderer.py, scripts/sync_agent_context.py, src/atelier/gateway/cli/runtime.py, src/atelier/gateway/cli/commands/benchmark.py, src/atelier/gateway/cli/commands/sessions.py, src/atelier/gateway/cli/commands/admin.py, src/atelier/infra/runtime/session_report.py, src/atelier/gateway/cli/commands/swarm.py, tests/gateway/test_mcp_tool_handlers.py, src/atelier/gateway/cli/commands/project.py, src/atelier/core/capabilities/owned_execution_cache_affinity.py
+candidate_files: src/lemoncrow/core/runtime/engine.py, src/lemoncrow/core/capabilities/prefix_cache/planner.py, src/lemoncrow/core/capabilities/web_fetch.py, src/lemoncrow/core/capabilities/code_context/engine.py, src/lemoncrow/gateway/adapters/mcp_server.py, src/lemoncrow/core/service/api.py, src/lemoncrow/core/capabilities/semantic_file_memory/treesitter_ast.py, frontend/src/components/ErrorBoundary.tsx, src/lemoncrow/core/capabilities/prompt_compilation/compiler.py, tests/benchmarks/fixtures/sample.swift, tests/benchmarks/fixtures/Sample.java, tests/benchmarks/fixtures/sample.c, scripts/lib/common.sh, src/lemoncrow/core/capabilities/code_context/renderer.py, scripts/sync_agent_context.py, src/lemoncrow/gateway/cli/runtime.py, src/lemoncrow/gateway/cli/commands/benchmark.py, src/lemoncrow/gateway/cli/commands/sessions.py, src/lemoncrow/gateway/cli/commands/admin.py, src/lemoncrow/infra/runtime/session_report.py, src/lemoncrow/gateway/cli/commands/swarm.py, tests/gateway/test_mcp_tool_handlers.py, src/lemoncrow/gateway/cli/commands/project.py, src/lemoncrow/core/capabilities/owned_execution_cache_affinity.py
 
 (truncated; narrow with paths=)
-[assistant] The index is pointing at the wrong repo. Let me scope to the workspace.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls packages/excalidraw/renderer/ 2>/dev/null; echo ---; ls packages/excalidraw/scene/ 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "find packages/excalidraw/renderer -maxdepth 1 -type f 2>/dev/null; echo ===SCENE===; find packages/excalidraw/scene -maxdepth 1 -type f 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] The index is pointing at the wrong repo. Let me scope to the workspace.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls packages/excalidraw/renderer/ 2>/dev/null; echo ---; ls packages/excalidraw/scene/ 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "find packages/excalidraw/renderer -maxdepth 1 -type f 2>/dev/null; echo ===SCENE===; find packages/excalidraw/scene -maxdepth 1 -type f 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=17280 cache_write=6271 output=469
 
 === Turn 3 ===
@@ -129,19 +129,19 @@ claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["packages/excalidraw/scene/Renderer.ts", "packages/excalidraw/renderer/staticScene.ts:L1-L90"]}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"renderStaticScene\\|renderInteractiveScene\\|_renderScene\\|renderScene(\" packages/excalidraw/components/App.tsx | head -40", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["packages/excalidraw/scene/Renderer.ts", "packages/excalidraw/renderer/staticScene.ts:L1-L90"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"renderStaticScene\\|renderInteractiveScene\\|_renderScene\\|renderScene(\" packages/excalidraw/components/App.tsx | head -40", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=442 cache_read=23551 cache_write=1012 output=362
 
 === Turn 4 ===
 [user] [tool_result] ## packages/excalidraw/scene/Renderer.ts
-{"path":"packages/excalidraw/scene/Renderer.ts","error":"file not found: /home/pankaj/Projects/leanchain/atelier/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path."}
+{"path":"packages/excalidraw/scene/Renderer.ts","error":"file not found: /home/pankaj/Projects/leanchain/lemoncrow/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path."}
 
 ## packages/excalidraw/renderer/staticScene.ts
-{"path":"packages/excalidraw/renderer/staticScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/atelier/packages/excalidraw/renderer/staticScene.ts. No file named 'staticScene.ts' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path."}
+{"path":"packages/excalidraw/renderer/staticScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/lemoncrow/packages/excalidraw/renderer/staticScene.ts. No file named 'staticScene.ts' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path."}
 [tool_result] 2399:                            renderInteractiveSceneCallback={
 2400:                              this.renderInteractiveSceneCallback
 3559:  private renderInteractiveSceneCallback = ({
-[assistant] The read tool has a wrong root. Let me use bash to read.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '1,220p' packages/excalidraw/scene/Renderer.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] The read tool has a wrong root. Let me use bash to read.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '1,220p' packages/excalidraw/scene/Renderer.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=24563 cache_write=1229 output=183
 
 === Turn 5 ===
@@ -365,13 +365,13 @@ export class Renderer {
 
       zoom: opts.zoom,
       offsetLeft: opts.offsetLeft,
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '220,300p' packages/excalidraw/scene/Renderer.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"renderStaticSceneThrottled\\|export const renderStaticScene\\|_renderStaticScene\\|renderElement\\|throttleRAF\\|export const renderStaticSceneThrottled\" packages/excalidraw/renderer/staticScene.ts | head", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '220,300p' packages/excalidraw/scene/Renderer.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"renderStaticSceneThrottled\\|export const renderStaticScene\\|_renderStaticScene\\|renderElement\\|throttleRAF\\|export const renderStaticSceneThrottled\" packages/excalidraw/renderer/staticScene.ts | head", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=25792 cache_write=2485 output=383
 
 === Turn 6 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '229,495p' packages/excalidraw/renderer/staticScene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '229,495p' packages/excalidraw/renderer/staticScene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=131 cache_read=28277 cache_write=1143 output=163
 
 === Turn 7 ===
@@ -642,12 +642,12 @@ export const renderStaticScene = (
   throttle?: boolean,
 ) => {
   if (throttle) {
-[assistant] Now the per-element renderer and how App triggers renders.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"generateElementCanvas\\|ShapeCache\\|renderElementToSvg\\|export const renderElement\\|elementWithCanvasCache\\|drawElementFromCanvas\\|generateElementWithCanvas\\|versionNonce\\|version:\" packages/element/src/renderElement.ts 2>/dev/null | head -40; echo \"=== file location ===\"; find packages -name renderElement.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] Now the per-element renderer and how App triggers renders.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"generateElementCanvas\\|ShapeCache\\|renderElementToSvg\\|export const renderElement\\|elementWithCanvasCache\\|drawElementFromCanvas\\|generateElementWithCanvas\\|versionNonce\\|version:\" packages/element/src/renderElement.ts 2>/dev/null | head -40; echo \"=== file location ===\"; find packages -name renderElement.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=29420 cache_write=2547 output=391
 
 === Turn 8 ===
 [user] [tool_result] element/src/renderElement.ts
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd packages/element/src; grep -n \"ShapeCache\\|generateElementCanvas\\|elementWithCanvasCache\\|drawElementFromCanvas\\|generateElementWithCanvas\\|cachedElement\\|prevElement\\|zoomValue\\|export const renderElement\\b\\|function renderElementToSvg\" renderElement.ts | head -50", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd packages/element/src; grep -n \"ShapeCache\\|generateElementCanvas\\|elementWithCanvasCache\\|drawElementFromCanvas\\|generateElementWithCanvas\\|cachedElement\\|prevElement\\|zoomValue\\|export const renderElement\\b\\|function renderElementToSvg\" renderElement.ts | head -50", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=31967 cache_write=407 output=252
 
 === Turn 9 ===
@@ -680,12 +680,12 @@ export const renderStaticScene = (
 1031:          const uncroppedElementCanvas = generateElementCanvas(
 1040:            drawElementFromCanvas(
 1052:        drawElementFromCanvas(
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd packages/element/src; sed -n '603,663p' renderElement.ts; echo \"=== ShapeCache ===\"; grep -n \"class ShapeCache\\|cache =\\|static.*generateElementShape\\|WeakMap\\|getElementShape\\|delete\\|set(\" shape.ts | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd packages/element/src; sed -n '603,663p' renderElement.ts; echo \"=== ShapeCache ===\"; grep -n \"class ShapeCache\\|cache =\\|static.*generateElementShape\\|WeakMap\\|getElementShape\\|delete\\|set(\" shape.ts | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=32374 cache_write=923 output=235
 
 === Turn 10 ===
-[user] [tool_result] [read] file not found: /tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1/renderElement.ts;. No file named 'renderElement.ts;' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '603,663p' packages/element/src/renderElement.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"class ShapeCache\\|cache\\b\\|generateElementShape\\|WeakMap\\|delete(\\|\\.set(\\|get(\" packages/element/src/shape.ts | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[user] [tool_result] [read] file not found: /tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1/renderElement.ts;. No file named 'renderElement.ts;' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '603,663p' packages/element/src/renderElement.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"class ShapeCache\\|cache\\b\\|generateElementShape\\|WeakMap\\|delete(\\|\\.set(\\|get(\" packages/element/src/shape.ts | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=33297 cache_write=351 output=409
 
 === Turn 11 ===
@@ -769,7 +769,7 @@ const generateElementWithCanvas = (
 986:      // we return (and cache) `null` to make sure we don't regenerate
 993:        `generateElementShape(): Unimplemented type ${(element as any)?.type}`,
 1086:      const roughShape = ShapeCache.generateElementShape(element, null)[0];
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '81,170p' packages/element/src/shape.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"renderStaticScene\\|renderInteractiveScene\\|getSceneNonce\\|sceneNonce\\|informMutation\\|ShapeCache.delete\\|triggerRender\\|onScroll\\|componentDidUpdate\\|renderScene =\" packages/excalidraw/scene/Scene.ts packages/element/src/Scene.ts 2>/dev/null | head; echo ===; find packages -name Scene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '81,170p' packages/element/src/shape.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"renderStaticScene\\|renderInteractiveScene\\|getSceneNonce\\|sceneNonce\\|informMutation\\|ShapeCache.delete\\|triggerRender\\|onScroll\\|componentDidUpdate\\|renderScene =\" packages/excalidraw/scene/Scene.ts packages/element/src/Scene.ts 2>/dev/null | head; echo ===; find packages -name Scene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=33648 cache_write=1796 output=431
 
 === Turn 12 ===
@@ -864,13 +864,13 @@ const getDashArrayDotted = (strokeWidth: number) => [1.5, 6 + strokeWidth];
 
 function adjustRoughness(element: ExcalidrawElement): number {
 [tool_result] element/src/Scene.ts
-[assistant] Now the Scene mutation → render trigger, and App wiring.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"sceneNonce\\|getSceneNonce\\|triggerUpdate\\|onUpdate\\|informMutation\\|ShapeCache.delete\\|mutateElement\\|incrementVersion\\|versionNonce\" packages/element/src/Scene.ts | head -40", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"renderStaticScene\\|renderInteractiveScene\\|renderer.getRenderableElements\\|this.renderer\\|renderScene =\\|renderScene(\" packages/excalidraw/components/App.tsx | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] Now the Scene mutation → render trigger, and App wiring.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"sceneNonce\\|getSceneNonce\\|triggerUpdate\\|onUpdate\\|informMutation\\|ShapeCache.delete\\|mutateElement\\|incrementVersion\\|versionNonce\" packages/element/src/Scene.ts | head -40", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"renderStaticScene\\|renderInteractiveScene\\|renderer.getRenderableElements\\|this.renderer\\|renderScene =\\|renderScene(\" packages/excalidraw/components/App.tsx | head -30", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=35444 cache_write=1618 output=540
 
 === Turn 13 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '405,445p' packages/element/src/Scene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "sed -n '2090,2130p' packages/excalidraw/components/App.tsx", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '405,445p' packages/element/src/Scene.ts", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "sed -n '2090,2130p' packages/excalidraw/components/App.tsx", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=131 cache_read=37062 cache_write=1054 output=314
 
 === Turn 14 ===
@@ -955,7 +955,7 @@ function adjustRoughness(element: ExcalidrawElement): number {
         : this.state.selectionElement ||
           this.state.newElement ||
           this.state.selectedElementsAreBeingDragged ||
-[assistant] Where mutation invalidates the cache, and how the canvas components call the renderers.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"ShapeCache.delete\\|incrementVersion\\|versionNonce\\|version++\\|version +\" packages/element/src/mutateElement.ts | head", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"renderStaticScene\\|useEffect\\|memo\\|prevProps\\|shouldComponentUpdate\\|renderInteractiveScene(\" packages/excalidraw/components/canvases/StaticCanvas.tsx packages/excalidraw/components/canvases/InteractiveCanvas.tsx 2>/dev/null | head -30; echo ===; find packages/excalidraw/components/canvases -type f", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep1"}
+[assistant] Where mutation invalidates the cache, and how the canvas components call the renderers.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"ShapeCache.delete\\|incrementVersion\\|versionNonce\\|version++\\|version +\" packages/element/src/mutateElement.ts | head", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"renderStaticScene\\|useEffect\\|memo\\|prevProps\\|shouldComponentUpdate\\|renderInteractiveScene(\" packages/excalidraw/components/canvases/StaticCanvas.tsx packages/excalidraw/components/canvases/InteractiveCanvas.tsx 2>/dev/null | head -30; echo ===; find packages/excalidraw/components/canvases -type f", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep1"}
 [usage] input=2 cache_read=38116 cache_write=1547 output=572
 
 === Turn 15 ===

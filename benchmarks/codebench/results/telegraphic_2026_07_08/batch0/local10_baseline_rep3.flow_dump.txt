@@ -86,7 +86,7 @@ Output too large (32.9KB). Full output saved to: /tmp/codebench_workspaces/batch
 Preview (first 2KB):
 # Telegraphic benchmark scratch repo
 
-Intentionally minimal. Exists only so `atelier benchmark telegraphic` has a
+Intentionally minimal. Exists only so `lemoncrow benchmark telegraphic` has a
 real git repo to hand each Claude Code arm -- the prompts are general dev
 Q&A, not tied to any specific codebase, so there is deliberately nothing
 here to explore. Answer from general knowledge.
@@ -123,8 +123,8 @@ results.jsonl
 telegraphic_report.md
 
 reports/benchmark/telegraphic/20260708T123441Z/batch0:
-local1_atelier_rep0.flow
-local1_atelier_rep0.flow_dump.txt
+local1_lemoncrow_rep0.flow
+local1_lemoncrow_rep0.flow_dump.txt
 model_audit.csv
 pairwise_quality.csv
 quality_adjusted_summary.csv
@@ -137,9 +137,9 @@ task_correctness.csv
 task_metrics.csv
 
 reports/benchmark/telegraphic/20260708T123441Z/batch0/state:
-local1_atelier_rep0
+local1_lemoncrow_rep0
 
-reports/benchmark/telegraphic/20260708T123441Z/batch0/state/local1_atelier_rep0:
+reports/benchmark/telegraphic/20260708T123441Z/batch0/state/local1_lemoncrow_rep0:
 state.json
 
 reports/benchmark/telegraphic/20260708T123557Z:
@@ -149,24 +149,24 @@ results.jsonl
 telegraphic_report.md
 
 reports/benchmark/telegraphic/20260708T123557Z/batch0:
-local1_atelier_rep0.flow
-local1_atelier_rep0.flow_dump.txt
-local2_atelier_rep0.flow
-local2_atelier_rep0.flow_dump.txt
-local3_atelier_rep0.flow
-local3_atelier_rep0.flow_dump.txt
-local4_atelier_rep0.flow
-local4_atelier_rep0.flow_dump.txt
-local5_atelier_rep0.flow
-local5_atelier_rep0.flow_dump.txt
-local6_atelier_rep0.flow
-local6_atelier_rep0.flow_dump.txt
-local7_atelier_rep0.flow
-local7_atelier_rep0.flow_dump.txt
-local8_atelier_rep0.flow
-local8_atelier_rep0.flow_dump.txt
-local8_atelier_rep0.toolprofile.jsonl
-local9_atelier_rep0.flow
+local1_lemoncrow_rep0.flow
+local1_lemoncrow_rep0.flow_dump.txt
+local2_lemoncrow_rep0.flow
+local2_lemoncrow_rep0.flow_dump.txt
+local3_lemoncrow_rep0.flow
+local3_lemoncrow_rep0.flow_dump.txt
+local4_lemoncrow_rep0.flow
+local4_lemoncrow_rep0.flow_dump.txt
+local5_lemoncrow_rep0.flow
+local5_lemoncrow_rep0.flow_dump.txt
+local6_lemoncrow_rep0.flow
+local6_lemoncrow_rep0.flow_dump.txt
+local7_lemoncrow_rep0.flow
+local7_lemoncrow_rep0.flow_dump.txt
+local8_lemoncrow_rep0.flow
+local8_lemoncrow_rep0.flow_dump.txt
+local8_lemoncrow_rep0.toolprofile.jsonl
+local9_lemoncrow_rep0.flow
 ...
 </persisted-output>
 [assistant] This is a benchmark scratch repo with no real codebase — the task is a standalone implementation. I'll write a clean, production-quality error boundary component.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-fa5c44a92d05/local10_baseline_rep3/ErrorBoundary.jsx", "content": "import { Component } from 'react';\n\n/**\n * ErrorBoundary catches render/lifecycle errors in its subtree, shows a\n * fallback UI with a retry button, and logs the error details.\n *\n * Error boundaries must be class components — there is no Hook equivalent for\n * getDerivedStateFromError / componentDidCatch.\n *\n * Props:\n *   - children:  the protected subtree.\n *   - fallback:  optional render prop ({ error, reset }) => ReactNode to\n *                override the default fallback UI.\n *   - onError:   optional callback (error, errorInfo) for reporting to an\n *                external service (Sentry, Datadog, etc.).\n *\n * Note: error boundaries only catch errors during rendering, in lifecycle\n * methods, and in constructors of the tree below them. They do NOT catch\n * errors in event handlers, async code, or the boundary itself.\n */\nexport default class ErrorBoundary extends Component {\n  constructor(props) {\n    super(props);\n    this.state = { error: null };\n    this.reset = this.reset.bind(this);\n  }\n\n  // Update state so the next render shows the fallback UI.\n  static getDerivedStateFromError(error) {\n    return { error };\n  }\n\n  // Side effects: log the error and notify any external handler.\n  componentDidCatch(error, errorInfo) {\n    console.error('ErrorBoundary caught an error:', error, errorInfo);\n    this.props.onError?.(error, errorInfo);\n  }\n\n  // Clearing the error re-renders children, retrying the failed subtree.\n  reset() {\n    this.setState({ error: null });\n  }\n\n  render() {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (typeof this.props.fallback === 'function') {\n        return this.props.fallback({ error, reset: this.reset });\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <p style={styles.message}>{error.message || String(error)}</p>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Try again\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles = {\n  container: {\n    padding: '1.5rem',\n    border: '1px solid #f0c0c0',\n    borderRadius: '8px',\n    background: '#fff5f5',\n    color: '#611a15',\n    maxWidth: '40rem',\n    margin: '1rem auto',\n    fontFamily: 'system-ui, sans-serif',\n  },\n  heading: { margin: '0 0 0.5rem' },\n  message: { margin: '0 0 1rem', whiteSpace: 'pre-wrap' },\n  button: {\n    padding: '0.5rem 1rem',\n    border: 'none',\n    borderRadius: '6px',\n    background: '#611a15',\n    color: '#fff',\n    cursor: 'pointer',\n    fontSize: '1rem',\n  },\n};\n"}

@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - One search → one bulk edit. Lead with `code_search` BEFORE and while writing or editing code: one call = relevant symbols' verbatim source grouped by file + callers/callees/usages + blast-radius summary — more accurate context, far fewer tokens and round-trips than finding and reading files yourself. Returned source = already read; `read` only what it didn't return, all files in ONE call, never the same file twice; ALL edits in ONE `edit` edits[] array.
 - Never grep or read files to find or understand indexed code; never re-verify `code_search` results with shell grep — full index, re-checking wastes context. Grep/cat-style shell over workspace code auto-served from the index where possible, coached otherwise.
 - Known path → `read` (batch files=[...], exact :Lx-Ly ranges, head=/tail=) — never cat/sed/head/tail. `bash` = execution (tests, git, builds), not file content or code search.
@@ -58,7 +58,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unittest_setUpClass_fixture fixture name generation", "paths": "src/_pytest/unittest.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unittest_setUpClass_fixture fixture name generation", "paths": "src/_pytest/unittest.py"}
 [usage] input=2944 cache_read=5923 cache_write=0 output=146
 
 === Turn 2 ===
@@ -80,14 +80,14 @@ src/_pytest/unittest.py:L198-L203 method TestCaseFunction.teardown
 candidate_files: src/_pytest/fixtures.py, src/_pytest/python.py, src/_pytest/capture.py, testing/python/fixtures.py, testing/test_unittest.py, src/_pytest/setuponly.py, testing/test_capture.py, src/_pytest/logging.py, testing/test_terminal.py, testing/test_nose.py, src/_pytest/junitxml.py, src/_pytest/cacheprovider.py, src/_pytest/doctest.py, src/_pytest/hookspec.py, testing/test_setupplan.py, src/_pytest/runner.py, src/_pytest/config/__init__.py, testing/test_setuponly.py, testing/test_runner.py, testing/test_config.py, testing/test_debugging.py, testing/test_doctest.py, testing/test_runner_xunit.py, testing/logging/test_reporting.py
 
 (truncated -- narrow with paths= or a more specific query)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": src/_pytest/unittest.py:L97-L181}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": src/_pytest/unittest.py:L97-L181}
 [usage] input=2 cache_read=5923 cache_write=3748 output=78
 
 === Turn 3 ===
-[user] [tool_result] <tool_use_error>InputValidationError: mcp__plugin_atelier_atelier__read was called with input that could not be parsed as JSON.
+[user] [tool_result] <tool_use_error>InputValidationError: mcp__plugin_lemoncrow_lemoncrow__read was called with input that could not be parsed as JSON.
 You sent (first 43 of 43 bytes): {"files": src/_pytest/unittest.py:L97-L181}
 Common causes: unescaped backslashes in file paths (use / or \\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/unittest.py:L97-L181"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/unittest.py:L97-L181"]}
 [usage] input=2 cache_read=9671 cache_write=260 output=81
 
 === Turn 4 ===
@@ -177,12 +177,12 @@ def _make_xunit_fixture(
                 cleanup()
 
     return fixture
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/unittest.py", "old": "        # Use a unique name to speed up lookup.\n        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",", "new": "        # Use a unique name to speed up lookup.\n        name=f\"_unittest_{setup_name}_fixture_{obj.__qualname__}\","}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/unittest.py", "old": "        # Use a unique name to speed up lookup.\n        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",", "new": "        # Use a unique name to speed up lookup.\n        name=f\"_unittest_{setup_name}_fixture_{obj.__qualname__}\","}]}
 [usage] input=2 cache_read=9931 cache_write=972 output=348
 
 === Turn 5 ===
 [user] [tool_result] applied src/_pytest/unittest.py:146-147
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "unittest_setUpClass_fixture", "paths": "testing/"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "unittest_setUpClass_fixture", "paths": "testing/"}
 [usage] input=2 cache_read=10903 cache_write=371 output=121
 
 === Turn 6 ===
@@ -204,12 +204,12 @@ testing/test_skipping.py:L519-L532 method TestXFail.xtest_dynamic_xfail_set_duri
 candidate_files: testing/example_scripts/unittest/test_setup_skip.py, testing/test_setupplan.py, src/_pytest/setupplan.py, testing/test_nose.py, src/_pytest/setuponly.py, testing/python/fixtures.py, testing/test_setuponly.py, src/_pytest/logging.py, testing/test_terminal.py, testing/logging/test_fixture.py, src/_pytest/runner.py, testing/python/integration.py, src/_pytest/nose.py, testing/test_capture.py, testing/test_pathlib.py, src/_pytest/hookspec.py, src/_pytest/assertion/__init__.py, testing/acceptance_test.py, doc/en/example/assertion/test_setup_flow_example.py, testing/test_runner_xunit.py, src/_pytest/nodes.py
 
 (truncated -- narrow with paths= or a more specific query)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"unittest_.*_fixture_\" testing/ src/ 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"unittest_.*_fixture_\" testing/ src/ 2>/dev/null"}
 [usage] input=2 cache_read=11274 cache_write=821 output=94
 
 === Turn 7 ===
 [user] [tool_result] {"content": [], "verdict": "missed"}
-[assistant] No test references. Adding changelog entry.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls changelog/ | head -30"}
+[assistant] No test references. Adding changelog entry.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls changelog/ | head -30"}
 [usage] input=2 cache_read=12095 cache_write=115 output=111
 
 === Turn 8 ===
@@ -229,12 +229,12 @@ candidate_files: testing/example_scripts/unittest/test_setup_skip.py, testing/te
 8384.bugfix.rst
 README.rst
 _template.rst
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "changelog/8409.bugfix.rst", "replace": true, "new": "Make ``unittest`` setUpClass fixtures ``_verbose`` again so they don't get printed by ``--fixtures`` unless ``-v`` is used.\n\nSince version 6.2.0, the fixtures automatically generated for ``unittest`` ``setUpClass``/``setup_method`` no longer had a name starting with an underscore, so they were treated as non-private and listed by ``--fixtures``. Their names now start with an underscore again, restoring the previous behavior.\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "changelog/8409.bugfix.rst", "replace": true, "new": "Make ``unittest`` setUpClass fixtures ``_verbose`` again so they don't get printed by ``--fixtures`` unless ``-v`` is used.\n\nSince version 6.2.0, the fixtures automatically generated for ``unittest`` ``setUpClass``/``setup_method`` no longer had a name starting with an underscore, so they were treated as non-private and listed by ``--fixtures``. Their names now start with an underscore again, restoring the previous behavior.\n"}]}
 [usage] input=2 cache_read=12210 cache_write=272 output=259
 
 === Turn 9 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "changelog/8409.bugfix.rst", "replace": true, "new": "Make unittest setUpClass fixtures ``_private`` again, so they get hidden by ``--fixtures`` unless the ``-v`` flag is used, as was the case before pytest 6.2.0.\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "changelog/8409.bugfix.rst", "replace": true, "new": "Make unittest setUpClass fixtures ``_private`` again, so they get hidden by ``--fixtures`` unless the ``-v`` flag is used, as was the case before pytest 6.2.0.\n"}]}
 [usage] input=2 cache_read=12482 cache_write=266 output=246
 
 === Turn 10 ===
@@ -246,12 +246,12 @@ _template.rst
 === Turn 11 ===
 [user] Stop hook feedback:
 FIXME (verify): edited unittest.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest testing/test_unittest.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest testing/test_unittest.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=13001 cache_write=313 output=90
 
 === Turn 12 ===
 [user] [tool_result] 59 passed, 9 skipped in 1.15s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /tmp && printf 'import unittest\\nclass Tests(unittest.TestCase):\\n    @classmethod\\n    def setUpClass(cls): pass\\n    def test_1(self): pass\\n' > t_uc.py && python -m pytest --fixtures t_uc.py 2>&1 | grep -i unittest; echo \"---with -v---\"; python -m pytest -v --fixtures t_uc.py 2>&1 | grep -i unittest"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /tmp && printf 'import unittest\\nclass Tests(unittest.TestCase):\\n    @classmethod\\n    def setUpClass(cls): pass\\n    def test_1(self): pass\\n' > t_uc.py && python -m pytest --fixtures t_uc.py 2>&1 | grep -i unittest; echo \"---with -v---\"; python -m pytest -v --fixtures t_uc.py 2>&1 | grep -i unittest"}
 [usage] input=2 cache_read=13314 cache_write=112 output=248
 
 === Turn 13 ===

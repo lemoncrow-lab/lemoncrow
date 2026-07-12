@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "SlicedLowLevelWCS world_to_pixel_values"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "SlicedLowLevelWCS world_to_pixel_values"}
 [usage] input=2818 cache_read=4958 cache_write=2356 output=125
 
 === Turn 2 ===
@@ -257,7 +257,7 @@ astropy/wcs/wcsapi/tests/test_high_level_wcs_wrapper.py:L32-L33 method CustomLow
 candidate_files: astropy/wcs/wcsapi/fitswcs.py, astropy/wcs/wcsapi/low_level_api.py, astropy/wcs/wcsapi/conftest.py, astropy/wcs/wcsapi/wrappers/base.py, astropy/visualization/wcsaxes/tests/test_wcsapi.py, astropy/visualization/wcsaxes/wcsapi.py, astropy/nddata/mixins/ndslicing.py, astropy/wcs/wcsapi/high_level_api.py, astropy/wcs/wcsapi/tests/test_high_level_api.py, astropy/wcs/wcsapi/tests/test_high_level_wcs_wrapper.py, astropy/wcs/wcsapi/sliced_low_level_wcs.py, astropy/wcs/wcsapi/high_level_wcs_wrapper.py, astropy/nddata/nddata.py, astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py, astropy/wcs/utils.py, astropy/visualization/wcsaxes/core.py, astropy/nddata/tests/test_nddata.py, astropy/visualization/wcsaxes/tests/test_misc.py, cextern/wcslib/C/wcs.h, astropy/wcs/wcs.py, cextern/wcslib/C/wcs.c, astropy/visualization/wcsaxes/coordinate_helpers.py, astropy/wcs/wcsapi/tests/test_fitswcs.py, cextern/cfitsio/lib/cfileio.c
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["astropy/wcs/wcsapi/wrappers/sliced_wcs.py:L245-L269"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["astropy/wcs/wcsapi/wrappers/sliced_wcs.py:L245-L269"]}
 [usage] input=2 cache_read=7314 cache_write=7246 output=1335
 
 === Turn 3 ===
@@ -287,12 +287,12 @@ candidate_files: astropy/wcs/wcsapi/fitswcs.py, astropy/wcs/wcsapi/low_level_api
         if self.pixel_n_dim == 1 and self._wcs.pixel_n_dim > 1:
             pixel = pixel[0]
         return pixel
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"astropy/wcs/wcsapi/wrappers/sliced_wcs.py","old":"    def world_to_pixel_values(self, *world_arrays):\n        world_arrays = tuple(map(np.asanyarray, world_arrays))\n        world_arrays_new = []\n        iworld_curr = -1\n        for iworld in range(self._wcs.world_n_dim):\n            if iworld in self._world_keep:\n                iworld_curr += 1\n                world_arrays_new.append(world_arrays[iworld_curr])\n            else:\n                world_arrays_new.append(1.)","new":"    def world_to_pixel_values(self, *world_arrays):\n        sliced_out_world_coords = self._pixel_to_world_values_all(*[0]*len(self._pixel_keep))\n\n        world_arrays = tuple(map(np.asanyarray, world_arrays))\n        world_arrays_new = []\n        iworld_curr = -1\n        for iworld in range(self._wcs.world_n_dim):\n            if iworld in self._world_keep:\n                iworld_curr += 1\n                world_arrays_new.append(world_arrays[iworld_curr])\n            else:\n                world_arrays_new.append(sliced_out_world_coords[iworld])"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"astropy/wcs/wcsapi/wrappers/sliced_wcs.py","old":"    def world_to_pixel_values(self, *world_arrays):\n        world_arrays = tuple(map(np.asanyarray, world_arrays))\n        world_arrays_new = []\n        iworld_curr = -1\n        for iworld in range(self._wcs.world_n_dim):\n            if iworld in self._world_keep:\n                iworld_curr += 1\n                world_arrays_new.append(world_arrays[iworld_curr])\n            else:\n                world_arrays_new.append(1.)","new":"    def world_to_pixel_values(self, *world_arrays):\n        sliced_out_world_coords = self._pixel_to_world_values_all(*[0]*len(self._pixel_keep))\n\n        world_arrays = tuple(map(np.asanyarray, world_arrays))\n        world_arrays_new = []\n        iworld_curr = -1\n        for iworld in range(self._wcs.world_n_dim):\n            if iworld in self._world_keep:\n                iworld_curr += 1\n                world_arrays_new.append(world_arrays[iworld_curr])\n            else:\n                world_arrays_new.append(sliced_out_world_coords[iworld])"}]}
 [usage] input=2 cache_read=14560 cache_write=1856 output=552
 
 === Turn 4 ===
 [user] [tool_result] applied astropy/wcs/wcsapi/wrappers/sliced_wcs.py:245-254
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"\nimport numpy as np, astropy.wcs\nfrom astropy.coordinates import SkyCoord\nimport astropy.units as u\nnx,ny,nz=100,25,2\nh={'WCSAXES':3,'CRPIX1':(nx+1)/2,'CRPIX2':(ny+1)/2,'CRPIX3':1.0,'PC1_1':0.0,'PC1_2':-1.0,'PC1_3':0.0,'PC2_1':1.0,'PC2_2':0.0,'PC2_3':-1.0,'CDELT1':5,'CDELT2':5,'CDELT3':0.055,'CUNIT1':'arcsec','CUNIT2':'arcsec','CUNIT3':'Angstrom','CTYPE1':'HPLN-TAN','CTYPE2':'HPLT-TAN','CTYPE3':'WAVE','CRVAL1':0.0,'CRVAL2':0.0,'CRVAL3':1.05}\nw=astropy.wcs.WCS(header=h)\npt=SkyCoord(Tx=0*u.arcsec,Ty=0*u.arcsec,frame=astropy.wcs.utils.wcs_to_celestial_frame(w))\nll=astropy.wcs.wcsapi.SlicedLowLevelWCS(w,0)\nhl=astropy.wcs.wcsapi.HighLevelWCSWrapper(ll)\nprint(hl.world_to_pixel(pt))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"\nimport numpy as np, astropy.wcs\nfrom astropy.coordinates import SkyCoord\nimport astropy.units as u\nnx,ny,nz=100,25,2\nh={'WCSAXES':3,'CRPIX1':(nx+1)/2,'CRPIX2':(ny+1)/2,'CRPIX3':1.0,'PC1_1':0.0,'PC1_2':-1.0,'PC1_3':0.0,'PC2_1':1.0,'PC2_2':0.0,'PC2_3':-1.0,'CDELT1':5,'CDELT2':5,'CDELT3':0.055,'CUNIT1':'arcsec','CUNIT2':'arcsec','CUNIT3':'Angstrom','CTYPE1':'HPLN-TAN','CTYPE2':'HPLT-TAN','CTYPE3':'WAVE','CRVAL1':0.0,'CRVAL2':0.0,'CRVAL3':1.05}\nw=astropy.wcs.WCS(header=h)\npt=SkyCoord(Tx=0*u.arcsec,Ty=0*u.arcsec,frame=astropy.wcs.utils.wcs_to_celestial_frame(w))\nll=astropy.wcs.wcsapi.SlicedLowLevelWCS(w,0)\nhl=astropy.wcs.wcsapi.HighLevelWCSWrapper(ll)\nprint(hl.world_to_pixel(pt))\n\""}
 [usage] input=2 cache_read=16416 cache_write=593 output=588
 
 === Turn 5 ===
@@ -302,7 +302,7 @@ Traceback (most recent call last):
   File "/testbed/astropy/wcs/utils.py", line 219, in wcs_to_celestial_frame
     raise ValueError("Could not determine celestial frame corresponding to "
 ValueError: Could not determine celestial frame corresponding to the specified WCS object
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"\nimport numpy as np, astropy.wcs\nfrom astropy.coordinates import SkyCoord\nimport astropy.units as u\nnx,ny,nz=100,25,2\nh={'WCSAXES':3,'CRPIX1':(nx+1)/2,'CRPIX2':(ny+1)/2,'CRPIX3':1.0,'PC1_1':0.0,'PC1_2':-1.0,'PC1_3':0.0,'PC2_1':1.0,'PC2_2':0.0,'PC2_3':-1.0,'CDELT1':5,'CDELT2':5,'CDELT3':0.055,'CUNIT1':'arcsec','CUNIT2':'arcsec','CUNIT3':'Angstrom','CTYPE1':'RA---TAN','CTYPE2':'DEC--TAN','CTYPE3':'WAVE','CRVAL1':0.0,'CRVAL2':0.0,'CRVAL3':1.05}\nw=astropy.wcs.WCS(header=h)\nprint('full', w.world_to_pixel_values(0,0,1.05e-10))\nll=astropy.wcs.wcsapi.SlicedLowLevelWCS(w,0)\nprint('sliced', ll.world_to_pixel_values(0,0))\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"\nimport numpy as np, astropy.wcs\nfrom astropy.coordinates import SkyCoord\nimport astropy.units as u\nnx,ny,nz=100,25,2\nh={'WCSAXES':3,'CRPIX1':(nx+1)/2,'CRPIX2':(ny+1)/2,'CRPIX3':1.0,'PC1_1':0.0,'PC1_2':-1.0,'PC1_3':0.0,'PC2_1':1.0,'PC2_2':0.0,'PC2_3':-1.0,'CDELT1':5,'CDELT2':5,'CDELT3':0.055,'CUNIT1':'arcsec','CUNIT2':'arcsec','CUNIT3':'Angstrom','CTYPE1':'RA---TAN','CTYPE2':'DEC--TAN','CTYPE3':'WAVE','CRVAL1':0.0,'CRVAL2':0.0,'CRVAL3':1.05}\nw=astropy.wcs.WCS(header=h)\nprint('full', w.world_to_pixel_values(0,0,1.05e-10))\nll=astropy.wcs.wcsapi.SlicedLowLevelWCS(w,0)\nprint('sliced', ll.world_to_pixel_values(0,0))\n\""}
 [usage] input=2 cache_read=17009 cache_write=719 output=566
 
 === Turn 6 ===
@@ -314,7 +314,7 @@ sliced (array(49.5), array(12.))
 === Turn 7 ===
 [user] Stop hook feedback:
 FIXME (verify): edited sliced_wcs.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=18340 cache_write=261 output=113
 
 === Turn 8 ===

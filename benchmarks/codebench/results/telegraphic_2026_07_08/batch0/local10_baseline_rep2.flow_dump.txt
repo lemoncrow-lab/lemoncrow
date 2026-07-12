@@ -83,7 +83,7 @@ drwxrwxr-x   - pankaj  8 Jul 13:55 reports
 === Turn 6 ===
 [user] [tool_result] # Telegraphic benchmark scratch repo
 
-Intentionally minimal. Exists only so `atelier benchmark telegraphic` has a
+Intentionally minimal. Exists only so `lemoncrow benchmark telegraphic` has a
 real git repo to hand each Claude Code arm -- the prompts are general dev
 Q&A, not tied to any specific codebase, so there is deliberately nothing
 here to explore. Answer from general knowledge.

@@ -32,16 +32,16 @@ claude.ai Google Drive
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
-- atelier:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit, mcp__plugin_atelier_atelier__edit, Workflow, ScheduleWakeup)
-- atelier:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal-toolset coding agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Focused isolated code executor. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
+- lemoncrow:explore: Read-only codebase explorer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:general: General-purpose catch-all agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:plan: Read-only implementation planner. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:research: External web researcher. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:review: Adversarial read-only reviewer. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit, mcp__plugin_lemoncrow_lemoncrow__edit, Workflow, ScheduleWakeup)
+- lemoncrow:solve: Autonomous verified task solver. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, Workflow, ScheduleWakeup)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -54,8 +54,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -65,13 +65,13 @@ Atelier replaces the grep→read→re-read loop.
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:atelier: Extras manager.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
-- atelier:recall: Retrieve what Atelier already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does Atelier remember', or /recall. Read-only; importing, indexing, and extraction run in the Atelier background.
-- atelier:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
+- lemoncrow:lemoncrow: Extras manager.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Run one multi-step task end-to-end on the right execution surface — a background task, a durable workflow, or a direct subagent — and hand back a run_id to track. Use for 'orchestrate this', 'run this in the background', 'kick off a multi-step run', or /orchestrate.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Use for 'perf review', 'did this slow down', 'check for a regression', or /perf-review. Enforces performance quality; does not review general code (use /code-review).
+- lemoncrow:recall: Retrieve what LemonCrow already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does LemonCrow remember', or /recall. Read-only; importing, indexing, and extraction run in the LemonCrow background.
+- lemoncrow:swarm: Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, interaction & state coverage, and visual regression — by rendering it in a real browser. Use for 'ux review', 'a11y check', 'does this UI hold up', or /ux-review. Enforces design quality; does not redesign or review code (use /code-review).
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -88,47 +88,47 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "renderScene renderStaticScene canvas render elements"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Scene getNonDeletedElements update elements informMutation"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "renderScene renderStaticScene canvas render elements"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "Scene getNonDeletedElements update elements informMutation"}
 [usage] input=5185 cache_read=16481 cache_write=863 output=196
 
 === Turn 2 ===
 [user] [tool_result] no exact match -- ranked candidates
 
-## src/atelier/core/capabilities/prompt_compilation/lint_rules/ordering.py
-_session_before_static — read src/atelier/core/capabilities/prompt_compilation/lint_rules/ordering.py:L35-L51
+## src/lemoncrow/core/capabilities/prompt_compilation/lint_rules/ordering.py
+_session_before_static — read src/lemoncrow/core/capabilities/prompt_compilation/lint_rules/ordering.py:L35-L51
 
 related_symbols:
-src/atelier/core/runtime/engine.py:L432-L469 method AtelierRuntimeCore._static_sql_inspect
-src/atelier/core/capabilities/prefix_cache/planner.py:L58 variable _STATIC_STABILITIES
-src/atelier/core/capabilities/prefix_cache/planner.py:L74-L95 method PrefixCachePlanner.plan
-src/atelier/core/capabilities/prefix_cache/planner.py:L120-L129 _detect_invalidation_reason
-src/atelier/core/capabilities/counterfactual/pricing.py:L105-L123 _build_candidates
+src/lemoncrow/core/runtime/engine.py:L432-L469 method LemonCrowRuntimeCore._static_sql_inspect
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L58 variable _STATIC_STABILITIES
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L74-L95 method PrefixCachePlanner.plan
+src/lemoncrow/core/capabilities/prefix_cache/planner.py:L120-L129 _detect_invalidation_reason
+src/lemoncrow/core/capabilities/counterfactual/pricing.py:L105-L123 _build_candidates
 benchmarks/codebench/eval_external_provider_mrr.py:L1248-L1345 class CmmProvider
-src/atelier/core/capabilities/prompt_compilation/models.py:L24-L35 class Stability
-src/atelier/core/capabilities/web_fetch.py:L1047-L1078 _markdownify_html
+src/lemoncrow/core/capabilities/prompt_compilation/models.py:L24-L35 class Stability
+src/lemoncrow/core/capabilities/web_fetch.py:L1047-L1078 _markdownify_html
 
-candidate_files: src/atelier/core/runtime/engine.py, src/atelier/core/capabilities/prefix_cache/planner.py, src/atelier/core/capabilities/web_fetch.py, src/atelier/core/capabilities/code_context/engine.py, src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/service/api.py, src/atelier/core/capabilities/semantic_file_memory/treesitter_ast.py, frontend/src/components/ErrorBoundary.tsx, src/atelier/core/capabilities/prompt_compilation/compiler.py, tests/benchmarks/fixtures/sample.swift, tests/benchmarks/fixtures/Sample.java, tests/benchmarks/fixtures/sample.c, scripts/lib/common.sh, src/atelier/core/capabilities/code_context/renderer.py, scripts/sync_agent_context.py, src/atelier/gateway/cli/runtime.py, src/atelier/gateway/cli/commands/benchmark.py, src/atelier/gateway/cli/commands/sessions.py, src/atelier/gateway/cli/commands/admin.py, src/atelier/infra/runtime/session_report.py, src/atelier/gateway/cli/commands/swarm.py, tests/gateway/test_mcp_tool_handlers.py, src/atelier/gateway/cli/commands/project.py, src/atelier/core/capabilities/owned_execution_cache_affinity.py
+candidate_files: src/lemoncrow/core/runtime/engine.py, src/lemoncrow/core/capabilities/prefix_cache/planner.py, src/lemoncrow/core/capabilities/web_fetch.py, src/lemoncrow/core/capabilities/code_context/engine.py, src/lemoncrow/gateway/adapters/mcp_server.py, src/lemoncrow/core/service/api.py, src/lemoncrow/core/capabilities/semantic_file_memory/treesitter_ast.py, frontend/src/components/ErrorBoundary.tsx, src/lemoncrow/core/capabilities/prompt_compilation/compiler.py, tests/benchmarks/fixtures/sample.swift, tests/benchmarks/fixtures/Sample.java, tests/benchmarks/fixtures/sample.c, scripts/lib/common.sh, src/lemoncrow/core/capabilities/code_context/renderer.py, scripts/sync_agent_context.py, src/lemoncrow/gateway/cli/runtime.py, src/lemoncrow/gateway/cli/commands/benchmark.py, src/lemoncrow/gateway/cli/commands/sessions.py, src/lemoncrow/gateway/cli/commands/admin.py, src/lemoncrow/infra/runtime/session_report.py, src/lemoncrow/gateway/cli/commands/swarm.py, tests/gateway/test_mcp_tool_handlers.py, src/lemoncrow/gateway/cli/commands/project.py, src/lemoncrow/core/capabilities/owned_execution_cache_affinity.py
 
 (truncated; narrow with paths=)
 [tool_result] no exact match -- ranked candidates
 
-## src/atelier/infra/code_intel/git_history/adapter.py
-DeletedHistorySearchAdapter — read src/atelier/infra/code_intel/git_history/adapter.py:L59-L476
+## src/lemoncrow/infra/code_intel/git_history/adapter.py
+DeletedHistorySearchAdapter — read src/lemoncrow/infra/code_intel/git_history/adapter.py:L59-L476
 
 related_symbols:
-src/atelier/infra/code_intel/git_history/adapter.py:L400-L438 method DeletedHistorySearchAdapter._resolved_rename_target
-src/atelier/infra/code_intel/git_history/graveyard.py:L10-L117 class SymbolGraveyard
-src/atelier/core/capabilities/code_context/engine.py:L14574-L14583 method CodeContextEngine._deleted_history_adapter
-src/atelier/infra/code_intel/git_history/graveyard.py:L83-L117 method SymbolGraveyard.find_deleted
-src/atelier/core/capabilities/code_context/engine.py:L320-L325 variable _DELETED_SEARCH_ESSENTIAL_KEYS
-src/atelier/infra/code_intel/git_history/adapter.py:L159-L220 method DeletedHistorySearchAdapter._ensure_history_ready
-src/atelier/core/capabilities/code_context/engine.py:L350-L352 variable _DELETED_SEARCH_COMPACT_DEFAULT_KEYS
-src/atelier/core/capabilities/licensing/store.py:L51-L57 delete_auth_token
+src/lemoncrow/infra/code_intel/git_history/adapter.py:L400-L438 method DeletedHistorySearchAdapter._resolved_rename_target
+src/lemoncrow/infra/code_intel/git_history/graveyard.py:L10-L117 class SymbolGraveyard
+src/lemoncrow/core/capabilities/code_context/engine.py:L14574-L14583 method CodeContextEngine._deleted_history_adapter
+src/lemoncrow/infra/code_intel/git_history/graveyard.py:L83-L117 method SymbolGraveyard.find_deleted
+src/lemoncrow/core/capabilities/code_context/engine.py:L320-L325 variable _DELETED_SEARCH_ESSENTIAL_KEYS
+src/lemoncrow/infra/code_intel/git_history/adapter.py:L159-L220 method DeletedHistorySearchAdapter._ensure_history_ready
+src/lemoncrow/core/capabilities/code_context/engine.py:L350-L352 variable _DELETED_SEARCH_COMPACT_DEFAULT_KEYS
+src/lemoncrow/core/capabilities/licensing/store.py:L51-L57 delete_auth_token
 
-candidate_files: src/atelier/core/capabilities/code_context/engine.py, src/atelier/core/capabilities/memory/staleness.py, src/atelier/gateway/adapters/mcp_server.py, src/atelier/core/capabilities/plugin_runtime.py, src/atelier/core/capabilities/team/workspace.py, src/atelier/core/capabilities/memory_arbitration/arbiter.py, src/atelier/core/settings_registry.py, src/atelier/infra/code_intel/git_history/graveyard.py, src/atelier/core/runtime/engine.py, tests/core/test_code_context.py, src/atelier/core/capabilities/savings_summary.py, tests/core/test_bitemporal_memory.py, hatch_build.py, src/atelier/infra/runtime/servicectl_lifecycle.py, src/atelier/gateway/cli/commands/code.py, src/atelier/infra/seed_playbooks/05-canonical-identifier-over-display-name.yaml, src/atelier/gateway/cli/commands/update.py, tests/infra/code_intel/git_history/test_graveyard.py, src/atelier/core/capabilities/tool_supervision/sql_tool.py, src/atelier/core/capabilities/owned_agent_session/gemini_cache.py, src/atelier/core/foundation/store.py, src/atelier/core/service/api.py, src/atelier/infra/seed_playbooks/06-read-after-write-verification.yaml, src/atelier/core/capabilities/tool_supervision/external_compactors.py
+candidate_files: src/lemoncrow/core/capabilities/code_context/engine.py, src/lemoncrow/core/capabilities/memory/staleness.py, src/lemoncrow/gateway/adapters/mcp_server.py, src/lemoncrow/core/capabilities/plugin_runtime.py, src/lemoncrow/core/capabilities/team/workspace.py, src/lemoncrow/core/capabilities/memory_arbitration/arbiter.py, src/lemoncrow/core/settings_registry.py, src/lemoncrow/infra/code_intel/git_history/graveyard.py, src/lemoncrow/core/runtime/engine.py, tests/core/test_code_context.py, src/lemoncrow/core/capabilities/savings_summary.py, tests/core/test_bitemporal_memory.py, hatch_build.py, src/lemoncrow/infra/runtime/servicectl_lifecycle.py, src/lemoncrow/gateway/cli/commands/code.py, src/lemoncrow/infra/seed_playbooks/05-canonical-identifier-over-display-name.yaml, src/lemoncrow/gateway/cli/commands/update.py, tests/infra/code_intel/git_history/test_graveyard.py, src/lemoncrow/core/capabilities/tool_supervision/sql_tool.py, src/lemoncrow/core/capabilities/owned_agent_session/gemini_cache.py, src/lemoncrow/core/foundation/store.py, src/lemoncrow/core/service/api.py, src/lemoncrow/infra/seed_playbooks/06-read-after-write-verification.yaml, src/lemoncrow/core/capabilities/tool_supervision/external_compactors.py
 
 (truncated; narrow with paths=)
-[assistant] Index is pointing at the wrong repo. Scoping to the excalidraw workspace.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "ls packages/excalidraw/ && echo \"---RENDER---\" && ls packages/excalidraw/renderer/ 2>/dev/null && echo \"---SCENE---\" && ls packages/excalidraw/scene/ 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] Index is pointing at the wrong repo. Scoping to the excalidraw workspace.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "ls packages/excalidraw/ && echo \"---RENDER---\" && ls packages/excalidraw/renderer/ 2>/dev/null && echo \"---SCENE---\" && ls packages/excalidraw/scene/ 2>/dev/null", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=17344 cache_write=7462 output=307
 
 === Turn 3 ===
@@ -147,18 +147,18 @@ claude.ai Gmail
 claude.ai Google Calendar
 
 This session is non-interactive, so Claude cannot run the OAuth flow here. Tell the user that these servers need to be authorized — for claude.ai connectors, via their claude.ai connector settings; for other servers, via `claude mcp` or /mcp in an interactive session — and that the capability is unavailable until they do. Do not ask the user for authorization codes, tokens, or callback URLs.
-[assistant] Real workspace. Let me read the render pipeline core files.[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["packages/excalidraw/scene/Renderer.ts", "packages/excalidraw/renderer/staticScene.ts:head=90", "packages/excalidraw/renderer/interactiveScene.ts:head=60"]}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class Scene\" packages/element/src/Scene.ts 2>/dev/null | head; echo \"---\"; ls packages/element/src/ 2>/dev/null | grep -i scene; echo \"---mutation---\"; grep -rln \"mutateElement\\|informMutation\\|onSceneUpdated\\|triggerUpdate\" packages/element/src/ packages/excalidraw/ 2>/dev/null | head -20", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] Real workspace. Let me read the render pipeline core files.[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["packages/excalidraw/scene/Renderer.ts", "packages/excalidraw/renderer/staticScene.ts:head=90", "packages/excalidraw/renderer/interactiveScene.ts:head=60"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class Scene\" packages/element/src/Scene.ts 2>/dev/null | head; echo \"---\"; ls packages/element/src/ 2>/dev/null | grep -i scene; echo \"---mutation---\"; grep -rln \"mutateElement\\|informMutation\\|onSceneUpdated\\|triggerUpdate\" packages/element/src/ packages/excalidraw/ 2>/dev/null | head -20", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=442 cache_read=24806 cache_write=782 output=430
 
 === Turn 4 ===
 [user] [tool_result] ## packages/excalidraw/scene/Renderer.ts
-{"path":"packages/excalidraw/scene/Renderer.ts","error":"file not found: /home/pankaj/Projects/leanchain/atelier/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path."}
+{"path":"packages/excalidraw/scene/Renderer.ts","error":"file not found: /home/pankaj/Projects/leanchain/lemoncrow/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path."}
 
 ## packages/excalidraw/renderer/staticScene.ts
-{"path":"packages/excalidraw/renderer/staticScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/atelier/packages/excalidraw/renderer/staticScene.ts"}
+{"path":"packages/excalidraw/renderer/staticScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/lemoncrow/packages/excalidraw/renderer/staticScene.ts"}
 
 ## packages/excalidraw/renderer/interactiveScene.ts
-{"path":"packages/excalidraw/renderer/interactiveScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/atelier/packages/excalidraw/renderer/interactiveScene.ts"}
+{"path":"packages/excalidraw/renderer/interactiveScene.ts","error":"file not found: /home/pankaj/Projects/leanchain/lemoncrow/packages/excalidraw/renderer/interactiveScene.ts"}
 [tool_result] 108:export class Scene {
 ---
 Scene.ts
@@ -183,23 +183,23 @@ packages/element/src/binding.ts
 packages/element/src/linearElementEditor.ts
 packages/element/src/store.ts
 packages/element/src/index.ts
-[assistant] The `read` tool resolves paths against the wrong root. Using bash + absolute paths.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "W=/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4\necho \"===== Renderer.ts =====\"; sed -n '1,140p' $W/packages/excalidraw/scene/Renderer.ts\necho \"===== Scene.ts (mutation/update parts) =====\"; grep -n \"informMutation\\|triggerUpdate\\|mutateElement\\|getNonDeletedElements\\|onUpdate\\|callback\\|version\" $W/packages/element/src/Scene.ts | head -60"}
+[assistant] The `read` tool resolves paths against the wrong root. Using bash + absolute paths.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "W=/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4\necho \"===== Renderer.ts =====\"; sed -n '1,140p' $W/packages/excalidraw/scene/Renderer.ts\necho \"===== Scene.ts (mutation/update parts) =====\"; grep -n \"informMutation\\|triggerUpdate\\|mutateElement\\|getNonDeletedElements\\|onUpdate\\|callback\\|version\" $W/packages/element/src/Scene.ts | head -60"}
 [usage] input=2 cache_read=25588 cache_write=1619 output=288
 
 === Turn 5 ===
-[user] [tool_result] [read] file not found: /home/pankaj/Projects/leanchain/atelier/$W/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path.
-[assistant] bash rewrites `sed`→read with wrong root. Using grep with context instead.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | head -160", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[user] [tool_result] [read] file not found: /home/pankaj/Projects/leanchain/lemoncrow/$W/packages/excalidraw/scene/Renderer.ts. No file named 'Renderer.ts' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path.
+[assistant] bash rewrites `sed`→read with wrong root. Using grep with context instead.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | head -160", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=27207 cache_write=387 output=388
 
 === Turn 6 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | sed -n '159,260p' 2>/dev/null || grep -n \"\" packages/excalidraw/scene/Renderer.ts | awk 'NR>=159 && NR<=260'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | sed -n '159,260p' 2>/dev/null || grep -n \"\" packages/excalidraw/scene/Renderer.ts | awk 'NR>=159 && NR<=260'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=131 cache_read=27594 cache_write=2483 output=221
 
 === Turn 7 ===
-[user] [tool_result] [read] file not found: /tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4/2>/dev/null. No file named 'null' found under /home/pankaj/Projects/leanchain/atelier — do not retry this path.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | awk 'NR>=159 && NR<=230'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[user] [tool_result] [read] file not found: /tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4/2>/dev/null. No file named 'null' found under /home/pankaj/Projects/leanchain/lemoncrow — do not retry this path.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\" packages/excalidraw/scene/Renderer.ts | awk 'NR>=159 && NR<=230'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=30077 cache_write=458 output=214
 
 === Turn 8 ===
@@ -275,7 +275,7 @@ packages/element/src/index.ts
 228:    });
 229:
 230:    // if we're dragging elements over a frame, reorder the selected elements
-[assistant] Now the Scene (source of truth) + mutation + throttled render. Let me read those.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== Scene.ts: nonce/mutation/callbacks ===\"; grep -n \"sceneNonce\\|informMutation\\|triggerUpdate\\|onUpdate\\|getSceneNonce\\|randomInteger\\|callbacks\\|_versionNonce\\|getNonDeletedElements\\b\\|mapElementToKey\\|elementsMap\" packages/element/src/Scene.ts | head -50\necho; echo \"=== mutateElement.ts ===\"; grep -n \"\" packages/element/src/mutateElement.ts | awk 'NR<=120'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] Now the Scene (source of truth) + mutation + throttled render. Let me read those.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== Scene.ts: nonce/mutation/callbacks ===\"; grep -n \"sceneNonce\\|informMutation\\|triggerUpdate\\|onUpdate\\|getSceneNonce\\|randomInteger\\|callbacks\\|_versionNonce\\|getNonDeletedElements\\b\\|mapElementToKey\\|elementsMap\" packages/element/src/Scene.ts | head -50\necho; echo \"=== mutateElement.ts ===\"; grep -n \"\" packages/element/src/mutateElement.ts | awk 'NR<=120'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=30535 cache_write=1061 output=353
 
 === Turn 9 ===
@@ -288,7 +288,7 @@ packages/element/src/index.ts
 51:  const { points, fixedSegments, fileId } = updates as any;
 52:
 ... (68 lines omitted) ...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== Scene.ts matches ===\"; grep -n \"sceneNonce\\|informMutation\\|triggerUpdate\\|onUpdate\\|getSceneNonce\\|callbacks\\|getNonDeletedElements\\|mapElementToKey\\|nonDeletedElements\\|this\\.elements \" packages/element/src/Scene.ts | awk 'NR<=60'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== Scene.ts matches ===\"; grep -n \"sceneNonce\\|informMutation\\|triggerUpdate\\|onUpdate\\|getSceneNonce\\|callbacks\\|getNonDeletedElements\\|mapElementToKey\\|nonDeletedElements\\|this\\.elements \" packages/element/src/Scene.ts | awk 'NR<=60'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=31596 cache_write=479 output=260
 
 === Turn 10 ===
@@ -329,7 +329,7 @@ packages/element/src/index.ts
 424:    const elementsMap = this.getNonDeletedElementsMap();
 439:      options.informMutation
 441:      this.triggerUpdate();
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== Scene.replaceAllElements + mutateElement (400-470) ===\"; grep -n \"\" packages/element/src/Scene.ts | awk 'NR>=270 && NR<=310'\necho; echo \"=== Scene.mutateElement ===\"; grep -n \"\" packages/element/src/Scene.ts | awk 'NR>=405 && NR<=450'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== Scene.replaceAllElements + mutateElement (400-470) ===\"; grep -n \"\" packages/element/src/Scene.ts | awk 'NR>=270 && NR<=310'\necho; echo \"=== Scene.mutateElement ===\"; grep -n \"\" packages/element/src/Scene.ts | awk 'NR>=405 && NR<=450'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=32075 cache_write=1053 output=260
 
 === Turn 11 ===
@@ -419,7 +419,7 @@ packages/element/src/index.ts
 444:    return element;
 445:  }
 446:}
-[assistant] Now the render trigger from the component + staticScene throttle. Let me see how `onUpdate` wires into React and the throttled renderer.[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== staticScene throttle + renderStaticScene signature ===\"; grep -n \"renderStaticSceneThrottled\\|throttleRAF\\|export const renderStaticScene\\|elementsMap\\|visibleElements\\|drawElementOnCanvas\\|renderElement\\b\" packages/excalidraw/renderer/staticScene.ts | awk 'NR<=40'\necho; echo \"=== App.tsx render wiring ===\"; grep -n \"renderScene\\|getRenderableElements\\|renderStaticScene\\|renderInteractiveScene\\|scene.onUpdate\\|onSceneUpdated\\|componentDidUpdate\\|renderStaticSceneThrottled\\|this.scene =\" packages/excalidraw/components/App.tsx | awk 'NR<=50'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] Now the render trigger from the component + staticScene throttle. Let me see how `onUpdate` wires into React and the throttled renderer.[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== staticScene throttle + renderStaticScene signature ===\"; grep -n \"renderStaticSceneThrottled\\|throttleRAF\\|export const renderStaticScene\\|elementsMap\\|visibleElements\\|drawElementOnCanvas\\|renderElement\\b\" packages/excalidraw/renderer/staticScene.ts | awk 'NR<=40'\necho; echo \"=== App.tsx render wiring ===\"; grep -n \"renderScene\\|getRenderableElements\\|renderStaticScene\\|renderInteractiveScene\\|scene.onUpdate\\|onSceneUpdated\\|componentDidUpdate\\|renderStaticSceneThrottled\\|this.scene =\" packages/excalidraw/components/App.tsx | awk 'NR<=50'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=33128 cache_write=1431 output=445
 
 === Turn 12 ===
@@ -467,7 +467,7 @@ packages/element/src/index.ts
 3216:    this.scene = new Scene();
 3396:  componentDidUpdate(prevProps: AppProps, prevState: AppState) {
 3559:  private renderInteractiveSceneCallback = ({
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== App triggerRender + renderScene call site ===\"; grep -n \"triggerRender\\|renderScene =\\|renderStaticScene(\\|renderInteractiveScene(\\|this.renderer.getRenderableElements\" packages/excalidraw/components/App.tsx | awk 'NR<=30'\necho; echo \"=== renderScene body approx (2080-2140) ===\"; grep -n \"\" packages/excalidraw/components/App.tsx | awk 'NR>=2090 && NR<=2160'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== App triggerRender + renderScene call site ===\"; grep -n \"triggerRender\\|renderScene =\\|renderStaticScene(\\|renderInteractiveScene(\\|this.renderer.getRenderableElements\" packages/excalidraw/components/App.tsx | awk 'NR<=30'\necho; echo \"=== renderScene body approx (2080-2140) ===\"; grep -n \"\" packages/excalidraw/components/App.tsx | awk 'NR>=2090 && NR<=2160'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=34559 cache_write=1159 output=306
 
 === Turn 13 ===
@@ -554,13 +554,13 @@ packages/element/src/index.ts
 2158:        tabIndex={0}
 2159:        onKeyDown={
 2160:          this.props.handleKeyboardGlobally ? undefined : this.onKeyDown
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== triggerRender (4655-4680) ===\"; grep -n \"\" packages/excalidraw/components/App.tsx | awk 'NR>=4655 && NR<=4680'\necho; echo \"=== StaticCanvas render effect ===\"; grep -rn \"renderStaticScene(\\|useEffect\\|renderConfig\\|props.elementsMap\\|memo\" packages/excalidraw/components/canvases/StaticCanvas.tsx | awk 'NR<=30'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== triggerRender (4655-4680) ===\"; grep -n \"\" packages/excalidraw/components/App.tsx | awk 'NR>=4655 && NR<=4680'\necho; echo \"=== StaticCanvas render effect ===\"; grep -rn \"renderStaticScene(\\|useEffect\\|renderConfig\\|props.elementsMap\\|memo\" packages/excalidraw/components/canvases/StaticCanvas.tsx | awk 'NR<=30'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=35718 cache_write=1729 output=373
 
 === Turn 14 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "echo \"=== throttleRAF ===\"; grep -n \"export const throttleRAF\" -A 30 packages/common/src/utils.ts | awk 'NR<=32'\necho; echo \"=== renderElement cache ===\"; grep -n \"elementWithCanvasCache\\|generateElementCanvas\\|drawElementFromCanvas\\|shouldResetImageFilter\\|cachedElement\\|version !==\\|versionNonce\" packages/element/src/renderElement.ts | awk 'NR<=25'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "echo \"=== throttleRAF ===\"; grep -n \"export const throttleRAF\" -A 30 packages/common/src/utils.ts | awk 'NR<=32'\necho; echo \"=== renderElement cache ===\"; grep -n \"elementWithCanvasCache\\|generateElementCanvas\\|drawElementFromCanvas\\|shouldResetImageFilter\\|cachedElement\\|version !==\\|versionNonce\" packages/element/src/renderElement.ts | awk 'NR<=25'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=131 cache_read=37447 cache_write=898 output=369
 
 === Turn 15 ===
@@ -608,7 +608,7 @@ packages/element/src/index.ts
 1031:          const uncroppedElementCanvas = generateElementCanvas(
 1040:            drawElementFromCanvas(
 1052:        drawElementFromCanvas(
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"\" packages/element/src/renderElement.ts | awk 'NR>=615 && NR<=662'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_atelier_rep4"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"\" packages/element/src/renderElement.ts | awk 'NR>=615 && NR<=662'", "cwd": "/tmp/codebench_workspaces/20260708T121953Z-e43c1eb94cb1/cg_excalidraw_lemoncrow_rep4"}
 [usage] input=2 cache_read=38345 cache_write=1085 output=171
 
 === Turn 16 ===

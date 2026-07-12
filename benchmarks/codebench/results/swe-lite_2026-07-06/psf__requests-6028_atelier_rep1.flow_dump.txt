@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - One search → one bulk edit. Lead with `code_search` BEFORE and while writing or editing code: one call = relevant symbols' verbatim source grouped by file + callers/callees/usages + blast-radius summary — more accurate context, far fewer tokens and round-trips than finding and reading files yourself. Returned source = already read; `read` only what it didn't return, all files in ONE call, never the same file twice; ALL edits in ONE `edit` edits[] array.
 - Never grep or read files to find or understand indexed code; never re-verify `code_search` results with shell grep — full index, re-checking wastes context. Grep/cat-style shell over workspace code auto-served from the index where possible, coached otherwise.
 - Known path → `read` (batch files=[...], exact :Lx-Ly ranges, head=/tail=) — never cat/sed/head/tail. `bash` = execution (tests, git, builds), not file content or code search.
@@ -58,7 +58,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "git log --oneline -5 2>/dev/null; ls"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "proxy authentication headers select_proxy proxy_headers"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "git log --oneline -5 2>/dev/null; ls"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "proxy authentication headers select_proxy proxy_headers"}
 [usage] input=2944 cache_read=5344 cache_write=682 output=305
 
 === Turn 2 ===
@@ -137,7 +137,7 @@ tox.ini
 393	        return headers
 
 candidate_files: requests/sessions.py, requests/auth.py, tests/test_requests.py, tests/test_utils.py, requests/status_codes.py, HISTORY.md, requests/models.py, tests/test_lowlevel.py, requests/exceptions.py, requests/cookies.py, requests/api.py, requests/compat.py, requests/structures.py, README.md, .github/workflows/codeql-analysis.yml, tests/testserver/server.py, tests/test_testserver.py, tests/test_structures.py, docs/_static/custom.css, docs/_themes/flask_theme_support.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_auth_from_url unquote username password"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_auth_from_url unquote username password"}
 [usage] input=2 cache_read=6026 cache_write=4419 output=381
 
 === Turn 3 ===
@@ -164,7 +164,7 @@ candidate_files: requests/sessions.py, requests/auth.py, tests/test_requests.py,
 998	    return auth
 
 candidate_files: requests/adapters.py, requests/sessions.py, requests/models.py, requests/auth.py, requests/api.py, tests/test_requests.py, requests/compat.py, tests/test_lowlevel.py, requests/cookies.py, HISTORY.md, tests/test_testserver.py, requests/structures.py, requests/status_codes.py, setup.py, requests/__init__.py, requests/hooks.py, README.md, tests/conftest.py, tests/test_structures.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "proxy_manager_for proxy_from_url add_headers rebuild_proxies"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "proxy_manager_for proxy_from_url add_headers rebuild_proxies"}
 [usage] input=2 cache_read=10445 cache_write=806 output=1273
 
 === Turn 4 ===
@@ -225,7 +225,7 @@ candidate_files: requests/adapters.py, requests/sessions.py, requests/models.py,
 SessionRedirectMixin.rebuild_proxies: outline only -- read requests/sessions.py:L272-L299.
 
 candidate_files: requests/utils.py, requests/api.py, requests/cookies.py, requests/models.py, requests/auth.py, tests/test_requests.py, tests/test_utils.py, tests/test_lowlevel.py, HISTORY.md, requests/exceptions.py, requests/status_codes.py, tests/test_testserver.py, requests/structures.py, requests/compat.py, setup.py, README.md, docs/conf.py, tests/conftest.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prepend_scheme_if_needed urldefrag scheme netloc"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prepend_scheme_if_needed urldefrag scheme netloc"}
 [usage] input=2 cache_read=11251 cache_write=2383 output=498
 
 === Turn 5 ===
@@ -261,7 +261,7 @@ candidate_files: requests/utils.py, requests/api.py, requests/cookies.py, reques
 982	    return urlunparse((scheme, netloc, path, '', query, fragment))
 
 candidate_files: requests/adapters.py, requests/models.py, requests/sessions.py, requests/cookies.py, tests/test_requests.py, requests/auth.py, requests/compat.py, requests/exceptions.py, .github/workflows/codeql-analysis.yml, requests/__init__.py, HISTORY.md, tests/test_lowlevel.py, docs/conf.py, README.md, .github/CONTRIBUTING.md
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prepend_scheme_if_needed called proxy get_connection"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["tests/test_utils.py:L580-L607"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prepend_scheme_if_needed called proxy get_connection"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["tests/test_utils.py:L580-L607"]}
 [usage] input=2 cache_read=13634 cache_write=1128 output=1183
 
 === Turn 6 ===
@@ -329,7 +329,7 @@ def test_parse_header_links(value, expected):
     ))
 def test_prepend_scheme_if_needed(value, expected):
     assert prepend_scheme_if_needed(value, 'http') == expected
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["requests/adapters.py:L293-L318"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["requests/adapters.py:L293-L318"]}
 [usage] input=2 cache_read=14762 cache_write=2371 output=77
 
 === Turn 7 ===
@@ -360,28 +360,28 @@ def test_prepend_scheme_if_needed(value, expected):
             conn = self.poolmanager.connection_from_url(url)
 
         return conn
-[assistant] Root cause confirmed. `prepend_scheme_if_needed` reconstructs the proxy URL from `parse_url`'s `netloc`, which excludes the `auth` component → proxy credentials dropped → 407. Applying the official fix.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "requests/utils.py:L973-L975", "old": "    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n", "new": "    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with auth\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n"}]}
+[assistant] Root cause confirmed. `prepend_scheme_if_needed` reconstructs the proxy URL from `parse_url`'s `netloc`, which excludes the `auth` component → proxy credentials dropped → 407. Applying the official fix.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "requests/utils.py:L973-L975", "old": "    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n", "new": "    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with auth\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n"}]}
 [usage] input=2 cache_read=17133 cache_write=498 output=1438
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Now add test coverage for auth-bearing proxy URLs.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_utils.py:L601-L604", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))"}]}
+[assistant] Now add test coverage for auth-bearing proxy URLs.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_utils.py:L601-L604", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))"}]}
 [usage] input=131 cache_read=17631 cache_write=1462 output=345
 
 === Turn 9 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"tests/test_utils.py","edit_index":0,"error":"post-edit parse error in test_utils.py at line 614: unexpected indent — edit rolled back (old_string matched via fuzzy mode — it may have anchored at the wrong spot or covered less text than intended). Would-be content around the error:\n609:         (\n610:             'http://user@example.com/path?query',\n611:             'http://user@example.com/path?query'\n612:         )\n613:     ))\n614:     ))\n615: def test_prepend_scheme_if_needed(value, expected):\n616:     assert prepend_scheme_if_needed(value, 'http') == expected\n617: \n618: \n619: @pytest.mark.parametrize(\nDo NOT resend the same edit. Extend old_string to cover the full region you are replacing (e.g. the entire block through its closing brace); scope with \"file.py:L10-L20\" to disambiguate, or rewrite the whole file with replace=true.","old_string_snippet":"        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n    …"}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_utils.py:L601-L604", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))\ndef test_prepend_scheme_if_needed(value, expected):", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))\ndef test_prepend_scheme_if_needed(value, expected):"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_utils.py:L601-L604", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))\ndef test_prepend_scheme_if_needed(value, expected):", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))\ndef test_prepend_scheme_if_needed(value, expected):"}]}
 [usage] input=2 cache_read=19093 cache_write=893 output=371
 
 === Turn 10 ===
 [user] [tool_result] {"applied":[],"failed":[{"edit_file":"tests/test_utils.py","edit_index":0,"error":"old_string not found in file (best match similarity 0.84 < 0.90; re-read the file and supply exact disk content as old_string)","old_string_snippet":"        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n    …","retry_with":{"hint":"exact disk content at nearest anchor — replace old_string with this","old_string":"        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))\ndef test_prepend_scheme_if_needed(value, expected):\n    assert prepend_scheme_if_needed(value, 'http') == expected\n\n","path":"tests/test_utils.py:L602-L608"}}],"rolled_back":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/test_utils.py:L602-L608", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))\ndef test_prepend_scheme_if_needed(value, expected):\n    assert prepend_scheme_if_needed(value, 'http') == expected\n", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))\ndef test_prepend_scheme_if_needed(value, expected):\n    assert prepend_scheme_if_needed(value, 'http') == expected\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/test_utils.py:L602-L608", "old": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n    ))\ndef test_prepend_scheme_if_needed(value, expected):\n    assert prepend_scheme_if_needed(value, 'http') == expected\n", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )\n    ))\ndef test_prepend_scheme_if_needed(value, expected):\n    assert prepend_scheme_if_needed(value, 'http') == expected\n"}]}
 [usage] input=2 cache_read=19986 cache_write=711 output=429
 
 === Turn 11 ===
 [user] [tool_result] applied tests/test_utils.py:L602-L608:602-608
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest tests/test_utils.py -k prepend_scheme -q 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest tests/test_utils.py -k prepend_scheme -q 2>&1 | tail -20"}
 [usage] input=2 cache_read=20697 cache_write=455 output=98
 
 === Turn 12 ===

@@ -1,6 +1,6 @@
 
 === CodeBench head-to-head ===
-metric                      baseline       atelier
+metric                      baseline       lemoncrow
 cost_usd                    234.8433      165.4507
   - input        : $       4.4901              
   - output       : $      74.8658              
@@ -20,376 +20,376 @@ output_tokens              3,039,396     2,192,112
 saved_usd                     0.0000       69.3921
 saved_tokens                       0    86,621,692
 
-atelier cost saving : +29.5%  (Eval target ~47-50%)
-atelier time saving : +23.7%  (Eval target ~40%)
+lemoncrow cost saving : +29.5%  (Eval target ~47-50%)
+lemoncrow time saving : +23.7%  (Eval target ~40%)
 
 === Per-task medians (clean runs) ===
 
 | Task | Arm | Cost | Tokens | Time | Tool calls | Reps |
 | --- | --- | --- | --- | --- | --- | --- |
-| astropy__astropy-13398 | atelier | 62.5% cheaper | 79.6% fewer | 55.2% faster | 68.2% fewer | 5 |
-| astropy__astropy-13579 | atelier | 27.8% cheaper | 46.4% fewer | 30% faster | 46.2% fewer | 5 |
-| astropy__astropy-14369 | atelier | 41.1% cheaper | 53.5% fewer | 27.3% faster | 33.3% fewer | 5 |
-| astropy__astropy-8707 | atelier | 41.9% cheaper | 63.7% fewer | 57% faster | 61.3% fewer | 5 |
-| django__django-11138 | atelier | 23.3% cheaper | 50.8% fewer | 40.6% faster | 58.8% fewer | 5 |
-| django__django-11333 | atelier | 110.2% pricier | 302.9% more | 325.2% slower | 400% more | 5 |
-| django__django-12155 | atelier | 28.1% cheaper | 22.9% more | 100.9% slower | even | 5 |
-| django__django-12708 | atelier | 38.7% cheaper | 63.6% fewer | 31.8% faster | 56.2% fewer | 5 |
-| django__django-13128 | atelier | 52.2% cheaper | 54.8% fewer | 46.7% faster | 28.6% fewer | 5 |
-| django__django-13344 | atelier | 7.3% cheaper | 16.9% fewer | 51.4% faster | 5.1% fewer | 5 |
-| django__django-13449 | atelier | 64.7% cheaper | 71.4% fewer | 70.1% faster | 68.3% fewer | 5 |
-| django__django-13837 | atelier | 4.2% cheaper | 7.8% fewer | even | even | 5 |
-| django__django-14007 | atelier | 28.9% cheaper | 51.5% fewer | 30.3% faster | 47.6% fewer | 5 |
-| django__django-14376 | atelier | 20.3% pricier | 44.1% more | 82.6% slower | 33.3% more | 5 |
-| django__django-14631 | atelier | 14.3% cheaper | 29.8% fewer | 5.9% faster | 19% fewer | 5 |
-| django__django-15128 | atelier | 55% cheaper | 77.8% fewer | 55.1% faster | 65.2% fewer | 5 |
-| django__django-15268 | atelier | 68.6% cheaper | 81.1% fewer | 59% faster | 65.5% fewer | 5 |
-| django__django-15503 | atelier | 45% cheaper | 65.8% fewer | 47% faster | 64.3% fewer | 5 |
-| django__django-15957 | atelier | 26.6% cheaper | 36% fewer | 44.6% faster | 30.4% fewer | 5 |
-| django__django-16560 | atelier | 32.7% cheaper | 52.3% fewer | 24.3% faster | 54% fewer | 5 |
-| matplotlib__matplotlib-14623 | atelier | 26.8% cheaper | 53.2% fewer | 39.1% faster | 57.1% fewer | 5 |
-| matplotlib__matplotlib-24870 | atelier | 9.4% cheaper | 38.3% fewer | 10.9% faster | 40.7% fewer | 5 |
-| mwaskom__seaborn-3069 | atelier | 47.8% cheaper | 74.6% fewer | 36.9% faster | 61.7% fewer | 5 |
-| mwaskom__seaborn-3187 | atelier | 15.5% cheaper | 19.2% fewer | 13.1% faster | 12.8% fewer | 5 |
-| pallets__flask-5014 | atelier | 5.9% pricier | 43.4% more | 148.8% slower | 33.3% more | 5 |
-| psf__requests-2931 | atelier | 226.9% pricier | 291.8% more | 257% slower | 128.6% more | 5 |
-| psf__requests-6028 | atelier | 23.7% cheaper | 48% fewer | 37.1% faster | 41.7% fewer | 5 |
-| pydata__xarray-3095 | atelier | 50.5% cheaper | 58.2% fewer | 56.9% faster | 55.6% fewer | 5 |
-| pydata__xarray-3305 | atelier | 36.1% cheaper | 42.2% fewer | 34.1% faster | 40% fewer | 5 |
-| pydata__xarray-3993 | atelier | even | 10.5% fewer | 9.2% faster | 18.8% fewer | 5 |
-| pylint-dev__pylint-6386 | atelier | 25.6% cheaper | 37% fewer | 21.9% faster | 25% fewer | 5 |
-| pylint-dev__pylint-6528 | atelier | 27.9% cheaper | 26.8% fewer | 32.2% faster | 29.3% fewer | 5 |
-| pylint-dev__pylint-8898 | atelier | 26.6% cheaper | 38.7% fewer | even | 19.2% fewer | 5 |
-| pytest-dev__pytest-5787 | atelier | 41.5% cheaper | 47.3% fewer | 25.4% faster | 44.4% fewer | 5 |
-| pytest-dev__pytest-5840 | atelier | 23.3% cheaper | 50.7% fewer | 20% faster | 39.3% fewer | 5 |
-| pytest-dev__pytest-6197 | atelier | 26.4% cheaper | 43% fewer | 26.3% faster | 33.3% fewer | 5 |
-| pytest-dev__pytest-7490 | atelier | 20.8% cheaper | 24.7% fewer | 7.9% faster | 15% fewer | 5 |
-| pytest-dev__pytest-8399 | atelier | 27.9% pricier | even | 16.3% slower | even | 5 |
-| scikit-learn__scikit-learn-12682 | atelier | 44.7% cheaper | 63.7% fewer | 40.5% faster | 61.1% fewer | 5 |
-| scikit-learn__scikit-learn-25102 | atelier | 65.2% cheaper | 71.9% fewer | 43% faster | 59.5% fewer | 5 |
-| sphinx-doc__sphinx-10673 | atelier | 42.2% cheaper | 51.7% fewer | 24.2% faster | 46.3% fewer | 5 |
-| sphinx-doc__sphinx-8120 | atelier | 45.6% cheaper | 53.5% fewer | 14.8% faster | 43.8% fewer | 5 |
-| sphinx-doc__sphinx-8548 | atelier | 8.5% cheaper | 13.3% fewer | 12% slower | 36.8% fewer | 5 |
-| sphinx-doc__sphinx-8551 | atelier | 46.3% cheaper | 68% fewer | 51.2% faster | 70% fewer | 5 |
-| sphinx-doc__sphinx-9461 | atelier | 30.1% cheaper | 58.5% fewer | 24.3% faster | 44.7% fewer | 5 |
-| sympy__sympy-12489 | atelier | 56.7% pricier | 63.2% more | 90.8% slower | 46.2% more | 5 |
-| sympy__sympy-13091 | atelier | 9% cheaper | 42.4% fewer | 16.7% faster | 40.5% fewer | 5 |
-| sympy__sympy-13877 | atelier | 34.4% cheaper | 51.7% fewer | 26.8% faster | 37.5% fewer | 5 |
-| sympy__sympy-13878 | atelier | 46.1% cheaper | 64.6% fewer | 6.6% faster | 31.7% fewer | 5 |
-| sympy__sympy-14248 | atelier | 34% cheaper | 49.1% fewer | 19.6% faster | 48.4% fewer | 4 |
+| astropy__astropy-13398 | lemoncrow | 62.5% cheaper | 79.6% fewer | 55.2% faster | 68.2% fewer | 5 |
+| astropy__astropy-13579 | lemoncrow | 27.8% cheaper | 46.4% fewer | 30% faster | 46.2% fewer | 5 |
+| astropy__astropy-14369 | lemoncrow | 41.1% cheaper | 53.5% fewer | 27.3% faster | 33.3% fewer | 5 |
+| astropy__astropy-8707 | lemoncrow | 41.9% cheaper | 63.7% fewer | 57% faster | 61.3% fewer | 5 |
+| django__django-11138 | lemoncrow | 23.3% cheaper | 50.8% fewer | 40.6% faster | 58.8% fewer | 5 |
+| django__django-11333 | lemoncrow | 110.2% pricier | 302.9% more | 325.2% slower | 400% more | 5 |
+| django__django-12155 | lemoncrow | 28.1% cheaper | 22.9% more | 100.9% slower | even | 5 |
+| django__django-12708 | lemoncrow | 38.7% cheaper | 63.6% fewer | 31.8% faster | 56.2% fewer | 5 |
+| django__django-13128 | lemoncrow | 52.2% cheaper | 54.8% fewer | 46.7% faster | 28.6% fewer | 5 |
+| django__django-13344 | lemoncrow | 7.3% cheaper | 16.9% fewer | 51.4% faster | 5.1% fewer | 5 |
+| django__django-13449 | lemoncrow | 64.7% cheaper | 71.4% fewer | 70.1% faster | 68.3% fewer | 5 |
+| django__django-13837 | lemoncrow | 4.2% cheaper | 7.8% fewer | even | even | 5 |
+| django__django-14007 | lemoncrow | 28.9% cheaper | 51.5% fewer | 30.3% faster | 47.6% fewer | 5 |
+| django__django-14376 | lemoncrow | 20.3% pricier | 44.1% more | 82.6% slower | 33.3% more | 5 |
+| django__django-14631 | lemoncrow | 14.3% cheaper | 29.8% fewer | 5.9% faster | 19% fewer | 5 |
+| django__django-15128 | lemoncrow | 55% cheaper | 77.8% fewer | 55.1% faster | 65.2% fewer | 5 |
+| django__django-15268 | lemoncrow | 68.6% cheaper | 81.1% fewer | 59% faster | 65.5% fewer | 5 |
+| django__django-15503 | lemoncrow | 45% cheaper | 65.8% fewer | 47% faster | 64.3% fewer | 5 |
+| django__django-15957 | lemoncrow | 26.6% cheaper | 36% fewer | 44.6% faster | 30.4% fewer | 5 |
+| django__django-16560 | lemoncrow | 32.7% cheaper | 52.3% fewer | 24.3% faster | 54% fewer | 5 |
+| matplotlib__matplotlib-14623 | lemoncrow | 26.8% cheaper | 53.2% fewer | 39.1% faster | 57.1% fewer | 5 |
+| matplotlib__matplotlib-24870 | lemoncrow | 9.4% cheaper | 38.3% fewer | 10.9% faster | 40.7% fewer | 5 |
+| mwaskom__seaborn-3069 | lemoncrow | 47.8% cheaper | 74.6% fewer | 36.9% faster | 61.7% fewer | 5 |
+| mwaskom__seaborn-3187 | lemoncrow | 15.5% cheaper | 19.2% fewer | 13.1% faster | 12.8% fewer | 5 |
+| pallets__flask-5014 | lemoncrow | 5.9% pricier | 43.4% more | 148.8% slower | 33.3% more | 5 |
+| psf__requests-2931 | lemoncrow | 226.9% pricier | 291.8% more | 257% slower | 128.6% more | 5 |
+| psf__requests-6028 | lemoncrow | 23.7% cheaper | 48% fewer | 37.1% faster | 41.7% fewer | 5 |
+| pydata__xarray-3095 | lemoncrow | 50.5% cheaper | 58.2% fewer | 56.9% faster | 55.6% fewer | 5 |
+| pydata__xarray-3305 | lemoncrow | 36.1% cheaper | 42.2% fewer | 34.1% faster | 40% fewer | 5 |
+| pydata__xarray-3993 | lemoncrow | even | 10.5% fewer | 9.2% faster | 18.8% fewer | 5 |
+| pylint-dev__pylint-6386 | lemoncrow | 25.6% cheaper | 37% fewer | 21.9% faster | 25% fewer | 5 |
+| pylint-dev__pylint-6528 | lemoncrow | 27.9% cheaper | 26.8% fewer | 32.2% faster | 29.3% fewer | 5 |
+| pylint-dev__pylint-8898 | lemoncrow | 26.6% cheaper | 38.7% fewer | even | 19.2% fewer | 5 |
+| pytest-dev__pytest-5787 | lemoncrow | 41.5% cheaper | 47.3% fewer | 25.4% faster | 44.4% fewer | 5 |
+| pytest-dev__pytest-5840 | lemoncrow | 23.3% cheaper | 50.7% fewer | 20% faster | 39.3% fewer | 5 |
+| pytest-dev__pytest-6197 | lemoncrow | 26.4% cheaper | 43% fewer | 26.3% faster | 33.3% fewer | 5 |
+| pytest-dev__pytest-7490 | lemoncrow | 20.8% cheaper | 24.7% fewer | 7.9% faster | 15% fewer | 5 |
+| pytest-dev__pytest-8399 | lemoncrow | 27.9% pricier | even | 16.3% slower | even | 5 |
+| scikit-learn__scikit-learn-12682 | lemoncrow | 44.7% cheaper | 63.7% fewer | 40.5% faster | 61.1% fewer | 5 |
+| scikit-learn__scikit-learn-25102 | lemoncrow | 65.2% cheaper | 71.9% fewer | 43% faster | 59.5% fewer | 5 |
+| sphinx-doc__sphinx-10673 | lemoncrow | 42.2% cheaper | 51.7% fewer | 24.2% faster | 46.3% fewer | 5 |
+| sphinx-doc__sphinx-8120 | lemoncrow | 45.6% cheaper | 53.5% fewer | 14.8% faster | 43.8% fewer | 5 |
+| sphinx-doc__sphinx-8548 | lemoncrow | 8.5% cheaper | 13.3% fewer | 12% slower | 36.8% fewer | 5 |
+| sphinx-doc__sphinx-8551 | lemoncrow | 46.3% cheaper | 68% fewer | 51.2% faster | 70% fewer | 5 |
+| sphinx-doc__sphinx-9461 | lemoncrow | 30.1% cheaper | 58.5% fewer | 24.3% faster | 44.7% fewer | 5 |
+| sympy__sympy-12489 | lemoncrow | 56.7% pricier | 63.2% more | 90.8% slower | 46.2% more | 5 |
+| sympy__sympy-13091 | lemoncrow | 9% cheaper | 42.4% fewer | 16.7% faster | 40.5% fewer | 5 |
+| sympy__sympy-13877 | lemoncrow | 34.4% cheaper | 51.7% fewer | 26.8% faster | 37.5% fewer | 5 |
+| sympy__sympy-13878 | lemoncrow | 46.1% cheaper | 64.6% fewer | 6.6% faster | 31.7% fewer | 5 |
+| sympy__sympy-14248 | lemoncrow | 34% cheaper | 49.1% fewer | 19.6% faster | 48.4% fewer | 4 |
 
 | Task | Arm | cost_usd | tokens | time_s | tool_calls | reps |
 | --- | --- | --- | --- | --- | --- | --- |
 | astropy__astropy-13398 | baseline | 1.8765 | 1,627,643 | 375.7 | 44 | 5 |
-| astropy__astropy-13398 | atelier | 0.7046 | 332,176 | 168.4 | 14 | 5 |
+| astropy__astropy-13398 | lemoncrow | 0.7046 | 332,176 | 168.4 | 14 | 5 |
 | astropy__astropy-13579 | baseline | 0.4647 | 285,180 | 102.5 | 13 | 5 |
-| astropy__astropy-13579 | atelier | 0.3355 | 152,970 | 71.8 | 7 | 5 |
+| astropy__astropy-13579 | lemoncrow | 0.3355 | 152,970 | 71.8 | 7 | 5 |
 | astropy__astropy-14369 | baseline | 1.3016 | 1,000,768 | 270.3 | 27 | 5 |
-| astropy__astropy-14369 | atelier | 0.7660 | 465,206 | 196.6 | 18 | 5 |
+| astropy__astropy-14369 | lemoncrow | 0.7660 | 465,206 | 196.6 | 18 | 5 |
 | astropy__astropy-8707 | baseline | 0.7509 | 623,021 | 249.6 | 31 | 5 |
-| astropy__astropy-8707 | atelier | 0.4360 | 226,282 | 107.4 | 12 | 5 |
+| astropy__astropy-8707 | lemoncrow | 0.4360 | 226,282 | 107.4 | 12 | 5 |
 | django__django-11138 | baseline | 1.0522 | 777,336 | 287.2 | 34 | 5 |
-| django__django-11138 | atelier | 0.8073 | 382,610 | 170.7 | 14 | 5 |
+| django__django-11138 | lemoncrow | 0.8073 | 382,610 | 170.7 | 14 | 5 |
 | django__django-11333 | baseline | 0.0974 | 32,450 | 11.9 | 2 | 5 |
-| django__django-11333 | atelier | 0.2047 | 130,740 | 50.7 | 10 | 5 |
+| django__django-11333 | lemoncrow | 0.2047 | 130,740 | 50.7 | 10 | 5 |
 | django__django-12155 | baseline | 0.0967 | 41,644 | 13.2 | 3 | 5 |
-| django__django-12155 | atelier | 0.0695 | 51,169 | 26.6 | 3 | 5 |
+| django__django-12155 | lemoncrow | 0.0695 | 51,169 | 26.6 | 3 | 5 |
 | django__django-12708 | baseline | 0.5157 | 298,202 | 117.9 | 16 | 5 |
-| django__django-12708 | atelier | 0.3163 | 108,670 | 80.4 | 7 | 5 |
+| django__django-12708 | lemoncrow | 0.3163 | 108,670 | 80.4 | 7 | 5 |
 | django__django-13128 | baseline | 1.1167 | 637,778 | 269.7 | 21 | 5 |
-| django__django-13128 | atelier | 0.5334 | 288,472 | 143.8 | 15 | 5 |
+| django__django-13128 | lemoncrow | 0.5334 | 288,472 | 143.8 | 15 | 5 |
 | django__django-13344 | baseline | 1.8042 | 1,512,085 | 722.0 | 39 | 5 |
-| django__django-13344 | atelier | 1.6733 | 1,255,961 | 350.5 | 37 | 5 |
+| django__django-13344 | lemoncrow | 1.6733 | 1,255,961 | 350.5 | 37 | 5 |
 | django__django-13449 | baseline | 1.8296 | 1,438,043 | 396.1 | 41 | 5 |
-| django__django-13449 | atelier | 0.6451 | 410,898 | 118.2 | 13 | 5 |
+| django__django-13449 | lemoncrow | 0.6451 | 410,898 | 118.2 | 13 | 5 |
 | django__django-13837 | baseline | 0.4527 | 305,657 | 99.7 | 18 | 5 |
-| django__django-13837 | atelier | 0.4336 | 281,833 | 100.8 | 18 | 5 |
+| django__django-13837 | lemoncrow | 0.4336 | 281,833 | 100.8 | 18 | 5 |
 | django__django-14007 | baseline | 0.4714 | 365,533 | 103.0 | 21 | 5 |
-| django__django-14007 | atelier | 0.3354 | 177,284 | 71.8 | 11 | 5 |
+| django__django-14007 | lemoncrow | 0.3354 | 177,284 | 71.8 | 11 | 5 |
 | django__django-14376 | baseline | 0.2022 | 83,832 | 32.1 | 6 | 5 |
-| django__django-14376 | atelier | 0.2432 | 120,835 | 58.7 | 8 | 5 |
+| django__django-14376 | lemoncrow | 0.2432 | 120,835 | 58.7 | 8 | 5 |
 | django__django-14631 | baseline | 0.7420 | 561,593 | 144.5 | 21 | 5 |
-| django__django-14631 | atelier | 0.6358 | 394,055 | 136.0 | 17 | 5 |
+| django__django-14631 | lemoncrow | 0.6358 | 394,055 | 136.0 | 17 | 5 |
 | django__django-15128 | baseline | 0.9723 | 642,011 | 230.6 | 23 | 5 |
-| django__django-15128 | atelier | 0.4375 | 142,339 | 103.7 | 8 | 5 |
+| django__django-15128 | lemoncrow | 0.4375 | 142,339 | 103.7 | 8 | 5 |
 | django__django-15268 | baseline | 1.0559 | 744,081 | 206.7 | 29 | 5 |
-| django__django-15268 | atelier | 0.3317 | 140,597 | 84.8 | 10 | 5 |
+| django__django-15268 | lemoncrow | 0.3317 | 140,597 | 84.8 | 10 | 5 |
 | django__django-15503 | baseline | 0.9049 | 698,321 | 194.1 | 28 | 5 |
-| django__django-15503 | atelier | 0.4976 | 239,125 | 102.8 | 10 | 5 |
+| django__django-15503 | lemoncrow | 0.4976 | 239,125 | 102.8 | 10 | 5 |
 | django__django-15957 | baseline | 1.6320 | 1,626,599 | 403.4 | 56 | 5 |
-| django__django-15957 | atelier | 1.1982 | 1,041,176 | 223.6 | 39 | 5 |
+| django__django-15957 | lemoncrow | 1.1982 | 1,041,176 | 223.6 | 39 | 5 |
 | django__django-16560 | baseline | 2.2824 | 2,356,409 | 343.2 | 63 | 5 |
-| django__django-16560 | atelier | 1.5359 | 1,123,376 | 259.9 | 29 | 5 |
+| django__django-16560 | lemoncrow | 1.5359 | 1,123,376 | 259.9 | 29 | 5 |
 | matplotlib__matplotlib-14623 | baseline | 0.6286 | 477,049 | 148.6 | 28 | 5 |
-| matplotlib__matplotlib-14623 | atelier | 0.4601 | 223,267 | 90.5 | 12 | 5 |
+| matplotlib__matplotlib-14623 | lemoncrow | 0.4601 | 223,267 | 90.5 | 12 | 5 |
 | matplotlib__matplotlib-24870 | baseline | 0.8066 | 637,139 | 185.2 | 27 | 5 |
-| matplotlib__matplotlib-24870 | atelier | 0.7304 | 392,902 | 165.0 | 16 | 5 |
+| matplotlib__matplotlib-24870 | lemoncrow | 0.7304 | 392,902 | 165.0 | 16 | 5 |
 | mwaskom__seaborn-3069 | baseline | 1.5126 | 1,511,436 | 316.5 | 47 | 5 |
-| mwaskom__seaborn-3069 | atelier | 0.7896 | 384,444 | 199.7 | 18 | 5 |
+| mwaskom__seaborn-3069 | lemoncrow | 0.7896 | 384,444 | 199.7 | 18 | 5 |
 | mwaskom__seaborn-3187 | baseline | 1.6283 | 1,457,560 | 456.7 | 47 | 5 |
-| mwaskom__seaborn-3187 | atelier | 1.3756 | 1,177,247 | 396.9 | 41 | 5 |
+| mwaskom__seaborn-3187 | lemoncrow | 1.3756 | 1,177,247 | 396.9 | 41 | 5 |
 | pallets__flask-5014 | baseline | 0.1275 | 46,547 | 12.6 | 3 | 5 |
-| pallets__flask-5014 | atelier | 0.1350 | 66,771 | 31.3 | 4 | 5 |
+| pallets__flask-5014 | lemoncrow | 0.1350 | 66,771 | 31.3 | 4 | 5 |
 | psf__requests-2931 | baseline | 0.1434 | 69,227 | 33.4 | 7 | 5 |
-| psf__requests-2931 | atelier | 0.4686 | 271,236 | 119.2 | 16 | 5 |
+| psf__requests-2931 | lemoncrow | 0.4686 | 271,236 | 119.2 | 16 | 5 |
 | psf__requests-6028 | baseline | 0.3567 | 199,324 | 105.4 | 12 | 5 |
-| psf__requests-6028 | atelier | 0.2723 | 103,725 | 66.3 | 7 | 5 |
+| psf__requests-6028 | lemoncrow | 0.2723 | 103,725 | 66.3 | 7 | 5 |
 | pydata__xarray-3095 | baseline | 0.4935 | 324,179 | 126.2 | 18 | 5 |
-| pydata__xarray-3095 | atelier | 0.2444 | 135,395 | 54.4 | 8 | 5 |
+| pydata__xarray-3095 | lemoncrow | 0.2444 | 135,395 | 54.4 | 8 | 5 |
 | pydata__xarray-3305 | baseline | 0.4011 | 258,436 | 78.6 | 15 | 5 |
-| pydata__xarray-3305 | atelier | 0.2563 | 149,431 | 51.8 | 9 | 5 |
+| pydata__xarray-3305 | lemoncrow | 0.2563 | 149,431 | 51.8 | 9 | 5 |
 | pydata__xarray-3993 | baseline | 0.4197 | 259,848 | 97.5 | 16 | 5 |
-| pydata__xarray-3993 | atelier | 0.4086 | 232,610 | 88.6 | 13 | 5 |
+| pydata__xarray-3993 | lemoncrow | 0.4086 | 232,610 | 88.6 | 13 | 5 |
 | pylint-dev__pylint-6386 | baseline | 0.9439 | 760,194 | 220.2 | 32 | 5 |
-| pylint-dev__pylint-6386 | atelier | 0.7020 | 478,802 | 172.0 | 24 | 5 |
+| pylint-dev__pylint-6386 | lemoncrow | 0.7020 | 478,802 | 172.0 | 24 | 5 |
 | pylint-dev__pylint-6528 | baseline | 1.3382 | 991,588 | 337.4 | 41 | 5 |
-| pylint-dev__pylint-6528 | atelier | 0.9650 | 726,071 | 228.9 | 29 | 5 |
+| pylint-dev__pylint-6528 | lemoncrow | 0.9650 | 726,071 | 228.9 | 29 | 5 |
 | pylint-dev__pylint-8898 | baseline | 0.8166 | 713,306 | 157.6 | 26 | 5 |
-| pylint-dev__pylint-8898 | atelier | 0.5994 | 437,518 | 159.1 | 21 | 5 |
+| pylint-dev__pylint-8898 | lemoncrow | 0.5994 | 437,518 | 159.1 | 21 | 5 |
 | pytest-dev__pytest-5787 | baseline | 1.3077 | 768,863 | 231.6 | 27 | 5 |
-| pytest-dev__pytest-5787 | atelier | 0.7652 | 405,526 | 172.7 | 15 | 5 |
+| pytest-dev__pytest-5787 | lemoncrow | 0.7652 | 405,526 | 172.7 | 15 | 5 |
 | pytest-dev__pytest-5840 | baseline | 0.6756 | 511,097 | 165.9 | 28 | 5 |
-| pytest-dev__pytest-5840 | atelier | 0.5185 | 251,923 | 132.7 | 17 | 5 |
+| pytest-dev__pytest-5840 | lemoncrow | 0.5185 | 251,923 | 132.7 | 17 | 5 |
 | pytest-dev__pytest-6197 | baseline | 1.5815 | 1,314,726 | 343.0 | 39 | 5 |
-| pytest-dev__pytest-6197 | atelier | 1.1637 | 749,029 | 252.8 | 26 | 5 |
+| pytest-dev__pytest-6197 | lemoncrow | 1.1637 | 749,029 | 252.8 | 26 | 5 |
 | pytest-dev__pytest-7490 | baseline | 0.7961 | 582,804 | 133.8 | 20 | 5 |
-| pytest-dev__pytest-7490 | atelier | 0.6309 | 438,876 | 123.2 | 17 | 5 |
+| pytest-dev__pytest-7490 | lemoncrow | 0.6309 | 438,876 | 123.2 | 17 | 5 |
 | pytest-dev__pytest-8399 | baseline | 0.1632 | 102,853 | 34.0 | 7 | 5 |
-| pytest-dev__pytest-8399 | atelier | 0.2088 | 104,010 | 39.6 | 7 | 5 |
+| pytest-dev__pytest-8399 | lemoncrow | 0.2088 | 104,010 | 39.6 | 7 | 5 |
 | scikit-learn__scikit-learn-12682 | baseline | 1.3794 | 1,239,431 | 253.5 | 36 | 5 |
-| scikit-learn__scikit-learn-12682 | atelier | 0.7622 | 449,964 | 150.7 | 14 | 5 |
+| scikit-learn__scikit-learn-12682 | lemoncrow | 0.7622 | 449,964 | 150.7 | 14 | 5 |
 | scikit-learn__scikit-learn-25102 | baseline | 2.0248 | 1,415,037 | 400.1 | 37 | 5 |
-| scikit-learn__scikit-learn-25102 | atelier | 0.7037 | 397,307 | 227.9 | 15 | 5 |
+| scikit-learn__scikit-learn-25102 | lemoncrow | 0.7037 | 397,307 | 227.9 | 15 | 5 |
 | sphinx-doc__sphinx-10673 | baseline | 1.9403 | 1,934,682 | 354.9 | 54 | 5 |
-| sphinx-doc__sphinx-10673 | atelier | 1.1221 | 935,007 | 268.9 | 29 | 5 |
+| sphinx-doc__sphinx-10673 | lemoncrow | 1.1221 | 935,007 | 268.9 | 29 | 5 |
 | sphinx-doc__sphinx-8120 | baseline | 0.4687 | 318,017 | 77.4 | 16 | 5 |
-| sphinx-doc__sphinx-8120 | atelier | 0.2551 | 147,968 | 66.0 | 9 | 5 |
+| sphinx-doc__sphinx-8120 | lemoncrow | 0.2551 | 147,968 | 66.0 | 9 | 5 |
 | sphinx-doc__sphinx-8548 | baseline | 2.4096 | 2,263,473 | 423.2 | 76 | 3 |
-| sphinx-doc__sphinx-8548 | atelier | 2.2060 | 1,962,496 | 474.0 | 48 | 5 |
+| sphinx-doc__sphinx-8548 | lemoncrow | 2.2060 | 1,962,496 | 474.0 | 48 | 5 |
 | sphinx-doc__sphinx-8551 | baseline | 0.7714 | 663,485 | 146.5 | 30 | 5 |
-| sphinx-doc__sphinx-8551 | atelier | 0.4141 | 212,069 | 71.5 | 9 | 5 |
+| sphinx-doc__sphinx-8551 | lemoncrow | 0.4141 | 212,069 | 71.5 | 9 | 5 |
 | sphinx-doc__sphinx-9461 | baseline | 1.0563 | 967,808 | 216.5 | 38 | 4 |
-| sphinx-doc__sphinx-9461 | atelier | 0.7379 | 401,907 | 163.9 | 21 | 5 |
+| sphinx-doc__sphinx-9461 | lemoncrow | 0.7379 | 401,907 | 163.9 | 21 | 5 |
 | sympy__sympy-12489 | baseline | 0.4960 | 260,753 | 121.0 | 13 | 5 |
-| sympy__sympy-12489 | atelier | 0.7771 | 425,571 | 230.9 | 19 | 5 |
+| sympy__sympy-12489 | lemoncrow | 0.7771 | 425,571 | 230.9 | 19 | 5 |
 | sympy__sympy-13091 | baseline | 0.8506 | 881,031 | 208.8 | 37 | 5 |
-| sympy__sympy-13091 | atelier | 0.7737 | 507,170 | 173.9 | 22 | 5 |
+| sympy__sympy-13091 | lemoncrow | 0.7737 | 507,170 | 173.9 | 22 | 5 |
 | sympy__sympy-13877 | baseline | 0.5335 | 358,654 | 113.0 | 16 | 5 |
-| sympy__sympy-13877 | atelier | 0.3497 | 173,249 | 82.8 | 10 | 5 |
+| sympy__sympy-13877 | lemoncrow | 0.3497 | 173,249 | 82.8 | 10 | 5 |
 | sympy__sympy-13878 | baseline | 2.5479 | 2,656,535 | 379.0 | 41 | 1 |
-| sympy__sympy-13878 | atelier | 1.3727 | 940,552 | 353.9 | 28 | 5 |
+| sympy__sympy-13878 | lemoncrow | 1.3727 | 940,552 | 353.9 | 28 | 5 |
 | sympy__sympy-14248 | baseline | 1.2565 | 1,074,586 | 242.9 | 46 | 2 |
-| sympy__sympy-14248 | atelier | 0.8294 | 546,504 | 195.2 | 24 | 4 |
+| sympy__sympy-14248 | lemoncrow | 0.8294 | 546,504 | 195.2 | 24 | 4 |
 
 === Per-rep spread (min / median / max -- noise check) ===
 
 | Task | Arm | cost_usd | tokens | correct (cheap->exp) | reps |
 | --- | --- | --- | --- | --- | --- |
 | astropy__astropy-13398 | baseline | 1.0753 / 1.8765 / 2.9141 | 824,381 / 1,627,643 / 2,372,717 | x / x / x / x / x | 5 |
-| astropy__astropy-13398 | atelier | 0.5804 / 0.7046 / 0.8141 | 200,064 / 332,176 / 523,806 | x / x / x / x / x | 5 |
+| astropy__astropy-13398 | lemoncrow | 0.5804 / 0.7046 / 0.8141 | 200,064 / 332,176 / 523,806 | x / x / x / x / x | 5 |
 | astropy__astropy-13579 | baseline | 0.3596 / 0.4647 / 0.5609 | 160,850 / 285,180 / 342,726 | ok / ok / ok / ok / ok | 5 |
-| astropy__astropy-13579 | atelier | 0.3079 / 0.3355 / 0.5253 | 139,299 / 152,970 / 285,745 | ok / ok / ok / ok / ok | 5 |
+| astropy__astropy-13579 | lemoncrow | 0.3079 / 0.3355 / 0.5253 | 139,299 / 152,970 / 285,745 | ok / ok / ok / ok / ok | 5 |
 | astropy__astropy-14369 | baseline | 0.7468 / 1.3016 / 1.5382 | 370,526 / 1,000,768 / 1,194,867 | ok / ok / ok / x / ok | 5 |
-| astropy__astropy-14369 | atelier | 0.6081 / 0.7660 / 0.9464 | 318,349 / 465,206 / 587,010 | ok / ok / ok / ok / ok | 5 |
+| astropy__astropy-14369 | lemoncrow | 0.6081 / 0.7660 / 0.9464 | 318,349 / 465,206 / 587,010 | ok / ok / ok / ok / ok | 5 |
 | astropy__astropy-8707 | baseline | 0.2493 / 0.7509 / 1.3232 | 119,756 / 623,021 / 1,333,425 | x / x / x / x / x | 5 |
-| astropy__astropy-8707 | atelier | 0.3441 / 0.4360 / 0.6168 | 143,369 / 226,282 / 386,915 | x / x / x / x / x | 5 |
+| astropy__astropy-8707 | lemoncrow | 0.3441 / 0.4360 / 0.6168 | 143,369 / 226,282 / 386,915 | x / x / x / x / x | 5 |
 | django__django-11138 | baseline | 0.8313 / 1.0522 / 1.8788 | 433,843 / 777,336 / 1,688,303 | ok / ok / ok / ok / ok | 5 |
-| django__django-11138 | atelier | 0.7827 / 0.8073 / 0.8452 | 303,389 / 382,610 / 525,217 | ok / ok / ok / ok / ok | 5 |
+| django__django-11138 | lemoncrow | 0.7827 / 0.8073 / 0.8452 | 303,389 / 382,610 / 525,217 | ok / ok / ok / ok / ok | 5 |
 | django__django-11333 | baseline | 0.0746 / 0.0974 / 0.2037 | 32,384 / 32,450 / 116,142 | x / x / x / x / ok | 5 |
-| django__django-11333 | atelier | 0.1836 / 0.2047 / 0.2084 | 118,636 / 130,740 / 208,178 | ok / ok / ok / ok / ok | 5 |
+| django__django-11333 | lemoncrow | 0.1836 / 0.2047 / 0.2084 | 118,636 / 130,740 / 208,178 | ok / ok / ok / ok / ok | 5 |
 | django__django-12155 | baseline | 0.0765 / 0.0967 / 0.0981 | 41,371 / 41,644 / 41,715 | ok / ok / ok / ok / ok | 5 |
-| django__django-12155 | atelier | 0.0570 / 0.0695 / 0.1041 | 30,923 / 51,169 / 116,682 | ok / ok / ok / ok / ok | 5 |
+| django__django-12155 | lemoncrow | 0.0570 / 0.0695 / 0.1041 | 30,923 / 51,169 / 116,682 | ok / ok / ok / ok / ok | 5 |
 | django__django-12708 | baseline | 0.3149 / 0.5157 / 1.2436 | 163,255 / 298,202 / 842,116 | ok / ok / ok / ok / ok | 5 |
-| django__django-12708 | atelier | 0.1975 / 0.3163 / 0.4939 | 60,235 / 108,670 / 182,895 | ok / ok / ok / ok / ok | 5 |
+| django__django-12708 | lemoncrow | 0.1975 / 0.3163 / 0.4939 | 60,235 / 108,670 / 182,895 | ok / ok / ok / ok / ok | 5 |
 | django__django-13128 | baseline | 0.7530 / 1.1167 / 1.6602 | 329,784 / 637,778 / 1,149,683 | ok / ok / ok / ok / ok | 5 |
-| django__django-13128 | atelier | 0.4714 / 0.5334 / 0.8255 | 167,682 / 288,472 / 442,146 | ok / ok / ok / ok / ok | 5 |
+| django__django-13128 | lemoncrow | 0.4714 / 0.5334 / 0.8255 | 167,682 / 288,472 / 442,146 | ok / ok / ok / ok / ok | 5 |
 | django__django-13344 | baseline | 1.7240 / 1.8042 / 3.4993 | 1,335,455 / 1,512,085 / 2,680,958 | ok / ok / ok / x / x | 5 |
-| django__django-13344 | atelier | 1.3991 / 1.6733 / 1.7346 | 1,033,576 / 1,255,961 / 1,401,372 | ok / ok / ok / ok / ok | 5 |
+| django__django-13344 | lemoncrow | 1.3991 / 1.6733 / 1.7346 | 1,033,576 / 1,255,961 / 1,401,372 | ok / ok / ok / ok / ok | 5 |
 | django__django-13449 | baseline | 0.2697 / 1.8296 / 2.6127 | 163,184 / 1,438,043 / 1,785,064 | ok / ok / ok / ok / ok | 5 |
-| django__django-13449 | atelier | 0.4639 / 0.6451 / 0.8512 | 231,497 / 410,898 / 692,915 | ok / ok / ok / ok / ok | 5 |
+| django__django-13449 | lemoncrow | 0.4639 / 0.6451 / 0.8512 | 231,497 / 410,898 / 692,915 | ok / ok / ok / ok / ok | 5 |
 | django__django-13837 | baseline | 0.4411 / 0.4527 / 0.6033 | 271,944 / 305,657 / 331,326 | ok / ok / ok / ok / ok | 5 |
-| django__django-13837 | atelier | 0.3675 / 0.4336 / 0.4658 | 204,575 / 281,833 / 300,969 | ok / ok / ok / ok / ok | 5 |
+| django__django-13837 | lemoncrow | 0.3675 / 0.4336 / 0.4658 | 204,575 / 281,833 / 300,969 | ok / ok / ok / ok / ok | 5 |
 | django__django-14007 | baseline | 0.4131 / 0.4714 / 0.7352 | 308,700 / 365,533 / 606,024 | ok / ok / ok / ok / ok | 5 |
-| django__django-14007 | atelier | 0.2313 / 0.3354 / 0.3539 | 128,198 / 177,284 / 199,109 | ok / ok / ok / ok / ok | 5 |
+| django__django-14007 | lemoncrow | 0.2313 / 0.3354 / 0.3539 | 128,198 / 177,284 / 199,109 | ok / ok / ok / ok / ok | 5 |
 | django__django-14376 | baseline | 0.1319 / 0.2022 / 0.3000 | 56,461 / 83,832 / 158,587 | x / x / x / ok / ok | 5 |
-| django__django-14376 | atelier | 0.1581 / 0.2432 / 0.2706 | 106,288 / 120,835 / 122,936 | ok / ok / ok / ok / ok | 5 |
+| django__django-14376 | lemoncrow | 0.1581 / 0.2432 / 0.2706 | 106,288 / 120,835 / 122,936 | ok / ok / ok / ok / ok | 5 |
 | django__django-14631 | baseline | 0.6348 / 0.7420 / 1.0791 | 495,508 / 561,593 / 825,798 | ok / ok / ok / ok / ok | 5 |
-| django__django-14631 | atelier | 0.5059 / 0.6358 / 0.8093 | 291,199 / 394,055 / 473,231 | ok / ok / ok / ok / ok | 5 |
+| django__django-14631 | lemoncrow | 0.5059 / 0.6358 / 0.8093 | 291,199 / 394,055 / 473,231 | ok / ok / ok / ok / ok | 5 |
 | django__django-15128 | baseline | 0.4561 / 0.9723 / 1.7697 | 211,894 / 642,011 / 1,364,474 | ok / ok / ok / ok / ok | 5 |
-| django__django-15128 | atelier | 0.3898 / 0.4375 / 0.4393 | 137,449 / 142,339 / 175,532 | ok / ok / ok / ok / ok | 5 |
+| django__django-15128 | lemoncrow | 0.3898 / 0.4375 / 0.4393 | 137,449 / 142,339 / 175,532 | ok / ok / ok / ok / ok | 5 |
 | django__django-15268 | baseline | 0.8376 / 1.0559 / 1.2991 | 613,393 / 744,081 / 981,990 | ok / ok / ok / ok / ok | 5 |
-| django__django-15268 | atelier | 0.2915 / 0.3317 / 0.4359 | 128,317 / 140,597 / 167,818 | ok / ok / ok / ok / ok | 5 |
+| django__django-15268 | lemoncrow | 0.2915 / 0.3317 / 0.4359 | 128,317 / 140,597 / 167,818 | ok / ok / ok / ok / ok | 5 |
 | django__django-15503 | baseline | 0.6579 / 0.9049 / 1.0882 | 400,372 / 698,321 / 794,182 | ok / ok / ok / ok / ok | 5 |
-| django__django-15503 | atelier | 0.3516 / 0.4976 / 0.4985 | 123,005 / 239,125 / 261,301 | ok / ok / ok / ok / ok | 5 |
+| django__django-15503 | lemoncrow | 0.3516 / 0.4976 / 0.4985 | 123,005 / 239,125 / 261,301 | ok / ok / ok / ok / ok | 5 |
 | django__django-15957 | baseline | 1.0814 / 1.6320 / 2.0380 | 996,715 / 1,626,599 / 2,434,436 | ok / ok / ok / ok / ok | 5 |
-| django__django-15957 | atelier | 1.0213 / 1.1982 / 1.6103 | 804,954 / 1,041,176 / 1,410,779 | ok / ok / ok / ok / ok | 5 |
+| django__django-15957 | lemoncrow | 1.0213 / 1.1982 / 1.6103 | 804,954 / 1,041,176 / 1,410,779 | ok / ok / ok / ok / ok | 5 |
 | django__django-16560 | baseline | 0.7361 / 2.2824 / 2.6918 | 538,991 / 2,356,409 / 2,880,666 | ok / ok / ok / ok / x | 5 |
-| django__django-16560 | atelier | 0.9773 / 1.5359 / 1.7369 | 725,636 / 1,123,376 / 1,321,578 | ok / ok / ok / ok / ok | 5 |
+| django__django-16560 | lemoncrow | 0.9773 / 1.5359 / 1.7369 | 725,636 / 1,123,376 / 1,321,578 | ok / ok / ok / ok / ok | 5 |
 | matplotlib__matplotlib-14623 | baseline | 0.3544 / 0.6286 / 0.7437 | 188,269 / 477,049 / 619,921 | x / ok / ok / ok / ok | 5 |
-| matplotlib__matplotlib-14623 | atelier | 0.2790 / 0.4601 / 0.5707 | 108,872 / 223,267 / 263,127 | ok / ok / ok / ok / ok | 5 |
+| matplotlib__matplotlib-14623 | lemoncrow | 0.2790 / 0.4601 / 0.5707 | 108,872 / 223,267 / 263,127 | ok / ok / ok / ok / ok | 5 |
 | matplotlib__matplotlib-24870 | baseline | 0.6418 / 0.8066 / 0.9301 | 454,386 / 637,139 / 737,124 | x / x / ok / ok / ok | 5 |
-| matplotlib__matplotlib-24870 | atelier | 0.6471 / 0.7304 / 0.7549 | 341,832 / 392,902 / 433,918 | ok / ok / ok / ok / ok | 5 |
+| matplotlib__matplotlib-24870 | lemoncrow | 0.6471 / 0.7304 / 0.7549 | 341,832 / 392,902 / 433,918 | ok / ok / ok / ok / ok | 5 |
 | mwaskom__seaborn-3069 | baseline | 1.1211 / 1.5126 / 1.5918 | 985,661 / 1,511,436 / 1,847,547 | ok / ok / ok / ok / ok | 5 |
-| mwaskom__seaborn-3069 | atelier | 0.6793 / 0.7896 / 0.9009 | 350,916 / 384,444 / 604,918 | ok / ok / ok / ok / ok | 5 |
+| mwaskom__seaborn-3069 | lemoncrow | 0.6793 / 0.7896 / 0.9009 | 350,916 / 384,444 / 604,918 | ok / ok / ok / ok / ok | 5 |
 | mwaskom__seaborn-3187 | baseline | 1.0080 / 1.6283 / 2.2704 | 821,333 / 1,457,560 / 2,107,948 | x / x / ok / ok / ok | 5 |
-| mwaskom__seaborn-3187 | atelier | 0.7739 / 1.3756 / 1.8190 | 470,992 / 1,177,247 / 1,705,053 | ok / ok / ok / ok / x | 5 |
+| mwaskom__seaborn-3187 | lemoncrow | 0.7739 / 1.3756 / 1.8190 | 470,992 / 1,177,247 / 1,705,053 | ok / ok / ok / ok / x | 5 |
 | pallets__flask-5014 | baseline | 0.0812 / 0.1275 / 0.1568 | 41,373 / 46,547 / 61,267 | ok / ok / ok / ok / ok | 5 |
-| pallets__flask-5014 | atelier | 0.1223 / 0.1350 / 0.1365 | 62,573 / 66,771 / 67,441 | ok / ok / ok / ok / ok | 5 |
+| pallets__flask-5014 | lemoncrow | 0.1223 / 0.1350 / 0.1365 | 62,573 / 66,771 / 67,441 | ok / ok / ok / ok / ok | 5 |
 | psf__requests-2931 | baseline | 0.1009 / 0.1434 / 0.4626 | 52,668 / 69,227 / 261,493 | x / x / x / ok / ok | 5 |
-| psf__requests-2931 | atelier | 0.4665 / 0.4686 / 0.5294 | 264,117 / 271,236 / 344,173 | ok / ok / ok / ok / ok | 5 |
+| psf__requests-2931 | lemoncrow | 0.4665 / 0.4686 / 0.5294 | 264,117 / 271,236 / 344,173 | ok / ok / ok / ok / ok | 5 |
 | psf__requests-6028 | baseline | 0.3167 / 0.3567 / 0.4814 | 189,882 / 199,324 / 278,479 | ok / ok / ok / ok / ok | 5 |
-| psf__requests-6028 | atelier | 0.2343 / 0.2723 / 0.3433 | 65,221 / 103,725 / 115,774 | ok / ok / ok / ok / ok | 5 |
+| psf__requests-6028 | lemoncrow | 0.2343 / 0.2723 / 0.3433 | 65,221 / 103,725 / 115,774 | ok / ok / ok / ok / ok | 5 |
 | pydata__xarray-3095 | baseline | 0.3602 / 0.4935 / 0.7024 | 217,016 / 324,179 / 518,521 | ok / ok / ok / ok / ok | 5 |
-| pydata__xarray-3095 | atelier | 0.2128 / 0.2444 / 0.2630 | 103,910 / 135,395 / 137,822 | ok / ok / ok / ok / ok | 5 |
+| pydata__xarray-3095 | lemoncrow | 0.2128 / 0.2444 / 0.2630 | 103,910 / 135,395 / 137,822 | ok / ok / ok / ok / ok | 5 |
 | pydata__xarray-3305 | baseline | 0.3485 / 0.4011 / 0.8519 | 183,190 / 258,436 / 669,754 | ok / ok / ok / ok / ok | 5 |
-| pydata__xarray-3305 | atelier | 0.2306 / 0.2563 / 0.2638 | 126,679 / 149,431 / 167,521 | ok / ok / ok / ok / ok | 5 |
+| pydata__xarray-3305 | lemoncrow | 0.2306 / 0.2563 / 0.2638 | 126,679 / 149,431 / 167,521 | ok / ok / ok / ok / ok | 5 |
 | pydata__xarray-3993 | baseline | 0.3933 / 0.4197 / 0.5247 | 214,172 / 259,848 / 346,938 | ok / ok / ok / ok / ok | 5 |
-| pydata__xarray-3993 | atelier | 0.3640 / 0.4086 / 0.4140 | 185,058 / 232,610 / 261,676 | ok / ok / ok / ok / ok | 5 |
+| pydata__xarray-3993 | lemoncrow | 0.3640 / 0.4086 / 0.4140 | 185,058 / 232,610 / 261,676 | ok / ok / ok / ok / ok | 5 |
 | pylint-dev__pylint-6386 | baseline | 0.8653 / 0.9439 / 1.5496 | 716,947 / 760,194 / 1,331,202 | ok / ok / ok / ok / ok | 5 |
-| pylint-dev__pylint-6386 | atelier | 0.6395 / 0.7020 / 0.7260 | 361,931 / 478,802 / 549,250 | ok / ok / ok / ok / ok | 5 |
+| pylint-dev__pylint-6386 | lemoncrow | 0.6395 / 0.7020 / 0.7260 | 361,931 / 478,802 / 549,250 | ok / ok / ok / ok / ok | 5 |
 | pylint-dev__pylint-6528 | baseline | 0.6138 / 1.3382 / 1.6957 | 426,462 / 991,588 / 1,537,270 | ok / ok / ok / ok / ok | 5 |
-| pylint-dev__pylint-6528 | atelier | 0.8863 / 0.9650 / 1.2503 | 475,700 / 726,071 / 985,288 | ok / ok / ok / ok / ok | 5 |
+| pylint-dev__pylint-6528 | lemoncrow | 0.8863 / 0.9650 / 1.2503 | 475,700 / 726,071 / 985,288 | ok / ok / ok / ok / ok | 5 |
 | pylint-dev__pylint-8898 | baseline | 0.6093 / 0.8166 / 0.9396 | 481,856 / 713,306 / 758,849 | ok / ok / ok / ok / ok | 5 |
-| pylint-dev__pylint-8898 | atelier | 0.4001 / 0.5994 / 0.7986 | 214,226 / 437,518 / 530,665 | ok / ok / ok / ok / ok | 5 |
+| pylint-dev__pylint-8898 | lemoncrow | 0.4001 / 0.5994 / 0.7986 | 214,226 / 437,518 / 530,665 | ok / ok / ok / ok / ok | 5 |
 | pytest-dev__pytest-5787 | baseline | 0.9479 / 1.3077 / 1.3787 | 708,966 / 768,863 / 1,370,912 | ok / ok / ok / ok / ok | 5 |
-| pytest-dev__pytest-5787 | atelier | 0.6597 / 0.7652 / 0.8575 | 377,498 / 405,526 / 567,255 | ok / ok / ok / ok / ok | 5 |
+| pytest-dev__pytest-5787 | lemoncrow | 0.6597 / 0.7652 / 0.8575 | 377,498 / 405,526 / 567,255 | ok / ok / ok / ok / ok | 5 |
 | pytest-dev__pytest-5840 | baseline | 0.5453 / 0.6756 / 1.0506 | 261,059 / 511,097 / 850,079 | ok / ok / ok / ok / ok | 5 |
-| pytest-dev__pytest-5840 | atelier | 0.4908 / 0.5185 / 0.5636 | 187,490 / 251,923 / 331,478 | ok / ok / ok / ok / ok | 5 |
+| pytest-dev__pytest-5840 | lemoncrow | 0.4908 / 0.5185 / 0.5636 | 187,490 / 251,923 / 331,478 | ok / ok / ok / ok / ok | 5 |
 | pytest-dev__pytest-6197 | baseline | 1.4732 / 1.5815 / 2.1105 | 1,152,012 / 1,314,726 / 1,831,707 | ok / ok / ok / ok / ok | 5 |
-| pytest-dev__pytest-6197 | atelier | 0.8585 / 1.1637 / 1.3203 | 561,350 / 749,029 / 878,485 | ok / ok / ok / ok / ok | 5 |
+| pytest-dev__pytest-6197 | lemoncrow | 0.8585 / 1.1637 / 1.3203 | 561,350 / 749,029 / 878,485 | ok / ok / ok / ok / ok | 5 |
 | pytest-dev__pytest-7490 | baseline | 0.4983 / 0.7961 / 1.0855 | 430,859 / 582,804 / 846,942 | ok / ok / ok / ok / ok | 5 |
-| pytest-dev__pytest-7490 | atelier | 0.6192 / 0.6309 / 0.7793 | 405,254 / 438,876 / 516,872 | ok / ok / ok / ok / ok | 5 |
+| pytest-dev__pytest-7490 | lemoncrow | 0.6192 / 0.6309 / 0.7793 | 405,254 / 438,876 / 516,872 | ok / ok / ok / ok / ok | 5 |
 | pytest-dev__pytest-8399 | baseline | 0.1545 / 0.1632 / 0.3745 | 81,610 / 102,853 / 273,527 | ok / ok / ok / ok / ok | 5 |
-| pytest-dev__pytest-8399 | atelier | 0.1614 / 0.2088 / 0.2180 | 91,176 / 104,010 / 132,551 | ok / ok / ok / ok / ok | 5 |
+| pytest-dev__pytest-8399 | lemoncrow | 0.1614 / 0.2088 / 0.2180 | 91,176 / 104,010 / 132,551 | ok / ok / ok / ok / ok | 5 |
 | scikit-learn__scikit-learn-12682 | baseline | 1.0310 / 1.3794 / 1.6452 | 845,364 / 1,239,431 / 1,613,804 | ok / ok / ok / ok / ok | 5 |
-| scikit-learn__scikit-learn-12682 | atelier | 0.6094 / 0.7622 / 0.8792 | 309,972 / 449,964 / 582,989 | ok / ok / ok / ok / ok | 5 |
+| scikit-learn__scikit-learn-12682 | lemoncrow | 0.6094 / 0.7622 / 0.8792 | 309,972 / 449,964 / 582,989 | ok / ok / ok / ok / ok | 5 |
 | scikit-learn__scikit-learn-25102 | baseline | 1.2950 / 2.0248 / 2.2276 | 918,057 / 1,415,037 / 1,838,996 | ok / ok / ok / ok / ok | 5 |
-| scikit-learn__scikit-learn-25102 | atelier | 0.6712 / 0.7037 / 0.9400 | 239,176 / 397,307 / 669,414 | ok / ok / ok / ok / ok | 5 |
+| scikit-learn__scikit-learn-25102 | lemoncrow | 0.6712 / 0.7037 / 0.9400 | 239,176 / 397,307 / 669,414 | ok / ok / ok / ok / ok | 5 |
 | sphinx-doc__sphinx-10673 | baseline | 1.1160 / 1.9403 / 3.0614 | 1,036,405 / 1,934,682 / 3,517,451 | ok / ok / ok / ok / ok | 5 |
-| sphinx-doc__sphinx-10673 | atelier | 1.0431 / 1.1221 / 1.2664 | 753,628 / 935,007 / 1,037,032 | ok / ok / ok / ok / ok | 5 |
+| sphinx-doc__sphinx-10673 | lemoncrow | 1.0431 / 1.1221 / 1.2664 | 753,628 / 935,007 / 1,037,032 | ok / ok / ok / ok / ok | 5 |
 | sphinx-doc__sphinx-8120 | baseline | 0.1774 / 0.4687 / 0.6107 | 88,303 / 318,017 / 431,765 | ok / ok / ok / x / x | 5 |
-| sphinx-doc__sphinx-8120 | atelier | 0.2470 / 0.2551 / 0.2809 | 117,170 / 147,968 / 163,050 | ok / ok / ok / ok / ok | 5 |
+| sphinx-doc__sphinx-8120 | lemoncrow | 0.2470 / 0.2551 / 0.2809 | 117,170 / 147,968 / 163,050 | ok / ok / ok / ok / ok | 5 |
 | sphinx-doc__sphinx-8548 | baseline | 1.6124 / 2.4096 / 2.8734 | 2,252,165 / 2,263,473 / 3,222,924 | ok / ok / ok | 3 |
-| sphinx-doc__sphinx-8548 | atelier | 1.2543 / 2.2060 / 2.8829 | 805,620 / 1,962,496 / 2,818,016 | ok / ok / ok / ok / ok | 5 |
+| sphinx-doc__sphinx-8548 | lemoncrow | 1.2543 / 2.2060 / 2.8829 | 805,620 / 1,962,496 / 2,818,016 | ok / ok / ok / ok / ok | 5 |
 | sphinx-doc__sphinx-8551 | baseline | 0.2991 / 0.7714 / 1.2149 | 201,193 / 663,485 / 1,558,256 | ok / ok / ok / ok / ok | 5 |
-| sphinx-doc__sphinx-8551 | atelier | 0.3307 / 0.4141 / 0.4711 | 156,044 / 212,069 / 250,786 | ok / ok / ok / ok / ok | 5 |
+| sphinx-doc__sphinx-8551 | lemoncrow | 0.3307 / 0.4141 / 0.4711 | 156,044 / 212,069 / 250,786 | ok / ok / ok / ok / ok | 5 |
 | sphinx-doc__sphinx-9461 | baseline | 0.6340 / 1.0563 / 2.3173 | 498,665 / 967,808 / 2,321,339 | x / x / ok / ok | 4 |
-| sphinx-doc__sphinx-9461 | atelier | 0.3517 / 0.7379 / 1.2309 | 153,526 / 401,907 / 821,037 | x / x / x / x / ok | 5 |
+| sphinx-doc__sphinx-9461 | lemoncrow | 0.3517 / 0.7379 / 1.2309 | 153,526 / 401,907 / 821,037 | x / x / x / x / ok | 5 |
 | sympy__sympy-12489 | baseline | 0.2773 / 0.4960 / 0.8823 | 131,179 / 260,753 / 750,514 | x / x / ok / ok / x | 5 |
-| sympy__sympy-12489 | atelier | 0.3998 / 0.7771 / 1.0122 | 195,160 / 425,571 / 640,372 | x / x / ok / ok / ok | 5 |
+| sympy__sympy-12489 | lemoncrow | 0.3998 / 0.7771 / 1.0122 | 195,160 / 425,571 / 640,372 | x / x / ok / ok / ok | 5 |
 | sympy__sympy-13091 | baseline | 0.6443 / 0.8506 / 1.2273 | 499,582 / 881,031 / 1,161,042 | ok / ok / x / ok / ok | 5 |
-| sympy__sympy-13091 | atelier | 0.7066 / 0.7737 / 0.9379 | 370,655 / 507,170 / 574,517 | ok / ok / ok / ok / ok | 5 |
+| sympy__sympy-13091 | lemoncrow | 0.7066 / 0.7737 / 0.9379 | 370,655 / 507,170 / 574,517 | ok / ok / ok / ok / ok | 5 |
 | sympy__sympy-13877 | baseline | 0.4401 / 0.5335 / 0.7513 | 272,680 / 358,654 / 515,729 | ok / ok / ok / ok / ok | 5 |
-| sympy__sympy-13877 | atelier | 0.2875 / 0.3497 / 0.3845 | 120,676 / 173,249 / 214,272 | ok / ok / ok / ok / ok | 5 |
-| sympy__sympy-13878 | atelier | 0.9494 / 1.3727 / 1.5996 | 591,843 / 940,552 / 1,098,110 | ok / ok / ok / ok / ok | 5 |
+| sympy__sympy-13877 | lemoncrow | 0.2875 / 0.3497 / 0.3845 | 120,676 / 173,249 / 214,272 | ok / ok / ok / ok / ok | 5 |
+| sympy__sympy-13878 | lemoncrow | 0.9494 / 1.3727 / 1.5996 | 591,843 / 940,552 / 1,098,110 | ok / ok / ok / ok / ok | 5 |
 | sympy__sympy-14248 | baseline | 1.2305 / 1.2565 / 1.2826 | 1,064,998 / 1,074,586 / 1,084,174 | x / ok | 2 |
-| sympy__sympy-14248 | atelier | 0.7414 / 0.8294 / 1.0558 | 461,057 / 546,504 / 610,513 | ok / ok / ok / ok | 4 |
+| sympy__sympy-14248 | lemoncrow | 0.7414 / 0.8294 / 1.0558 | 461,057 / 546,504 / 610,513 | ok / ok / ok / ok | 4 |
 
 === Per-task correctness and cost ===
 
 | Task | Arm | Correct | Score | vs baseline | Cost | Cost delta | Winner |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| astropy__astropy-13398 | atelier | 0/5 | 0 | 0 | $3.5659 | 63% cheaper | atelier |
-| astropy__astropy-13398 | baseline | 0/5 | 0 | baseline | $9.6466 | baseline | atelier |
-| astropy__astropy-13579 | atelier | 5/5 | 1 | 0 | $2.0098 | 14.7% cheaper | atelier |
-| astropy__astropy-13579 | baseline | 5/5 | 1 | baseline | $2.3556 | baseline | atelier |
-| astropy__astropy-14369 | atelier | 5/5 | 1 | 0.2 | $4.0149 | 32.4% cheaper | atelier |
-| astropy__astropy-14369 | baseline | 4/5 | 0.8 | baseline | $5.9368 | baseline | atelier |
-| astropy__astropy-8707 | atelier | 0/5 | 0 | 0 | $2.3698 | 39.6% cheaper | atelier |
-| astropy__astropy-8707 | baseline | 0/5 | 0 | baseline | $3.9211 | baseline | atelier |
-| django__django-11138 | atelier | 5/5 | 1 | 0 | $4.0563 | 35.3% cheaper | atelier |
-| django__django-11138 | baseline | 5/5 | 1 | baseline | $6.2676 | baseline | atelier |
-| django__django-11333 | atelier | 5/5 | 1 | 0.8 | $0.9948 | 70.8% pricier | atelier |
-| django__django-11333 | baseline | 1/5 | 0.2 | baseline | $0.5824 | baseline | atelier |
-| django__django-12155 | atelier | 5/5 | 1 | 0 | $0.3828 | 14.1% cheaper | atelier |
-| django__django-12155 | baseline | 5/5 | 1 | baseline | $0.4458 | baseline | atelier |
-| django__django-12708 | atelier | 5/5 | 1 | 0 | $1.6384 | 46.8% cheaper | atelier |
-| django__django-12708 | baseline | 5/5 | 1 | baseline | $3.0822 | baseline | atelier |
-| django__django-13128 | atelier | 5/5 | 1 | 0 | $3.0131 | 48.7% cheaper | atelier |
-| django__django-13128 | baseline | 5/5 | 1 | baseline | $5.8792 | baseline | atelier |
-| django__django-13344 | atelier | 5/5 | 1 | 0.4 | $8.0590 | 31.6% cheaper | atelier |
-| django__django-13344 | baseline | 3/5 | 0.6 | baseline | $11.7793 | baseline | atelier |
-| django__django-13449 | atelier | 5/5 | 1 | 0 | $3.4564 | 50.3% cheaper | atelier |
-| django__django-13449 | baseline | 5/5 | 1 | baseline | $6.9523 | baseline | atelier |
-| django__django-13837 | atelier | 5/5 | 1 | 0 | $2.1414 | 11.1% cheaper | atelier |
-| django__django-13837 | baseline | 5/5 | 1 | baseline | $2.4097 | baseline | atelier |
-| django__django-14007 | atelier | 5/5 | 1 | 0 | $1.5615 | 39.5% cheaper | atelier |
-| django__django-14007 | baseline | 5/5 | 1 | baseline | $2.5799 | baseline | atelier |
-| django__django-14376 | atelier | 5/5 | 1 | 0.6 | $1.0950 | even | atelier |
-| django__django-14376 | baseline | 2/5 | 0.4 | baseline | $1.0661 | baseline | atelier |
-| django__django-14631 | atelier | 5/5 | 1 | 0 | $3.2323 | 17.4% cheaper | atelier |
-| django__django-14631 | baseline | 5/5 | 1 | baseline | $3.9155 | baseline | atelier |
-| django__django-15128 | atelier | 5/5 | 1 | 0 | $2.1434 | 62.7% cheaper | atelier |
-| django__django-15128 | baseline | 5/5 | 1 | baseline | $5.7405 | baseline | atelier |
-| django__django-15268 | atelier | 5/5 | 1 | 0 | $1.7216 | 67.1% cheaper | atelier |
-| django__django-15268 | baseline | 5/5 | 1 | baseline | $5.2296 | baseline | atelier |
-| django__django-15503 | atelier | 5/5 | 1 | 0 | $2.1979 | 51.4% cheaper | atelier |
-| django__django-15503 | baseline | 5/5 | 1 | baseline | $4.5247 | baseline | atelier |
-| django__django-15957 | atelier | 5/5 | 1 | 0 | $6.4314 | 20.9% cheaper | atelier |
-| django__django-15957 | baseline | 5/5 | 1 | baseline | $8.1281 | baseline | atelier |
-| django__django-16560 | atelier | 5/5 | 1 | 0.2 | $7.3276 | 26.9% cheaper | atelier |
-| django__django-16560 | baseline | 4/5 | 0.8 | baseline | $10.0188 | baseline | atelier |
-| matplotlib__matplotlib-14623 | atelier | 5/5 | 1 | 0.2 | $2.1913 | 28.8% cheaper | atelier |
-| matplotlib__matplotlib-14623 | baseline | 4/5 | 0.8 | baseline | $3.0778 | baseline | atelier |
-| matplotlib__matplotlib-24870 | atelier | 5/5 | 1 | 0.4 | $3.5520 | 10.2% cheaper | atelier |
-| matplotlib__matplotlib-24870 | baseline | 3/5 | 0.6 | baseline | $3.9538 | baseline | atelier |
-| mwaskom__seaborn-3069 | atelier | 5/5 | 1 | 0 | $3.9832 | 44% cheaper | atelier |
-| mwaskom__seaborn-3069 | baseline | 5/5 | 1 | baseline | $7.1103 | baseline | atelier |
-| mwaskom__seaborn-3187 | atelier | 4/5 | 0.8 | 0.2 | $6.8879 | 14.4% cheaper | atelier |
-| mwaskom__seaborn-3187 | baseline | 3/5 | 0.6 | baseline | $8.0468 | baseline | atelier |
-| pallets__flask-5014 | atelier | 5/5 | 1 | 0 | $0.6585 | 6.7% pricier | baseline |
+| astropy__astropy-13398 | lemoncrow | 0/5 | 0 | 0 | $3.5659 | 63% cheaper | lemoncrow |
+| astropy__astropy-13398 | baseline | 0/5 | 0 | baseline | $9.6466 | baseline | lemoncrow |
+| astropy__astropy-13579 | lemoncrow | 5/5 | 1 | 0 | $2.0098 | 14.7% cheaper | lemoncrow |
+| astropy__astropy-13579 | baseline | 5/5 | 1 | baseline | $2.3556 | baseline | lemoncrow |
+| astropy__astropy-14369 | lemoncrow | 5/5 | 1 | 0.2 | $4.0149 | 32.4% cheaper | lemoncrow |
+| astropy__astropy-14369 | baseline | 4/5 | 0.8 | baseline | $5.9368 | baseline | lemoncrow |
+| astropy__astropy-8707 | lemoncrow | 0/5 | 0 | 0 | $2.3698 | 39.6% cheaper | lemoncrow |
+| astropy__astropy-8707 | baseline | 0/5 | 0 | baseline | $3.9211 | baseline | lemoncrow |
+| django__django-11138 | lemoncrow | 5/5 | 1 | 0 | $4.0563 | 35.3% cheaper | lemoncrow |
+| django__django-11138 | baseline | 5/5 | 1 | baseline | $6.2676 | baseline | lemoncrow |
+| django__django-11333 | lemoncrow | 5/5 | 1 | 0.8 | $0.9948 | 70.8% pricier | lemoncrow |
+| django__django-11333 | baseline | 1/5 | 0.2 | baseline | $0.5824 | baseline | lemoncrow |
+| django__django-12155 | lemoncrow | 5/5 | 1 | 0 | $0.3828 | 14.1% cheaper | lemoncrow |
+| django__django-12155 | baseline | 5/5 | 1 | baseline | $0.4458 | baseline | lemoncrow |
+| django__django-12708 | lemoncrow | 5/5 | 1 | 0 | $1.6384 | 46.8% cheaper | lemoncrow |
+| django__django-12708 | baseline | 5/5 | 1 | baseline | $3.0822 | baseline | lemoncrow |
+| django__django-13128 | lemoncrow | 5/5 | 1 | 0 | $3.0131 | 48.7% cheaper | lemoncrow |
+| django__django-13128 | baseline | 5/5 | 1 | baseline | $5.8792 | baseline | lemoncrow |
+| django__django-13344 | lemoncrow | 5/5 | 1 | 0.4 | $8.0590 | 31.6% cheaper | lemoncrow |
+| django__django-13344 | baseline | 3/5 | 0.6 | baseline | $11.7793 | baseline | lemoncrow |
+| django__django-13449 | lemoncrow | 5/5 | 1 | 0 | $3.4564 | 50.3% cheaper | lemoncrow |
+| django__django-13449 | baseline | 5/5 | 1 | baseline | $6.9523 | baseline | lemoncrow |
+| django__django-13837 | lemoncrow | 5/5 | 1 | 0 | $2.1414 | 11.1% cheaper | lemoncrow |
+| django__django-13837 | baseline | 5/5 | 1 | baseline | $2.4097 | baseline | lemoncrow |
+| django__django-14007 | lemoncrow | 5/5 | 1 | 0 | $1.5615 | 39.5% cheaper | lemoncrow |
+| django__django-14007 | baseline | 5/5 | 1 | baseline | $2.5799 | baseline | lemoncrow |
+| django__django-14376 | lemoncrow | 5/5 | 1 | 0.6 | $1.0950 | even | lemoncrow |
+| django__django-14376 | baseline | 2/5 | 0.4 | baseline | $1.0661 | baseline | lemoncrow |
+| django__django-14631 | lemoncrow | 5/5 | 1 | 0 | $3.2323 | 17.4% cheaper | lemoncrow |
+| django__django-14631 | baseline | 5/5 | 1 | baseline | $3.9155 | baseline | lemoncrow |
+| django__django-15128 | lemoncrow | 5/5 | 1 | 0 | $2.1434 | 62.7% cheaper | lemoncrow |
+| django__django-15128 | baseline | 5/5 | 1 | baseline | $5.7405 | baseline | lemoncrow |
+| django__django-15268 | lemoncrow | 5/5 | 1 | 0 | $1.7216 | 67.1% cheaper | lemoncrow |
+| django__django-15268 | baseline | 5/5 | 1 | baseline | $5.2296 | baseline | lemoncrow |
+| django__django-15503 | lemoncrow | 5/5 | 1 | 0 | $2.1979 | 51.4% cheaper | lemoncrow |
+| django__django-15503 | baseline | 5/5 | 1 | baseline | $4.5247 | baseline | lemoncrow |
+| django__django-15957 | lemoncrow | 5/5 | 1 | 0 | $6.4314 | 20.9% cheaper | lemoncrow |
+| django__django-15957 | baseline | 5/5 | 1 | baseline | $8.1281 | baseline | lemoncrow |
+| django__django-16560 | lemoncrow | 5/5 | 1 | 0.2 | $7.3276 | 26.9% cheaper | lemoncrow |
+| django__django-16560 | baseline | 4/5 | 0.8 | baseline | $10.0188 | baseline | lemoncrow |
+| matplotlib__matplotlib-14623 | lemoncrow | 5/5 | 1 | 0.2 | $2.1913 | 28.8% cheaper | lemoncrow |
+| matplotlib__matplotlib-14623 | baseline | 4/5 | 0.8 | baseline | $3.0778 | baseline | lemoncrow |
+| matplotlib__matplotlib-24870 | lemoncrow | 5/5 | 1 | 0.4 | $3.5520 | 10.2% cheaper | lemoncrow |
+| matplotlib__matplotlib-24870 | baseline | 3/5 | 0.6 | baseline | $3.9538 | baseline | lemoncrow |
+| mwaskom__seaborn-3069 | lemoncrow | 5/5 | 1 | 0 | $3.9832 | 44% cheaper | lemoncrow |
+| mwaskom__seaborn-3069 | baseline | 5/5 | 1 | baseline | $7.1103 | baseline | lemoncrow |
+| mwaskom__seaborn-3187 | lemoncrow | 4/5 | 0.8 | 0.2 | $6.8879 | 14.4% cheaper | lemoncrow |
+| mwaskom__seaborn-3187 | baseline | 3/5 | 0.6 | baseline | $8.0468 | baseline | lemoncrow |
+| pallets__flask-5014 | lemoncrow | 5/5 | 1 | 0 | $0.6585 | 6.7% pricier | baseline |
 | pallets__flask-5014 | baseline | 5/5 | 1 | baseline | $0.6170 | baseline | baseline |
-| psf__requests-2931 | atelier | 5/5 | 1 | 0.6 | $2.4097 | 119.6% pricier | atelier |
-| psf__requests-2931 | baseline | 2/5 | 0.4 | baseline | $1.0971 | baseline | atelier |
-| psf__requests-6028 | atelier | 5/5 | 1 | 0 | $1.4582 | 21.6% cheaper | atelier |
-| psf__requests-6028 | baseline | 5/5 | 1 | baseline | $1.8598 | baseline | atelier |
-| pydata__xarray-3095 | atelier | 5/5 | 1 | 0 | $1.2138 | 51.5% cheaper | atelier |
-| pydata__xarray-3095 | baseline | 5/5 | 1 | baseline | $2.5004 | baseline | atelier |
-| pydata__xarray-3305 | atelier | 5/5 | 1 | 0 | $1.2534 | 48.2% cheaper | atelier |
-| pydata__xarray-3305 | baseline | 5/5 | 1 | baseline | $2.4210 | baseline | atelier |
-| pydata__xarray-3993 | atelier | 5/5 | 1 | 0 | $1.9706 | 9.9% cheaper | atelier |
-| pydata__xarray-3993 | baseline | 5/5 | 1 | baseline | $2.1865 | baseline | atelier |
-| pylint-dev__pylint-6386 | atelier | 5/5 | 1 | 0 | $3.4731 | 34.8% cheaper | atelier |
-| pylint-dev__pylint-6386 | baseline | 5/5 | 1 | baseline | $5.3285 | baseline | atelier |
-| pylint-dev__pylint-6528 | atelier | 5/5 | 1 | 0 | $5.1007 | 16.1% cheaper | atelier |
-| pylint-dev__pylint-6528 | baseline | 5/5 | 1 | baseline | $6.0818 | baseline | atelier |
-| pylint-dev__pylint-8898 | atelier | 5/5 | 1 | 0 | $3.0492 | 24.5% cheaper | atelier |
-| pylint-dev__pylint-8898 | baseline | 5/5 | 1 | baseline | $4.0373 | baseline | atelier |
-| pytest-dev__pytest-5787 | atelier | 5/5 | 1 | 0 | $3.8018 | 36.6% cheaper | atelier |
-| pytest-dev__pytest-5787 | baseline | 5/5 | 1 | baseline | $5.9920 | baseline | atelier |
-| pytest-dev__pytest-5840 | atelier | 5/5 | 1 | 0 | $2.6008 | 30.5% cheaper | atelier |
-| pytest-dev__pytest-5840 | baseline | 5/5 | 1 | baseline | $3.7404 | baseline | atelier |
-| pytest-dev__pytest-6197 | atelier | 5/5 | 1 | 0 | $5.5191 | 35.5% cheaper | atelier |
-| pytest-dev__pytest-6197 | baseline | 5/5 | 1 | baseline | $8.5587 | baseline | atelier |
-| pytest-dev__pytest-7490 | atelier | 5/5 | 1 | 0 | $3.3883 | 10.8% cheaper | atelier |
-| pytest-dev__pytest-7490 | baseline | 5/5 | 1 | baseline | $3.7999 | baseline | atelier |
-| pytest-dev__pytest-8399 | atelier | 5/5 | 1 | 0 | $0.9675 | 5.1% cheaper | atelier |
-| pytest-dev__pytest-8399 | baseline | 5/5 | 1 | baseline | $1.0190 | baseline | atelier |
-| scikit-learn__scikit-learn-12682 | atelier | 5/5 | 1 | 0 | $3.8788 | 45.2% cheaper | atelier |
-| scikit-learn__scikit-learn-12682 | baseline | 5/5 | 1 | baseline | $7.0769 | baseline | atelier |
-| scikit-learn__scikit-learn-25102 | atelier | 5/5 | 1 | 0 | $3.9133 | 58.6% cheaper | atelier |
-| scikit-learn__scikit-learn-25102 | baseline | 5/5 | 1 | baseline | $9.4512 | baseline | atelier |
-| sphinx-doc__sphinx-10673 | atelier | 5/5 | 1 | 0 | $5.7231 | 42.3% cheaper | atelier |
-| sphinx-doc__sphinx-10673 | baseline | 5/5 | 1 | baseline | $9.9219 | baseline | atelier |
-| sphinx-doc__sphinx-8120 | atelier | 5/5 | 1 | 0.4 | $1.3043 | 37.7% cheaper | atelier |
-| sphinx-doc__sphinx-8120 | baseline | 3/5 | 0.6 | baseline | $2.0922 | baseline | atelier |
-| sphinx-doc__sphinx-8548 | atelier | 5/5 | 1 | 0.4 | $10.8867 | 4% pricier | atelier |
-| sphinx-doc__sphinx-8548 | baseline | 3/5 | 0.6 | baseline | $10.4631 | baseline | atelier |
-| sphinx-doc__sphinx-8551 | atelier | 5/5 | 1 | 0 | $1.9813 | 45.1% cheaper | atelier |
-| sphinx-doc__sphinx-8551 | baseline | 5/5 | 1 | baseline | $3.6070 | baseline | atelier |
-| sphinx-doc__sphinx-9461 | atelier | 1/5 | 0.2 | -0.2 | $3.7627 | 25.7% cheaper | baseline |
+| psf__requests-2931 | lemoncrow | 5/5 | 1 | 0.6 | $2.4097 | 119.6% pricier | lemoncrow |
+| psf__requests-2931 | baseline | 2/5 | 0.4 | baseline | $1.0971 | baseline | lemoncrow |
+| psf__requests-6028 | lemoncrow | 5/5 | 1 | 0 | $1.4582 | 21.6% cheaper | lemoncrow |
+| psf__requests-6028 | baseline | 5/5 | 1 | baseline | $1.8598 | baseline | lemoncrow |
+| pydata__xarray-3095 | lemoncrow | 5/5 | 1 | 0 | $1.2138 | 51.5% cheaper | lemoncrow |
+| pydata__xarray-3095 | baseline | 5/5 | 1 | baseline | $2.5004 | baseline | lemoncrow |
+| pydata__xarray-3305 | lemoncrow | 5/5 | 1 | 0 | $1.2534 | 48.2% cheaper | lemoncrow |
+| pydata__xarray-3305 | baseline | 5/5 | 1 | baseline | $2.4210 | baseline | lemoncrow |
+| pydata__xarray-3993 | lemoncrow | 5/5 | 1 | 0 | $1.9706 | 9.9% cheaper | lemoncrow |
+| pydata__xarray-3993 | baseline | 5/5 | 1 | baseline | $2.1865 | baseline | lemoncrow |
+| pylint-dev__pylint-6386 | lemoncrow | 5/5 | 1 | 0 | $3.4731 | 34.8% cheaper | lemoncrow |
+| pylint-dev__pylint-6386 | baseline | 5/5 | 1 | baseline | $5.3285 | baseline | lemoncrow |
+| pylint-dev__pylint-6528 | lemoncrow | 5/5 | 1 | 0 | $5.1007 | 16.1% cheaper | lemoncrow |
+| pylint-dev__pylint-6528 | baseline | 5/5 | 1 | baseline | $6.0818 | baseline | lemoncrow |
+| pylint-dev__pylint-8898 | lemoncrow | 5/5 | 1 | 0 | $3.0492 | 24.5% cheaper | lemoncrow |
+| pylint-dev__pylint-8898 | baseline | 5/5 | 1 | baseline | $4.0373 | baseline | lemoncrow |
+| pytest-dev__pytest-5787 | lemoncrow | 5/5 | 1 | 0 | $3.8018 | 36.6% cheaper | lemoncrow |
+| pytest-dev__pytest-5787 | baseline | 5/5 | 1 | baseline | $5.9920 | baseline | lemoncrow |
+| pytest-dev__pytest-5840 | lemoncrow | 5/5 | 1 | 0 | $2.6008 | 30.5% cheaper | lemoncrow |
+| pytest-dev__pytest-5840 | baseline | 5/5 | 1 | baseline | $3.7404 | baseline | lemoncrow |
+| pytest-dev__pytest-6197 | lemoncrow | 5/5 | 1 | 0 | $5.5191 | 35.5% cheaper | lemoncrow |
+| pytest-dev__pytest-6197 | baseline | 5/5 | 1 | baseline | $8.5587 | baseline | lemoncrow |
+| pytest-dev__pytest-7490 | lemoncrow | 5/5 | 1 | 0 | $3.3883 | 10.8% cheaper | lemoncrow |
+| pytest-dev__pytest-7490 | baseline | 5/5 | 1 | baseline | $3.7999 | baseline | lemoncrow |
+| pytest-dev__pytest-8399 | lemoncrow | 5/5 | 1 | 0 | $0.9675 | 5.1% cheaper | lemoncrow |
+| pytest-dev__pytest-8399 | baseline | 5/5 | 1 | baseline | $1.0190 | baseline | lemoncrow |
+| scikit-learn__scikit-learn-12682 | lemoncrow | 5/5 | 1 | 0 | $3.8788 | 45.2% cheaper | lemoncrow |
+| scikit-learn__scikit-learn-12682 | baseline | 5/5 | 1 | baseline | $7.0769 | baseline | lemoncrow |
+| scikit-learn__scikit-learn-25102 | lemoncrow | 5/5 | 1 | 0 | $3.9133 | 58.6% cheaper | lemoncrow |
+| scikit-learn__scikit-learn-25102 | baseline | 5/5 | 1 | baseline | $9.4512 | baseline | lemoncrow |
+| sphinx-doc__sphinx-10673 | lemoncrow | 5/5 | 1 | 0 | $5.7231 | 42.3% cheaper | lemoncrow |
+| sphinx-doc__sphinx-10673 | baseline | 5/5 | 1 | baseline | $9.9219 | baseline | lemoncrow |
+| sphinx-doc__sphinx-8120 | lemoncrow | 5/5 | 1 | 0.4 | $1.3043 | 37.7% cheaper | lemoncrow |
+| sphinx-doc__sphinx-8120 | baseline | 3/5 | 0.6 | baseline | $2.0922 | baseline | lemoncrow |
+| sphinx-doc__sphinx-8548 | lemoncrow | 5/5 | 1 | 0.4 | $10.8867 | 4% pricier | lemoncrow |
+| sphinx-doc__sphinx-8548 | baseline | 3/5 | 0.6 | baseline | $10.4631 | baseline | lemoncrow |
+| sphinx-doc__sphinx-8551 | lemoncrow | 5/5 | 1 | 0 | $1.9813 | 45.1% cheaper | lemoncrow |
+| sphinx-doc__sphinx-8551 | baseline | 5/5 | 1 | baseline | $3.6070 | baseline | lemoncrow |
+| sphinx-doc__sphinx-9461 | lemoncrow | 1/5 | 0.2 | -0.2 | $3.7627 | 25.7% cheaper | baseline |
 | sphinx-doc__sphinx-9461 | baseline | 2/5 | 0.4 | baseline | $5.0639 | baseline | baseline |
-| sympy__sympy-12489 | atelier | 3/5 | 0.6 | 0.2 | $3.5321 | 26.8% pricier | atelier |
-| sympy__sympy-12489 | baseline | 2/5 | 0.4 | baseline | $2.7860 | baseline | atelier |
-| sympy__sympy-13091 | atelier | 5/5 | 1 | 0.2 | $3.9803 | 14% cheaper | atelier |
-| sympy__sympy-13091 | baseline | 4/5 | 0.8 | baseline | $4.6306 | baseline | atelier |
-| sympy__sympy-13877 | atelier | 5/5 | 1 | 0 | $1.7146 | 38.8% cheaper | atelier |
-| sympy__sympy-13877 | baseline | 5/5 | 1 | baseline | $2.7996 | baseline | atelier |
-| sympy__sympy-13878 | atelier | 5/5 | 1 | 0.8 | $6.4251 | 152.2% pricier | atelier |
-| sympy__sympy-13878 | baseline | 1/5 | 0.2 | baseline | $2.5479 | baseline | atelier |
-| sympy__sympy-14248 | atelier | 4/5 | 0.8 | 0.6 | $3.4560 | 37.5% pricier | atelier |
-| sympy__sympy-14248 | baseline | 1/5 | 0.2 | baseline | $2.5131 | baseline | atelier |
-Runs ok     : baseline 240/250  atelier 249/250
-Valid       : baseline 250/250  atelier 250/250
-Correct     : baseline 202/250 avg=0.808  atelier 232/250 avg=0.928
+| sympy__sympy-12489 | lemoncrow | 3/5 | 0.6 | 0.2 | $3.5321 | 26.8% pricier | lemoncrow |
+| sympy__sympy-12489 | baseline | 2/5 | 0.4 | baseline | $2.7860 | baseline | lemoncrow |
+| sympy__sympy-13091 | lemoncrow | 5/5 | 1 | 0.2 | $3.9803 | 14% cheaper | lemoncrow |
+| sympy__sympy-13091 | baseline | 4/5 | 0.8 | baseline | $4.6306 | baseline | lemoncrow |
+| sympy__sympy-13877 | lemoncrow | 5/5 | 1 | 0 | $1.7146 | 38.8% cheaper | lemoncrow |
+| sympy__sympy-13877 | baseline | 5/5 | 1 | baseline | $2.7996 | baseline | lemoncrow |
+| sympy__sympy-13878 | lemoncrow | 5/5 | 1 | 0.8 | $6.4251 | 152.2% pricier | lemoncrow |
+| sympy__sympy-13878 | baseline | 1/5 | 0.2 | baseline | $2.5479 | baseline | lemoncrow |
+| sympy__sympy-14248 | lemoncrow | 4/5 | 0.8 | 0.6 | $3.4560 | 37.5% pricier | lemoncrow |
+| sympy__sympy-14248 | baseline | 1/5 | 0.2 | baseline | $2.5131 | baseline | lemoncrow |
+Runs ok     : baseline 240/250  lemoncrow 249/250
+Valid       : baseline 250/250  lemoncrow 250/250
+Correct     : baseline 202/250 avg=0.808  lemoncrow 232/250 avg=0.928
 Chart data  : summary.csv, task_metrics.csv, model_audit.csv, task_correctness.csv, pairwise_quality.csv, quality_adjusted_summary.csv

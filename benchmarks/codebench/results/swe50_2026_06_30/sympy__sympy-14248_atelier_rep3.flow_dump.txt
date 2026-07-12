@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,7 +61,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "pwd && ls && git log --oneline -3"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_print_MatAdd printer MatrixSymbol"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "pwd && ls && git log --oneline -3"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_print_MatAdd printer MatrixSymbol"}
 [usage] input=3819 cache_read=4885 cache_write=448 output=217
 
 === Turn 2 ===
@@ -90,7 +90,7 @@ tox.ini.sample
 9986b3818 Merge pull request #14254 from akash9712/prob_cond
 d79241624 Merge pull request #14279 from ashishkg0022/rubi_2
 [tool_result] {"candidate_files": ["sympy/matrices/expressions/matexpr.py", "sympy/assumptions/handlers/matrices.py", "sympy/matrices/expressions/matadd.py", "sympy/matrices/matrices.py", "sympy/printing/ccode.py"], "exact_match": true, "files": [{"path": "sympy/printing/pretty/pretty.py", "sections": [{"content": "821\tdef _print_MatAdd(self, expr):\n822\t        return self._print_seq(expr.args, None, None, ' + ')", "end_line": 822, "line": 821, "path": "sympy/printing/pretty/pretty.py", "qualified_name": "PrettyPrinter._print_MatAdd"}]}, {"path": "sympy/printing/latex.py", "sections": [{"content": "1479\tdef _print_MatAdd(self, expr):\n1480\t        terms = list(expr.args)\n1481\t        tex = \" + \".join(map(self._print, terms))\n1482\t        return tex", "end_line": 1482, "line": 1479, "path": "sympy/printing/latex.py", "qualified_name": "LatexPrinter._print_MatAdd"}]}, {"path": "sympy/printing/str.py", "sections": [{"content": "314\tdef _print_MatAdd(self, expr):\n315\t        return ' + '.join([self.parenthesize(arg, precedence(expr))\n316\t            for arg in expr.args])", "end_line": 316, "line": 314, "path": "sympy/printing/str.py", "qualified_name": "StrPrinter._print_MatAdd"}]}], "related_symbols": ["PrettyPrinter._print_MatAdd @ sympy/printing/pretty/pretty.py:821", "LatexPrinter._print_MatAdd @ sympy/printing/latex.py:1479", "StrPrinter._print_MatAdd @ sympy/printing/str.py:314", "MatrixSymbol @ sympy/matrices/expressions/matexpr.py:634", "AskSymmetricHandler.MatrixSymbol @ sympy/assumptions/handlers/matrices.py:55", "AskInvertibleHandler.MatrixSymbol @ sympy/assumptions/handlers/matrices.py:108", "AskOrthogonalHandler.MatrixSymbol @ sympy/assumptions/handlers/matrices.py:152", "test_MatrixSymbol @ sympy/matrices/expressions/tests/test_matexpr.py:162"], "truncated": true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": ["StrPrinter._print_Add", "StrPrinter._print_Mul", "StrPrinter._print_MatMul"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": ["StrPrinter._print_Add", "StrPrinter._print_Mul", "StrPrinter._print_MatMul"]}
 [usage] input=2 cache_read=5333 cache_write=5225 output=156
 
 === Turn 3 ===
@@ -171,7 +171,7 @@ d79241624 Merge pull request #14279 from ashishkg0022/rubi_2
     def _print_MatMul(self, expr):
         return '*'.join([self.parenthesize(arg, precedence(expr))
             for arg in expr.args])
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/matrices/expressions/matmul.py:L1-L60", "sympy/matrices/expressions/matadd.py:L1-L60"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/matrices/expressions/matmul.py:L1-L60", "sympy/matrices/expressions/matadd.py:L1-L60"]}
 [usage] input=2 cache_read=10558 cache_write=1096 output=222
 
 === Turn 4 ===
@@ -298,7 +298,7 @@ class MatAdd(MatrixExpr, AssocOp):
         if deep:
             args = [arg.doit(**kwargs) for arg in self.args]
         else:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nA = MatrixSymbol('A', 2, 2)\nB = MatrixSymbol('B', 2, 2)\ne = A - A*B - B\nfor t in e.args:\n    print(repr(t), '|args:', t.args)\nm = -A*B\nprint('mul args', m.args, type(m))\nprint('coeff', m.as_coeff_mmul())\n\""}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nA = MatrixSymbol('A', 2, 2)\nB = MatrixSymbol('B', 2, 2)\ne = A - A*B - B\nfor t in e.args:\n    print(repr(t), '|args:', t.args)\nm = -A*B\nprint('mul args', m.args, type(m))\nprint('coeff', m.as_coeff_mmul())\n\""}
 [usage] input=2 cache_read=11654 cache_write=1793 output=1213
 
 === Turn 5 ===
@@ -319,14 +319,14 @@ stderr:
   if feasible is 1:  # it's prime and k == 2
 /testbed/sympy/plotting/plot.py:28: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
   from collections import Callable
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nfrom sympy.core.mul import _keep_coeff\nB = MatrixSymbol('B', 2, 2)\nm = (-1)*B\nprint(type(m), m.args)\nc, mm = m.as_coeff_mmul()\nprint('coeff', repr(c), 'mmul', repr(mm), type(mm), mm.args)\nk = _keep_coeff(-c, mm)\nprint('keep', repr(k), type(k), k.args)\n\" 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nfrom sympy.core.mul import _keep_coeff\nB = MatrixSymbol('B', 2, 2)\nm = (-1)*B\nprint(type(m), m.args)\nc, mm = m.as_coeff_mmul()\nprint('coeff', repr(c), 'mmul', repr(mm), type(mm), mm.args)\nk = _keep_coeff(-c, mm)\nprint('keep', repr(k), type(k), k.args)\n\" 2>/dev/null"}
 [usage] input=2 cache_read=13447 cache_write=1780 output=1867
 
 === Turn 6 ===
 [user] [tool_result] <class 'sympy.matrices.expressions.matmul.MatMul'> (-1, B)
 coeff -1 mmul B <class 'sympy.matrices.expressions.matmul.MatMul'> (B,)
 keep B <class 'sympy.matrices.expressions.matmul.MatMul'> (B,)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/printing/str.py:L1-L20", "sympy/printing/latex.py:L1465-L1500", "sympy/printing/pretty/pretty.py:L815-L835"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/printing/str.py:L1-L20", "sympy/printing/latex.py:L1465-L1500", "sympy/printing/pretty/pretty.py:L815-L835"]}
 [usage] input=2 cache_read=15227 cache_write=1979 output=374
 
 === Turn 7 ===
@@ -412,7 +412,7 @@ class StrPrinter(Printer):
 
         return prettyForm.__mul__(*args)
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -n \"stringPict\\|^from sympy.core import\\|import S\\b\\|prettyForm\" sympy/printing/pretty/pretty.py | head -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -n \"stringPict\\|^from sympy.core import\\|import S\\b\\|prettyForm\" sympy/printing/pretty/pretty.py | head -20"}
 [usage] input=2 cache_read=17206 cache_write=1496 output=3236
 
 === Turn 8 ===
@@ -436,13 +436,13 @@ class StrPrinter(Printer):
 105:        pform = prettyForm(*pform.right(')'))
 106:        pform = prettyForm(*pform.left(self._print(U('MULTIPLICATION SIGN'))))
 107:        pform = prettyForm(*pform.left(self._print(U('NABLA'))))
-[assistant] Both `S` and `stringPict` are imported. Now applying all edits:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "sympy/printing/str.py", "old": "    def _print_MatAdd(self, expr):\n        return ' + '.join([self.parenthesize(arg, precedence(expr))\n            for arg in expr.args])", "new": "    def _print_MatAdd(self, expr):\n        terms = [self._print(arg) for arg in expr.args]\n        l = []\n        for t in terms:\n            if t.startswith('-'):\n                sign = \"-\"\n                t = t[1:]\n            else:\n                sign = \"+\"\n            l.extend([sign, t])\n        sign = l.pop(0)\n        if sign == '+':\n            sign = \"\"\n        return sign + ' '.join(l)"}, {"path": "sympy/printing/str.py", "old": "    def _print_MatMul(self, expr):\n        return '*'.join([self.parenthesize(arg, precedence(expr))\n            for arg in expr.args])", "new": "    def _print_MatMul(self, expr):\n        c, m = expr.as_coeff_mmul()\n        if c.is_number and c < 0:\n            expr = _keep_coeff(-c, m)\n            sign = \"-\"\n        else:\n            sign = \"\"\n\n        return sign + '*'.join(\n            [self.parenthesize(arg, precedence(expr)) for arg in expr.args])"}, {"path": "sympy/printing/latex.py", "old": "    def _print_MatAdd(self, expr):\n        terms = list(expr.args)\n        tex = \" + \".join(map(self._print, terms))\n        return tex\n\n    def _print_MatMul(self, expr):\n        from sympy import Add, MatAdd, HadamardProduct\n\n        def parens(x):\n            if isinstance(x, (Add, MatAdd, HadamardProduct)):\n                return r\"\\left(%s\\right)\" % self._print(x)\n            return self._print(x)\n        return ' '.join(map(parens, expr.args))", "new": "    def _print_MatAdd(self, expr):\n        terms = [self._print(t) for t in expr.args]\n        l = []\n        for t in terms:\n            if t.startswith('-'):\n                sign = \"-\"\n                t = t[1:]\n            else:\n                sign = \"+\"\n            l.extend([sign, t])\n        sign = l.pop(0)\n        if sign == '+':\n            sign = \"\"\n        return sign + ' '.join(l)\n\n    def _print_MatMul(self, expr):\n        from sympy import Add, MatAdd, HadamardProduct, MatMul, Mul\n\n        def parens(x):\n            if isinstance(x, (Add, MatAdd, HadamardProduct)):\n                return r\"\\left(%s\\right)\" % self._print(x)\n            return self._print(x)\n\n        if isinstance(expr, MatMul) and expr.args[0].is_Number and expr.args[0] < 0:\n            expr = Mul(-1*expr.args[0], MatMul(*expr.args[1:]))\n            return '-' + ' '.join(map(parens, expr.args))\n        else:\n            return ' '.join(map(parens, expr.args))"}, {"path": "sympy/printing/pretty/pretty.py", "old": "    def _print_MatAdd(self, expr):\n        return self._print_seq(expr.args, None, None, ' + ')", "new": "    def _print_MatAdd(self, expr):\n        s = None\n        for item in expr.args:\n            pform = self._print(item)\n            if s is None:\n                s = pform     # First element\n            else:\n                if S(item.args[0]).is_negative:\n                    s = prettyForm(*stringPict.next(s, ' '))\n                    pform = self._print(item)\n                else:\n                    s = prettyForm(*stringPict.next(s, ' + '))\n                s = prettyForm(*stringPict.next(s, pform))\n\n        return s"}]}
+[assistant] Both `S` and `stringPict` are imported. Now applying all edits:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "sympy/printing/str.py", "old": "    def _print_MatAdd(self, expr):\n        return ' + '.join([self.parenthesize(arg, precedence(expr))\n            for arg in expr.args])", "new": "    def _print_MatAdd(self, expr):\n        terms = [self._print(arg) for arg in expr.args]\n        l = []\n        for t in terms:\n            if t.startswith('-'):\n                sign = \"-\"\n                t = t[1:]\n            else:\n                sign = \"+\"\n            l.extend([sign, t])\n        sign = l.pop(0)\n        if sign == '+':\n            sign = \"\"\n        return sign + ' '.join(l)"}, {"path": "sympy/printing/str.py", "old": "    def _print_MatMul(self, expr):\n        return '*'.join([self.parenthesize(arg, precedence(expr))\n            for arg in expr.args])", "new": "    def _print_MatMul(self, expr):\n        c, m = expr.as_coeff_mmul()\n        if c.is_number and c < 0:\n            expr = _keep_coeff(-c, m)\n            sign = \"-\"\n        else:\n            sign = \"\"\n\n        return sign + '*'.join(\n            [self.parenthesize(arg, precedence(expr)) for arg in expr.args])"}, {"path": "sympy/printing/latex.py", "old": "    def _print_MatAdd(self, expr):\n        terms = list(expr.args)\n        tex = \" + \".join(map(self._print, terms))\n        return tex\n\n    def _print_MatMul(self, expr):\n        from sympy import Add, MatAdd, HadamardProduct\n\n        def parens(x):\n            if isinstance(x, (Add, MatAdd, HadamardProduct)):\n                return r\"\\left(%s\\right)\" % self._print(x)\n            return self._print(x)\n        return ' '.join(map(parens, expr.args))", "new": "    def _print_MatAdd(self, expr):\n        terms = [self._print(t) for t in expr.args]\n        l = []\n        for t in terms:\n            if t.startswith('-'):\n                sign = \"-\"\n                t = t[1:]\n            else:\n                sign = \"+\"\n            l.extend([sign, t])\n        sign = l.pop(0)\n        if sign == '+':\n            sign = \"\"\n        return sign + ' '.join(l)\n\n    def _print_MatMul(self, expr):\n        from sympy import Add, MatAdd, HadamardProduct, MatMul, Mul\n\n        def parens(x):\n            if isinstance(x, (Add, MatAdd, HadamardProduct)):\n                return r\"\\left(%s\\right)\" % self._print(x)\n            return self._print(x)\n\n        if isinstance(expr, MatMul) and expr.args[0].is_Number and expr.args[0] < 0:\n            expr = Mul(-1*expr.args[0], MatMul(*expr.args[1:]))\n            return '-' + ' '.join(map(parens, expr.args))\n        else:\n            return ' '.join(map(parens, expr.args))"}, {"path": "sympy/printing/pretty/pretty.py", "old": "    def _print_MatAdd(self, expr):\n        return self._print_seq(expr.args, None, None, ' + ')", "new": "    def _print_MatAdd(self, expr):\n        s = None\n        for item in expr.args:\n            pform = self._print(item)\n            if s is None:\n                s = pform     # First element\n            else:\n                if S(item.args[0]).is_negative:\n                    s = prettyForm(*stringPict.next(s, ' '))\n                    pform = self._print(item)\n                else:\n                    s = prettyForm(*stringPict.next(s, ' + '))\n                s = prettyForm(*stringPict.next(s, pform))\n\n        return s"}]}
 [usage] input=2 cache_read=18702 cache_write=3717 output=1472
 
 === Turn 9 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nA = MatrixSymbol('A', 2, 2)\nB = MatrixSymbol('B', 2, 2)\ne = A - A*B - B\nprint(str(e))\npprint(e)\nprint(latex(e))\nprint('---extra---')\nprint(str(-2*A*B + B))\nprint(latex(-2*A*B + B))\npprint(-2*A*B + B)\nprint(str(A*B - B))\n\" 2>/dev/null"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nfrom sympy import *\nA = MatrixSymbol('A', 2, 2)\nB = MatrixSymbol('B', 2, 2)\ne = A - A*B - B\nprint(str(e))\npprint(e)\nprint(latex(e))\nprint('---extra---')\nprint(str(-2*A*B + B))\nprint(latex(-2*A*B + B))\npprint(-2*A*B + B)\nprint(str(A*B - B))\n\" 2>/dev/null"}
 [usage] input=131 cache_read=22419 cache_write=1536 output=223
 
 === Turn 10 ===
@@ -454,55 +454,55 @@ class StrPrinter(Printer):
 -2 A B + B
 -2⋅A⋅B + B
 -B + A*B
-[assistant] All three printers now produce proper subtraction. Running the relevant test suites:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py sympy/printing/pretty/tests/test_pretty.py -q 2>/dev/null | tail -20"}
+[assistant] All three printers now produce proper subtraction. Running the relevant test suites:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py sympy/printing/pretty/tests/test_pretty.py -q 2>/dev/null | tail -20"}
 [usage] input=2 cache_read=23955 cache_write=426 output=226
 
 === Turn 11 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py sympy/printing/pretty/tests/test_pretty.py 2>/dev/null | tail -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py sympy/printing/pretty/tests/test_pretty.py 2>/dev/null | tail -5"}
 [usage] input=2 cache_read=24381 cache_write=237 output=139
 
 === Turn 12 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q 2>/dev/null | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q 2>/dev/null | tail -8"}
 [usage] input=2 cache_read=24618 cache_write=150 output=97
 
 === Turn 13 ===
 [user] [tool_result] FIXME (convergence): 3 failed runs, 1 edits, no pass. Re-read the failing assertion + function under test before editing again.
 
 exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -p no:cacheprovider 2>/dev/null | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -p no:cacheprovider 2>/dev/null | tail -8"}
 [usage] input=2 cache_read=24768 cache_write=155 output=138
 
 === Turn 14 ===
 [user] [tool_result] FIXME (convergence): 4 failed runs, 1 edits, no pass. Re-read the failing assertion + function under test before editing again.
 
 exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q > /tmp/out.txt 2>/dev/null; tail -8 /tmp/out.txt"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q > /tmp/out.txt 2>/dev/null; tail -8 /tmp/out.txt"}
 [usage] input=2 cache_read=24923 cache_write=196 output=160
 
 === Turn 15 ===
 [user] [tool_result] FIXME (convergence): 5 failing runs, 1 edits, still red. Re-read the requirement, pick ONE root cause, then edit.
 
 exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["/tmp/out.txt"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["/tmp/out.txt"]}
 [usage] input=2 cache_read=25119 cache_write=220 output=94
 
 === Turn 16 ===
 [user] [tool_result] ## /tmp/out.txt
 {"mode":"full","path":"/tmp/out.txt","projection":{"view":"exact","transformed":false,"body_complete":true,"untransformed_text":true},"language":"text"}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && wc -l /tmp/out.txt && sed -n '1,40p' /tmp/out.txt"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && wc -l /tmp/out.txt && sed -n '1,40p' /tmp/out.txt"}
 [usage] input=2 cache_read=25339 cache_write=173 output=101
 
 === Turn 17 ===
 [user] [tool_result] exit_code=0
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q -p no:cacheprovider 2>&1 | grep -E \"passed|failed|error\" | tail"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/ -q -p no:cacheprovider 2>&1 | grep -E \"passed|failed|error\" | tail"}
 [usage] input=2 cache_read=25512 cache_write=112 output=169
 
 === Turn 18 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_ccode.py sympy/printing/tests/test_fcode.py sympy/matrices/expressions/tests/test_matmul.py sympy/matrices/expressions/tests/test_matadd.py -q -p no:cacheprovider 2>&1 | tail -5"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest sympy/printing/tests/test_ccode.py sympy/printing/tests/test_fcode.py sympy/matrices/expressions/tests/test_matmul.py sympy/matrices/expressions/tests/test_matadd.py -q -p no:cacheprovider 2>&1 | tail -5"}
 [usage] input=131 cache_read=25624 cache_write=229 output=551
 
 === Turn 19 ===
@@ -511,7 +511,7 @@ exit_code=0
 /opt/miniconda3/envs/testbed/bin/python: No module named pytest
 
 FIXME (convergence): 10 searches/reads, 0 edits. Pick the site and EDIT now.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nr = sympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\nprint('RESULT_OK' if r else 'RESULT_FAIL')\n\" 2>&1 | tail -15"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nr = sympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\nprint('RESULT_OK' if r else 'RESULT_FAIL')\n\" 2>&1 | tail -15"}
 [usage] input=2 cache_read=25853 cache_write=799 output=271
 
 === Turn 20 ===
@@ -532,7 +532,7 @@ DO *NOT* COMMIT!
 RESULT_FAIL
 
 FIXME (convergence): 11 searches/reads, 0 edits. Pick the site and EDIT now.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && grep -n \"test_MatrixElement_printing\\|MatrixSymbol\\|-1 B\\|(-1)\\*B\" sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py | grep -i \"matrixelement\\|-1\\|F =\" "}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && grep -n \"test_MatrixElement_printing\\|MatrixSymbol\\|-1 B\\|(-1)\\*B\" sympy/printing/tests/test_str.py sympy/printing/tests/test_latex.py | grep -i \"matrixelement\\|-1\\|F =\" "}
 [usage] input=2 cache_read=26652 cache_write=637 output=412
 
 === Turn 21 ===
@@ -543,7 +543,7 @@ sympy/printing/tests/test_latex.py:1703:def test_MatrixElement_printing():
 sympy/printing/tests/test_latex.py:1713:    assert latex(F) == r"\left(-1 B + A\right)_{0, 0}"
 
 FIXME (convergence): 12 searches/reads, 0 edits. Pick the site and EDIT now.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["sympy/printing/tests/test_str.py:L777-L788", "sympy/printing/tests/test_latex.py:L1703-L1714"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["sympy/printing/tests/test_str.py:L777-L788", "sympy/printing/tests/test_latex.py:L1703-L1714"]}
 [usage] input=2 cache_read=27289 cache_write=663 output=110
 
 === Turn 22 ===
@@ -575,12 +575,12 @@ def test_MatrixElement_printing():
 
 
 FIXME (convergence): 13 searches/reads, 0 edits. Pick the site and EDIT now.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "sympy/printing/tests/test_str.py", "old": "    assert str(F) == \"((-1)*B + A)[0, 0]\"", "new": "    assert str(F) == \"(-B + A)[0, 0]\""}, {"path": "sympy/printing/tests/test_latex.py", "old": "    assert latex(F) == r\"\\left(-1 B + A\\right)_{0, 0}\"", "new": "    assert latex(F) == r\"\\left(-B + A\\right)_{0, 0}\""}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "sympy/printing/tests/test_str.py", "old": "    assert str(F) == \"((-1)*B + A)[0, 0]\"", "new": "    assert str(F) == \"(-B + A)[0, 0]\""}, {"path": "sympy/printing/tests/test_latex.py", "old": "    assert latex(F) == r\"\\left(-1 B + A\\right)_{0, 0}\"", "new": "    assert latex(F) == r\"\\left(-B + A\\right)_{0, 0}\""}]}
 [usage] input=2 cache_read=27952 cache_write=590 output=278
 
 === Turn 23 ===
 [user] [tool_result] applied sympy/printing/tests/test_str.py:787, sympy/printing/tests/test_latex.py:1713
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nr = sympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\nprint('RESULT_OK' if r else 'RESULT_FAIL')\n\" 2>&1 | tail -8"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nr = sympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\nprint('RESULT_OK' if r else 'RESULT_FAIL')\n\" 2>&1 | tail -8"}
 [usage] input=2 cache_read=28542 cache_write=322 output=263
 
 === Turn 24 ===
@@ -592,14 +592,14 @@ ValueError: Name node can't be used with 'False' constant
 5 exceptions, in 1.06 seconds 
 DO *NOT* COMMIT!
 RESULT_FAIL
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nsympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\n\" 2>&1 | grep -iE \"xpass|expected to fail but passed|exception\" | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -c \"\nimport sympy\nsympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\n\" 2>&1 | grep -iE \"xpass|expected to fail but passed|exception\" | head"}
 [usage] input=2 cache_read=28864 cache_write=426 output=337
 
 === Turn 25 ===
 [user] [tool_result] ________________________________ xpassed tests _________________________________
  tests finished: 305 passed, 2 expected to fail, 1 expected to fail but passed, 
 5 exceptions, in 1.04 seconds
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && git stash && python -c \"\nimport sympy\nsympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\n\" 2>&1 | grep -iE \"expected to fail but passed|exceptions, in\"; git stash pop"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && git stash && python -c \"\nimport sympy\nsympy.test('sympy/printing/tests/test_str.py','sympy/printing/tests/test_latex.py','sympy/printing/pretty/tests/test_pretty.py', verbose=False)\n\" 2>&1 | grep -iE \"expected to fail but passed|exceptions, in\"; git stash pop"}
 [usage] input=2 cache_read=29290 cache_write=410 output=186
 
 === Turn 26 ===

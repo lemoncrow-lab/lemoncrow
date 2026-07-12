@@ -19,15 +19,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -39,13 +39,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -61,12 +61,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a pull request
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "xfail marker evaluation runtest_makereport skipping", "path": "src/_pytest/skipping.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "xfail marker evaluation runtest_makereport skipping", "path": "src/_pytest/skipping.py"}
 [usage] input=3819 cache_read=4786 cache_write=5736 output=236
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files":["src/_pytest/unittest.py","src/_pytest/hookspec.py","src/_pytest/runner.py","testing/test_unittest.py","src/_pytest/python.py","src/_pytest/outcomes.py","testing/test_skipping.py"],"exact_match":false,"files":[{"path":"src/_pytest/skipping.py","sections":[{"content":"29\tdef pytest_addoption(parser: Parser) -> None:\n30\t    group = parser.getgroup(\"general\")\n31\t    group.addoption(\n32\t        \"--runxfail\",\n33\t        action=\"store_true\",\n34\t        dest=\"runxfail\",\n35\t        default=False,\n36\t        help=\"report the results of xfail tests as if they were not marked\",\n37\t    )\n38\t\n39\t    parser.addini(\n40\t        \"xfail_strict\",\n41\t        \"default for the strict parameter of xfail \"\n42\t        \"markers when not given explicitly (default: False)\",\n43\t        default=False,\n44\t        type=\"bool\",\n45\t    )\n46\t\n47\t\n48\tdef pytest_configure(config: Config) -> None:\n49\t    if config.option.runxfail:\n50\t        # yay a hack\n51\t        import pytest\n52\t\n53\t        old = pytest.xfail\n54\t        config._cleanup.append(lambda: setattr(pytest, \"xfail\", old))\n55\t\n56\t        def nop(*args, **kwargs):\n57\t            pass\n58\t\n59\t        nop.Exception = xfail.Exception  # type: ignore[attr-defined]\n60\t        setattr(pytest, \"xfail\", nop)\n61\t\n62\t    config.addinivalue_line(\n63\t        \"markers\",\n64\t        \"skip(reason=None): skip the given test function with an optional reason. \"\n65\t        'Example: skip(reason=\"no way of currently testing this\") skips the '\n66\t        \"test.\",\n67\t    )\n68\t    config.addinivalue_line(\n69\t        \"markers\",\n70\t        \"skipif(condition, ..., *, reason=...): \"\n71\t        \"skip the given test function if any of the conditions evaluate to True. \"\n72\t        \"Example: skipif(sys.platform == 'win32') skips the test if we are on the win32 platform. \"\n73\t        \"See https://docs.pytest.org/en/stable/reference.html#pytest-mark-skipif\",\n74\t    )\n75\t    config.addinivalue_line(\n76\t        \"markers\",\n77\t        \"xfail(condition, ..., *, reason=..., run=True, raises=None, strict=xfail_strict): \"\n78\t        \"mark the test function as an expected failure if any of the conditions \"\n79\t        \"evaluate to True. Optionally specify a reason for better reporting \"\n... [truncated — L29-L222]","end_line":222,"line":29,"path":"src/_pytest/skipping.py","qualified_name":"pytest_addoption"}]}],"related_symbols":["Xfail @ src/_pytest/skipping.py:191","evaluate_xfail_marks @ src/_pytest/skipping.py:200","pytest_runtest_makereport @ src/_pytest/skipping.py:261","pytest_addoption @ src/_pytest/skipping.py:29","pytest_configure @ src/_pytest/skipping.py:48","evaluate_condition @ src/_pytest/skipping.py:87","Skip @ src/_pytest/skipping.py:153","evaluate_skip_marks @ src/_pytest/skipping.py:159"],"truncated":true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/skipping.py:L150-L310"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/skipping.py:L150-L310"]}
 [usage] input=2 cache_read=10522 cache_write=5372 output=81
 
 === Turn 3 ===
@@ -232,12 +232,12 @@ def pytest_runtest_makereport(item: Item, call: CallInfo[None]):
 
 def pytest_report_teststatus(report: BaseReport) -> Optional[Tuple[str, str, str]]:
     if hasattr(report, "wasxfail"):
-[assistant] The bug: when an `xfail` marker is added dynamically during the test call, `xfailed_key` was evaluated at setup time (when no marker existed yet) and stored as `None`. `pytest_runtest_makereport` reads that cached `None` and never re-evaluates. Let me fix by re-evaluating in `makereport` when it's `None`.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path":"src/_pytest/skipping.py","old":"    outcome = yield\n    rep = outcome.get_result()\n    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key","new":"    outcome = yield\n    rep = outcome.get_result()\n    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n"}]}
+[assistant] The bug: when an `xfail` marker is added dynamically during the test call, `xfailed_key` was evaluated at setup time (when no marker existed yet) and stored as `None`. `pytest_runtest_makereport` reads that cached `None` and never re-evaluates. Let me fix by re-evaluating in `makereport` when it's `None`.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path":"src/_pytest/skipping.py","old":"    outcome = yield\n    rep = outcome.get_result()\n    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key","new":"    outcome = yield\n    rep = outcome.get_result()\n    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n"}]}
 [usage] input=2 cache_read=15894 cache_write=2253 output=715
 
 === Turn 4 ===
 [user] [tool_result] applied src/_pytest/skipping.py:262-265
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/skipping.py:L258-L285"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/skipping.py:L258-L285"]}
 [usage] input=2 cache_read=18147 cache_write=740 output=197
 
 === Turn 5 ===
@@ -270,25 +270,25 @@ def pytest_runtest_makereport(item: Item, call: CallInfo[None]):
         if call.excinfo:
             raises = xfailed.raises
             if raises is not None and not isinstance(call.excinfo.value, raises):
-[assistant] The comment got separated from its code. Let me reorder cleanly:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/skipping.py", "old": "    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if unexpectedsuccess_key in item._store and rep.when == \"call\":", "new": "    xfailed = item._store.get(xfailed_key, None)\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key\n    if unexpectedsuccess_key in item._store and rep.when == \"call\":"}]}
+[assistant] The comment got separated from its code. Let me reorder cleanly:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/skipping.py", "old": "    xfailed = item._store.get(xfailed_key, None)\n    # unittest special case, see setting of unexpectedsuccess_key\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if unexpectedsuccess_key in item._store and rep.when == \"call\":", "new": "    xfailed = item._store.get(xfailed_key, None)\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key\n    if unexpectedsuccess_key in item._store and rep.when == \"call\":"}]}
 [usage] input=2 cache_read=18887 cache_write=690 output=434
 
 === Turn 6 ===
 [user] [tool_result] applied src/_pytest/skipping.py:264-269
-[assistant] Now let me verify the fix against the reported scenario:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cat > /tmp/test_foo.py <<'EOF'\nimport pytest\n\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\nEOF\npython -m pytest -rsx /tmp/test_foo.py 2>&1 | tail -15"}
+[assistant] Now let me verify the fix against the reported scenario:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cat > /tmp/test_foo.py <<'EOF'\nimport pytest\n\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\nEOF\npython -m pytest -rsx /tmp/test_foo.py 2>&1 | tail -15"}
 [usage] input=2 cache_read=19577 cache_write=457 output=197
 
 === Turn 7 ===
 [user] [tool_result] status=blocked session_id=
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "test_dynamic_xfail_tmp.py", "overwrite": true, "new": "import pytest\n\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\n"}]}
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "test_dynamic_xfail_tmp.py", "overwrite": true, "new": "import pytest\n\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\n"}]}
 [usage] input=2 cache_read=20034 cache_write=421 output=173
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest -rsx test_dynamic_xfail_tmp.py 2>&1 | tail -12"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest -rsx test_dynamic_xfail_tmp.py 2>&1 | tail -12"}
 [usage] input=131 cache_read=20455 cache_write=180 output=98
 
 === Turn 9 ===
@@ -303,7 +303,7 @@ test_dynamic_xfail_tmp.py x                                              [100%]
 XFAIL test_dynamic_xfail_tmp.py::test_xfail_test
   xfail
 ============================== 1 xfailed in 0.01s ==============================
-[assistant] The test now correctly reports `XFAIL` instead of failing. Let me clean up and run the skipping test suite to confirm no regressions:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "rm -f test_dynamic_xfail_tmp.py; python -m pytest testing/test_skipping.py -q 2>&1 | tail -8"}
+[assistant] The test now correctly reports `XFAIL` instead of failing. Let me clean up and run the skipping test suite to confirm no regressions:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "rm -f test_dynamic_xfail_tmp.py; python -m pytest testing/test_skipping.py -q 2>&1 | tail -8"}
 [usage] input=2 cache_read=20635 cache_write=425 output=157
 
 === Turn 10 ===
@@ -315,7 +315,7 @@ INTERNALERROR> SyntaxError: invalid syntax
 =========================== short test summary info ============================
 FAILED testing/test_skipping.py::test_errors_in_xfail_skip_expressions - Fail...
 1 failed, 78 passed in 1.00s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && git stash && python -m pytest testing/test_skipping.py::test_errors_in_xfail_skip_expressions -q 2>&1 | tail -5; git stash pop"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && git stash && python -m pytest testing/test_skipping.py::test_errors_in_xfail_skip_expressions -q 2>&1 | tail -5; git stash pop"}
 [usage] input=2 cache_read=21060 cache_write=299 output=270
 
 === Turn 11 ===
@@ -334,7 +334,7 @@ Untracked files:
 
 no changes added to commit (use "git add" and/or "git commit -a")
 Dropped refs/stash@{0} (eabcc78bbaef29eba54cad6c91422f69f71c4397)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest \"testing/test_skipping.py::test_errors_in_xfail_skip_expressions\" -q 2>&1 | head -40"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest \"testing/test_skipping.py::test_errors_in_xfail_skip_expressions\" -q 2>&1 | head -40"}
 [usage] input=2 cache_read=21359 cache_write=504 output=537
 
 === Turn 12 ===
@@ -378,7 +378,7 @@ testdir = <Testdir local('/tmp/pytest-of-root/pytest-2/test_errors_in_xfail_skip
                 "SyntaxError: invalid syntax",
                 "*1 pass*2 errors*",
             ]
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["src/_pytest/skipping.py:L87-L150"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["src/_pytest/skipping.py:L87-L150"]}
 [usage] input=2 cache_read=21863 cache_write=1057 output=1780
 
 === Turn 13 ===
@@ -447,25 +447,25 @@ def evaluate_condition(item: Item, mark: Mark, condition: object) -> Tuple[bool,
 
     return result, reason
 
-[assistant] The `evaluate_xfail_marks` can raise (via `fail()`) for broken conditions — re-evaluating during the setup-phase report causes the INTERNALERROR. The dynamic marker is only added during the call phase, so I should restrict re-evaluation to that phase:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "src/_pytest/skipping.py", "old": "    xfailed = item._store.get(xfailed_key, None)\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key", "new": "    xfailed = item._store.get(xfailed_key, None)\n    # The given marker might have been added dynamically during the call, so\n    # refresh the xfail evaluation in that case (it was None from setup).\n    if not item.config.option.runxfail and xfailed is None and call.when == \"call\":\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key"}]}
+[assistant] The `evaluate_xfail_marks` can raise (via `fail()`) for broken conditions — re-evaluating during the setup-phase report causes the INTERNALERROR. The dynamic marker is only added during the call phase, so I should restrict re-evaluation to that phase:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "src/_pytest/skipping.py", "old": "    xfailed = item._store.get(xfailed_key, None)\n    if not item.config.option.runxfail and xfailed is None:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key", "new": "    xfailed = item._store.get(xfailed_key, None)\n    # The given marker might have been added dynamically during the call, so\n    # refresh the xfail evaluation in that case (it was None from setup).\n    if not item.config.option.runxfail and xfailed is None and call.when == \"call\":\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    # unittest special case, see setting of unexpectedsuccess_key"}]}
 [usage] input=2 cache_read=22920 cache_write=2597 output=1103
 
 === Turn 14 ===
 [user] [tool_result] applied src/_pytest/skipping.py:264-268
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest testing/test_skipping.py -q 2>&1 | tail -6"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest testing/test_skipping.py -q 2>&1 | tail -6"}
 [usage] input=2 cache_read=25517 cache_write=1126 output=97
 
 === Turn 15 ===
 [user] [tool_result] ........................................................................ [ 91%]
 .......                                                                  [100%]
 79 passed in 0.95s
-[assistant] All pass. Let me confirm the original repro and a couple of edge cases (dynamic xfail that passes → XPASS, and `--runxfail` not interfering):[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "test_dynxfail_tmp.py", "overwrite": true, "new": "import pytest\n\n\ndef test_xfail_fail(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\"))\n    assert 0\n\n\ndef test_xfail_pass(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\"))\n    assert 1\n\n\ndef test_xfail_strict(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\", strict=True))\n    assert 1\n"}]}
+[assistant] All pass. Let me confirm the original repro and a couple of edge cases (dynamic xfail that passes → XPASS, and `--runxfail` not interfering):[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "test_dynxfail_tmp.py", "overwrite": true, "new": "import pytest\n\n\ndef test_xfail_fail(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\"))\n    assert 0\n\n\ndef test_xfail_pass(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\"))\n    assert 1\n\n\ndef test_xfail_strict(request):\n    request.node.add_marker(pytest.mark.xfail(reason=\"xfail\", strict=True))\n    assert 1\n"}]}
 [usage] input=2 cache_read=26643 cache_write=137 output=341
 
 === Turn 16 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && python -m pytest -rsxX test_dynxfail_tmp.py 2>&1 | tail -10; echo \"=== runxfail ===\"; python -m pytest --runxfail -q test_dynxfail_tmp.py 2>&1 | tail -6; rm -f test_dynxfail_tmp.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && python -m pytest -rsxX test_dynxfail_tmp.py 2>&1 | tail -10; echo \"=== runxfail ===\"; python -m pytest --runxfail -q test_dynxfail_tmp.py 2>&1 | tail -6; rm -f test_dynxfail_tmp.py"}
 [usage] input=131 cache_read=26780 cache_write=348 output=172
 
 === Turn 17 ===
@@ -485,7 +485,7 @@ test_dynxfail_tmp.py:6: AssertionError
 =========================== short test summary info ============================
 FAILED test_dynxfail_tmp.py::test_xfail_fail - assert 0
 1 failed, 2 passed in 0.01s
-[assistant] Behavior is correct (the pytest repo's own `pyproject.toml` sets `xfail_strict=true`, so the XPASS cases strict-fail as expected; `--runxfail` correctly ignores). Final diff:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd /testbed && git diff"}
+[assistant] Behavior is correct (the pytest repo's own `pyproject.toml` sets `xfail_strict=true`, so the XPASS cases strict-fail as expected; `--runxfail` correctly ignores). Final diff:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd /testbed && git diff"}
 [usage] input=2 cache_read=27128 cache_write=558 output=463
 
 === Turn 18 ===

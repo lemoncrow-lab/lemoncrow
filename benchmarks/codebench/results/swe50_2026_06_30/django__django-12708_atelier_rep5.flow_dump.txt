@@ -20,15 +20,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -40,13 +40,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -62,13 +62,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_delete_composed_index Found wrong number of constraints"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_delete_composed_index _alter_unique_together _alter_index_together"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_delete_composed_index Found wrong number of constraints"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_delete_composed_index _alter_unique_together _alter_index_together"}
 [usage] input=3840 cache_read=4885 cache_write=492 output=193
 
 === Turn 2 ===
 [user] [tool_result] {"candidate_files": ["django/db/backends/sqlite3/introspection.py", "django/db/migrations/autodetector.py", "django/db/backends/mysql/introspection.py", "django/db/backends/sqlite3/schema.py", "django/db/backends/postgresql/schema.py", "django/db/backends/postgresql/introspection.py"], "exact_match": true, "files": [{"path": "django/db/backends/mysql/schema.py", "sections": [{"end_line": 129, "line": 115, "path": "django/db/backends/mysql/schema.py", "qualified_name": "DatabaseSchemaEditor._delete_composed_index", "outline": "DatabaseSchemaEditor._delete_composed_index: outline only -- read django/db/backends/mysql/schema.py:L115-L129."}]}, {"path": "django/db/backends/base/schema.py", "sections": [{"end_line": 416, "line": 402, "path": "django/db/backends/base/schema.py", "qualified_name": "BaseDatabaseSchemaEditor._delete_composed_index", "outline": "BaseDatabaseSchemaEditor._delete_composed_index: outline only -- read django/db/backends/base/schema.py:L402-L416."}]}], "related_symbols": ["DatabaseSchemaEditor._delete_composed_index @ django/db/backends/mysql/schema.py:115", "BaseDatabaseSchemaEditor._delete_composed_index @ django/db/backends/base/schema.py:402"]}
 [tool_result] {"candidate_files": ["django/db/migrations/autodetector.py", "django/db/migrations/operations/models.py", "django/db/migrations/operations/__init__.py", "django/db/backends/sqlite3/schema.py", "tests/migrations/test_optimizer.py", "django/contrib/contenttypes/migrations/0001_initial.py"], "exact_match": true, "files": [{"path": "django/db/backends/mysql/schema.py", "sections": [{"end_line": 129, "line": 115, "path": "django/db/backends/mysql/schema.py", "qualified_name": "DatabaseSchemaEditor._delete_composed_index", "outline": "DatabaseSchemaEditor._delete_composed_index: outline only -- read django/db/backends/mysql/schema.py:L115-L129."}]}, {"path": "django/db/backends/base/schema.py", "sections": [{"end_line": 416, "line": 402, "path": "django/db/backends/base/schema.py", "qualified_name": "BaseDatabaseSchemaEditor._delete_composed_index", "outline": "BaseDatabaseSchemaEditor._delete_composed_index: outline only -- read django/db/backends/base/schema.py:L402-L416."}]}], "related_symbols": ["DatabaseSchemaEditor._delete_composed_index @ django/db/backends/mysql/schema.py:115", "BaseDatabaseSchemaEditor._delete_composed_index @ django/db/backends/base/schema.py:402"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/backends/base/schema.py:L355-L430"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/backends/base/schema.py:L355-L430"]}
 [usage] input=2 cache_read=5377 cache_write=5162 output=82
 
 === Turn 3 ===
@@ -149,7 +149,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
         # Rename all references to the old table name.
         for sql in self.deferred_sql:
             if isinstance(sql, Statement):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"symbol": "_constraint_names"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/backends/mysql/schema.py:L100-L135"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"symbol": "_constraint_names"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/backends/mysql/schema.py:L100-L135"]}
 [usage] input=2 cache_read=10539 cache_write=1297 output=522
 
 === Turn 4 ===
@@ -220,7 +220,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
         Keep the null property of the old field. If it has changed, it will be
         handled separately.
         """
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && git log --oneline -5 -- django/db/backends/base/schema.py | head; echo \"---\"; git log --oneline -3"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "alter_index_together unique_together same fields test schema"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo .) && git log --oneline -5 -- django/db/backends/base/schema.py | head; echo \"---\"; git log --oneline -3"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "alter_index_together unique_together same fields test schema"}
 [usage] input=2 cache_read=11836 cache_write=1625 output=1919
 
 === Turn 5 ===
@@ -234,7 +234,7 @@ ea64869782 SWE-bench
 447980e72a Fixed #31500 -- Fixed detecting of unique fields in QuerySet.in_bulk() when using Meta.constraints.
 67f9d076cf Avoided unnecessary recompilation of ordering clause regex in SQLCompiler.
 [tool_result] {"candidate_files": ["django/db/migrations/operations/models.py", "django/db/migrations/autodetector.py", "django/db/models/options.py", "tests/migrations/test_autodetector.py", "django/db/migrations/operations/fields.py", "tests/migrations/test_operations.py", "django/db/models/base.py"], "exact_match": true, "files": [{"path": "django/db/backends/base/schema.py", "sections": [{"end_line": 400, "line": 386, "path": "django/db/backends/base/schema.py", "qualified_name": "BaseDatabaseSchemaEditor.alter_index_together", "outline": "BaseDatabaseSchemaEditor.alter_index_together: outline only -- read django/db/backends/base/schema.py:L386-L400."}]}], "related_symbols": ["BaseDatabaseSchemaEditor.alter_index_together @ django/db/backends/base/schema.py:386"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline --all | head -3; echo \"==BLAME _delete_composed_index==\"; git log -1 --format=\"%H %s\" -S \"_delete_composed_index\" -- django/db/backends/base/schema.py"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "get_constraints unique index infodict 'unique' 'index' keys introspection"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && git log --oneline --all | head -3; echo \"==BLAME _delete_composed_index==\"; git log -1 --format=\"%H %s\" -S \"_delete_composed_index\" -- django/db/backends/base/schema.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "get_constraints unique index infodict 'unique' 'index' keys introspection"}
 [usage] input=2 cache_read=13461 cache_write=2657 output=3290
 
 === Turn 6 ===
@@ -244,13 +244,13 @@ ea64869782 SWE-bench
 ==BLAME _delete_composed_index==
 ae635cc365581889454d2b3c278b3e3a38bd7809 Fixed #24757 -- Recreated MySQL index when needed during combined index removal
 [tool_result] {"candidate_files": ["django/db/backends/sqlite3/introspection.py", "django/db/backends/oracle/introspection.py", "django/db/backends/postgresql/introspection.py", "django/contrib/gis/db/backends/spatialite/introspection.py", "django/db/backends/base/introspection.py", "django/db/backends/base/schema.py", "tests/schema/tests.py", "tests/postgres_tests/test_indexes.py"], "exact_match": true, "files": [{"path": "django/db/backends/mysql/introspection.py", "sections": [{"end_line": 269, "line": 167, "path": "django/db/backends/mysql/introspection.py", "qualified_name": "DatabaseIntrospection.get_constraints", "outline": "DatabaseIntrospection.get_constraints: outline only -- read django/db/backends/mysql/introspection.py:L167-L269."}]}], "related_symbols": ["SpatiaLiteIntrospection.get_constraints @ django/contrib/gis/db/backends/spatialite/introspection.py:59", "DatabaseIntrospection.get_constraints @ django/db/backends/mysql/introspection.py:167", "DatabaseIntrospection.get_constraints @ django/db/backends/oracle/introspection.py:194", "DatabaseIntrospection.get_constraints @ django/db/backends/postgresql/introspection.py:137", "DatabaseIntrospection.get_constraints @ django/db/backends/sqlite3/introspection.py:342", "BaseDatabaseIntrospection.get_constraints @ django/db/backends/base/introspection.py:171", "get_constraints @ tests/constraints/tests.py:14", "SchemaTests.get_constraints @ tests/postgres_tests/test_constraints.py:21"], "truncated": true}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/backends/sqlite3/introspection.py:L342-L420"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/backends/sqlite3/introspection.py:L342-L420"]}
 [usage] input=2 cache_read=16118 cache_write=4174 output=175
 
 === Turn 7 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] Confirmed root cause: in SQLite (and others) a `unique_together` is implemented as a unique index, which introspects as `{'unique': True, 'index': True}`. Deleting the `index_together` calls `_constraint_names(index=True)`, which matches both the plain index and the unique-backed index → 2 results → crash. Fix: make the index deletion lookup require `unique=False`.[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/backends/base/schema.py", "old": "        # Deleted indexes\n        for fields in olds.difference(news):\n            self._delete_composed_index(model, fields, {'index': True}, self.sql_delete_index)", "new": "        # Deleted indexes\n        for fields in olds.difference(news):\n            self._delete_composed_index(\n                model,\n                fields,\n                {'index': True, 'unique': False},\n                self.sql_delete_index,\n            )"}]}
+[assistant] Confirmed root cause: in SQLite (and others) a `unique_together` is implemented as a unique index, which introspects as `{'unique': True, 'index': True}`. Deleting the `index_together` calls `_constraint_names(index=True)`, which matches both the plain index and the unique-backed index → 2 results → crash. Fix: make the index deletion lookup require `unique=False`.[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/backends/base/schema.py", "old": "        # Deleted indexes\n        for fields in olds.difference(news):\n            self._delete_composed_index(model, fields, {'index': True}, self.sql_delete_index)", "new": "        # Deleted indexes\n        for fields in olds.difference(news):\n            self._delete_composed_index(\n                model,\n                fields,\n                {'index': True, 'unique': False},\n                self.sql_delete_index,\n            )"}]}
 [usage] input=131 cache_read=20292 cache_write=1452 output=1544
 
 === Turn 8 ===
@@ -267,7 +267,7 @@ This addresses point (1) of the report — deleting `index_together` alongside a
 === Turn 9 ===
 [user] Stop hook feedback:
 verify-before-done: edited schema.py but ran no tests -- run the suite before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd $(git rev-parse --show-toplevel) && python tests/runtests.py schema -v1 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd $(git rev-parse --show-toplevel) && python tests/runtests.py schema -v1 2>&1 | tail -20"}
 [usage] input=2 cache_read=23441 cache_write=396 output=105
 
 === Turn 10 ===

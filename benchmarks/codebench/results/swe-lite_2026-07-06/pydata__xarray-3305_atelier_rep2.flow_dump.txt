@@ -20,7 +20,7 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -33,8 +33,8 @@ When you launch multiple agents for independent work, send them in a single mess
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-## plugin:atelier:atelier
-Atelier replaces the grep→read→re-read loop.
+## plugin:lemoncrow:lemoncrow
+LemonCrow replaces the grep→read→re-read loop.
 - Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
 - Known path → `read`: ONE call, files=[...] batched, exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
 - ALL edits in ONE `edit` edits[] array.
@@ -59,7 +59,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "def quantile keep_attrs"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "def quantile keep_attrs"}
 [usage] input=2818 cache_read=4958 cache_write=1029 output=90
 
 === Turn 2 ===
@@ -92,7 +92,7 @@ xarray/core/dataset.py:L4304-L4316 method Dataset._unary_op
 candidate_files: xarray/core/groupby.py, xarray/core/dataarray.py, xarray/core/dataset.py, xarray/core/variable.py, xarray/core/computation.py, xarray/core/common.py, xarray/tests/test_dataset.py, xarray/tests/test_variable.py, xarray/core/ops.py, xarray/tests/test_dataarray.py, xarray/core/missing.py, xarray/core/resample.py, xarray/tests/test_groupby.py, xarray/tests/test_options.py, xarray/tests/test_computation.py, xarray/tests/test_sparse.py, xarray/tests/test_duck_array_ops.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/core/dataarray.py:L2827-L2878", "xarray/core/dataset.py:L4694-L4790", "xarray/core/variable.py:L1595-L1661"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/core/dataarray.py:L2827-L2878", "xarray/core/dataset.py:L4694-L4790", "xarray/core/variable.py:L1595-L1661"]}
 [usage] input=2 cache_read=5987 cache_write=3606 output=124
 
 === Turn 3 ===
@@ -317,7 +317,7 @@ candidate_files: xarray/core/groupby.py, xarray/core/dataarray.py, xarray/core/d
             self.data, q * 100.0, axis=axis, interpolation=interpolation
         )
         return Variable(new_dims, qs)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/core/variable.py:L1655-L1662"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/core/variable.py:L1655-L1662"]}
 [usage] input=2 cache_read=9593 cache_write=3093 output=268
 
 === Turn 4 ===
@@ -330,12 +330,12 @@ candidate_files: xarray/core/groupby.py, xarray/core/dataarray.py, xarray/core/d
         )
         return Variable(new_dims, qs)
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "xarray/core/variable.py", "old": "    def quantile(self, q, dim=None, interpolation=\"linear\"):\n        \"\"\"Compute the qth quantile of the data along the specified dimension.", "new": "    def quantile(self, q, dim=None, interpolation=\"linear\", keep_attrs=None):\n        \"\"\"Compute the qth quantile of the data along the specified dimension."}, {"path": "xarray/core/variable.py", "old": "                * midpoint: ``(i + j) / 2``.\n\n        Returns\n        -------\n        quantiles : Variable", "new": "                * midpoint: ``(i + j) / 2``.\n        keep_attrs : bool, optional\n            If True, the variable's attributes (`attrs`) will be copied from\n            the original object to the new one.  If False (default), the new\n            object will be returned without attributes.\n\n        Returns\n        -------\n        quantiles : Variable"}, {"path": "xarray/core/variable.py", "old": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n        return Variable(new_dims, qs)", "new": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self._attrs if keep_attrs else None\n\n        return Variable(new_dims, qs, attrs)"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "xarray/core/variable.py", "old": "    def quantile(self, q, dim=None, interpolation=\"linear\"):\n        \"\"\"Compute the qth quantile of the data along the specified dimension.", "new": "    def quantile(self, q, dim=None, interpolation=\"linear\", keep_attrs=None):\n        \"\"\"Compute the qth quantile of the data along the specified dimension."}, {"path": "xarray/core/variable.py", "old": "                * midpoint: ``(i + j) / 2``.\n\n        Returns\n        -------\n        quantiles : Variable", "new": "                * midpoint: ``(i + j) / 2``.\n        keep_attrs : bool, optional\n            If True, the variable's attributes (`attrs`) will be copied from\n            the original object to the new one.  If False (default), the new\n            object will be returned without attributes.\n\n        Returns\n        -------\n        quantiles : Variable"}, {"path": "xarray/core/variable.py", "old": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n        return Variable(new_dims, qs)", "new": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self._attrs if keep_attrs else None\n\n        return Variable(new_dims, qs, attrs)"}]}
 [usage] input=2 cache_read=12686 cache_write=384 output=614
 
 === Turn 5 ===
 [user] [tool_result] applied xarray/core/variable.py:1595-1596,1617-1621,1662-1665
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "_get_keep_attrs import in variable.py", "paths": "xarray/core/variable.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "_get_keep_attrs import in variable.py", "paths": "xarray/core/variable.py"}
 [usage] input=2 cache_read=13070 cache_write=649 output=129
 
 === Turn 6 ===
@@ -432,7 +432,7 @@ xarray/core/variable.py:L874-L877 method Variable.__deepcopy__
 candidate_files: xarray/core/options.py, xarray/core/dataset.py, xarray/core/common.py, xarray/core/groupby.py, xarray/core/dataarray.py, xarray/tests/test_options.py, xarray/core/computation.py, xarray/convert.py, xarray/core/missing.py, xarray/plot/utils.py, xarray/backends/h5netcdf_.py, xarray/backends/netCDF4_.py, xarray/conventions.py, xarray/coding/variables.py, xarray/coding/strings.py, xarray/coding/times.py, xarray/backends/scipy_.py, xarray/backends/zarr.py, xarray/core/ops.py, xarray/backends/api.py, xarray/backends/pseudonetcdf_.py, xarray/core/resample.py, xarray/backends/common.py, xarray/tests/test_computation.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "from .options import", "paths": "xarray/core/variable.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "from .options import", "paths": "xarray/core/variable.py"}
 [usage] input=2 cache_read=13719 cache_write=1864 output=97
 
 === Turn 7 ===
@@ -457,7 +457,7 @@ xarray/core/variable.py:L302-L303 method Variable.dtype
 candidate_files: xarray/core/options.py, xarray/core/dataarray.py, xarray/core/dataset.py, xarray/backends/api.py, xarray/core/common.py, xarray/core/groupby.py, xarray/plot/plot.py, xarray/core/computation.py, xarray/core/accessor_str.py, xarray/plot/dataset_plot.py, xarray/coding/cftime_offsets.py, xarray/backends/file_manager.py, xarray/core/alignment.py, xarray/backends/zarr.py, xarray/core/formatting.py, xarray/core/resample.py, xarray/core/combine.py, xarray/core/resample_cftime.py, xarray/plot/facetgrid.py, xarray/conventions.py, xarray/core/utils.py, xarray/core/merge.py, versioneer.py, xarray/coding/cftimeindex.py
 
 (truncated; narrow with paths=)
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["xarray/core/variable.py:L1-L30"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["xarray/core/variable.py:L1-L30"]}
 [usage] input=2 cache_read=15583 cache_write=716 output=79
 
 === Turn 8 ===
@@ -492,12 +492,12 @@ from .utils import (
     ensure_us_time_resolution,
 )
 
-[assistant] Good, `_get_keep_attrs` already imported. Now update Dataset.quantile to pass keep_attrs to var.quantile:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "xarray/core/dataset.py", "old": "        q = np.asarray(q, dtype=np.float64)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q, dim=reduce_dims, interpolation=interpolation\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self.attrs if keep_attrs else None", "new": "        q = np.asarray(q, dtype=np.float64)\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q,\n                            dim=reduce_dims,\n                            interpolation=interpolation,\n                            keep_attrs=keep_attrs,\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        attrs = self.attrs if keep_attrs else None"}]}
+[assistant] Good, `_get_keep_attrs` already imported. Now update Dataset.quantile to pass keep_attrs to var.quantile:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "xarray/core/dataset.py", "old": "        q = np.asarray(q, dtype=np.float64)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q, dim=reduce_dims, interpolation=interpolation\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self.attrs if keep_attrs else None", "new": "        q = np.asarray(q, dtype=np.float64)\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q,\n                            dim=reduce_dims,\n                            interpolation=interpolation,\n                            keep_attrs=keep_attrs,\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        attrs = self.attrs if keep_attrs else None"}]}
 [usage] input=2 cache_read=16299 cache_write=424 output=1067
 
 === Turn 9 ===
 [user] [tool_result] applied xarray/core/dataset.py:4753-4782
-[assistant] Now verify:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -c \"import xarray as xr\nda = xr.DataArray([0,0], dims='x', attrs={'units':'K'})\nprint(da.quantile(.9, dim='x', keep_attrs=True).attrs)\nprint(da.quantile(.9, dim='x').attrs)\"", "cwd": "."}
+[assistant] Now verify:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -c \"import xarray as xr\nda = xr.DataArray([0,0], dims='x', attrs={'units':'K'})\nprint(da.quantile(.9, dim='x', keep_attrs=True).attrs)\nprint(da.quantile(.9, dim='x').attrs)\"", "cwd": "."}
 [usage] input=2 cache_read=16723 cache_write=1091 output=184
 
 === Turn 10 ===
@@ -509,17 +509,17 @@ from .utils import (
 === Turn 11 ===
 [user] Stop hook feedback:
 FIXME (verify): edited dataset.py, variable.py but ran no tests -- run the tests covering it (or the suite) before finishing.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest xarray/tests/test_variable.py -k quantile xarray/tests/test_dataset.py -k quantile xarray/tests/test_dataarray.py -k quantile -q 2>&1 | tail -30", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest xarray/tests/test_variable.py -k quantile xarray/tests/test_dataset.py -k quantile xarray/tests/test_dataarray.py -k quantile -q 2>&1 | tail -30", "cwd": "."}
 [usage] input=2 cache_read=18084 cache_write=268 output=160
 
 === Turn 12 ===
 [user] [tool_result] 4 passed, 1791 deselected, 117 warnings in 2.31s
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest xarray/tests/test_variable.py xarray/tests/test_dataset.py xarray/tests/test_dataarray.py -k quantile -q 2>&1 | tail -20", "cwd": "."}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest xarray/tests/test_variable.py xarray/tests/test_dataset.py xarray/tests/test_dataarray.py -k quantile -q 2>&1 | tail -20", "cwd": "."}
 [usage] input=2 cache_read=18352 cache_write=190 output=176
 
 === Turn 13 ===
 [user] [tool_result] 4 passed, 1791 deselected, 117 warnings in 1.32s
-[assistant] All quantile tests pass. Verifying broader reduce/attrs coverage didn't regress:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "python -m pytest xarray/tests/test_variable.py xarray/tests/test_dataset.py xarray/tests/test_dataarray.py -k \"quantile or keep_attrs or reduce\" -q 2>&1 | tail -20", "cwd": "."}
+[assistant] All quantile tests pass. Verifying broader reduce/attrs coverage didn't regress:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "python -m pytest xarray/tests/test_variable.py xarray/tests/test_dataset.py xarray/tests/test_dataarray.py -k \"quantile or keep_attrs or reduce\" -q 2>&1 | tail -20", "cwd": "."}
 [usage] input=2 cache_read=18542 cache_write=206 output=295
 
 === Turn 14 ===

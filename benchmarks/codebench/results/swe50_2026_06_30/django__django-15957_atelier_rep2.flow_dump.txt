@@ -20,15 +20,15 @@ TaskStop
 TaskUpdate
 
 Available agent types for the Agent tool:
-- atelier:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
-- atelier:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
-- atelier:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the Atelier task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
-- atelier:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
-- atelier:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__atelier__edit)
-- atelier:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__atelier__edit)
-- atelier:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:auto: Fully autonomous coding agent. Runs unattended end to end — never pauses for plan approval or to ask questions. For CI, benchmarks, and headless automation. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- lemoncrow:bare: Minimal coding agent. Strips Workflow and ScheduleWakeup to reduce per-request token overhead. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Workflow, ScheduleWakeup)
+- lemoncrow:code: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch)
+- lemoncrow:execute: Dedicated executor. Makes focused edits, self-verifies, and stops for review. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
+- lemoncrow:explore: Read-only codebase explorer. Finds files, symbols, and patterns. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent, mcp__lemoncrow__edit)
+- lemoncrow:plan: Dedicated planner. Turns grounded context into a concrete, reviewable implementation plan. Never edits. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:research: External researcher. Fetches web pages, GitHub repos, and package docs. Never edits. Produces a structured memo with citations. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:review: Adversarial code reviewer. Applies the verification ladder and rubric discipline. Never edits source files. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, mcp__lemoncrow__edit)
+- lemoncrow:solve: Autonomous task solver. Produces the required result early, iterates against real checks, and owns completion. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, Agent)
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, ExitPlanMode, Edit, Write, NotebookEdit)
 - general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
@@ -40,13 +40,13 @@ When you launch multiple agents for independent work, send them in a single mess
 The following skills are available for use with the Skill tool:
 
 - deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
-- atelier:benchmark: Benchmark Atelier vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark atelier', 'atelier vs vanilla', 'how much does atelier save', 'is atelier worth it', or /benchmark.
-- atelier:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
-- atelier:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
-- atelier:recall: Retrieve what Atelier has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the Atelier background.
-- atelier:settings: View or change Atelier plugin settings (attribution, spinner verbs, status line, tips) in plain English.
-- atelier:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using Atelier's existing swarm runtime.
-- atelier:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
+- lemoncrow:benchmark: Benchmark LemonCrow vs vanilla Claude Code on YOUR OWN repo and prompts — real cost, turn, and time deltas on the same model, with an up-front cost estimate. TRIGGER on 'benchmark lemoncrow', 'lemoncrow vs vanilla', 'how much does lemoncrow save', 'is lemoncrow worth it', or /benchmark.
+- lemoncrow:orchestrate: Launch a single structured run by choosing subagent versus isolated execution and compiling it into the right runtime surface.
+- lemoncrow:perf-review: Verify a code change against measured performance gates — latency & tail-latency regression, profiler-confirmed hot paths, memory/leak soak, I/O & wire budgets, and scaling — by running it, not reading it. Enforces performance quality; does not review general code.
+- lemoncrow:recall: Retrieve what LemonCrow has already learned from your past sessions — semantic recall over indexed sessions, the durable facts it stored, and the lessons it extracted. Read-only surface; importing, indexing, and extraction all run in the LemonCrow background.
+- lemoncrow:settings: View or change LemonCrow plugin settings (attribution, spinner verbs, status line, tips) in plain English.
+- lemoncrow:swarms: Launch multi-worktree swarm runs by gathering the real swarm parameters and using LemonCrow's existing swarm runtime.
+- lemoncrow:ux-review: Verify a shipped UI against objective design gates — WCAG accessibility, design-token fidelity, responsive/render integrity, and visual regression — by rendering it in a real browser. Enforces design quality; does not redesign or review code.
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
 - verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
@@ -62,13 +62,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "prefetch_related_objects Prefetch get_prefetch_queryset slice filter assertion"}[tool_use: mcp__plugin_atelier_atelier__code_search] {"query": "Cannot filter a query once a slice has been taken"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "prefetch_related_objects Prefetch get_prefetch_queryset slice filter assertion"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__code_search] {"query": "Cannot filter a query once a slice has been taken"}
 [usage] input=3840 cache_read=4809 cache_write=0 output=204
 
 === Turn 2 ===
 [user] [tool_result] MCP error -32000: No module named 'numpy'
 [tool_result] MCP error -32000: No module named 'numpy'
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"Cannot filter a query once a slice\" --include=*.py django/"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"get_prefetch_queryset\\|class Prefetch\" django/db/models/query.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"Cannot filter a query once a slice\" --include=*.py django/"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"get_prefetch_queryset\\|class Prefetch\" django/db/models/query.py | head"}
 [usage] input=2 cache_read=4809 cache_write=4164 output=201
 
 === Turn 3 ===
@@ -86,7 +86,7 @@ mode
 2458:    ) = prefetcher.get_prefetch_queryset(instances, lookup.get_current_queryset(level))
 
 [discipline] Prefer the `code_search` tool over shell `grep` for code exploration.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/query.py:L2142-L2260"]}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/query.py:L2430-L2560"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/query.py:L2142-L2260"]}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/query.py:L2430-L2560"]}
 [usage] input=2 cache_read=8973 cache_write=637 output=157
 
 === Turn 4 ===
@@ -342,7 +342,7 @@ class RelatedPopulator:
         #    - reorder_for_init: When select_related descends to a child
         #      class, then we want to reuse the already selected parent
         #      data. However, in this case the parent data isn't necessarily
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"get_prefetch_queryset\\|_apply_rel_filters\\|def filter_is_sticky\\|class .*Descriptor\\|class .*Manager\" django/db/models/fields/related_descriptors.py | head -60"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"get_prefetch_queryset\\|_apply_rel_filters\\|def filter_is_sticky\\|class .*Descriptor\\|class .*Manager\" django/db/models/fields/related_descriptors.py | head -60"}
 [usage] input=2 cache_read=9610 cache_write=3794 output=358
 
 === Turn 5 ===
@@ -361,7 +361,7 @@ class RelatedPopulator:
 1024:        def _apply_rel_filters(self, queryset):
 1045:                return self._apply_rel_filters(queryset)
 1047:        def get_prefetch_queryset(self, instances, queryset=None):
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/related_descriptors.py:L711-L770", "django/db/models/fields/related_descriptors.py:L1047-L1130"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/related_descriptors.py:L711-L770", "django/db/models/fields/related_descriptors.py:L1047-L1130"]}
 [usage] input=2 cache_read=13404 cache_write=712 output=113
 
 === Turn 6 ===
@@ -512,7 +512,7 @@ class RelatedPopulator:
                     pk_set=None,
                     using=db,
                 )
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd django && python -c \"import django; print(django.VERSION)\"; grep -n \"is_sliced\" django/db/models/sql/query.py; grep -n \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd django && python -c \"import django; print(django.VERSION)\"; grep -n \"is_sliced\" django/db/models/sql/query.py; grep -n \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
 [usage] input=2 cache_read=14116 cache_write=1968 output=1507
 
 === Turn 7 ===
@@ -521,13 +521,13 @@ class RelatedPopulator:
 
 grep: django/db/models/sql/query.py: No such file or directory
 grep: django/db/backends/base/features.py: No such file or directory
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"def is_sliced\" django/db/models/sql/query.py; grep -n \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"def is_sliced\" django/db/models/sql/query.py; grep -n \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
 [usage] input=2 cache_read=16084 cache_write=1583 output=129
 
 === Turn 8 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"def is_sliced\\|is_sliced\" django/db/models/sql/query.py"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"def is_sliced\\|is_sliced\" django/db/models/sql/query.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"supports_slicing_ordering_in_compound\\|supports_over_clause\" django/db/backends/base/features.py"}
 [usage] input=131 cache_read=17667 cache_write=248 output=370
 
 === Turn 9 ===
@@ -539,7 +539,7 @@ grep: django/db/backends/base/features.py: No such file or directory
 2228:            self.is_sliced or self.distinct_fields or self.select_for_update
 [tool_result] 236:    supports_slicing_ordering_in_compound = False
 247:    supports_over_clause = False
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class GreaterThan\\|class LessThanOrEqual\\|class GreaterThanOrEqual\\|class LessThan\" django/db/models/lookups.py"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class Window\\b\\|class RowNumber\" django/db/models/functions/window.py django/db/models/expressions.py"}[tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/fields/related_descriptors.py:L1-L40"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class GreaterThan\\|class LessThanOrEqual\\|class GreaterThanOrEqual\\|class LessThan\" django/db/models/lookups.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class Window\\b\\|class RowNumber\" django/db/models/functions/window.py django/db/models/expressions.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/fields/related_descriptors.py:L1-L40"]}
 [usage] input=2 cache_read=17915 cache_write=720 output=494
 
 === Turn 10 ===
@@ -550,7 +550,7 @@ grep: django/db/backends/base/features.py: No such file or directory
 [tool_result] django/db/models/functions/window.py:117:class RowNumber(Func):
 django/db/models/expressions.py:1634:class Window(SQLiteNumericMixin, Expression):
 
-[atelier] 10 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[lemoncrow] 10 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 [tool_result] ## django/db/models/fields/related_descriptors.py:L1-L40
 """
 Accessors for related objects.
@@ -593,8 +593,8 @@ and two directions (forward and reverse) for a total of six combinations.
 
 3. Related instance on the reverse side of a one-to-one relation:
 
-[atelier] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"^from django\\|^import\\|^from \\.\" django/db/models/fields/related_descriptors.py | head -30"}
+[lemoncrow] 11 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"^from django\\|^import\\|^from \\.\" django/db/models/fields/related_descriptors.py | head -30"}
 [usage] input=2 cache_read=18635 cache_write=1724 output=135
 
 === Turn 11 ===
@@ -606,14 +606,14 @@ and two directions (forward and reverse) for a total of six combinations.
 71:from django.db.models.utils import resolve_callables
 72:from django.utils.functional import cached_property
 
-[atelier] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"window\" django/db/backends/base/features.py"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"Window\\|qualify\\|subquery.*window\\|filterable\" django/db/models/sql/query.py | head"}
+[lemoncrow] 12 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"window\" django/db/backends/base/features.py"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"Window\\|qualify\\|subquery.*window\\|filterable\" django/db/models/sql/query.py | head"}
 [usage] input=2 cache_read=20359 cache_write=448 output=1366
 
 === Turn 12 ===
 [user] [tool_result] 246:    # Does the backend support window expressions (expression OVER (...))?
 
-[atelier] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[lemoncrow] 13 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 [tool_result] 1264:    def check_filterable(self, expression):
 1267:            expression, "filterable", True
 1275:                self.check_filterable(expr)
@@ -625,8 +625,8 @@ and two directions (forward and reverse) for a total of six combinations.
 1425:            self.check_filterable(value)
 1554:        check_filterable=True,
 
-[atelier] 14 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"Window is disallowed\\|disallowed in the filter\\|window\" django/db/models/sql/query.py django/db/models/expressions.py | head"}
+[lemoncrow] 14 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"Window is disallowed\\|disallowed in the filter\\|window\" django/db/models/sql/query.py django/db/models/expressions.py | head"}
 [usage] input=2 cache_read=20807 cache_write=1996 output=394
 
 === Turn 13 ===
@@ -641,18 +641,18 @@ django/db/models/expressions.py:1701:            window_params += tuple(sql_para
 django/db/models/expressions.py:1705:            window_sql.append(order_sql)
 django/db/models/expressions.py:1706:            window_params += tuple(order_params)
 
-[atelier] 15 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/sql/query.py:L1264-L1280"]}
+[lemoncrow] 15 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/sql/query.py:L1264-L1280"]}
 [usage] input=2 cache_read=22803 cache_write=907 output=83
 
 === Turn 14 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["django/db/models/expressions.py:L1634-L1665"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["django/db/models/expressions.py:L1634-L1665"]}
 [usage] input=131 cache_read=23710 cache_write=540 output=481
 
 === Turn 15 ===
-[user] [tool_result] [atelier] 17 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[user] [tool_result] [lemoncrow] 17 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 
 ## django/db/models/expressions.py:L1634-L1665
 class Window(SQLiteNumericMixin, Expression):
@@ -687,11 +687,11 @@ class Window(SQLiteNumericMixin, Expression):
             self.partition_by = ExpressionList(*self.partition_by)
 
         if self.order_by is not None:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"contains_over_clause\\|qualify\\|_filter_or_exclude\" django/db/models/sql/query.py django/db/models/sql/compiler.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"contains_over_clause\\|qualify\\|_filter_or_exclude\" django/db/models/sql/query.py django/db/models/sql/compiler.py | head"}
 [usage] input=2 cache_read=24250 cache_write=1211 output=300
 
 === Turn 16 ===
-[user] [tool_result] [atelier] 18 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[user] [tool_result] [lemoncrow] 18 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 
 django/db/models/sql/compiler.py:77:        self.where, self.having, self.qualify = self.query.where.split_having_qualify(
 django/db/models/sql/compiler.py:590:    def get_qualify_sql(self):
@@ -703,7 +703,7 @@ django/db/models/sql/compiler.py:642:            qualify_sql,
 django/db/models/sql/compiler.py:654:                self.connection.ops.quote_name("qualify_mask"),
 django/db/models/sql/compiler.py:656:        return result, list(inner_params) + qualify_params
 django/db/models/sql/compiler.py:688:            elif self.qualify:
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"is only supported on\\|sliced queryset\\|limited queryset\\|Cannot filter a query once a slice\" tests/prefetch_related/ 2>/dev/null | head"}[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rln \"Prefetch\" tests/prefetch_related/ | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"is only supported on\\|sliced queryset\\|limited queryset\\|Cannot filter a query once a slice\" tests/prefetch_related/ 2>/dev/null | head"}[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rln \"Prefetch\" tests/prefetch_related/ | head"}
 [usage] input=2 cache_read=25461 cache_write=870 output=1482
 
 === Turn 17 ===
@@ -711,47 +711,47 @@ django/db/models/sql/compiler.py:688:            elif self.qualify:
 mode
   Input should be 'content', 'map', 'paths' or 'counts' [type=literal_error, input_value='file_paths_with_content', input_type=str]
     For further information visit https://errors.pydantic.dev/2.13/v/literal_error
-[tool_result] [atelier] 19 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
+[tool_result] [lemoncrow] 19 search/read calls with 0 edits -- you are spiraling. You have already examined: django/db/models/query.py:L2142-L2260, django/db/models/query.py:L2430-L2560, django/db/models/fields/related_descriptors.py:L711-L770, django/db/models/fields/related_descriptors.py:L1047-L1130, django/db/models/fields/related_descriptors.py:L1-L40, django/db/models/sql/query.py:L1264-L1280. Pick the right site and EDIT now, then run the failing test once. Do not gather again unless this genuinely lacks what you need.
 
 tests/prefetch_related/test_prefetch_related_objects.py
 tests/prefetch_related/tests.py
 tests/prefetch_related/test_uuid.py
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.core.exceptions import FieldError\nfrom django.db import connections, router, transaction\nfrom django.db.models import Q, signals\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property", "new": "from django.core.exceptions import FieldError\nfrom django.db import (\n    DEFAULT_DB_ALIAS,\n    NotSupportedError,\n    connections,\n    router,\n    transaction,\n)\nfrom django.db.models import Q, Window, signals\nfrom django.db.models.functions import RowNumber\nfrom django.db.models.lookups import GreaterThan, LessThanOrEqual\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "class ForwardManyToOneDescriptor:", "new": "def _filter_prefetch_queryset(queryset, field_name, instances):\n    predicate = Q(**{f\"{field_name}__in\": instances})\n    db = queryset._db or DEFAULT_DB_ALIAS\n    if queryset.query.is_sliced:\n        if not connections[db].features.supports_over_clause:\n            raise NotSupportedError(\n                \"Prefetching from a limited queryset is only supported on backends \"\n                \"that support window functions.\"\n            )\n        low_mark, high_mark = queryset.query.low_mark, queryset.query.high_mark\n        order_by = [\n            expr for expr, _ in queryset.query.get_compiler(using=db).get_order_by()\n        ]\n        window = Window(RowNumber(), partition_by=field_name, order_by=order_by)\n        predicate &= GreaterThan(window, low_mark)\n        if high_mark is not None:\n            predicate &= LessThanOrEqual(window, high_mark)\n        queryset.query.clear_limits()\n    return queryset.filter(predicate)\n\n\nclass ForwardManyToOneDescriptor:"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            instances_dict = {instance_attr(inst): inst for inst in instances}\n            query = {\"%s__in\" % self.field.name: instances}\n            queryset = queryset.filter(**query)", "new": "            instances_dict = {instance_attr(inst): inst for inst in instances}\n            queryset = _filter_prefetch_queryset(queryset, self.field.name, instances)"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.query_field_name: instances}\n            queryset = queryset._next_is_sticky().filter(**query)", "new": "            queryset = _filter_prefetch_queryset(\n                queryset._next_is_sticky(), self.query_field_name, instances\n            )"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "django/db/models/fields/related_descriptors.py", "old": "from django.core.exceptions import FieldError\nfrom django.db import connections, router, transaction\nfrom django.db.models import Q, signals\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property", "new": "from django.core.exceptions import FieldError\nfrom django.db import (\n    DEFAULT_DB_ALIAS,\n    NotSupportedError,\n    connections,\n    router,\n    transaction,\n)\nfrom django.db.models import Q, Window, signals\nfrom django.db.models.functions import RowNumber\nfrom django.db.models.lookups import GreaterThan, LessThanOrEqual\nfrom django.db.models.query import QuerySet\nfrom django.db.models.query_utils import DeferredAttribute\nfrom django.db.models.utils import resolve_callables\nfrom django.utils.functional import cached_property"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "class ForwardManyToOneDescriptor:", "new": "def _filter_prefetch_queryset(queryset, field_name, instances):\n    predicate = Q(**{f\"{field_name}__in\": instances})\n    db = queryset._db or DEFAULT_DB_ALIAS\n    if queryset.query.is_sliced:\n        if not connections[db].features.supports_over_clause:\n            raise NotSupportedError(\n                \"Prefetching from a limited queryset is only supported on backends \"\n                \"that support window functions.\"\n            )\n        low_mark, high_mark = queryset.query.low_mark, queryset.query.high_mark\n        order_by = [\n            expr for expr, _ in queryset.query.get_compiler(using=db).get_order_by()\n        ]\n        window = Window(RowNumber(), partition_by=field_name, order_by=order_by)\n        predicate &= GreaterThan(window, low_mark)\n        if high_mark is not None:\n            predicate &= LessThanOrEqual(window, high_mark)\n        queryset.query.clear_limits()\n    return queryset.filter(predicate)\n\n\nclass ForwardManyToOneDescriptor:"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            instances_dict = {instance_attr(inst): inst for inst in instances}\n            query = {\"%s__in\" % self.field.name: instances}\n            queryset = queryset.filter(**query)", "new": "            instances_dict = {instance_attr(inst): inst for inst in instances}\n            queryset = _filter_prefetch_queryset(queryset, self.field.name, instances)"}, {"path": "django/db/models/fields/related_descriptors.py", "old": "            query = {\"%s__in\" % self.query_field_name: instances}\n            queryset = queryset._next_is_sticky().filter(**query)", "new": "            queryset = _filter_prefetch_queryset(\n                queryset._next_is_sticky(), self.query_field_name, instances\n            )"}]}
 [usage] input=2 cache_read=26331 cache_write=1939 output=2171
 
 === Turn 18 ===
 [user] [tool_result] {"FIXME":{"reason":"Must update: these callers still use the contract this edit changed.","sites":[{"line":538,"old":"%s__in","path":"django/contrib/admin/widgets.py","snippet":"**{\"%s__in\" % to_field_name: selected_choices}"},{"line":1621,"old":"%s__in","path":"django/forms/models.py","snippet":"qs = self.queryset.filter(**{\"%s__in\" % key: value})"}]},"applied":["django/db/models/fields/related_descriptors.py:66-72,92,749-751,1082-1083"]}
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related --parallel=1 2>&1 | tail -20"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related --parallel=1 2>&1 | tail -20"}
 [usage] input=2 cache_read=28270 cache_write=2380 output=234
 
 === Turn 19 ===
 [user] [tool_result] Ran 109 tests in 0.159s
 OK
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && cat > /tmp/t_slice.py <<'EOF'\nfrom django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\"room_set\", queryset=Room.objects.order_by(\"pk\")[:3], to_attr=\"rooms\")\n        )\n        with self.assertNumQueries(2):\n            rooms = list(houses)[0].rooms\n        self.assertEqual(len(rooms), 3)\nEOF\ncp /tmp/t_slice.py prefetch_related/test_tmp_slice.py\npython runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15\nrm prefetch_related/test_tmp_slice.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && cat > /tmp/t_slice.py <<'EOF'\nfrom django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\"room_set\", queryset=Room.objects.order_by(\"pk\")[:3], to_attr=\"rooms\")\n        )\n        with self.assertNumQueries(2):\n            rooms = list(houses)[0].rooms\n        self.assertEqual(len(rooms), 3)\nEOF\ncp /tmp/t_slice.py prefetch_related/test_tmp_slice.py\npython runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15\nrm prefetch_related/test_tmp_slice.py"}
 [usage] input=2 cache_read=30650 cache_write=256 output=608
 
 === Turn 20 ===
 [user] [tool_result] status=blocked session_id=
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or ATELIER_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"room_set\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"rooms\",\n            )\n        )\n        with self.assertNumQueries(2):\n            rooms = list(houses)[0].rooms\n        self.assertEqual(len(rooms), 3)\n"}]}
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+Use the edit tool to create or modify files — shell redirects, heredocs, and inline interpreter writes are blocked unless the target is a literal path inside an allowed write root (the workspace, additionalDirectories, or LEMONCROW_ADDITIONAL_DIRS); variable or computed paths cannot be verified.
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"room_set\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"rooms\",\n            )\n        )\n        with self.assertNumQueries(2):\n            rooms = list(houses)[0].rooms\n        self.assertEqual(len(rooms), 3)\n"}]}
 [usage] input=2 cache_read=30906 cache_write=832 output=413
 
 === Turn 21 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15; rm -f prefetch_related/test_tmp_slice.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15; rm -f prefetch_related/test_tmp_slice.py"}
 [usage] input=2 cache_read=31738 cache_write=420 output=126
 
 === Turn 22 ===
 [user] [tool_result] FAILED (errors=1)
 Destroying test database for alias 'default'...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"room_set\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"rooms\",\n            )\n        )\n        rooms = list(houses)[0].rooms\n        assert len(rooms) == 3, len(rooms)\n"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n\n    def test_sliced(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"room_set\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"rooms\",\n            )\n        )\n        rooms = list(houses)[0].rooms\n        assert len(rooms) == 3, len(rooms)\n"}]}
 [usage] input=2 cache_read=32158 cache_write=156 output=398
 
 === Turn 23 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -30; rm -f prefetch_related/test_tmp_slice.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -30; rm -f prefetch_related/test_tmp_slice.py"}
 [usage] input=131 cache_read=32314 cache_write=405 output=126
 
 === Turn 24 ===
@@ -775,7 +775,7 @@ Ran 1 test in 0.002s
 
 FAILED (errors=1)
 Destroying test database for alias 'default'...
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"class House\\|class Room\\|ForeignKey\\|related_name\\|rooms\" tests/prefetch_related/models.py | head"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"class House\\|class Room\\|ForeignKey\\|related_name\\|rooms\" tests/prefetch_related/models.py | head"}
 [usage] input=2 cache_read=32719 cache_write=666 output=161
 
 === Turn 25 ===
@@ -789,7 +789,7 @@ Destroying test database for alias 'default'...
 36:        Author, models.CASCADE, to_field="name", related_name="likes_me"
 44:    author = models.ForeignKey(
 45:        Author, models.CASCADE, to_field="name", related_name="addresses"
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -n \"class Room\\|class House\\|house = \\|related_name\" tests/prefetch_related/models.py | sed -n '1,40p'"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -n \"class Room\\|class House\\|house = \\|related_name\" tests/prefetch_related/models.py | sed -n '1,40p'"}
 [usage] input=2 cache_read=33385 cache_write=415 output=107
 
 === Turn 26 ===
@@ -818,18 +818,18 @@ Destroying test database for alias 'default'...
 312:        Room, models.SET_NULL, related_name="fleas", null=True
 314:    pets_visited = models.ManyToManyField(Pet, related_name="fleas_hosted")
 315:    people_visited = models.ManyToManyField(Person, related_name="fleas_hosted")
-[assistant] The related name is `rooms`. Let me fix the test and verify both the reverse-FK and m2m paths:[tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Person, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n        for i in range(5):\n            p = Person.objects.create(name=f\"p{i}\")\n            p.houses.add(cls.h)\n\n    def test_sliced_reverse_fk(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"rooms\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"example_rooms\",\n            )\n        )\n        rooms = list(houses)[0].example_rooms\n        assert len(rooms) == 3, len(rooms)\n\n    def test_sliced_m2m(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"occupants\",\n                queryset=Person.objects.order_by(\"pk\")[:2],\n                to_attr=\"example_occupants\",\n            )\n        )\n        people = list(houses)[0].example_occupants\n        assert len(people) == 2, len(people)\n"}]}
+[assistant] The related name is `rooms`. Let me fix the test and verify both the reverse-FK and m2m paths:[tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "tests/prefetch_related/test_tmp_slice.py", "overwrite": true, "new": "from django.db.models import Prefetch\nfrom django.test import TestCase\nfrom prefetch_related.models import House, Person, Room\n\n\nclass SliceTest(TestCase):\n    @classmethod\n    def setUpTestData(cls):\n        cls.h = House.objects.create(name=\"h\", address=\"a\")\n        for i in range(5):\n            Room.objects.create(name=f\"r{i}\", house=cls.h)\n        for i in range(5):\n            p = Person.objects.create(name=f\"p{i}\")\n            p.houses.add(cls.h)\n\n    def test_sliced_reverse_fk(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"rooms\",\n                queryset=Room.objects.order_by(\"pk\")[:3],\n                to_attr=\"example_rooms\",\n            )\n        )\n        rooms = list(houses)[0].example_rooms\n        assert len(rooms) == 3, len(rooms)\n\n    def test_sliced_m2m(self):\n        houses = House.objects.prefetch_related(\n            Prefetch(\n                \"occupants\",\n                queryset=Person.objects.order_by(\"pk\")[:2],\n                to_attr=\"example_occupants\",\n            )\n        )\n        people = list(houses)[0].example_occupants\n        assert len(people) == 2, len(people)\n"}]}
 [usage] input=2 cache_read=33800 cache_write=788 output=639
 
 === Turn 27 ===
 [user] [tool_result] ok
-[assistant] [tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15; rm -f prefetch_related/test_tmp_slice.py"}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related.test_tmp_slice --parallel=1 2>&1 | tail -15; rm -f prefetch_related/test_tmp_slice.py"}
 [usage] input=2 cache_read=34588 cache_write=646 output=126
 
 === Turn 28 ===
 [user] [tool_result] Ran 2 tests in 0.004s
 OK
-[assistant] Both reverse-FK and m2m sliced prefetches now work. Let me add a short note to the docs since the issue mentions this wasn't documented:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "grep -rn \"class: Prefetch\\|Prefetch(\" docs/ref/models/querysets.txt | head"}
+[assistant] Both reverse-FK and m2m sliced prefetches now work. Let me add a short note to the docs since the issue mentions this wasn't documented:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "grep -rn \"class: Prefetch\\|Prefetch(\" docs/ref/models/querysets.txt | head"}
 [usage] input=2 cache_read=35234 cache_write=148 output=293
 
 === Turn 29 ===
@@ -843,7 +843,7 @@ OK
 1310:    ...     Prefetch('pizzas', queryset=queryset))
 1329:    ...     Prefetch('best_pizza', queryset=queryset))
 1338:    ...     Prefetch('pizzas__toppings'),
-[assistant] [tool_use: mcp__plugin_atelier_atelier__read] {"files": ["docs/ref/models/querysets.txt:L1330-L1375"]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__read] {"files": ["docs/ref/models/querysets.txt:L1330-L1375"]}
 [usage] input=2 cache_read=35382 cache_write=671 output=85
 
 === Turn 30 ===
@@ -894,13 +894,13 @@ database selected by the outer query. All of the following are valid::
     when ``'pizza_list__toppings'`` is being processed.
 
     This consideration is not limited to the use of ``Prefetch`` objects. Some
-[assistant] [tool_use: mcp__plugin_atelier_atelier__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": "    >>> # Inner will use 'replica' database; outer will use 'cold-storage' database\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas__toppings', queryset=Toppings.objects.using('replica')),\n    ... ).using('cold-storage')\n\n.. note::", "new": "    >>> # Inner will use 'replica' database; outer will use 'cold-storage' database\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas__toppings', queryset=Toppings.objects.using('replica')),\n    ... ).using('cold-storage')\n\nYou can also use a sliced queryset to prefetch a limited number of related\nobjects per parent. For example, to prefetch the first three pizzas for each\nrestaurant::\n\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas', queryset=Pizza.objects.order_by('name')[:3], to_attr='example_pizzas'))\n\n.. admonition:: Slicing prefetched querysets\n\n    Filtering or slicing a sliced queryset is not allowed, so the sliced\n    queryset given to ``Prefetch`` must define an ordering to produce\n    deterministic results. Slicing requires a database that supports window\n    functions (most do, except for MySQL versions prior to 8.0.2 and MariaDB\n    versions prior to 10.2). Otherwise a ``NotSupportedError`` is raised.\n\n.. note::"}]}
+[assistant] [tool_use: mcp__plugin_lemoncrow_lemoncrow__edit] {"edits": [{"path": "docs/ref/models/querysets.txt", "old": "    >>> # Inner will use 'replica' database; outer will use 'cold-storage' database\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas__toppings', queryset=Toppings.objects.using('replica')),\n    ... ).using('cold-storage')\n\n.. note::", "new": "    >>> # Inner will use 'replica' database; outer will use 'cold-storage' database\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas__toppings', queryset=Toppings.objects.using('replica')),\n    ... ).using('cold-storage')\n\nYou can also use a sliced queryset to prefetch a limited number of related\nobjects per parent. For example, to prefetch the first three pizzas for each\nrestaurant::\n\n    >>> Restaurant.objects.prefetch_related(\n    ...     Prefetch('pizzas', queryset=Pizza.objects.order_by('name')[:3], to_attr='example_pizzas'))\n\n.. admonition:: Slicing prefetched querysets\n\n    Filtering or slicing a sliced queryset is not allowed, so the sliced\n    queryset given to ``Prefetch`` must define an ordering to produce\n    deterministic results. Slicing requires a database that supports window\n    functions (most do, except for MySQL versions prior to 8.0.2 and MariaDB\n    versions prior to 10.2). Otherwise a ``NotSupportedError`` is raised.\n\n.. note::"}]}
 [usage] input=2 cache_read=36053 cache_write=882 output=627
 
 === Turn 31 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] The implementation is complete. Let me run the full prefetch_related test suite once more to confirm nothing regressed:[tool_use: mcp__plugin_atelier_atelier__bash] {"command": "cd tests && python runtests.py prefetch_related --parallel=1 2>&1 | tail -5"}
+[assistant] The implementation is complete. Let me run the full prefetch_related test suite once more to confirm nothing regressed:[tool_use: mcp__plugin_lemoncrow_lemoncrow__bash] {"command": "cd tests && python runtests.py prefetch_related --parallel=1 2>&1 | tail -5"}
 [usage] input=131 cache_read=36935 cache_write=654 output=132
 
 === Turn 32 ===

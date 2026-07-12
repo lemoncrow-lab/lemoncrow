@@ -1,7 +1,7 @@
 {
   "checks": {
     "baseline_arm": "baseline",
-    "candidate_arm": "atelier",
+    "candidate_arm": "lemoncrow",
     "confidence": 0.95,
     "cost_metric": "cost_usd_sum",
     "margin": 0.05,
