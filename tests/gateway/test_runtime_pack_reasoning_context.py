@@ -14,7 +14,7 @@ def test_runtime_get_context_merges_learned_and_domain_blocks(tmp_path: Path) ->
     root = tmp_path / ".lemoncrow"
     runtime = ContextRuntime(root=root)
 
-    runtime.store.upsert_block(
+    runtime.store.knowledge.upsert_block(
         Playbook(
             id="rb-runtime-learned",
             title="Runtime Learned Recovery",

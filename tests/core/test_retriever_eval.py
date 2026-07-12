@@ -60,7 +60,7 @@ def _ensure_eval_blocks_exist(runtime: LemonCrowRuntimeCore) -> set[str]:
     all_expected: set[str] = set()
     for case in cases:
         all_expected.update(case["expected_block_ids"])
-    available = {b.id for b in runtime.store.list_blocks()}
+    available = {b.id for b in runtime.store.knowledge.list_blocks()}
     missing = all_expected - available
     if not missing:
         return set()
@@ -86,7 +86,7 @@ def _ensure_eval_blocks_exist(runtime: LemonCrowRuntimeCore) -> set[str]:
         file_patterns = [str(item) for case in block_cases for item in case.get("files", [])][:5]
         tool_patterns = [str(item) for case in block_cases for item in case.get("tools", [])][:5]
 
-        runtime.store.upsert_block(
+        runtime.store.knowledge.upsert_block(
             Playbook(
                 id=block_id,
                 title=block_id.replace("-", " ").title(),

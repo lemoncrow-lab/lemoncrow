@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
@@ -20,6 +19,7 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     parse_datetime,
     record_normalized_session,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ def find_cursor_db(root: Path | None = None) -> Path | None:
 
 
 class CursorImporter:
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -317,8 +317,8 @@ class CursorImporter:
                 imported.append(trace_id)
                 workspace_path = workspace_path_map.get(composer_id)
                 if workspace_path:
-                    trace = self.store.get_trace(trace_id)
+                    trace = self.store.history.get_trace(trace_id)
                     if trace is not None and not trace.workspace_path:
                         trace.workspace_path = workspace_path
-                        self.store.record_trace(trace, write_json=False)
+                        self.store.history.record_trace(trace, write_json=False)
         return imported

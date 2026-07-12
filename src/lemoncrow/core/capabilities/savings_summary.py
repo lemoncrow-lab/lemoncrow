@@ -1804,13 +1804,13 @@ def compute_savings_summary(
 # actually ships (the agents/ and skills/ staged by install_claude.sh) — when
 # a mode or skill is added or removed there, update its tip here.
 _STATUS_TIPS: tuple[str, ...] = (
-    # "`/lc:code` — main coding mode: indexed search, batched edits, owned completion",
-    # "`/lc:explore` — read-only explorer: files, symbols, patterns; never edits",
-    # "`/lc:plan` — turn grounded context into a concrete, reviewable plan first",
-    # "`/lc:execute` — apply an accepted plan with surgical, minimal edits",
-    # "`/lc:review` — adversarial review: verified findings, ranked by severity",
-    # "`/lc:research` — fetch web pages, repos, and docs into a cited memo",
-    # "`/lc:solve` — own a task end-to-end; ship early, iterate against the real check",
+    # "`/lemoncrow:code` — main coding mode: indexed search, batched edits, owned completion",
+    # "`/lemoncrow:explore` — read-only explorer: files, symbols, patterns; never edits",
+    # "`/lemoncrow:plan` — turn grounded context into a concrete, reviewable plan first",
+    # "`/lemoncrow:execute` — apply an accepted plan with surgical, minimal edits",
+    # "`/lemoncrow:review` — adversarial review: verified findings, ranked by severity",
+    # "`/lemoncrow:research` — fetch web pages, repos, and docs into a cited memo",
+    # "`/lemoncrow:solve` — own a task end-to-end; ship early, iterate against the real check",
     "`/recall` — what LemonCrow learned from your past sessions, on demand",
     "`/ux-review` — WCAG + design-token gates, verified in a real browser",
     "`/perf-review` — latency/memory/scaling gates measured by running it",
@@ -1911,10 +1911,12 @@ def _fmt_pct(p: float) -> str:
 
 
 def load_usage_breakdown(root: str | Path) -> dict[str, Any]:
-    """Aggregate project-wide token usage and cost from lemoncrow.db."""
+    """Aggregate project-wide token usage and cost from the history store."""
     root_path = Path(root)
-    db_path = root_path / "lemoncrow.db"
-    if not db_path.exists():
+    from lemoncrow.infra.storage.factory import create_store
+
+    store = create_store(root_path)
+    if not store.history.db_path.exists():
         return {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -1934,12 +1936,10 @@ def load_usage_breakdown(root: str | Path) -> dict[str, Any]:
     breakdown = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0}
 
     try:
-        from lemoncrow.core.foundation.store import ContextStore
-
-        # Token/model rows come straight from lemoncrow.db's traces table (see
-        # ContextStore.token_rows) -- json_extract on the payload, not a full
-        # Trace parse per row.
-        for row in ContextStore(root_path).token_rows():
+        # Token/model rows come straight from the history store's traces
+        # table (see HistoryStore.token_rows) -- json_extract on the payload,
+        # not a full Trace parse per row.
+        for row in store.history.token_rows():
             inp = int(row["input_tokens"] or 0)
             out = int(row["output_tokens"] or 0)
             cr = int(row["cached_input_tokens"] or 0)

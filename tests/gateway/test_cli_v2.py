@@ -9,9 +9,9 @@ from pathlib import Path
 from click.testing import CliRunner, Result
 
 from lemoncrow.core.foundation.models import Trace, UsageEntry
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.runtime.run_ledger import RunLedger
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 from tests.helpers import init_store_at
 
 
@@ -32,7 +32,7 @@ def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
 
 
 def _seed_optimizer_traces(root: Path) -> None:
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     store.init()
     created_at = datetime.now(UTC)
     for trace in (
@@ -62,15 +62,15 @@ def _seed_optimizer_traces(root: Path) -> None:
             created_at=created_at,
         ),
     ):
-        store.record_trace(trace)
+        store.history.record_trace(trace)
 
 
 def _seed_advisor_traces(root: Path, count: int = 20) -> None:
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     store.init()
     created_at = datetime.now(UTC)
     for index in range(count):
-        store.record_trace(
+        store.history.record_trace(
             Trace(
                 id=f"advisor-{index}",
                 agent="codex",

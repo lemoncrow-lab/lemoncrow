@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 @dataclass
@@ -22,8 +22,8 @@ class StoreSummary:
     rubrics_total: int
 
 
-def summarize(store: ContextStore, since: datetime | None = None) -> StoreSummary:
-    all_blocks = store.list_blocks(include_deprecated=True)
+def summarize(store: StoreBundle, since: datetime | None = None) -> StoreSummary:
+    all_blocks = store.knowledge.list_blocks(include_deprecated=True)
     active = [b for b in all_blocks if b.status == "active"]
     deprecated = [b for b in all_blocks if b.status == "deprecated"]
     quarantined = [b for b in all_blocks if b.status == "quarantined"]
@@ -32,6 +32,6 @@ def summarize(store: ContextStore, since: datetime | None = None) -> StoreSummar
         blocks_active=len(active),
         blocks_deprecated=len(deprecated),
         blocks_quarantined=len(quarantined),
-        traces_total=len(store.list_traces(limit=10_000, since=since)),
-        rubrics_total=len(store.list_rubrics()),
+        traces_total=len(store.history.list_traces(limit=10_000, since=since)),
+        rubrics_total=len(store.knowledge.list_rubrics()),
     )

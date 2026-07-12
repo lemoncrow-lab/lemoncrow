@@ -35,12 +35,12 @@ from lemoncrow.core.foundation.models import (
     ValidationResult,
 )
 from lemoncrow.core.foundation.redaction import redact
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +377,7 @@ class CopilotImporter:
     API keys, PII).
     """
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     # ------------------------------------------------------------------
@@ -477,12 +477,12 @@ class CopilotImporter:
         # We need Trace objects for their created_at and session_id
         traces = {
             t.session_id: t
-            for t in self.store.list_traces(host="copilot", limit=10_000)
+            for t in self.store.history.list_traces(host="copilot", limit=10_000)
             if t.session_id and not t.id.startswith("copilot-transcript-")
         }
 
         # We need workspace.yaml artifacts for their CWD
-        artifacts = self.store.list_raw_artifacts(source="copilot", limit=10_000)
+        artifacts = self.store.history.list_raw_artifacts(source="copilot", limit=10_000)
         for art in artifacts:
             if art.kind != "workspace.yaml":
                 continue
@@ -491,7 +491,7 @@ class CopilotImporter:
                 continue
 
             try:
-                content = self.store.read_raw_artifact_content(art)
+                content = self.store.history.read_raw_artifact_content(art)
                 workspace_data = yaml.safe_load(content) or {}
                 cwd = _text_from_value(workspace_data.get("cwd"))
                 if cwd:
@@ -509,7 +509,7 @@ class CopilotImporter:
 
     def _reconcile_stored_transcripts(self, parent_index: list[dict[str, Any]] | None = None) -> list[str]:
         imported_ids: list[str] = []
-        artifacts = self.store.list_raw_artifacts(source="copilot", limit=10_000)
+        artifacts = self.store.history.list_raw_artifacts(source="copilot", limit=10_000)
         p_index = parent_index if parent_index is not None else self._build_parent_index()
 
         for artifact in artifacts:
@@ -521,9 +521,9 @@ class CopilotImporter:
                 continue
 
             try:
-                redacted_events = self.store.read_raw_artifact_content(artifact)
+                redacted_events = self.store.history.read_raw_artifact_content(artifact)
             except OSError:
-                self.store.delete_trace(artifact.id)
+                self.store.history.delete_trace(artifact.id)
                 continue
 
             source_path = str(getattr(artifact, "source_path", "") or "").strip()
@@ -531,7 +531,7 @@ class CopilotImporter:
 
             # Already joined in a previous import run — skip expensive re-materialization
             # only while the source transcript still exists on disk.
-            if self.store.trace_exists(artifact.id) and source_exists:
+            if self.store.history.trace_exists(artifact.id) and source_exists:
                 imported_ids.append(artifact.id)
                 continue
 
@@ -817,7 +817,7 @@ class CopilotImporter:
 
         # ── Timestamp-based dedup check ──────────────────────────────
         artifact_id = f"copilot-{session_id}-events-jsonl"
-        existing = self.store.get_raw_artifact(artifact_id)
+        existing = self.store.history.get_raw_artifact(artifact_id)
         try:
             file_mtime = datetime.fromtimestamp((session_dir / "events.jsonl").stat().st_mtime, tz=UTC)
         except OSError:
@@ -892,7 +892,7 @@ class CopilotImporter:
         )
 
         for artifact, redacted_content in pending_artifacts:
-            self.store.record_raw_artifact(artifact, redacted_content)
+            self.store.history.record_raw_artifact(artifact, redacted_content)
 
         telemetry = {
             "compaction_count": state["compaction_count"],
@@ -905,7 +905,7 @@ class CopilotImporter:
         trace = Trace(
             id=f"copilot-{filename_session_id}",
             session_id=actual_session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task=state["task"],
@@ -941,7 +941,7 @@ class CopilotImporter:
             telemetry=telemetry,
             created_at=_parse_workspace_dt(workspace_data.get("created_at")),
         )
-        self.store.record_trace(trace, write_json=False)
+        self.store.history.record_trace(trace, write_json=False)
         return trace.id
 
     def _find_parent_trace_for_transcript(
@@ -998,7 +998,7 @@ class CopilotImporter:
             pass
 
         artifact_id = f"copilot-transcript-{session_id}"
-        existing = self.store.get_raw_artifact(artifact_id)
+        existing = self.store.history.get_raw_artifact(artifact_id)
         try:
             file_mtime = datetime.fromtimestamp(transcript_path.stat().st_mtime, tz=UTC)
         except OSError:
@@ -1006,7 +1006,7 @@ class CopilotImporter:
         events_raw: str | None = None
         if not force and existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
             # File unchanged — skip join entirely if the trace is already linked.
-            if self.store.trace_exists(artifact_id):
+            if self.store.history.trace_exists(artifact_id):
                 return artifact_id
             # Trace missing but the source is present and unchanged — re-read
             # RAW rather than the previously-redacted artifact, so task/tool
@@ -1023,7 +1023,7 @@ class CopilotImporter:
                 if existing is None:
                     return None
                 try:
-                    events_raw = self.store.read_raw_artifact_content(existing)
+                    events_raw = self.store.history.read_raw_artifact_content(existing)
                 except OSError:
                     return None
             else:
@@ -1047,7 +1047,7 @@ class CopilotImporter:
                     source_file_mtime=file_mtime,
                     source_path=str(transcript_path),
                 )
-                self.store.record_raw_artifact(artifact, redacted_events)
+                self.store.history.record_raw_artifact(artifact, redacted_events)
 
         return self._materialize_transcript_trace(
             session_id=session_id,
@@ -1090,7 +1090,7 @@ class CopilotImporter:
             file_mtime = _utcnow()
 
         if not force:
-            existing = self.store.get_raw_artifact(artifact_id)
+            existing = self.store.history.get_raw_artifact(artifact_id)
             if existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
                 return None
 
@@ -1126,7 +1126,7 @@ class CopilotImporter:
             source_file_mtime=file_mtime,
             source_path=str(debug_log_dir),
         )
-        self.store.record_raw_artifact(artifact, redacted)
+        self.store.history.record_raw_artifact(artifact, redacted)
 
         # Parse llm_request events into UsageEntries, partitioned by UTC date
         # so a chat that spans multiple days bills correctly to each day.
@@ -1218,7 +1218,7 @@ class CopilotImporter:
             trace = Trace(
                 id=day_artifact_id,
                 session_id=session_id,
-                agent="lc:code",
+                agent="lemoncrow:code",
                 host="copilot",
                 domain="coding",
                 task=bucket["task"] or "vscode copilot chat session",
@@ -1243,7 +1243,7 @@ class CopilotImporter:
                 model_usages=usage_summary["model_usages"],
                 created_at=bucket["first_ts"] or file_mtime,
             )
-            self.store.record_trace(trace, write_json=False)
+            self.store.history.record_trace(trace, write_json=False)
             last_trace_id = trace.id
 
         return last_trace_id
@@ -1261,7 +1261,7 @@ class CopilotImporter:
             transcript_paths, transcript_started_at, parent_index=parent_index
         )
         if parent_match is None:
-            self.store.delete_trace(artifact_id)
+            self.store.history.delete_trace(artifact_id)
             return None
 
         parent_trace, workspace_path = parent_match
@@ -1271,7 +1271,7 @@ class CopilotImporter:
         trace = Trace(
             id=artifact_id,
             session_id=parent_trace.session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task=state["task"],
@@ -1306,7 +1306,7 @@ class CopilotImporter:
             workspace_path=workspace_path,
             created_at=state["start_time"],
         )
-        self.store.record_trace(trace, write_json=False)
+        self.store.history.record_trace(trace, write_json=False)
         return trace.id
 
     # ------------------------------------------------------------------

@@ -31,7 +31,6 @@ from lemoncrow.core.foundation.models import (
     Trace,
 )
 from lemoncrow.core.foundation.redaction import redact
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     _SYSTEM_PREFIXES_CLAUDE,
@@ -40,6 +39,7 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     snapshot_edited_files,
     summarize_usage_entries,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ def _infer_file_edit_diff(tool_name: str, inp: dict[str, Any], result_text: str 
 class ClaudeImporter:
     """Claude Code session importer."""
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -275,7 +275,7 @@ class ClaudeImporter:
             return None
         file_mtime = datetime.fromtimestamp(jsonl_path.stat().st_mtime, tz=UTC)
         if not force:
-            existing = self.store.get_raw_artifact(artifact_id)
+            existing = self.store.history.get_raw_artifact(artifact_id)
             if existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime:
                 return None
 
@@ -576,7 +576,7 @@ class ClaudeImporter:
         trace = Trace(
             id=artifact_id,
             session_id=actual_session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="claude",
             domain="coding",
             task=task,
@@ -625,8 +625,8 @@ class ClaudeImporter:
         # the mtime-based dedup check then sees "unchanged" and skips the
         # session forever. Parse fully, then persist (matches codex.py).
         for art, redacted in pending_raw_artifacts:
-            self.store.record_raw_artifact(art, redacted)
-        self.store.record_trace(trace, write_json=False)
+            self.store.history.record_raw_artifact(art, redacted)
+        self.store.history.record_trace(trace, write_json=False)
         persist_imported_run_snapshot(self.store, trace, started_at=created_at, ended_at=updated_at)
 
         # Best-effort: snapshot current on-disk state of every edited file

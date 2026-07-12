@@ -10,7 +10,7 @@ import pytest
 from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
 from lemoncrow.core.capabilities.cross_vendor_memory.models import AuditEvent
 from lemoncrow.core.service.api import create_app
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -47,7 +47,7 @@ def _write_done_session(root: Path, user_id: str, *, cost: float) -> None:
 
 def test_team_api_workspace_invite_and_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".lemoncrow"
-    SQLiteStore(root).init()
+    build_sqlite_store_bundle(root).init()
     client = _client_for(root, monkeypatch)
     created = client.post("/v1/team/workspace", json={"name": "Acme", "admin_email": "admin@example.com"})
     assert created.status_code == 200
@@ -65,7 +65,7 @@ def test_team_api_workspace_invite_and_usage(tmp_path: Path, monkeypatch: pytest
 
 def test_governance_and_audit_api_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / ".lemoncrow"
-    SQLiteStore(root).init()
+    build_sqlite_store_bundle(root).init()
     client = _client_for(root, monkeypatch)
     created = client.post("/v1/team/workspace", json={"name": "Acme", "admin_email": "admin@example.com"})
     assert created.status_code == 200

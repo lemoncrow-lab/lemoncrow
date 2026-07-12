@@ -158,7 +158,7 @@ def _servicectl_status_payload(root: Path) -> dict[str, Any]:
 
     store = create_store(root)
     store.init()
-    job_queue_health = store.job_queue_health()
+    job_queue_health = store.jobs.job_queue_health()
     return {
         "running": running,
         "pid": pid,
@@ -834,7 +834,7 @@ def _servicectl_tick(
             )
         periodic[PUBLIC_ROLLUP_KEY] = now.isoformat()
 
-    job_queue_health_before = store.job_queue_health()
+    job_queue_health_before = store.jobs.job_queue_health()
     enqueued: list[str] = []
     if maintenance_interval_seconds <= 0 or last_enqueue_at is None:
         due = True
@@ -844,11 +844,11 @@ def _servicectl_tick(
     if due:
         active_jobs = [
             job
-            for job in store.list_jobs(job_type=JOB_CONSOLIDATE_BLOCKS, limit=200)
+            for job in store.jobs.list_jobs(job_type=JOB_CONSOLIDATE_BLOCKS, limit=200)
             if job["status"] in {"pending", "running", "failed"}
         ]
         if not active_jobs:
-            job_id = store.enqueue_job(
+            job_id = store.jobs.enqueue_job(
                 JOB_CONSOLIDATE_BLOCKS,
                 {"dry_run": False, "source": "servicectl"},
             )
@@ -865,11 +865,11 @@ def _servicectl_tick(
     if retention_due:
         active_retention_jobs = [
             job
-            for job in store.list_jobs(job_type=JOB_RETENTION_CLEANUP, limit=200)
+            for job in store.jobs.list_jobs(job_type=JOB_RETENTION_CLEANUP, limit=200)
             if job["status"] in {"pending", "running", "failed"}
         ]
         if not active_retention_jobs:
-            job_id = store.enqueue_job(
+            job_id = store.jobs.enqueue_job(
                 JOB_RETENTION_CLEANUP,
                 {"days": 14, "source": "servicectl"},
             )
@@ -885,11 +885,11 @@ def _servicectl_tick(
         if optimize_due:
             active_optimize_jobs = [
                 job
-                for job in store.list_jobs(job_type=JOB_OPTIMIZE, limit=200)
+                for job in store.jobs.list_jobs(job_type=JOB_OPTIMIZE, limit=200)
                 if job["status"] in {"pending", "running", "failed"}
             ]
             if not active_optimize_jobs:
-                job_id = store.enqueue_job(
+                job_id = store.jobs.enqueue_job(
                     JOB_OPTIMIZE,
                     {"days": 7, "host": None, "source": "servicectl"},
                 )
@@ -949,7 +949,7 @@ def _servicectl_tick(
         "periodic_jobs": periodic,
         "subprocess_timeouts": subprocess_timeouts,
         "started_at": state.get("started_at"),
-        "job_queue_health": store.job_queue_health(),
+        "job_queue_health": store.jobs.job_queue_health(),
     }
     _write_servicectl_state(root, payload)
     job_queue_health = payload["job_queue_health"]

@@ -320,91 +320,6 @@ def test_rich_non_atomic_partial_success(workspace: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_replace_through_handler(workspace: Path) -> None:
-    """Legacy op=replace dispatches to apply_batch_edit."""
-    f = workspace / "legacy.txt"
-    f.write_text("foo bar\n", encoding="utf-8")
-
-    payload = _edit({"edits": [{"path": str(f), "op": "replace", "old_string": "foo", "new_string": "baz"}]})
-
-    assert "failed" not in payload
-    assert f.read_text(encoding="utf-8") == "baz bar\n"
-
-
-def test_legacy_insert_after(workspace: Path) -> None:
-    """Legacy op=insert_after appends text after the anchor line."""
-    f = workspace / "insert.txt"
-    f.write_text("line1\nline2\nline3\n", encoding="utf-8")
-
-    payload = _edit({"edits": [{"path": str(f), "op": "insert_after", "anchor": "line1", "new_string": "line1b"}]})
-
-    assert "failed" not in payload
-    text = f.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    assert lines[0] == "line1"
-    assert lines[1] == "line1b"
-    assert lines[2] == "line2"
-
-
-def test_legacy_replace_range(workspace: Path) -> None:
-    """Legacy op=replace_range replaces exact line range."""
-    f = workspace / "range.txt"
-    f.write_text("aaa\nbbb\nccc\nddd\n", encoding="utf-8")
-    # Blind range ops require the file to have been served this window
-    # (freshness guard); read it the way a real caller would have.
-    resp = _call("read", {"path": str(f)})
-    assert "result" in resp
-
-    payload = _edit(
-        {
-            "edits": [
-                {
-                    "path": str(f),
-                    "op": "replace_range",
-                    "line_start": 2,
-                    "line_end": 3,
-                    "new_string": "REPLACED",
-                }
-            ]
-        }
-    )
-
-    assert "failed" not in payload
-    text = f.read_text(encoding="utf-8")
-    assert "aaa" in text
-    assert "REPLACED" in text
-    assert "bbb" not in text
-    assert "ccc" not in text
-    assert "ddd" in text
-
-
-def test_legacy_fuzzy_replace(workspace: Path) -> None:
-    """Legacy fuzzy=True matches despite indentation drift."""
-    f = workspace / "fuzzy.py"
-    f.write_text("def f():\n    x = 1\n    return x\n", encoding="utf-8")
-
-    payload = _edit(
-        {
-            "edits": [
-                {
-                    "path": str(f),
-                    "op": "replace",
-                    "old_string": "x = 1",
-                    "new_string": "x = 42",
-                    "fuzzy": True,
-                }
-            ]
-        }
-    )
-
-    # The legacy batch path applies a fuzzy match without emitting a match_mode
-    # marker (that is a rich-edit signal), so a successful legacy fuzzy edit is
-    # silent like any other clean success. The rich-edit fuzzy path (which DOES
-    # surface match_mode) is covered by test_rich_fuzzy_match_stays_loud.
-    assert "failed" not in payload
-    assert "x = 42" in f.read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # #3  Notebook cell edits
 # ---------------------------------------------------------------------------
@@ -612,42 +527,11 @@ def test_empty_edits_returns_error(workspace: Path) -> None:
     assert has_error
 
 
-def test_mixed_families_rejected(workspace: Path) -> None:
-    """Mixing legacy op/path and rich file_path descriptors raises an error."""
-    f = workspace / "mixed.txt"
-    f.write_text("hello\n", encoding="utf-8")
-
-    resp = _call(
-        "edit",
-        {
-            "edits": [
-                {"path": str(f), "op": "replace", "old_string": "hello", "new_string": "legacy"},
-                {"file_path": str(f), "old_string": "hello", "new_string": "rich"},
-            ]
-        },
-    )
-
-    assert resp["error"]["code"] == -32602
-    assert "cannot mix" in resp["error"]["message"].lower()
-    assert f.read_text(encoding="utf-8") == "hello\n"
-
-
 def test_rich_path_escape_rejected(workspace: Path) -> None:
     """A path that escapes the repo root is blocked by path safety."""
     payload = _edit({"edits": [{"file_path": "../../../etc/passwd", "old_string": "root", "new_string": "hacked"}]})
     assert payload["rolled_back"] is True
     assert payload["failed"]
-
-
-def test_legacy_unknown_op_reported_as_failure(workspace: Path) -> None:
-    """Legacy op with unsupported opcode fails gracefully."""
-    f = workspace / "unknown.txt"
-    f.write_text("original\n", encoding="utf-8")
-
-    payload = _edit({"edits": [{"path": str(f), "op": "delete_line", "old_string": "original", "new_string": ""}]})
-
-    assert payload["failed"]
-    assert f.read_text(encoding="utf-8") == "original\n"
 
 
 # ---------------------------------------------------------------------------
@@ -954,9 +838,9 @@ def test_batch_range_edits_overlap_fails_loudly(workspace: Path) -> None:
     assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"  # untouched
 
 
-def test_range_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -> None:
-    """A content-located edit shifts lines untracked; a later range edit to the
-    same file in the same batch is ambiguous and must not guess."""
+def test_range_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
+    """A content-located edit that grows the file is recorded in the ledger, so a
+    later range edit's pre-batch line number is translated and both co-apply."""
     f = workspace / "mix.txt"
     f.write_text("a1\na2\na3\n", encoding="utf-8")
     _read("mix.txt")
@@ -966,21 +850,21 @@ def test_range_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -
             "post_edit_hooks": False,
             "edits": [
                 {"file_path": "mix.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
-                {"file_path": "mix.txt:L3-L3", "new_string": "Z3\n"},
+                {"file_path": "mix.txt:L3-L3", "new_string": "Z3\n"},  # pre-batch L3 == 'a3'
             ],
         }
     )
 
-    assert payload["rolled_back"] is True
-    assert "content-located edit" in payload["failed"][0]["error"]
-    assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
+    assert payload.get("applied"), payload
+    assert "mix.txt" in str(payload["applied"])
+    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
 
 
-def test_range_old_string_edit_after_content_edit_same_file_fails_loudly(workspace: Path) -> None:
-    """Same hazard as test_range_edit_after_content_edit_same_file_fails_loudly,
-    but the second edit pairs the stale :Lx-Ly scope with old_string (falls into
-    _replace_in_scope instead of the pure-range splice path). Must get the same
-    loud rejection, not a confusing 'old_string not found in file'."""
+def test_range_old_string_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
+    """Same as test_range_edit_after_content_edit_same_file_coapplies, but the
+    second edit pairs the :Lx-Ly scope with old_string (falls into
+    _replace_in_scope). The scope is translated through the ledger, so the
+    scoped search hits the right window instead of 'old_string not found'."""
     f = workspace / "mix2.txt"
     f.write_text("a1\na2\na3\n", encoding="utf-8")
     _read("mix2.txt")
@@ -995,9 +879,9 @@ def test_range_old_string_edit_after_content_edit_same_file_fails_loudly(workspa
         }
     )
 
-    assert payload["rolled_back"] is True
-    assert "content-located edit" in payload["failed"][0]["error"]
-    assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
+    assert payload.get("applied"), payload
+    assert "mix2.txt" in str(payload["applied"])
+    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
 
 
 def test_blind_range_edit_rejected_without_prior_read(workspace: Path) -> None:

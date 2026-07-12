@@ -24,7 +24,7 @@ import pytest
 
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 from tests.helpers import init_store_at
 
 # --------------------------------------------------------------------------- #
@@ -300,7 +300,7 @@ def test_remote_mode_live_service_round_trip(
         trace_payload = json.loads(trace["result"]["content"][0]["text"])
         assert trace_payload["trace_id"]
 
-    stored = SQLiteStore(root).get_trace(trace_payload["trace_id"])
+    stored = build_sqlite_store_bundle(root).history.get_trace(trace_payload["trace_id"])
     assert stored is not None
     assert stored.task == "remote e2e"
 

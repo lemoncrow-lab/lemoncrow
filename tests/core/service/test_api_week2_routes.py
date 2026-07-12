@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from lemoncrow.core.foundation.history_store import HistoryStore
 from lemoncrow.core.foundation.models import RawArtifact, Trace
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.service import api as service_api
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def _write_trace(
     input_tokens: int = 1500,
     output_tokens: int = 250,
 ) -> None:
-    store = ContextStore(root)
+    store = HistoryStore(root)
     store.init()
     trace = Trace(
         id=f"trace-{session_id}",
@@ -120,12 +120,12 @@ def _write_imported_trace(
     raw_artifact_ids: list[str] | None = None,
     workspace_path: str | None = None,
 ) -> None:
-    store = ContextStore(root)
+    store = HistoryStore(root)
     store.init()
     trace = Trace(
         id=f"{host}-{session_id}",
         session_id=session_id,
-        agent="lc:code",
+        agent="lemoncrow:code",
         host=host,
         domain="coding",
         task=f"{host} imported session",
@@ -151,7 +151,7 @@ def _write_raw_artifact(
     relative_path: str | None = None,
     created_at: datetime | None = None,
 ) -> None:
-    store = ContextStore(root)
+    store = HistoryStore(root)
     store.init()
     artifact = RawArtifact(
         id=artifact_id,
@@ -532,7 +532,7 @@ class TestListHosts:
             content="content-b",
             created_at=newer_import,
         )
-        precheck_store = ContextStore(tmp_path)
+        precheck_store = HistoryStore(tmp_path)
         precheck_store.init()
         for session_id in ("sess-a", "sess-b"):
             assert precheck_store.get_trace(f"claude-{session_id}") is None  # not yet written below
@@ -559,7 +559,7 @@ class TestListHosts:
         # using Trace.created_at instead of RawArtifact.created_at the
         # returned last_import_at would land at session_started_at (wrong)
         # rather than newer_import (right).
-        store = ContextStore(tmp_path)
+        store = HistoryStore(tmp_path)
         store.init()
         for session_id in ("sess-a", "sess-b"):
             trace = store.get_trace(f"claude-{session_id}")
@@ -1220,7 +1220,7 @@ class TestGetSession:
             input_tokens=0,
             output_tokens=0,
         )
-        store = ContextStore(tmp_path)
+        store = HistoryStore(tmp_path)
         trace = store.get_trace(f"trace-{session_id}")
         assert trace is not None
         trace.raw_artifact_ids = [artifact_id]

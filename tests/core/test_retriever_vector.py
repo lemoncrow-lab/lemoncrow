@@ -171,12 +171,12 @@ def test_score_block_history_weight_reduced_with_vector() -> None:
 
 def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
     """retrieve() must accept and use vector_scores without error."""
-    from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+    from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
-    store = SQLiteStore(root=tmp_path)
+    store = build_sqlite_store_bundle(tmp_path)
     store.init()
     block = _make_block(domain="shop", triggers=["checkout", "cart"])
-    store.upsert_block(block)
+    store.knowledge.upsert_block(block)
 
     ctx = TaskContext(task="checkout flow", domain="shop")
     vector_scores = {block.id: 0.9}
@@ -196,14 +196,17 @@ def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
 
 def test_retrieve_vector_scores_empty_dict(tmp_path: Path) -> None:
     """retrieve() with empty vector_scores must still work (vector = 0.0)."""
-    from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+    from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
-    store = SQLiteStore(root=tmp_path)
+    store = build_sqlite_store_bundle(tmp_path)
     store.init()
     block = _make_block(domain="api", triggers=["api", "endpoint"])
-    store.upsert_block(block)
+    store.knowledge.upsert_block(block)
 
     ctx = TaskContext(task="api endpoint", domain="api")
+    results = retrieve(store, ctx, vector_scores={}, use_vector_weights=True)
+    for r in results:
+        assert r.breakdown.get("vector", 0.0) == 0.0
     results = retrieve(store, ctx, vector_scores={}, use_vector_weights=True)
     for r in results:
         assert r.breakdown.get("vector", 0.0) == 0.0

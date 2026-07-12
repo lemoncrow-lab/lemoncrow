@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["ContextStore", "create_store", "make_memory_store"]
+__all__ = ["create_store", "make_memory_store"]
 
 
 def __getattr__(name: str) -> Any:
-    if name == "ContextStore":
-        from lemoncrow.core.foundation.store import ContextStore
-
-        return ContextStore
     if name == "create_store":
         from lemoncrow.infra.storage.factory import create_store
 

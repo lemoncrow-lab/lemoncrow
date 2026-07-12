@@ -46,9 +46,9 @@ def sync_usage(
     from lemoncrow.core.capabilities.plugin_runtime import (
         get_session_stats_from_trace,
     )
-    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.core.foundation.history_store import HistoryStore
 
-    store = ContextStore(root_path)
+    store = HistoryStore(root_path)
 
     # 1. Handle pre-loaded sessions (explicitly provided)
     if sessions:

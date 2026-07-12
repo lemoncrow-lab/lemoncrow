@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 from lemoncrow.core.foundation.models import FileEditRecord
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import snapshot_edited_files
 from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter, find_claude_sessions
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def _write_jsonl(path: Path, events: list[dict[str, object]]) -> None:
@@ -31,7 +31,7 @@ def test_find_claude_sessions_discovers_project_jsonl_files(tmp_path: Path) -> N
 
 
 def test_claude_import_session_merges_subagent_jsonls(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     importer = ClaudeImporter(store)
 
@@ -75,7 +75,7 @@ def test_claude_import_session_merges_subagent_jsonls(tmp_path: Path) -> None:
     result = importer.import_session(workspace_slug, root_jsonl, force=True)
 
     assert result is not None
-    artifacts = store.list_raw_artifacts(source="claude", source_session_id=logical_session_id, limit=10)
+    artifacts = store.history.list_raw_artifacts(source="claude", source_session_id=logical_session_id, limit=10)
     assert [artifact.relative_path for artifact in artifacts] == [
         f"{filename_session_id}/subagents/subagent-worker.jsonl",
         f"{filename_session_id}.jsonl",
@@ -88,7 +88,7 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     Regression: tally dicts were declared per-file, so a session whose last
     subagent used only builtin tools reported the whole session as builtin-only.
     """
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     importer = ClaudeImporter(store)
 
@@ -136,7 +136,7 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     result = importer.import_session(workspace_slug, root_jsonl, force=True)
 
     assert result is not None
-    traces = [t for t in store.list_traces(limit=10) if t.session_id == filename_session_id]
+    traces = [t for t in store.history.list_traces(limit=10) if t.session_id == filename_session_id]
     assert len(traces) == 1
     tool_counts = {c.name: c.count for c in traces[0].tools_called}
     assert tool_counts == {"mcp__lc__read": 1, "mcp__lc__grep": 1, "Bash": 1}
@@ -160,7 +160,7 @@ def test_claude_parallel_coverage_matrix_doc_exists_and_has_required_rows() -> N
 
 
 def test_snapshot_edited_files_normalizes_absolute_content_path(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
 
     edited = tmp_path / "workspace" / "scripts" / "install_claude.sh"
@@ -175,7 +175,7 @@ def test_snapshot_edited_files_normalizes_absolute_content_path(tmp_path: Path) 
     )
 
     assert saved == 1
-    artifacts = store.list_raw_artifacts(source="claude", source_session_id="sess-123", limit=10)
+    artifacts = store.history.list_raw_artifacts(source="claude", source_session_id="sess-123", limit=10)
     snapshots = [artifact for artifact in artifacts if artifact.kind == "file.snapshot"]
     assert len(snapshots) == 1
     assert snapshots[0].content_path.startswith("raw/claude/snapshots/sess-123/")

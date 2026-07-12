@@ -214,7 +214,7 @@ def global_import(
     all_imported_ids = []
     per_host_counts: dict[str, int] = {}
 
-    with store.batch_mode():
+    with store.history.batch_mode():
         for name, importer_cls in hosts:
             if host and name != host:
                 continue
@@ -228,13 +228,13 @@ def global_import(
                 all_imported_ids.extend(ids)
 
                 for tid in ids:
-                    trace = store.get_trace(tid)
+                    trace = store.history.get_trace(tid)
                     if trace and trace.raw_artifact_ids:
                         art_id = trace.raw_artifact_ids[0]
-                        artifact = store.get_raw_artifact(art_id)
+                        artifact = store.history.get_raw_artifact(art_id)
                         if artifact:
                             try:
-                                content = store.read_raw_artifact_content(artifact)
+                                content = store.history.read_raw_artifact_content(artifact)
                                 turns = parse_session_turns(content, name)
                                 if turns:
                                     reconstructable += 1

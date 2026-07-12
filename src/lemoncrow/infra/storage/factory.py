@@ -18,18 +18,27 @@ logger = logging.getLogger(__name__)
 
 
 def create_store(root: Path) -> Any:
-    """Create the configured storage backend for the given root path."""
+    """Create the configured storage backend for the given root path.
+
+    Returns a :class:`~lemoncrow.infra.storage.bundle.StoreBundle` -- six
+    per-concern stores (history/knowledge/lessons/jobs/memory/telemetry),
+    each its own physical SQLite file (see ``bundle.py`` for why). Callers
+    reach the store they need explicitly, e.g. ``store.history.record_trace(...)``.
+    """
     backend = os.environ.get("LEMONCROW_STORAGE_BACKEND", "sqlite").strip().lower() or "sqlite"
     resolved_root = Path(root)
     if backend == "sqlite":
-        from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+        from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
-        return SQLiteStore(resolved_root)
+        return build_sqlite_store_bundle(resolved_root)
     if backend == "postgres":
-        from lemoncrow.infra.storage.postgres_store import PostgresStore
-
-        return PostgresStore(database_url=os.environ.get("LEMONCROW_DATABASE_URL", ""))
-    raise ValueError("LEMONCROW_STORAGE_BACKEND must be 'sqlite' or 'postgres'")
+        raise ValueError(
+            "LEMONCROW_STORAGE_BACKEND=postgres is not supported: the Postgres "
+            "backend is incomplete (it implements none of the lessons, telemetry, "
+            "or raw-artifact APIs the application depends on). Use the default "
+            "'sqlite' backend."
+        )
+    raise ValueError("LEMONCROW_STORAGE_BACKEND must be 'sqlite'")
 
 
 def make_memory_store(root: str | Path | None, *, prefer: str | None = None) -> MemoryStore:

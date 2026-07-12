@@ -3080,7 +3080,8 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
             from lemoncrow.core.foundation.paths import session_dir
 
             path = (
-                session_dir(_lemoncrow_root(), _detect_agent(), f"unattributed-{_workspace_ws_hash()}") / "savings.jsonl"
+                session_dir(_lemoncrow_root(), _detect_agent(), f"unattributed-{_workspace_ws_hash()}")
+                / "savings.jsonl"
             )
         else:
             path = _get_host_session_sidecar_path()
@@ -3744,10 +3745,10 @@ def _archival_recall() -> ArchivalRecallCapability:
 
 def _symbol_recall() -> Any:
     from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
-    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.core.foundation.history_store import HistoryStore
 
     workspace_root = _workspace_root()
-    trace_store = ContextStore(_lemoncrow_root())
+    trace_store = HistoryStore(_lemoncrow_root())
     trace_store.init()
     return SymbolRecallCapability(
         repo_root=workspace_root,
@@ -3965,7 +3966,7 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
     store.init()
     jobs = [
         job
-        for job in store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=200)
+        for job in store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=200)
         if isinstance(job.get("payload"), dict) and job["payload"].get("repo_id") == repo_id
     ]
     queued = False
@@ -3974,7 +3975,7 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
     active_job = next((job for job in jobs if job["status"] in {"pending", "running"}), None)
     job_id: str | None = None
     if state != "warm" and active_job is None:
-        job_id = store.enqueue_job(
+        job_id = store.jobs.enqueue_job(
             JOB_BOOTSTRAP_CONTEXT,
             {"repo_root": str(repo_root), "repo_id": repo_id},
         )
@@ -4542,7 +4543,7 @@ def tool_record_trace(
             return "claude"
 
         # Default to the agent name if no known host environment is detected
-        return "lemoncrow" if al.startswith("lc:") else al
+        return "lemoncrow" if al.startswith("lemoncrow:") else al
 
     normalized_capture_sources = [redact(str(source)) for source in capture_sources]
     normalized_trace_confidence = _normalize_trace_confidence(trace_confidence)
@@ -4635,7 +4636,7 @@ def tool_record_trace(
     trace = Trace.model_validate(payload)
 
     for _artifact, _redacted_content in pending_artifacts:
-        rt.store.record_raw_artifact(_artifact, _redacted_content)
+        rt.store.history.record_raw_artifact(_artifact, _redacted_content)
 
     if event_type:
         normalized_event_payload = _normalize_workflow_trace_payload(event_type, event_payload)
@@ -4644,7 +4645,7 @@ def tool_record_trace(
         else:
             led.record("note", f"event:{redact(event_type)}", _redact_json_strings(event_payload))
 
-    rt.store.record_trace(trace)
+    rt.store.history.record_trace(trace)
     from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
 
     ingest_failed_trace(rt.store, trace)
@@ -4699,7 +4700,7 @@ def tool_run_rubric_gate(rubric_id: str, checks: dict[str, Any]) -> Any:
     led = _get_ledger()
     led.record_tool_call("run_rubric_gate", {"rubric_id": rubric_id, "checks": checks})
 
-    rubric = rt.store.get_rubric(rubric_id)
+    rubric = rt.store.knowledge.get_rubric(rubric_id)
     if rubric is None:
         raise ValueError(f"rubric not found: {rubric_id}")
 
@@ -5628,6 +5629,81 @@ _READ_SUGGEST_PRUNE_DIRS = frozenset(
         "target",
     }
 )
+
+
+# Same "not a literal path" shape test as the code-context engine's
+# _query_is_pathy_literal: whitespace or a regex/FTS metacharacter means the
+# query can't be a literal filesystem path, so skip the stat/walk below.
+_QUERY_PATH_HINT_RE = re.compile(r"[\s|*()\[\]^$+?\\=<>{}]")
+
+
+def _candidate_relpaths_for_query(query: str) -> list[str]:
+    """Path forms worth an existence check for a path-shaped query: as given
+    (leading slash stripped), and with one leading segment dropped -- a
+    phantom repo-name prefix (e.g. "/lemoncrow/benchmarks/x.sh" when the real
+    relpath is "benchmarks/x.sh") is a common way an agent mistypes a path.
+    """
+    stripped = query.strip().lstrip("/")
+    candidates = [stripped] if stripped else []
+    parts = stripped.split("/")
+    if len(parts) > 1:
+        trimmed = "/".join(parts[1:])
+        if trimmed and trimmed not in candidates:
+            candidates.append(trimmed)
+    return candidates
+
+
+def _lookup_unique_basename_in_index(engine: Any, basename: str) -> str | None:
+    """Unique indexed file whose basename is `basename`, via the code index's
+    `files` table -- a couple ms and deterministic, unlike a live filesystem
+    walk over a large repo (the `read`-tool suggestion helper below hits its
+    250ms/20k-file budget on this repo before finishing the walk, so which
+    file it lands on -- if any -- depends on OS directory-iteration order).
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"file:{engine.db_path}?mode=ro", uri=True, timeout=2.0)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT file_path FROM files WHERE repo_id = ? AND (file_path = ? OR file_path LIKE '%/' || ?) LIMIT 2",
+            (engine.repo_id, basename, basename),
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    return rows[0][0] if len(rows) == 1 else None
+
+
+def _resolve_query_as_existing_file(workspace_root: Path, query: str, engine: Any = None) -> str | None:
+    """When `query` names an existing repo file, return its workspace-relative
+    path so code_search can pin straight to it instead of ranking.
+
+    Tries the query verbatim as a relpath (and with one bogus leading segment
+    stripped), then -- when `engine` is given -- falls back to a unique
+    basename lookup against the code index. None when the query isn't
+    path-shaped or doesn't resolve to exactly one file.
+    """
+    q = query.strip()
+    if not q or _QUERY_PATH_HINT_RE.search(q) or ("/" not in q and "." not in q):
+        return None
+    root = workspace_root.resolve()
+    for candidate in _candidate_relpaths_for_query(q):
+        target = (root / candidate).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            continue  # escapes the workspace, e.g. "../../etc/passwd"
+        if target.is_file():
+            return str(target.relative_to(root))
+    if engine is not None:
+        basename = Path(q).name
+        if basename:
+            return _lookup_unique_basename_in_index(engine, basename)
+    return None
 
 
 def _suggest_paths_for_missing(workspace_root: Path, missing: str, *, limit: int = 3) -> list[str]:
@@ -6711,18 +6787,9 @@ def _normalize_edit_aliases(edit: dict[str, Any]) -> dict[str, Any]:
     return edit
 
 
-def _edit_descriptor_family(edit: dict[str, Any]) -> str:
-    is_legacy = "op" in edit and "file_path" not in edit and "cell_action" not in edit
-    return "legacy" if is_legacy else "rich"
-
-
-def _validate_edit_descriptor_families(edits: list[dict[str, Any]]) -> str:
+def _require_edits(edits: list[dict[str, Any]]) -> None:
     if not edits:
         raise _ToolArgumentError("edits must include at least one descriptor")
-    families = {_edit_descriptor_family(edit) for edit in edits}
-    if len(families) > 1:
-        raise _ToolArgumentError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
-    return families.pop()
 
 
 def _edit_verify_enabled(verify_flag: bool) -> bool:
@@ -6997,7 +7064,7 @@ def _applied_entry_path(entry: str | dict[str, Any]) -> str | None:
     """Extract the file path from a raw applied entry, tolerating both shapes.
 
     Entries can be dicts (``{"path": ...}`` / ``{"file": ...}`` / ``{"file_path": ...}``,
-    as emitted by ``apply_rich_edits`` and ``apply_batch_edit``) or already-compacted
+    as emitted by ``apply_rich_edits``) or already-compacted
     strings of the form ``"path:line,start-end"`` (as emitted by
     ``_compact_applied_entries``). A ``#10-20`` line suffix on the path is stripped so
     line-scoped edits to the same file collapse onto one path. Returns ``None`` when no
@@ -7225,9 +7292,8 @@ def tool_smart_edit(
     ranges resolve against the original snapshot. Use old_string/new_string only
     when no fresh range is available.
 
-    Descriptor families cannot be mixed:
+    Descriptor shapes:
       - Rich: {path|file_path, new|new_string, old|old_string?, replace?}
-      - Legacy: {path, op: replace|insert_after|replace_range, ...}
       - Structured: notebook cell, symbol, or projection edits
 
     Returns ordinary successful hunks as {applied: ["path:line,start-end", ...]};
@@ -7238,7 +7304,7 @@ def tool_smart_edit(
     # matches the active workspace.
     repo_root = _workspace_root()
     edits = [_normalize_edit_aliases(e) for e in edits]
-    family = _validate_edit_descriptor_families(edits)
+    _require_edits(edits)
 
     paths = _collect_touched_paths(edits, repo_root=repo_root)
     # Confine writes to the workspace root plus any additional directories from
@@ -7285,9 +7351,7 @@ def tool_smart_edit(
             if not _raw:
                 continue
             _spec = _parse_target(_raw)
-            _is_range = (_spec.start_line is not None and "new_string" in _ed) or str(
-                _ed.get("op") or ""
-            ) == "replace_range"
+            _is_range = _spec.start_line is not None and "new_string" in _ed
             if not _is_range:
                 continue
             try:
@@ -7330,14 +7394,9 @@ def tool_smart_edit(
             _edit_locks.enter_context(_lock)
         snapshots = _snapshot_paths(paths)
 
-        if family == "rich":
-            from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+        from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
-            result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
-        else:
-            from lemoncrow.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
-
-            result = apply_batch_edit(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
+        result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
 
         # Sync the long-lived engine's index-version cache so the next explore
         # call gets a cache miss and re-queries the FTS5 index (which the
@@ -9946,7 +10005,7 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             log_paths = f"{log_file} {log_file_stderr}"
     else:
         log_paths = log_file or log_file_stderr
-    log_ptr = f"; full: read {log_paths}" if log_paths and not spill_hint else ""
+    log_ptr = f"; full: {log_paths}" if log_paths and not spill_hint else ""
     if isinstance(tail_lines, int) and tail_lines > 0:
         parts.append(f"[tail: last {tail_lines} lines{log_ptr}]")
     if blocked:
@@ -10181,6 +10240,41 @@ def _lean_section(sec: dict[str, Any]) -> dict[str, Any]:
         "line": sec.get("line"),
         "end_line": sec.get("end_line"),
         "content": sec.get("content", ""),
+    }
+
+
+# Guards the whole-file fallback below against reading a pathological huge
+# file into memory -- downstream _outline_lean_view already caps rendered
+# size (_CODESEARCH_TOP2_MAX_CHARS), this only bounds the raw read.
+_CODESEARCH_FALLBACK_MAX_BYTES = 2_000_000
+
+
+def _whole_file_fallback_section(workspace_root: Path, relpath: str) -> dict[str, Any] | None:
+    """Whole-file source entry for a resolved-path code_search hit whose file
+    type carries no symbol index (shell scripts, markdown, config, ...), so
+    the engine's normal symbol pipeline returns zero source_sections for it.
+    Without this, a fast-path pin to a non-code file would resolve exact_match
+    correctly but ship no content -- the caller would still have to `read` it
+    themselves. Downstream outline/top2 shaping still bounds the size.
+    """
+    target = workspace_root / relpath
+    try:
+        if target.stat().st_size > _CODESEARCH_FALLBACK_MAX_BYTES:
+            return None
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return {
+        "path": relpath,
+        "sections": [
+            {
+                "path": relpath,
+                "qualified_name": None,
+                "line": 1,
+                "end_line": text.count("\n") + 1,
+                "content": text,
+            }
+        ],
     }
 
 
@@ -10474,11 +10568,29 @@ def tool_code_search(
         seed_list = []
     seed_files = seed_list or None
     engine = _code_context_engine(str(workspace_root))
-    result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=seed_files))
+    # Fast path: a query that's itself an existing repo file (verbatim path, a
+    # mistyped path with a bogus leading segment, or a unique basename) is
+    # pinned straight to that file instead of ranked -- only when the caller
+    # didn't already supply an explicit paths= scope, which takes precedence.
+    resolved_path = None if seed_files else _resolve_query_as_existing_file(workspace_root, query, engine)
+    explore_seeds = [resolved_path] if resolved_path else seed_files
+    result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=explore_seeds))
+    if resolved_path:
+        result["exact_match"] = True
     # Project the engine's rich candidate set to a lean, exact view so the agent
     # can go code_search -> edit without grep/read round-trips (seed files are
     # boosted to the top inside the view).
-    lean = _lean_code_search_view(result, max_files=max_files, seed_files=seed_files)
+    lean = _lean_code_search_view(result, max_files=max_files, seed_files=explore_seeds)
+    if resolved_path and not any(
+        isinstance(e, dict) and e.get("path") == resolved_path and e.get("sections") for e in (lean.get("files") or [])
+    ):
+        # Fast-path hit on a file type with no symbol index (e.g. a shell
+        # script) -- the engine surfaced it in candidate_files but rendered no
+        # source. Inject the whole file directly rather than making the agent
+        # follow up with a plain `read`.
+        fallback = _whole_file_fallback_section(workspace_root, resolved_path)
+        if fallback:
+            lean.setdefault("files", []).insert(0, fallback)
     # Outline shaping happens HERE (dict level, before any rendering) so the
     # compact text renderer and the JSON fallback stay in lockstep -- and BEFORE
     # savings, so an outlined section is never credited as a replaced read.
@@ -13372,7 +13484,7 @@ def _auto_init_workspace() -> None:
                 except (KeyError, ValueError):
                     continue
             try:
-                store.upsert_block(Playbook.model_validate(data))
+                store.knowledge.upsert_block(Playbook.model_validate(data))
             except (KeyError, ValueError):
                 continue
 
@@ -13381,7 +13493,7 @@ def _auto_init_workspace() -> None:
             if not isinstance(data, dict):
                 continue
             try:
-                store.upsert_rubric(Rubric.model_validate(data))
+                store.knowledge.upsert_rubric(Rubric.model_validate(data))
             except (KeyError, ValueError):
                 continue
 

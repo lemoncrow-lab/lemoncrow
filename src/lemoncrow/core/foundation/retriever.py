@@ -36,7 +36,7 @@ from lemoncrow.core.foundation._minhash import MinHash
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.core.foundation.renderer import render_block_for_agent
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 T = TypeVar("T")
 # Compact metadata describing one recalled item injected into context. Shared
@@ -390,7 +390,7 @@ def score_block(
 
 
 def retrieve(
-    store: ContextStore,
+    store: StoreBundle,
     ctx: TaskContext,
     *,
     limit: int = 5,
@@ -442,16 +442,16 @@ def retrieve(
     # 1. FTS5 keyword pre-filter using the task + errors as the query.
     query = " ".join([ctx.task, *ctx.errors]).strip()
     if query:
-        candidates.extend(store.search_blocks(query, limit=50))
+        candidates.extend(store.knowledge.search_blocks(query, limit=50))
 
     # 2. Always include all active blocks for the domain so triggers/scope
     #    can match even if FTS misses them.
     if ctx.domain:
-        candidates.extend(store.list_blocks(domain=ctx.domain))
+        candidates.extend(store.knowledge.list_blocks(domain=ctx.domain))
 
     # 3. Always load E3 (universal) blocks across all domains — they are
     #    standing rules that apply regardless of domain match.
-    candidates.extend(store.list_blocks(status="active"))
+    candidates.extend(store.knowledge.list_blocks(status="active"))
 
     # Deduplicate by id while preserving order.
     seen: set[str] = set()

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 # Window sizes (hardcoded for v1, configurable later per spec)
 _ROUTE_WINDOW = 5
@@ -265,7 +266,7 @@ def get_outcomes(session_id: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def emit_typed_lesson_candidate(
-    store: Any,
+    store: StoreBundle,
     *,
     kind: str,
     domain: str,
@@ -317,7 +318,7 @@ def emit_typed_lesson_candidate(
                 "route_outcomes": recurring,
             },
         )
-        store.upsert_lesson_candidate(candidate)
+        store.lessons.upsert_lesson_candidate(candidate)
         return candidate
 
     if kind == "cost-cap":
@@ -346,7 +347,7 @@ def emit_typed_lesson_candidate(
                 "breach_count": breach_count,
             },
         )
-        store.upsert_lesson_candidate(candidate)
+        store.lessons.upsert_lesson_candidate(candidate)
         return candidate
 
     raise ValueError(f"unsupported typed lesson candidate kind: {kind}")

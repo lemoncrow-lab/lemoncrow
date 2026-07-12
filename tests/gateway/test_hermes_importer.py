@@ -6,13 +6,13 @@ import json
 import sqlite3
 from pathlib import Path
 
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 from lemoncrow.gateway.hosts.session_parsers.hermes import (
     HermesImporter,
     find_hermes_sessions,
     serialize_hermes_session,
 )
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 _SCHEMA = """
 CREATE TABLE sessions (
@@ -130,11 +130,11 @@ def test_serialize_parses_as_normalized_turns(tmp_path: Path) -> None:
 
 def test_import_builds_trace_with_session_totals(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
-    store = ContextStore(tmp_path / "store")
+    store = build_sqlite_store_bundle(tmp_path / "store")
     store.init()
     imported = HermesImporter(store).import_all(db)
     assert len(imported) == 1
-    trace = store.get_trace(imported[0])
+    trace = store.history.get_trace(imported[0])
     assert trace is not None
     assert trace.host == "hermes"
     assert trace.session_id == "sess_abc"
@@ -150,7 +150,7 @@ def test_import_builds_trace_with_session_totals(tmp_path: Path) -> None:
 
 def test_reimport_dedups_until_new_activity(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
-    store = ContextStore(tmp_path / "store")
+    store = build_sqlite_store_bundle(tmp_path / "store")
     store.init()
     importer = HermesImporter(store)
     assert len(importer.import_all(db)) == 1
@@ -168,6 +168,6 @@ def test_reimport_dedups_until_new_activity(tmp_path: Path) -> None:
 
 
 def test_missing_db_returns_empty(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "store")
+    store = build_sqlite_store_bundle(tmp_path / "store")
     store.init()
     assert HermesImporter(store).import_all(tmp_path / "absent.db") == []

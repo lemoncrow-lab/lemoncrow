@@ -120,9 +120,9 @@ class TestLoadPackagedRubrics:
         assert res.status == "pass"
 
     def test_store_init_does_not_seed_packaged_rubrics(self, tmp_path: Path) -> None:
-        from lemoncrow.core.foundation.store import ContextStore
+        from lemoncrow.core.foundation.knowledge_store import KnowledgeStore
 
-        store = ContextStore(tmp_path)
+        store = KnowledgeStore(tmp_path)
         store.init()
 
         assert store.get_rubric("rubric_code_review") is None

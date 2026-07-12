@@ -21,6 +21,7 @@ from typing import Any
 
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.core.service.ingest_session import ingest_session_file
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.core.service.jobs import (
     JOB_BOOTSTRAP_CONTEXT,
     JOB_CONSOLIDATE_BLOCKS,
@@ -53,7 +54,7 @@ class Worker:
 
     def __init__(
         self,
-        store: Any,
+        store: StoreBundle,
         *,
         dispatch: dict[str, JobHandler] | None = None,
         poll_interval: float = 5.0,
@@ -85,7 +86,9 @@ class Worker:
 
         def bootstrap_context_handler(payload: dict[str, Any]) -> dict[str, Any]:
             repo_root = Path(str(payload.get("repo_root", ""))).resolve()
-            store_root = Path(getattr(self._store, "root", default_store_root())).resolve()
+            store_root = Path(
+                getattr(getattr(self._store, "jobs", None), "root", None) or default_store_root()
+            ).resolve()
             result = persist_bootstrap_plan(
                 repo_root,
                 make_memory_store(store_root),
@@ -100,7 +103,9 @@ class Worker:
             return ingest_session_file_service(file_path, self._store)
 
         def optimize_handler(payload: dict[str, Any]) -> dict[str, Any]:
-            store_root = Path(getattr(self._store, "root", default_store_root())).resolve()
+            store_root = Path(
+                getattr(getattr(self._store, "jobs", None), "root", None) or default_store_root()
+            ).resolve()
             host_raw = payload.get("host")
             host = str(host_raw).strip() or None if host_raw is not None else None
             days = int(payload.get("days", 7) or 7)
@@ -231,7 +236,7 @@ class Worker:
         Returns:
             The job ID that was processed, or *None* if the queue was empty.
         """
-        job_row = self._store.claim_job()
+        job_row = self._store.jobs.claim_job()
         if job_row is None:
             return None
 
@@ -242,8 +247,7 @@ class Worker:
 
         if job_type not in KNOWN_JOB_TYPES:
             error = f"unknown job type: {job_type!r}"
-            logger.error("Job %s failed: %s", job_id, error)
-            self._store.fail_job(job_id, error)
+            self._store.jobs.fail_job(job_id, error)
             return job_id
 
         handler = self._dispatch.get(job_type)
@@ -251,18 +255,18 @@ class Worker:
             # Job type is known but no handler registered — treat as transient.
             error = f"no handler registered for job type: {job_type!r}"
             logger.warning("Job %s: %s", job_id, error)
-            self._store.fail_job(job_id, error)
+            self._store.jobs.fail_job(job_id, error)
             return job_id
 
         try:
             result = handler(payload)
-            self._store.complete_job(job_id, result)
+            self._store.jobs.complete_job(job_id, result)
             logger.info("Job %s completed successfully", job_id)
         except Exception as exc:
             logging.exception("Recovered from broad exception handler")
             error_msg = f"{type(exc).__name__}: {exc}"
             logger.error("Job %s failed: %s", job_id, error_msg)
-            self._store.fail_job(job_id, error_msg)
+            self._store.jobs.fail_job(job_id, error_msg)
             return job_id
 
         return job_id

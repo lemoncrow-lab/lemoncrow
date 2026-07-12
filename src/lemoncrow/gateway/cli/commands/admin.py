@@ -580,7 +580,9 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
+            else timedelta(hours=amount)
+            if unit == "h"
+            else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -647,7 +649,7 @@ def init(
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     store.init()
-    click.echo(f"initialized LemonCrow store at {store.root}")
+    click.echo(f"initialized LemonCrow store at {store.knowledge.root}")
     if seed:
         block_files, rubric_files = _seed_resources()
         seeded_blocks: dict[str, Playbook] = {}
@@ -664,7 +666,7 @@ def init(
             seeded_blocks[block.id] = block
         n_b = 0
         for block in seeded_blocks.values():
-            store.upsert_block(block)
+            store.knowledge.upsert_block(block)
             n_b += 1
         n_r = 0
         for path in rubric_files:
@@ -673,7 +675,7 @@ def init(
                 rubric = Rubric.model_validate(data)
             except (KeyError, ValueError) as exc:
                 raise click.ClickException(f"invalid seed rubric {path}: {exc}") from exc
-            store.upsert_rubric(rubric)
+            store.knowledge.upsert_rubric(rubric)
             n_r += 1
         click.echo(f"seeded {n_b} playbooks and {n_r} rubrics")
     if index:
@@ -764,7 +766,9 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
     )
 
     root: Path = ctx.obj["root"]
-    store_ok = root.exists() and (root / "lemoncrow.db").exists()
+    from lemoncrow.core.foundation.knowledge_store import KnowledgeStore
+
+    store_ok = root.exists() and KnowledgeStore(root).db_path.exists()
     store_info: dict[str, Any] = {"ok": store_ok, "root": str(root), "exists": root.exists()}
     try:
         from lemoncrow.infra.storage.factory import create_store
@@ -1193,7 +1197,7 @@ def env_validate(ctx: click.Context, env_name: str) -> None:
     suffix = env_name[4:] if env_name.startswith("env_") else env_name
     candidates.append(f"rubric_{suffix}")
     for rubric_id in candidates:
-        if store.get_rubric(rubric_id) is not None:
+        if store.knowledge.get_rubric(rubric_id) is not None:
             click.echo(f"ok: {env_name}")
             return
     raise click.ClickException(f"unknown environment: {env_name}")
@@ -1205,7 +1209,7 @@ def env_validate(ctx: click.Context, env_name: str) -> None:
 def deprecate(ctx: click.Context, block_id: str) -> None:
     """Mark a block as deprecated."""
     store = _load_store(ctx.obj["root"])
-    if not store.update_block_status(block_id, "deprecated"):
+    if not store.knowledge.update_block_status(block_id, "deprecated"):
         raise click.ClickException(f"block not found: {block_id}")
     click.echo(f"deprecated {block_id}")
 
@@ -1216,7 +1220,7 @@ def deprecate(ctx: click.Context, block_id: str) -> None:
 def quarantine(ctx: click.Context, block_id: str) -> None:
     """Quarantine a block (will not be retrieved)."""
     store = _load_store(ctx.obj["root"])
-    if not store.update_block_status(block_id, "quarantined"):
+    if not store.knowledge.update_block_status(block_id, "quarantined"):
         raise click.ClickException(f"block not found: {block_id}")
     click.echo(f"quarantined {block_id}")
 

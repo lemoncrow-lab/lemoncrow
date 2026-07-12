@@ -1,8 +1,18 @@
-"""Store protocol — structural interface for all LemonCrow storage backends.
+"""Store protocol — structural interface for a single-file storage backend.
+
+Historical note: LemonCrow's SQLite storage is now physically split into six
+per-concern stores (history/knowledge/lessons/jobs/memory/telemetry, see
+``lemoncrow.infra.storage.bundle.StoreBundle``), each satisfying a narrower
+interface of its own (e.g. ``HistoryStore``, ``KnowledgeStore``). This
+Protocol predates that split and still describes the flat, single-file shape
+(playbooks/rubrics/traces on one object) used by backends -- such as
+``PostgresStore`` -- that are a single multi-writer database and so are not
+physically split. It is not implemented by ``StoreBundle`` itself; code that
+holds a ``StoreBundle`` reaches the store it needs via ``store.history``,
+``store.knowledge``, etc. instead of this Protocol.
 
 Any class that provides these methods satisfies StoreProtocol without
-needing to inherit from it.  Both SQLiteStore and PostgresStore implement
-this protocol.
+needing to inherit from it.
 
 Resources covered:
   playbooks, rubrics, traces            (core runtime)

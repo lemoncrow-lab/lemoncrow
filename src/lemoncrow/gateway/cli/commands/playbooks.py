@@ -9,7 +9,6 @@ import yaml
 
 from lemoncrow.core.foundation.models import Playbook, to_jsonable
 from lemoncrow.core.foundation.renderer import render_playbook_markdown
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli.commands._dev import dev_command as _dev_command
 from lemoncrow.gateway.cli.commands._dev import dev_group as _dev_group
 from lemoncrow.gateway.cli.commands._shared import _emit, _load_store, _parse_duration, require_pro
@@ -33,13 +32,15 @@ def _load_domain_manager(root: Path) -> Any:
 @click.pass_context
 def reembed(ctx: click.Context, dry_run: bool, batch_size: int, as_json: bool) -> None:
     """Back-fill legacy_stub embeddings for archival passages and lesson candidates."""
+    from lemoncrow.core.foundation.lessons_store import LessonsStore
+    from lemoncrow.core.foundation.memory_tables_store import MemoryTablesStore
     from lemoncrow.infra.embeddings.factory import make_embedder
 
     root: Path = ctx.obj["root"]
-    store = ContextStore(root)
+    store = LessonsStore(root)
     store.init()
-    # archival_passage lives in the dedicated memory.db; lesson_candidate in lemoncrow.db.
-    mem = ContextStore(root, db_name="memory.db")
+    # archival_passage lives in the dedicated memory db; lesson_candidate in the lessons db.
+    mem = MemoryTablesStore(root)
     mem.init()
     embedder = make_embedder()
     counts = {"archival_passage": 0, "lesson_candidate": 0, "dry_run": dry_run}
@@ -107,7 +108,7 @@ def add_playbook(ctx: click.Context, path: Path) -> None:
     if "id" not in data:
         data["id"] = Playbook.make_id(data["title"], data["domain"])
     block = Playbook.model_validate(data)
-    store.upsert_block(block)
+    store.knowledge.upsert_block(block)
     click.echo(f"upserted {block.id}")
 
 
@@ -228,7 +229,7 @@ def playbook_group() -> None:
 def block_list(ctx: click.Context, domain: str | None, include_deprecated: bool, as_json: bool) -> None:
     """List Playbooks."""
     store = _load_store(ctx.obj["root"])
-    blocks = store.list_blocks(domain=domain, include_deprecated=include_deprecated)
+    blocks = store.knowledge.list_blocks(domain=domain, include_deprecated=include_deprecated)
     if as_json:
         _emit([to_jsonable(b) for b in blocks], as_json=True)
         return
@@ -250,7 +251,7 @@ def block_add(ctx: click.Context, path: Path) -> None:
     if "id" not in data:
         data["id"] = Playbook.make_id(data["title"], data["domain"])
     block = Playbook.model_validate(data)
-    store.upsert_block(block)
+    store.knowledge.upsert_block(block)
     click.echo(f"upserted {block.id}")
 
 
@@ -262,14 +263,14 @@ def block_add(ctx: click.Context, path: Path) -> None:
 def playbook_extract(ctx: click.Context, trace_id: str, save: bool, as_json: bool) -> None:
     """Extract a candidate Playbook from a trace."""
     store = _load_store(ctx.obj["root"])
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     if trace is None:
         raise click.ClickException(f"trace not found: {trace_id}")
     from lemoncrow.core.foundation.extractor import extract_candidate
 
     candidate = extract_candidate(trace)
     if save:
-        store.upsert_block(candidate.block)
+        store.knowledge.upsert_block(candidate.block)
     payload = {
         "block": to_jsonable(candidate.block),
         "confidence": candidate.confidence,
@@ -293,7 +294,7 @@ def playbook_extract(ctx: click.Context, trace_id: str, save: bool, as_json: boo
 def list_blocks_cmd(ctx: click.Context, domain: str | None, include_deprecated: bool, as_json: bool) -> None:
     """List Playbooks."""
     store = _load_store(ctx.obj["root"])
-    blocks = store.list_blocks(domain=domain, include_deprecated=include_deprecated)
+    blocks = store.knowledge.list_blocks(domain=domain, include_deprecated=include_deprecated)
     if as_json:
         _emit([to_jsonable(b) for b in blocks], as_json=True)
         return

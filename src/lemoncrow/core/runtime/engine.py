@@ -41,8 +41,8 @@ from lemoncrow.core.foundation.retriever import (
     summarize_recalled_passages,
 )
 from lemoncrow.core.foundation.routing_models import RouteDecision, StepType, TaskType
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.runtime.run_ledger import RunLedger, iter_run_files
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 class LemonCrowRuntimeCore:
@@ -66,7 +66,7 @@ class LemonCrowRuntimeCore:
     ) -> None:
         resolved_root = default_store_root() if root is None else Path(root).resolve()
         self.root = resolved_root
-        self.store = ContextStore(self.root)
+        self.store = build_sqlite_store_bundle(self.root)
         self.store.init()
         # One-shot retriever over the workspace corpus. Defaults to the code
         # vertical (CodeContextEngine); any Retriever-conforming corpus
@@ -255,7 +255,7 @@ class LemonCrowRuntimeCore:
             self.tool_supervision.observe(cache_key, cached, cache_hit=True)
             return {"cached": True, **cached}
 
-        block_matches = self.store.search_blocks(query, limit=limit)
+        block_matches = self.store.knowledge.search_blocks(query, limit=limit)
         semantic_matches = self.semantic_memory.semantic_search(query, limit=limit)
         glob_matches = self._glob_search(query, limit=limit)
         snippets = self._snippet_search(query, limit=limit)

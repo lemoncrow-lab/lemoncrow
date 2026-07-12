@@ -5,12 +5,12 @@ from typing import Any
 
 from lemoncrow.core.capabilities.style_import.importer import import_files
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
-def test_style_import_flags_near_duplicates(store: ContextStore, tmp_path: Path) -> None:
-    store.upsert_block(
+def test_style_import_flags_near_duplicates(store: StoreBundle, tmp_path: Path) -> None:
+    store.knowledge.upsert_block(
         Playbook(
             id="rb-existing",
             title="Use Schemas At Boundaries",

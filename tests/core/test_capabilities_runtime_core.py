@@ -72,7 +72,7 @@ def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
     init_store_at(str(root))
     rt = LemonCrowRuntimeCore(root)
 
-    rt.store.record_trace(
+    rt.store.history.record_trace(
         Trace(
             id=Trace.make_id("Fix auth", "codex"),
             agent="codex",
@@ -83,7 +83,7 @@ def test_failure_analysis_clusters_and_matches(tmp_path: Path) -> None:
             commands_run=["pytest -q"],
         )
     )
-    rt.store.record_trace(
+    rt.store.history.record_trace(
         Trace(
             id=Trace.make_id("Fix auth retry", "codex"),
             agent="codex",

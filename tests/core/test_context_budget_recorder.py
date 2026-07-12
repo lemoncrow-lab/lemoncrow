@@ -14,10 +14,10 @@ from lemoncrow.core.capabilities.telemetry.context_budget import (
     ContextBudgetRecorder,
     RunSavings,
 )
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
-def test_context_budget_recorder_record(store: ContextStore) -> None:
+def test_context_budget_recorder_record(store: StoreBundle) -> None:
     """Test recording a single context budget record."""
     recorder = ContextBudgetRecorder(store)
 
@@ -35,7 +35,7 @@ def test_context_budget_recorder_record(store: ContextStore) -> None:
     )
 
     # Verify the record was persisted
-    records = store.list_context_budgets("test-run-1")
+    records = store.telemetry.list_context_budgets("test-run-1")
     assert len(records) == 1
     record = records[0]
     assert record.session_id == "test-run-1"
@@ -50,7 +50,7 @@ def test_context_budget_recorder_record(store: ContextStore) -> None:
     assert record.tool_calls == 2
 
 
-def test_context_budget_recorder_multiple_turns(store: ContextStore) -> None:
+def test_context_budget_recorder_multiple_turns(store: StoreBundle) -> None:
     """Test recording multiple turns in a run."""
     recorder = ContextBudgetRecorder(store)
 
@@ -83,13 +83,13 @@ def test_context_budget_recorder_multiple_turns(store: ContextStore) -> None:
     )
 
     # Verify both records were persisted
-    records = store.list_context_budgets("test-run-2")
+    records = store.telemetry.list_context_budgets("test-run-2")
     assert len(records) == 2
     assert records[0].turn_index == 0
     assert records[1].turn_index == 1
 
 
-def test_context_budget_recorder_aggregate_run(store: ContextStore) -> None:
+def test_context_budget_recorder_aggregate_run(store: StoreBundle) -> None:
     """Test aggregating metrics across a run."""
     recorder = ContextBudgetRecorder(store)
 
@@ -132,7 +132,7 @@ def test_context_budget_recorder_aggregate_run(store: ContextStore) -> None:
     }
 
 
-def test_context_budget_recorder_compact_method_totals(store: ContextStore) -> None:
+def test_context_budget_recorder_compact_method_totals(store: StoreBundle) -> None:
     recorder = ContextBudgetRecorder(store)
 
     recorder.record_compact_tool_output(
@@ -159,7 +159,7 @@ def test_context_budget_recorder_compact_method_totals(store: ContextStore) -> N
     assert savings.compact_method_totals == {"deterministic_truncate": 650}
 
 
-def test_context_budget_recorder_aggregate_empty_run(store: ContextStore) -> None:
+def test_context_budget_recorder_aggregate_empty_run(store: StoreBundle) -> None:
     """Test aggregating metrics for a run with no records."""
     recorder = ContextBudgetRecorder(store)
 
@@ -171,7 +171,7 @@ def test_context_budget_recorder_aggregate_empty_run(store: ContextStore) -> Non
     assert savings.lever_totals == {}
 
 
-def test_context_budget_record_with_zero_savings(store: ContextStore) -> None:
+def test_context_budget_record_with_zero_savings(store: StoreBundle) -> None:
     """Test recording a turn with zero lever savings."""
     recorder = ContextBudgetRecorder(store)
 
@@ -188,7 +188,7 @@ def test_context_budget_record_with_zero_savings(store: ContextStore) -> None:
         tool_calls=1,
     )
 
-    records = store.list_context_budgets("test-run-4")
+    records = store.telemetry.list_context_budgets("test-run-4")
     assert len(records) == 1
     assert records[0].lever_savings == {}
 
@@ -210,7 +210,7 @@ def test_run_savings_to_dict() -> None:
     assert result["turn_count"] == 2
 
 
-def test_context_budget_get_single_record(store: ContextStore) -> None:
+def test_context_budget_get_single_record(store: StoreBundle) -> None:
     """Test retrieving a single ContextBudget record by ID."""
     recorder = ContextBudgetRecorder(store)
 
@@ -227,17 +227,17 @@ def test_context_budget_get_single_record(store: ContextStore) -> None:
         tool_calls=1,
     )
 
-    records = store.list_context_budgets("test-run-5")
+    records = store.telemetry.list_context_budgets("test-run-5")
     record_id = records[0].id
 
     # Retrieve by ID
-    retrieved = store.get_context_budget(record_id)
+    retrieved = store.telemetry.get_context_budget(record_id)
     assert retrieved is not None
     assert retrieved.id == record_id
     assert retrieved.session_id == "test-run-5"
 
     # Non-existent record
-    non_existent = store.get_context_budget("non-existent-id")
+    non_existent = store.telemetry.get_context_budget("non-existent-id")
     assert non_existent is None
 
 

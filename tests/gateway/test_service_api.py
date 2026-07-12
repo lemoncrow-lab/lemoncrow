@@ -22,7 +22,7 @@ from lemoncrow.core.capabilities.swarm.models import (
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.core.foundation.paths import resolve_session_state_path
 from lemoncrow.core.service.api import create_app
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.infra.storage.bundle import StoreBundle, build_sqlite_store_bundle
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -38,25 +38,25 @@ FastAPITestClient = pytest.importorskip(
 
 
 @pytest.fixture()
-def store(tmp_path: Path) -> SQLiteStore:
-    st = SQLiteStore(tmp_path / ".lemoncrow")
+def store(tmp_path: Path) -> StoreBundle:
+    st = build_sqlite_store_bundle(tmp_path / ".lemoncrow")
     st.init()
     return st
 
 
 @pytest.fixture()
-def app_no_auth(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def app_no_auth(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """App with auth disabled."""
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    return cast("TestClient", FastAPITestClient(create_app(store_root=store.root)))
+    return cast("TestClient", FastAPITestClient(create_app(store_root=store.knowledge.root)))
 
 
 @pytest.fixture()
-def app_with_auth(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def app_with_auth(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """App with auth enabled and known key."""
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "true")
     monkeypatch.setenv("LEMONCROW_API_KEY", "test-secret-key-123")
-    return cast("TestClient", FastAPITestClient(create_app(store_root=store.root)))
+    return cast("TestClient", FastAPITestClient(create_app(store_root=store.knowledge.root)))
 
 
 AUTH_HEADERS = {"Authorization": "Bearer test-secret-key-123"}
@@ -113,9 +113,9 @@ def test_overview_accessible_no_auth(app_no_auth: TestClient) -> None:
     assert "total_blocks" in data
 
 
-def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_status_matches_non_dev_tool_visibility(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    app = create_app(store_root=store.root)
+    app = create_app(store_root=store.knowledge.root)
     route = next(route for route in app.routes if getattr(route, "path", "") == "/mcp/status")
 
     tools = route.endpoint()
@@ -131,10 +131,10 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: SQLiteStore, monkeypa
     assert "web_fetch" in names
 
 
-def test_workflow_current_and_snapshot_actions(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workflow_current_and_snapshot_actions(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    monkeypatch.setenv("LEMONCROW_ROOT", str(store.root))
-    workspace = store.root / "workspace"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store.knowledge.root))
+    workspace = store.knowledge.root / "workspace"
     workspace.mkdir()
     monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
     state_path = resolve_session_state_path(workspace)
@@ -216,7 +216,7 @@ def test_workflow_current_and_snapshot_actions(store: SQLiteStore, monkeypatch: 
         ),
         encoding="utf-8",
     )
-    client = cast("TestClient", FastAPITestClient(create_app(store_root=store.root)))
+    client = cast("TestClient", FastAPITestClient(create_app(store_root=store.knowledge.root)))
 
     current = client.get("/v1/workflow/current")
     assert current.status_code == 200
@@ -239,9 +239,9 @@ def test_workflow_current_and_snapshot_actions(store: SQLiteStore, monkeypatch: 
     assert stopped_payload["summary"]["stop_reason"] == "user cancelled"
 
 
-def test_hosts_endpoint_lists_supported_integrations(store: SQLiteStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hosts_endpoint_lists_supported_integrations(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
-    app = create_app(store_root=store.root)
+    app = create_app(store_root=store.knowledge.root)
     route = next(route for route in app.routes if getattr(route, "path", "") == "/hosts")
 
     hosts = route.endpoint()
@@ -327,7 +327,7 @@ def test_rescue_returns_result(app_no_auth: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_trace_record_persists(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_record_persists(app_no_auth: TestClient, store: StoreBundle) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -346,12 +346,12 @@ def test_trace_record_persists(app_no_auth: TestClient, store: SQLiteStore) -> N
     trace_id = data["id"]
 
     # Verify it was stored.
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     assert trace is not None
     assert trace.status == "success"
 
 
-def test_trace_redacts_secrets(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_redacts_secrets(app_no_auth: TestClient, store: StoreBundle) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -363,12 +363,12 @@ def test_trace_redacts_secrets(app_no_auth: TestClient, store: SQLiteStore) -> N
     )
     assert resp.status_code == 200
     trace_id = resp.json()["id"]
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     assert trace is not None
     assert "sk-supersecret" not in trace.task
 
 
-def test_trace_record_accepts_legacy_run_id(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_record_accepts_legacy_run_id(app_no_auth: TestClient, store: StoreBundle) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -382,12 +382,12 @@ def test_trace_record_accepts_legacy_run_id(app_no_auth: TestClient, store: SQLi
     assert resp.status_code == 200
     trace_id = resp.json()["id"]
 
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     assert trace is not None
     assert trace.session_id == "legacy-run-001"
 
 
-def test_trace_record_normalizes_legacy_strength_confidence(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_record_normalizes_legacy_strength_confidence(app_no_auth: TestClient, store: StoreBundle) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -401,12 +401,12 @@ def test_trace_record_normalizes_legacy_strength_confidence(app_no_auth: TestCli
     assert resp.status_code == 200
     trace_id = resp.json()["id"]
 
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     assert trace is not None
     assert trace.trace_confidence == "manual"
 
 
-def test_trace_record_accepts_mcp_context_fields_and_learnings(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_trace_record_accepts_mcp_context_fields_and_learnings(app_no_auth: TestClient, store: StoreBundle) -> None:
     resp = app_no_auth.post(
         "/v1/traces",
         json={
@@ -430,7 +430,7 @@ def test_trace_record_accepts_mcp_context_fields_and_learnings(app_no_auth: Test
     assert resp.status_code == 200
     trace_id = resp.json()["id"]
 
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     assert trace is not None
     assert trace.trace_confidence == "manual"
     assert trace.capture_sources == ["mcp"]
@@ -444,7 +444,7 @@ def test_trace_record_accepts_mcp_context_fields_and_learnings(app_no_auth: Test
 
 def test_analytics_day_windows_use_calendar_days(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.capabilities.pricing import usage_cost_usd
     from lemoncrow.core.foundation.models import Trace
@@ -454,10 +454,10 @@ def test_analytics_day_windows_use_calendar_days(
     yesterday_end = today_start_local - timedelta(minutes=1)
     today_early = today_start_local + timedelta(minutes=1)
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-yesterday-recent",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task="yesterday but within 24h",
@@ -469,10 +469,10 @@ def test_analytics_day_windows_use_calendar_days(
         ),
         write_json=False,
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-today-current",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task="today only",
@@ -514,14 +514,14 @@ def test_analytics_day_windows_use_calendar_days(
 
 def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import ToolCall, Trace
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-codex-stub",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="codex",
             domain="coding",
             task="prompt only",
@@ -530,10 +530,10 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
         ),
         write_json=False,
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-codex-usage",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="codex",
             domain="coding",
             task="real codex usage",
@@ -547,10 +547,10 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
         ),
         write_json=False,
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-claude-usage",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="claude",
             domain="coding",
             task="real claude usage",
@@ -587,7 +587,7 @@ def test_dashboard_excludes_prompt_only_stub_sessions_from_usage_breakdowns(
 
 def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.capabilities.pricing import usage_cost_usd
     from lemoncrow.core.foundation.models import Trace
@@ -595,11 +595,11 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
     created_at = datetime.now(UTC)
     expected_cost = usage_cost_usd("gpt-5.4", input_tokens=120, output_tokens=20)
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-copilot-session-primary",
             session_id="copilot-session-1",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task="priced copilot session",
@@ -611,11 +611,11 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
         ),
         write_json=False,
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-copilot-session-transcript",
             session_id="copilot-session-1",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="copilot",
             domain="coding",
             task="prompt-only transcript stub",
@@ -641,16 +641,16 @@ def test_dashboard_collapses_duplicate_trace_rows_into_one_session(
 
 def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import ModelUsage, Trace
 
     created_at = datetime.now(UTC)
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-cursor-family",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="cursor",
             domain="coding",
             task="cursor family usage",
@@ -669,10 +669,10 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
         ),
         write_json=False,
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-cursor-agent-family",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="cursor-agent",
             domain="coding",
             task="cursor agent family usage",
@@ -706,15 +706,15 @@ def test_dashboard_rolls_cursor_agent_into_cursor_host_family(
 
 def test_dashboard_returns_hourly_usage_buckets(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import Trace
 
     created_at = datetime.now(UTC).replace(minute=15, second=0, microsecond=0)
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-hourly-usage",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="codex",
             domain="coding",
             task="hourly dashboard usage",
@@ -734,14 +734,14 @@ def test_dashboard_returns_hourly_usage_buckets(
     assert hourly[expected_hour]["sessions"] == 1
 
 
-def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: StoreBundle) -> None:
     from lemoncrow.core.capabilities.pricing import usage_cost_usd
     from lemoncrow.core.foundation.models import ToolCall, Trace
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-summary-priced",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="claude",
             domain="coding",
             task="summary pricing",
@@ -766,14 +766,14 @@ def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: 
 
 def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import ModelUsage, Trace
 
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="trace-mixed-model-dashboard",
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="gemini",
             domain="coding",
             task="mixed model session",
@@ -825,7 +825,7 @@ def test_list_blocks_empty(app_no_auth: TestClient) -> None:
     assert isinstance(resp.json(), list)
 
 
-def test_get_block_from_compat_endpoints(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_get_block_from_compat_endpoints(app_no_auth: TestClient, store: StoreBundle) -> None:
     from lemoncrow.core.foundation.models import Playbook
 
     block = Playbook(
@@ -836,7 +836,7 @@ def test_get_block_from_compat_endpoints(app_no_auth: TestClient, store: SQLiteS
         triggers=["api"],
         procedure=["Step 1", "Step 2"],
     )
-    store.upsert_block(block, write_markdown=False)
+    store.knowledge.upsert_block(block, write_markdown=False)
 
     resp = app_no_auth.get("/blocks")
     assert resp.status_code == 200
@@ -861,7 +861,7 @@ def test_run_rubric_not_found(app_no_auth: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_run_rubric_pass(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_run_rubric_pass(app_no_auth: TestClient, store: StoreBundle) -> None:
     from lemoncrow.core.foundation.models import Rubric
 
     rubric = Rubric(
@@ -870,7 +870,7 @@ def test_run_rubric_pass(app_no_auth: TestClient, store: SQLiteStore) -> None:
         required_checks=["check_a"],
         block_if_missing=["check_a"],
     )
-    store.upsert_rubric(rubric, write_yaml=False)
+    store.knowledge.upsert_rubric(rubric, write_yaml=False)
 
     resp = app_no_auth.post(
         "/v1/rubrics/run",
@@ -891,7 +891,7 @@ def test_get_trace_not_found(app_no_auth: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_get_trace_by_id(app_no_auth: TestClient, store: SQLiteStore) -> None:
+def test_get_trace_by_id(app_no_auth: TestClient, store: StoreBundle) -> None:
     from lemoncrow.core.foundation.models import Trace
 
     trace = Trace(
@@ -906,7 +906,7 @@ def test_get_trace_by_id(app_no_auth: TestClient, store: SQLiteStore) -> None:
         diff_summary="added image resize",
         output_summary="images resized successfully",
     )
-    store.record_trace(trace, write_json=False)
+    store.history.record_trace(trace, write_json=False)
 
     resp = app_no_auth.get("/v1/traces/trace-extract-test")
     assert resp.status_code == 200
@@ -917,7 +917,7 @@ def test_get_trace_by_id(app_no_auth: TestClient, store: SQLiteStore) -> None:
 
 def test_compat_ledger_merges_main_and_subagent_artifacts(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import RawArtifact, Trace
 
@@ -950,7 +950,7 @@ def test_compat_ledger_merges_main_and_subagent_artifacts(
         created_at=created_at,
         source_path="/tmp/subagent-session.jsonl",
     )
-    store.record_raw_artifact(
+    store.history.record_raw_artifact(
         main_artifact,
         "\n".join(
             [
@@ -975,7 +975,7 @@ def test_compat_ledger_merges_main_and_subagent_artifacts(
             ]
         ),
     )
-    store.record_raw_artifact(
+    store.history.record_raw_artifact(
         subagent_artifact,
         "\n".join(
             [
@@ -1004,7 +1004,7 @@ def test_compat_ledger_merges_main_and_subagent_artifacts(
             ]
         ),
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="claude-sess-123",
             session_id="sess-123",
@@ -1082,7 +1082,7 @@ def test_file_projection_endpoint_requires_range_for_range_view(
 
 def test_compat_ledger_keeps_copilot_tool_result_content(
     app_no_auth: TestClient,
-    store: SQLiteStore,
+    store: StoreBundle,
 ) -> None:
     from lemoncrow.core.foundation.models import RawArtifact, Trace
 
@@ -1101,7 +1101,7 @@ def test_compat_ledger_keeps_copilot_tool_result_content(
         created_at=created_at,
         source_path="/tmp/events.jsonl",
     )
-    store.record_raw_artifact(
+    store.history.record_raw_artifact(
         artifact,
         "\n".join(
             [
@@ -1136,7 +1136,7 @@ def test_compat_ledger_keeps_copilot_tool_result_content(
             ]
         ),
     )
-    store.record_trace(
+    store.history.record_trace(
         Trace(
             id="copilot-copilot-sess-1",
             session_id="copilot-sess-1",

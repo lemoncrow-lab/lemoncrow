@@ -174,7 +174,7 @@ def worker_enqueue(
 
     store = create_store(ctx.obj["root"])
     store.init()
-    job_id = store.enqueue_job(job_type, payload_data, max_attempts=max_attempts)
+    job_id = store.jobs.enqueue_job(job_type, payload_data, max_attempts=max_attempts)
     result = {
         "job_id": job_id,
         "job_type": job_type,
@@ -195,7 +195,7 @@ def worker_list(ctx: click.Context, status: str | None, job_type: str | None, li
 
     store = create_store(ctx.obj["root"])
     store.init()
-    jobs = store.list_jobs(status=status, job_type=job_type, limit=limit)
+    jobs = store.jobs.list_jobs(status=status, job_type=job_type, limit=limit)
     if as_json:
         _emit(jobs, as_json=True)
         return

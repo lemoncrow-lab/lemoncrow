@@ -246,8 +246,8 @@ def test_mcp_server_downgrades_full_live_without_hooks(tmp_path: Path) -> None:
         )
 
         # Verify the stored trace was downgraded
-        assert fake_store.record_trace.called
-        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert fake_store.history.record_trace.called
+        stored_trace = fake_store.history.record_trace.call_args[0][0]
         assert stored_trace.trace_confidence == "mcp_live", "full_live without hooks must be downgraded to mcp_live"
         assert "hooks" in stored_trace.missing_surfaces, "hooks must appear in missing_surfaces after downgrade"
 
@@ -293,8 +293,8 @@ def test_mcp_server_record_trace_accepts_string_tool_names(tmp_path: Path) -> No
             }
         )
 
-        assert fake_store.record_trace.called
-        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert fake_store.history.record_trace.called
+        stored_trace = fake_store.history.record_trace.call_args[0][0]
         assert [tool.name for tool in stored_trace.tools_called] == ["sed", "pytest"]
         assert [tool.args_hash for tool in stored_trace.tools_called] == ["", ""]
         assert [tool.count for tool in stored_trace.tools_called] == [1, 2]
@@ -353,8 +353,8 @@ def test_mcp_server_record_trace_persists_and_archives_learnings(tmp_path: Path)
             }
         )
 
-        assert fake_store.record_trace.called
-        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert fake_store.history.record_trace.called
+        stored_trace = fake_store.history.record_trace.call_args[0][0]
         assert [learning.text for learning in stored_trace.learnings] == [
             "Focused regressions worked.",
             "Relying on output_summary hid the actual lesson.",
@@ -401,8 +401,8 @@ def test_mcp_server_record_trace_accepts_legacy_run_id(tmp_path: Path) -> None:
             }
         )
 
-        assert fake_store.record_trace.called
-        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert fake_store.history.record_trace.called
+        stored_trace = fake_store.history.record_trace.call_args[0][0]
         assert stored_trace.session_id == "legacy-run-001"
 
 
@@ -435,7 +435,7 @@ def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path:
 
         tool_record_trace(
             {
-                "agent": "lc:code",
+                "agent": "lemoncrow:code",
                 "domain": "coding",
                 "task": "accept legacy confidence strength",
                 "status": "success",
@@ -443,6 +443,6 @@ def test_mcp_server_record_trace_normalizes_legacy_strength_confidence(tmp_path:
             }
         )
 
-        assert fake_store.record_trace.called
-        stored_trace = fake_store.record_trace.call_args[0][0]
+        assert fake_store.history.record_trace.called
+        stored_trace = fake_store.history.record_trace.call_args[0][0]
         assert stored_trace.trace_confidence == "manual"

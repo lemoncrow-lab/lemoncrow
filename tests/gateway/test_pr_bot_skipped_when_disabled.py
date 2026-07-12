@@ -8,8 +8,8 @@ from click.testing import CliRunner
 
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,7 +25,7 @@ def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeyp
     init = runner.invoke(cli, ["--root", str(root), "init"])
     assert init.exit_code == 0, init.output
 
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     block = Playbook(
         id="rb.lesson.disabled",
         title="Disabled path block",
@@ -47,7 +47,7 @@ def test_pr_bot_skips_when_disabled_without_side_effects(tmp_path: Path, monkeyp
         confidence=0.8,
         status="approved",
     )
-    store.upsert_lesson_candidate(lesson)
+    store.lessons.upsert_lesson_candidate(lesson)
 
     env = {
         "LEMONCROW_LESSON_PR_BOT_ENABLED": "",

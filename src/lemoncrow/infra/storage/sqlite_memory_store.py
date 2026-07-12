@@ -16,8 +16,8 @@ from lemoncrow.core.foundation.memory_models import (
     MemoryRecall,
     RunMemoryFrame,
 )
+from lemoncrow.core.foundation.memory_tables_store import MemoryTablesStore
 from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
 
 
 def _iso(dt: datetime) -> str:
@@ -47,15 +47,15 @@ def _validate_embedding(vector: list[float] | None) -> None:
 
 
 # Curated memory (memory_block, archival_passage, ...) lives in its own SQLite
-# file so its writes never contend with the large trace history in lemoncrow.db.
-MEMORY_DB_NAME = "memory.db"
+# file so its writes never contend with the large trace history.
+MEMORY_DB_NAME = "lemoncrow_memory.db"
 
 
 class SqliteMemoryStore:
     """SQLite memory store backed by a dedicated LemonCrow memory database file."""
 
     def __init__(self, root: str | Path, *, db_name: str = MEMORY_DB_NAME) -> None:
-        self._store = SQLiteStore(Path(root), db_name=db_name)
+        self._store = MemoryTablesStore(Path(root), db_name=db_name)
         self._store.init()
 
     @property

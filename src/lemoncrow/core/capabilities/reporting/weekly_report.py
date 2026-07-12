@@ -26,7 +26,7 @@ from lemoncrow.core.foundation.models import (
     Trace,
     ValidationResult,
 )
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 _CONTEXT_TOOL_NAMES = {"reasoning", "get_context", "context"}
 _RESCUE_TOOL_NAMES = {"rescue_failure", "rescue"}
@@ -110,7 +110,7 @@ class Report(BaseModel):
 def generate_report(
     since: timedelta,
     *,
-    store: ContextStore,
+    store: StoreBundle,
     now: datetime | None = None,
     repo_root: Path | None = None,
     git_sha: str | None = None,
@@ -240,9 +240,9 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _list_traces_between(store: ContextStore, start: datetime, end: datetime) -> list[Trace]:
+def _list_traces_between(store: StoreBundle, start: datetime, end: datetime) -> list[Trace]:
     # Traces live in the file-based session store; window the upper bound in Python.
-    return [trace for trace in store.list_traces(since=start, limit=100_000) if trace.created_at < end]
+    return [trace for trace in store.history.list_traces(since=start, limit=100_000) if trace.created_at < end]
 
 
 def _rubric_rates(traces: Iterable[Trace]) -> tuple[RateMetric, list[DomainRubricRate]]:
@@ -270,8 +270,8 @@ def _rubric_rates(traces: Iterable[Trace]) -> tuple[RateMetric, list[DomainRubri
     return RateMetric(passed=passed, total=total, pass_rate=_rate(passed, total)), domain_rates
 
 
-def _top_playbooks(store: ContextStore, traces: Iterable[Trace]) -> list[PlaybookRetrieval]:
-    known_blocks = {block.id: block for block in store.list_blocks(include_deprecated=True)}
+def _top_playbooks(store: StoreBundle, traces: Iterable[Trace]) -> list[PlaybookRetrieval]:
+    known_blocks = {block.id: block for block in store.knowledge.list_blocks(include_deprecated=True)}
     counts: Counter[str] = Counter()
     for trace in traces:
         for tool in trace.tools_called:
@@ -384,14 +384,14 @@ def _trace_file_paths(trace: Trace) -> list[str]:
     return list(dict.fromkeys(paths))
 
 
-def _pending_lesson_count(store: ContextStore) -> int:
-    with store._connect() as conn:
+def _pending_lesson_count(store: StoreBundle) -> int:
+    with store.lessons._connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM lesson_candidate WHERE status = 'inbox'").fetchone()
     return int(row["n"] if row is not None else 0)
 
 
-def _top_lesson_candidates(store: ContextStore) -> list[LessonCandidateSummary]:
-    candidates = store.list_lesson_candidates(status="inbox", limit=500)
+def _top_lesson_candidates(store: StoreBundle) -> list[LessonCandidateSummary]:
+    candidates = store.lessons.list_lesson_candidates(status="inbox", limit=500)
     candidates.sort(key=lambda item: (-_cluster_size(item), item.created_at, item.id))
     return [
         LessonCandidateSummary(
@@ -430,7 +430,7 @@ def _rescue_rate(traces: list[Trace]) -> float | None:
     return rescue_traces / len(traces)
 
 
-def _average_context_budget_usage(store: ContextStore, traces: Iterable[Trace]) -> float | None:
+def _average_context_budget_usage(store: StoreBundle, traces: Iterable[Trace]) -> float | None:
     input_tokens = 0
     naive_tokens = 0
     seen_session_ids: set[str] = set()
@@ -438,7 +438,7 @@ def _average_context_budget_usage(store: ContextStore, traces: Iterable[Trace]) 
         if not trace.session_id or trace.session_id in seen_session_ids:
             continue
         seen_session_ids.add(trace.session_id)
-        for record in store.list_context_budgets(trace.session_id):
+        for record in store.telemetry.list_context_budgets(trace.session_id):
             if record.naive_input_tokens <= 0:
                 continue
             input_tokens += int(record.input_tokens)

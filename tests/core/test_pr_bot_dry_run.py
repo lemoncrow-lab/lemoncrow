@@ -7,12 +7,12 @@ from pathlib import Path
 from lemoncrow.core.capabilities.lesson_promotion.pr_bot import LessonPrBot
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
-    store = ContextStore(root)
+    store = build_sqlite_store_bundle(root)
     store.init()
 
     block = Playbook(
@@ -36,7 +36,7 @@ def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:
         confidence=0.9,
         status="approved",
     )
-    store.upsert_lesson_candidate(candidate)
+    store.lessons.upsert_lesson_candidate(candidate)
 
     calls: list[list[str]] = []
 

@@ -118,7 +118,7 @@ class LocalClient(LemonCrowClient):
         )
 
     def run_rubric_gate(self, *, rubric_id: str, checks: dict[str, bool | None]) -> RubricResult:
-        rubric = self.store.get_rubric(rubric_id)
+        rubric = self.store.knowledge.get_rubric(rubric_id)
         if rubric is None:
             raise KeyError(f"rubric not found: {rubric_id}")
         return run_rubric(rubric, checks)
@@ -158,7 +158,7 @@ class LocalClient(LemonCrowClient):
                 "learnings": learnings or [],
             }
         )
-        self.store.record_trace(trace)
+        self.store.history.record_trace(trace)
         ingest_failed_trace(self.store, trace)
         return TraceRecordResult(id=trace.id)
 
@@ -295,22 +295,22 @@ class LocalClient(LemonCrowClient):
         domain: str | None = None,
         include_deprecated: bool = False,
     ) -> list[Playbook]:
-        return self.store.list_blocks(domain=domain, include_deprecated=include_deprecated)
+        return self.store.knowledge.list_blocks(domain=domain, include_deprecated=include_deprecated)
 
     def _search_playbooks(self, *, query: str, limit: int = 20) -> list[Playbook]:
-        return self.store.search_blocks(query, limit=limit)
+        return self.store.knowledge.search_blocks(query, limit=limit)
 
     def _get_playbook(self, block_id: str) -> Playbook | None:
-        return self.store.get_block(block_id)
+        return self.store.knowledge.get_block(block_id)
 
     def _list_rubrics(self, *, domain: str | None = None) -> list[Rubric]:
-        return self.store.list_rubrics(domain=domain)
+        return self.store.knowledge.list_rubrics(domain=domain)
 
     def _get_rubric(self, rubric_id: str) -> Rubric | None:
-        return self.store.get_rubric(rubric_id)
+        return self.store.knowledge.get_rubric(rubric_id)
 
     def _get_trace(self, trace_id: str) -> Trace | None:
-        return self.store.get_trace(trace_id)
+        return self.store.history.get_trace(trace_id)
 
     def _list_traces(
         self,
@@ -319,7 +319,7 @@ class LocalClient(LemonCrowClient):
         status: str | None = None,
         limit: int = 50,
     ) -> list[Trace]:
-        return self.store.list_traces(domain=domain, status=status, limit=limit)
+        return self.store.history.list_traces(domain=domain, status=status, limit=limit)
 
     def _list_evals(self, *, domain: str | None = None) -> list[dict[str, Any]]:
         evals_dir = self.root / "evals"

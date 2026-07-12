@@ -22,7 +22,7 @@ from lemoncrow.core.capabilities.context_compression.sleeptime import summarize_
 from lemoncrow.core.capabilities.tool_supervision.compact_output import compact
 from lemoncrow.infra.internal_llm import ollama_client
 from lemoncrow.infra.internal_llm.ollama_client import OllamaUnavailable
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 pytestmark = pytest.mark.slow
 
@@ -231,13 +231,13 @@ def test_real_ollama_model_backed_paths() -> None:
 
 def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
-    SQLiteStore(root).init()
+    build_sqlite_store_bundle(root).init()
 
     with _live_service(root) as (_, base_url):
         status, block = _request_json(
             "POST",
             f"{base_url}/v1/memory/blocks",
-            {"agent_id": "lc:code", "label": "race", "value": "v1", "actor": "test"},
+            {"agent_id": "lemoncrow:code", "label": "race", "value": "v1", "actor": "test"},
         )
         assert status == 200
         version = int(block["version"])
@@ -247,7 +247,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
                 "POST",
                 f"{base_url}/v1/memory/blocks",
                 {
-                    "agent_id": "lc:code",
+                    "agent_id": "lemoncrow:code",
                     "label": "race",
                     "value": value,
                     "expected_version": version,
@@ -263,7 +263,7 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
 
         status, final_block = _request_json(
             "GET",
-            f"{base_url}/v1/memory/blocks?agent_id=lc:code&label=race",
+            f"{base_url}/v1/memory/blocks?agent_id=lemoncrow:code&label=race",
         )
         assert status == 200
         assert final_block["value"] in {"winner-a", "winner-b"}
@@ -287,13 +287,13 @@ def test_live_service_concurrency_and_race_behavior(tmp_path: Path) -> None:
         trace_ids = {payload["id"] for _, payload in trace_results}
         assert len(trace_ids) == 24
 
-    traces = SQLiteStore(root).list_traces(limit=100)
+    traces = build_sqlite_store_bundle(root).history.list_traces(limit=100)
     assert len([trace for trace in traces if trace.task.startswith("concurrent-trace-")]) == 24
 
 
 def test_service_restart_preserves_traces_after_crash(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
-    SQLiteStore(root).init()
+    build_sqlite_store_bundle(root).init()
 
     with _live_service(root) as (process, base_url):
         status, payload = _request_json(
@@ -390,7 +390,7 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
 
 def test_docker_deploy_load_latency_and_stability(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
-    SQLiteStore(root).init()
+    build_sqlite_store_bundle(root).init()
 
     tag = f"lemoncrow-api-test:{uuid.uuid4().hex[:8]}"
     name = f"lemoncrow-api-test-{uuid.uuid4().hex[:8]}"
