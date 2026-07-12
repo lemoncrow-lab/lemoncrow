@@ -144,4 +144,4 @@ def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
     )
 
     toasts = json.loads(result.stdout)
-    assert any(toast["body"]["title"] == "LemonCrow status" for toast in toasts)
+    assert any(toast["body"]["title"] == "lc status" for toast in toasts)

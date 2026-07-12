@@ -37,6 +37,6 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
-Host tools disabled — use LemonCrow: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
+Host tools disabled — use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
 
 Final element of every reply: the fenced JSON verdict — nothing after it.

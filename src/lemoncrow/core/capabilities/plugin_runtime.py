@@ -1364,7 +1364,7 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     from lemoncrow.core.capabilities.savings_summary import _fmt_usd, estimate_time_saved_seconds, fmt_duration
 
     lines = [
-        "LemonCrow session idle.",
+        "lc session idle.",
         f"{prompt_turns} prompt turn{'s' if prompt_turns != 1 else ''} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''}",
         f"savings: {_fmt_usd(saved_usd)} · {_codex_fmt_tokens(tokens_saved)} tokens saved · {calls_avoided} calls avoided",
         f"tools: {_codex_tools_text(tools)}",
@@ -1615,7 +1615,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     activity = f"{turn_part} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''} ({tool_source})"
 
     lines = [
-        "LemonCrow session complete.",
+        "lc session complete.",
         activity,
     ]
     if total_tokens > 0:
