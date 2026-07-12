@@ -68,7 +68,7 @@ if $PRINT_ONLY; then
     echo "   Source: ${AGENTS_SOURCE}"
     echo ""
     echo "2. Install the Git prepare-commit-msg hook for LemonCrow co-author attribution"
-    echo "   Trailer: Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
+    echo "   Trailer: Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
     echo ""
     echo "After install, AGENTS.md will contain the lc:code agent persona and commits will carry LemonCrow attribution."
     exit 0

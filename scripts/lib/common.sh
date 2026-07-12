@@ -960,7 +960,7 @@ lemoncrow_install_attribution_hook() {
     local dry_run="${2:-false}"
     local hooks_dir hook trailer marker end_marker
 
-    trailer="Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
+    trailer="Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
     marker="# >>> lemoncrow attribution >>>"
     end_marker="# <<< lemoncrow attribution <<<"
 

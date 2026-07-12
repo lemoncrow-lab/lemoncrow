@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_DIR="${1:-.}"
-TRAILER="Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
+TRAILER="Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
 MARKER="# >>> lemoncrow attribution >>>"
 END_MARKER="# <<< lemoncrow attribution <<<"
 

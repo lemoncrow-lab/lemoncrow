@@ -53,8 +53,8 @@ SPINNER_VERBS = [
 ]
 # Commit/PR co-author identity for the opt-in attribution trailer, installed
 # into a repo via scripts/install_attribution_hook.sh.
-ATTRIBUTION_NAME = "LemonCrow"
-ATTRIBUTION_EMAIL = "293447754+lemoncrow@users.noreply.github.com"
+ATTRIBUTION_NAME = "lemoncrow"
+ATTRIBUTION_EMAIL = "302591943+lemoncrow-agent[bot]@users.noreply.github.com"
 ATTRIBUTION_TRAILER = f"Co-Authored-By: {ATTRIBUTION_NAME} <{ATTRIBUTION_EMAIL}>"
 AUTH_REFRESH_GRACE_SECONDS = 300
 UPDATE_CHECK_THROTTLE_SECONDS = 30 * 60
