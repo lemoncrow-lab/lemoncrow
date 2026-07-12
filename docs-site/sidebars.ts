@@ -85,7 +85,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "integrations/host-matrix",
+          id: "hosts/host-capability-matrix",
         },
       ],
     },
@@ -93,10 +93,10 @@ const sidebars: SidebarsConfig = {
       label: "Strategy & Roadmap",
       type: "category",
       items: [
-        {
-          type: "doc",
-          id: "strategy",
-        },
+{
+            type: "doc",
+            id: "marketing/strategy",
+          },
         {
           type: "doc",
           id: "roadmap",

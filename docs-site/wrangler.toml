@@ -1,11 +1,6 @@
-name = "atelier-docs"
+name = "lemoncrow-docs"
 compatibility_date = "2026-06-10"
 
 routes = [
-  { pattern = "docs.atelier.ws", custom_domain = true },
   { pattern = "docs.lemoncrow.com", custom_domain = true },
 ]
-
-# Static assets served by the Worker (Docusaurus build output)
-[assets]
-directory = "build/"
