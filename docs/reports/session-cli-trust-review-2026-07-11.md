@@ -35,7 +35,7 @@ Full investigation of the `session` group (list / report / stats / replay / reca
 ## UX
 - Replay header no longer shows "User ran command: /model" as the task — command/caveat/system noise skipped.
 - Duplicate summary lines merged into one: `tool calls X → Y · N collapsed · E search loops · B batches`.
-- Money formatting: ≥$1 → 2dp, <$1 → 4dp (terminal + HTML tiles).
+- Money formatting: `≥$1` → 2dp, `<$1` → 4dp (terminal + HTML tiles).
 - 0-turn replay warns instead of rendering an empty page.
 - HTML reviewed statically (Chrome extension not connected): theme-aware, hero tiles, collapsible subagents — solid; no changes needed.
 
