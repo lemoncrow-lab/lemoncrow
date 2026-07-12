@@ -31,7 +31,9 @@ high-precision so a complete fix is not blocked. Bounded and fail-open by design
 -- fires at most once per session (returns immediately when ``stop_hook_active``
 is set) and any error exits 0 without blocking. Opt out entirely with
 ATELIER_VERIFY_BEFORE_DONE=0; opt out of the completeness checks alone with
-ATELIER_VERIFY_COMPLETENESS=0.
+ATELIER_VERIFY_COMPLETENESS=0; exclude specific file extensions from the nudge
+(e.g. archival docs / data dumps) with ATELIER_VERIFY_SKIP_SUFFIXES=.md,.csv
+(comma/space-separated, leading dot optional).
 """
 
 from __future__ import annotations
@@ -84,6 +86,50 @@ _CODE_SUFFIXES = frozenset(
         ".sh",
     }
 )
+# Text/data deliverables. Many benchmark (and real) tasks grade a *written
+# artifact* -- a csv, json, sql, fasta, config, ... -- not edited source. An
+# artifact saved with no verification run is exactly the over-claim failure
+# ("done: looks right") this hook exists to catch, so treat these like source.
+_TEXT_SUFFIXES = frozenset(
+    {
+        ".txt",
+        ".csv",
+        ".tsv",
+        ".json",
+        ".jsonl",
+        ".ndjson",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".xml",
+        ".html",
+        ".htm",
+        ".svg",
+        ".sql",
+        ".proto",
+        ".graphql",
+        ".tex",
+        ".fasta",
+        ".fa",
+        ".fastq",
+        ".vcf",
+        ".gff",
+        ".bed",
+        ".pdb",
+        ".gcode",
+        ".nc",
+        ".dot",
+        ".env",
+        ".properties",
+    }
+)
+# Prose docs: a graded deliverable in a benchmark (e.g. write a report to
+# answer.md) but usually just documentation in normal dev. Verifiable only
+# under bench mode, so ordinary README/docs edits are never nagged.
+_DOC_SUFFIXES = frozenset({".md", ".rst", ".markdown", ".adoc", ".org"})
 _TEST_RUN = re.compile(r"""(?xi)
     \b(
         pytest | py\.test | nose2? | tox | nox
@@ -107,6 +153,21 @@ def _disabled() -> bool:
 def _completeness_disabled() -> bool:
     v = os.environ.get("ATELIER_VERIFY_COMPLETENESS")
     return v is not None and v.strip().lower() in {"0", "false", "off", "no"}
+
+
+def _skip_suffixes() -> frozenset[str]:
+    """User-configured extensions to never nag about (ATELIER_VERIFY_SKIP_SUFFIXES).
+
+    Comma/space-separated, leading dot optional -- e.g. ``.md,csv`` keeps
+    archival docs and data dumps out of the verify nudge. Overrides code, text,
+    and doc classification alike.
+    """
+    raw = os.environ.get("ATELIER_VERIFY_SKIP_SUFFIXES", "")
+    out: set[str] = set()
+    for tok in re.split(r"[,\s]+", raw.strip()):
+        if tok:
+            out.add((tok if tok.startswith(".") else "." + tok).lower())
+    return frozenset(out)
 
 
 def _is_edit_tool(name: str) -> bool:
@@ -154,6 +215,17 @@ def _is_code_path(path: str) -> bool:
     return Path(path.split("#")[0]).suffix.lower() in _CODE_SUFFIXES
 
 
+def _is_verifiable_path(path: str, *, include_docs: bool = False) -> bool:
+    """A path whose edit should demand a verification run: source, or a
+    text/data deliverable. Prose docs count only when ``include_docs`` (bench)."""
+    suf = Path(path.split("#")[0]).suffix.lower()
+    if suf in _skip_suffixes():
+        return False
+    if suf in _CODE_SUFFIXES or suf in _TEXT_SUFFIXES:
+        return True
+    return include_docs and suf in _DOC_SUFFIXES
+
+
 def _is_test_path(path: str) -> bool:
     low = path.replace("\\", "/").lower()
     base = Path(low).name
@@ -186,27 +258,33 @@ def _block_text(entry: dict[str, Any]) -> str:
 
 def scan_transcript(transcript_path: str | None) -> tuple[list[str], bool]:
     """Return (edited code files, whether a behavioral check was executed)."""
-    edited, verified, _diffs, _prompt = scan_transcript_rich(transcript_path)
+    edited, verified, _checked, _diffs, _prompt = scan_transcript_rich(transcript_path)
     return edited, verified
 
 
 def scan_transcript_rich(
     transcript_path: str | None,
-) -> tuple[list[str], bool, list[tuple[str, str, str]], str]:
-    """Return (edited code files, tests-run?, edit diffs, first issue-prompt text)."""
+) -> tuple[list[str], bool, bool, list[tuple[str, str, str]], str]:
+    """Return (edited files, tests-run?, deliverable-exercised?, edit diffs, first prompt).
+
+    ``deliverable-exercised`` = a bash command names an edited file -- the real
+    check for a data/artifact task that has no test suite to run.
+    """
     edited: list[str] = []
     verified = False
+    checked = False
     diffs: list[tuple[str, str, str]] = []
     prompt = ""
+    cmds: list[str] = []
     if not transcript_path:
-        return edited, verified, diffs, prompt
+        return edited, verified, checked, diffs, prompt
     p = Path(transcript_path)
     if not p.exists():
-        return edited, verified, diffs, prompt
+        return edited, verified, checked, diffs, prompt
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return edited, verified, diffs, prompt
+        return edited, verified, checked, diffs, prompt
     for line in lines:
         line = line.strip()
         if not line:
@@ -234,13 +312,19 @@ def scan_transcript_rich(
             if not isinstance(tool_input, dict):
                 continue
             if _is_edit_tool(name):
-                edited.extend(t for t in _edit_targets(tool_input) if _is_code_path(t))
+                edited.extend(t for t in _edit_targets(tool_input) if _is_verifiable_path(t, include_docs=True))
                 diffs.extend(d for d in _edit_diffs(tool_input) if _is_code_path(d[0]))
             elif name in {"bash", "shell"}:
                 cmd = str(tool_input.get("command") or "")
+                cmds.append(cmd)
                 if _TEST_RUN.search(cmd):
                     verified = True
-    return edited, verified, diffs, prompt
+    # A data/artifact deliverable has no test suite -- exercising it (a bash command
+    # naming the edited file) is the authoritative check. Code keeps the stricter
+    # test-runner bar in decide(); the >=5 length guard avoids tiny-basename matches.
+    bases = {b for b in (Path(p.split("#")[0]).name for p in edited) if len(b) >= 5}
+    checked = any(b in c for c in cmds for b in bases)
+    return edited, verified, checked, diffs, prompt
 
 
 # --- Detector A: contract-change caller sweep -------------------------------
@@ -319,7 +403,9 @@ def _second_scenario_token(prompt: str) -> str | None:
 
 
 def _source_modules(edited: list[str]) -> set[str]:
-    return {Path(f.split("#")[0]).name for f in edited if not _is_test_path(f)}
+    # Code modules only -- detector B's "single source module" heuristic must not
+    # be diluted by the text/data deliverables now collected into `edited`.
+    return {Path(f.split("#")[0]).name for f in edited if _is_code_path(f) and not _is_test_path(f)}
 
 
 def detector_b(prompt: str, edited: list[str]) -> tuple[str, list[str]] | None:
@@ -332,18 +418,7 @@ def detector_b(prompt: str, edited: list[str]) -> tuple[str, list[str]] | None:
     return None
 
 
-_SOURCE_SUFFIXES = {
-    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
-    ".rb", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".swift",
-    ".kt", ".scala", ".sh", ".bash", ".sql",
-}
-
-
-def _is_source_file(path: str) -> bool:
-    return Path(path.split("#")[0]).suffix.lower() in _SOURCE_SUFFIXES
-
-
-_REASON = "FIXME (verify): edited {sample} but ran no tests -- run the tests covering it (or the suite) before finishing."
+_REASON = "FIXME (verify): edited {sample} but ran no test/verification -- run the authoritative check that proves the result (the task's stated validation, the project test suite, or a byte/behavior check) before finishing."
 
 
 def _bench_mode_on() -> bool:
@@ -357,7 +432,7 @@ def decide(payload: dict[str, Any]) -> dict[str, str] | None:
         return None
     if payload.get("stop_hook_active") is True:
         return None
-    edited, verified, diffs, prompt = scan_transcript_rich(payload.get("transcript_path"))
+    edited, verified, checked, diffs, prompt = scan_transcript_rich(payload.get("transcript_path"))
     if not edited:
         return None
 
@@ -390,9 +465,12 @@ def decide(payload: dict[str, Any]) -> dict[str, str] | None:
                 ),
             }
 
-    if verified:
+    # Code edits keep the strict bar (a snippet misses regressions the withheld suite
+    # catches). A text/data deliverable has no suite -- exercising the artifact (a bash
+    # command naming it) IS the check, so it clears the bar too.
+    if verified or (checked and not any(_is_code_path(p) for p in edited)):
         return None
-    source_edited = [p for p in edited if _is_source_file(p)]
+    source_edited = [p for p in edited if _is_verifiable_path(p, include_docs=_bench_mode_on())]
     if not source_edited:
         return None
     uniq = sorted({Path(p.split("#")[0]).name for p in source_edited})
