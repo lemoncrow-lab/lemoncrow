@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HOOKS = Path(__file__).resolve().parents[2] / "integrations" / "claude" / "plugin" / "hooks"
@@ -101,6 +102,77 @@ def test_non_read_tool_with_files_array_is_not_denied(tmp_path: Path) -> None:
         "tool_input": {"summary": "scope", "files": ["shop/pricing.py", "shop/other.py"]},
     }
     assert _run("pre_tool_discipline.py", structured, tmp_path) == ""
+
+
+def test_edit_by_one_agent_does_not_block_read_by_another(tmp_path: Path) -> None:
+    # State is keyed per-agent (agent_id, else session_id, else "main"). An edit
+    # by the top-level agent must NOT block a read-only sub-agent that only
+    # enumerates/reads the same file -- the bug that stalled scope agents.
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+
+    sub_read = {
+        "tool_name": "mcp__lc__read",
+        "agent_id": "a903e6286e60304c8",
+        "tool_input": {"files": ["shop/pricing.py:full"]},
+    }
+    assert _run("pre_tool_discipline.py", sub_read, tmp_path) == ""
+
+    # ...but the editing agent re-reading the whole file IS still denied.
+    main_read = {"tool_name": "mcp__lc__read", "tool_input": {"files": ["shop/pricing.py:full"]}}
+    out = _run("pre_tool_discipline.py", main_read, tmp_path)
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_subagent_full_reread_of_its_own_edit_is_denied(tmp_path: Path) -> None:
+    # Per-agent scoping must not weaken the guard within one agent: a sub-agent
+    # that edits then :full-rereads the same file is still denied.
+    aid = "a92a09810b278eaf7"
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "agent_id": aid,
+        "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+    reread = {
+        "tool_name": "mcp__lc__read",
+        "agent_id": aid,
+        "tool_input": {"files": ["shop/pricing.py:full"]},
+    }
+    out = _run("pre_tool_discipline.py", reread, tmp_path)
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_prune_removes_stale_agent_state_keeps_fresh(tmp_path: Path) -> None:
+    # Ephemeral sub-agent files are pruned by mtime (>24h); active ones survive.
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "agent_id": "fresh",
+        "tool_input": {"edits": [{"path": "a.py:L1-L2", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+    state_dirs = list((tmp_path / ".lemoncrow").glob("workspaces/*/loop_discipline"))
+    assert state_dirs, "per-agent state dir created"
+    sd = state_dirs[0]
+    assert (sd / "fresh.json").exists()
+
+    stale = sd / "stale.json"
+    stale.write_text("{}", encoding="utf-8")
+    old = time.time() - 90_000  # >24h
+    os.utime(stale, (old, old))
+
+    # A later edit triggers _prune().
+    edit2 = {
+        "tool_name": "mcp__lc__edit",
+        "agent_id": "fresh",
+        "tool_input": {"edits": [{"path": "b.py:L1-L2", "new": "y"}]},
+    }
+    assert _run("loop_discipline_post.py", edit2, tmp_path) == ""
+    assert not stale.exists(), "stale per-agent file pruned"
+    assert (sd / "fresh.json").exists(), "active per-agent file kept"
 
 
 def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
