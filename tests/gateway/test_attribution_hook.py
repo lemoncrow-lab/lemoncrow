@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 SCRIPT = Path("integrations/claude/plugin/scripts/install_attribution_hook.sh").resolve()
-TRAILER = "Co-Authored-By: LemonCrow <293447754+lemoncrow@users.noreply.github.com>"
+TRAILER = "Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:

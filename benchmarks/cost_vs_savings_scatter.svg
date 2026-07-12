@@ -917,7 +917,7 @@ L 925.2 99.76199
      </g>
     </g>
     <g id="text_13">
-     <!-- $ saved per run  [ baseline - Atelier ] -->
+     <!-- $ saved per run  [ baseline - Lemoncrow ] -->
      <g transform="translate(19.872188 364.901611) rotate(-90) scale(0.11 -0.11)">
       <defs>
        <path id="DejaVuSans-59" d="M 191 3500 
@@ -2312,7 +2312,7 @@ L 81.672658 67.792441
 " clip-path="url(#pe13ec3ed6d)" style="fill: none; stroke-dasharray: 1.8,2.97; stroke-dashoffset: 0; stroke: #dc143c; stroke-width: 1.8"/>
    </g>
    <g id="text_14">
-    <!-- Atelier savings accelerate with task size -->
+    <!-- Lemoncrow savings accelerate with task size -->
     <g transform="translate(349.87457 22.585332) scale(0.13 -0.13)">
      <defs>
       <path id="DejaVuSans-Bold-24" d="M 3419 850 
@@ -6448,7 +6448,7 @@ z
      </g>
     </g>
     <g id="text_28">
-     <!-- P(Atelier cheaper) vs task cost -->
+     <!-- P(Lemoncrow cheaper) vs task cost -->
      <g transform="translate(684.79855 298.897883) scale(0.075 -0.075)">
       <defs>
        <path id="DejaVuSans-Bold-33" d="M 588 4666 
@@ -6665,7 +6665,7 @@ z
 " style="fill: #0ca30c; fill-opacity: 0.75"/>
     </g>
     <g id="text_31">
-     <!-- Both Atelier and baseline correct (n=436) -->
+     <!-- Both Lemoncrow and baseline correct (n=436) -->
      <g transform="translate(109.372578 116.722441) scale(0.105 -0.105)">
       <defs>
        <path id="DejaVuSans-20" d="M 678 2906 
@@ -6739,7 +6739,7 @@ z
 " style="fill: #2a78d6; fill-opacity: 0.75"/>
     </g>
     <g id="text_32">
-     <!-- Atelier correct, baseline wrong (n=33) -->
+     <!-- Lemoncrow correct, baseline wrong (n=33) -->
      <g transform="translate(109.372578 132.473262) scale(0.105 -0.105)">
       <use xlink:href="#DejaVuSans-24"/>
       <use xlink:href="#DejaVuSans-57" transform="translate(66.65625 0)"/>
@@ -6800,7 +6800,7 @@ z
      </g>
     </g>
     <g id="text_33">
-     <!-- Both Atelier and baseline wrong (n=5) -->
+     <!-- Both Lemoncrow and baseline wrong (n=5) -->
      <g transform="translate(109.372578 148.224082) scale(0.105 -0.105)">
       <use xlink:href="#DejaVuSans-25"/>
       <use xlink:href="#DejaVuSans-52" transform="translate(68.609375 0)"/>
@@ -6860,7 +6860,7 @@ z
      </g>
     </g>
     <g id="text_34">
-     <!-- Atelier wrong, baseline correct (n=15) -->
+     <!-- Lemoncrow wrong, baseline correct (n=15) -->
      <g transform="translate(109.372578 163.974902) scale(0.105 -0.105)">
       <use xlink:href="#DejaVuSans-24"/>
       <use xlink:href="#DejaVuSans-57" transform="translate(66.65625 0)"/>
