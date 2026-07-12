@@ -299,9 +299,9 @@ def test_integrations_install_symlink(host: str) -> None:
     # Must be a thin wrapper delegating to the canonical installer in scripts/;
     # a full copy here drifts stale and cannot source scripts/lib/managed_context.sh.
     content = link.read_text(encoding="utf-8")
-    assert (
-        f"scripts/install_{host}.sh" in content
-    ), f"integrations/{host}/install.sh must delegate to scripts/install_{host}.sh"
+    assert f"scripts/install_{host}.sh" in content, (
+        f"integrations/{host}/install.sh must delegate to scripts/install_{host}.sh"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -475,12 +475,12 @@ def test_claude_install_passes_workspace_paths_via_env_not_source_interpolation(
     heredoc, which must use a quoted delimiter to suppress shell interpolation.
     """
     content = (SCRIPTS / "install_claude.sh").read_text()
-    assert (
-        "Path('${CLAUDE_LOCAL_SETTINGS}')" not in content
-    ), "claude install.sh must not interpolate ${CLAUDE_LOCAL_SETTINGS} into Python source"
-    assert (
-        "CLAUDE_WORKSPACE_ROOT'] = '${WORKSPACE}'" not in content
-    ), "claude install.sh must not interpolate ${WORKSPACE} into Python source"
+    assert "Path('${CLAUDE_LOCAL_SETTINGS}')" not in content, (
+        "claude install.sh must not interpolate ${CLAUDE_LOCAL_SETTINGS} into Python source"
+    )
+    assert "CLAUDE_WORKSPACE_ROOT'] = '${WORKSPACE}'" not in content, (
+        "claude install.sh must not interpolate ${WORKSPACE} into Python source"
+    )
     # Paths are exported to the subprocess and read safely inside a quoted heredoc.
     assert (
         'LEMONCROW_CLAUDE_LOCAL_SETTINGS="${CLAUDE_LOCAL_SETTINGS}" LEMONCROW_WORKSPACE="${WORKSPACE}" python3 - <<\'PYEOF\''
@@ -520,9 +520,9 @@ def test_managed_context_helper_shared_across_host_installs() -> None:
         "install_opencode.sh",
     ]:
         content = (SCRIPTS / script_name).read_text()
-        assert (
-            'source "${SCRIPT_DIR}/lib/managed_context.sh"' in content
-        ), f"{script_name} must use the shared managed context helper"
+        assert 'source "${SCRIPT_DIR}/lib/managed_context.sh"' in content, (
+            f"{script_name} must use the shared managed context helper"
+        )
 
 
 def test_local_sh_bootstraps_lemoncrow_before_host_installers() -> None:
@@ -568,7 +568,9 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     assert "LemonCrow: Session Summary" in labels
     assert "LemonCrow: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
 
-    preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight")
+    preflight_task = next(
+        task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight"
+    )
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
     assert any("lc tools call context" in arg for arg in args)
@@ -635,9 +637,7 @@ def test_new_claude_plugin_json_has_no_commands_key() -> None:
     if not plugin_json.exists():
         pytest.skip("integrations/claude/plugin/.claude-plugin/plugin.json not found")
     data = json.loads(plugin_json.read_text())
-    assert (
-        "commands" not in data
-    ), "plugin.json must not have 'commands' key — use 'skills' for /lc:name namespacing"
+    assert "commands" not in data, "plugin.json must not have 'commands' key — use 'skills' for /lemoncrow:name namespacing"
 
 
 def test_new_claude_plugin_json_author_is_object() -> None:
@@ -646,9 +646,9 @@ def test_new_claude_plugin_json_author_is_object() -> None:
     if not plugin_json.exists():
         pytest.skip("integrations/claude/plugin/.claude-plugin/plugin.json not found")
     data = json.loads(plugin_json.read_text())
-    assert isinstance(
-        data.get("author"), dict
-    ), f'plugin.json \'author\' must be an object like {{"name": "Beseam"}}, got: {data.get("author")!r}'
+    assert isinstance(data.get("author"), dict), (
+        f'plugin.json \'author\' must be an object like {{"name": "Beseam"}}, got: {data.get("author")!r}'
+    )
 
 
 def test_new_claude_plugin_json_no_manifest_keys() -> None:
@@ -699,9 +699,9 @@ def test_new_claude_plugin_has_workflows() -> None:
     workflows_dir = CLAUDE_PLUGIN_NEW / "workflows"
     assert workflows_dir.is_dir(), "integrations/claude/plugin/workflows/ directory must exist"
     assert (workflows_dir / "code-audit.js").exists(), "integrations/claude/plugin/workflows/code-audit.js must exist"
-    assert (
-        workflows_dir / "gate-benchmark.js"
-    ).exists(), "integrations/claude/plugin/workflows/gate-benchmark.js must exist"
+    assert (workflows_dir / "gate-benchmark.js").exists(), (
+        "integrations/claude/plugin/workflows/gate-benchmark.js must exist"
+    )
 
 
 def test_new_claude_plugin_workflow_readme_documents_discovery_contract() -> None:
@@ -774,17 +774,17 @@ def test_new_claude_plugin_subagent_statusline_wired() -> None:
     sl = data.get("subagentStatusLine")
     assert isinstance(sl, dict), "subagentStatusLine must be a dict"
     assert sl.get("type") == "command", "subagentStatusLine.type must be 'command'"
-    assert "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.sh" in sl.get(
-        "command", ""
-    ), "subagentStatusLine.command must reference ${CLAUDE_PLUGIN_ROOT}/scripts/statusline.sh"
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.sh" in sl.get("command", ""), (
+        "subagentStatusLine.command must reference ${CLAUDE_PLUGIN_ROOT}/scripts/statusline.sh"
+    )
 
 
 def test_new_claude_plugin_statusline_script_exists_and_executable() -> None:
     """scripts/statusline.sh must exist and be executable."""
     script = CLAUDE_PLUGIN_NEW / "scripts" / "statusline.sh"
-    assert (
-        script.exists()
-    ), "integrations/claude/plugin/scripts/statusline.sh must exist — wired by settings.json subagentStatusLine."
+    assert script.exists(), (
+        "integrations/claude/plugin/scripts/statusline.sh must exist — wired by settings.json subagentStatusLine."
+    )
     assert os.access(script, os.X_OK), f"{script} must be executable (chmod +x)"
 
 
@@ -826,9 +826,9 @@ def test_root_marketplace_json_source_points_to_new_plugin() -> None:
     plugins = data.get("plugins", [])
     assert len(plugins) >= 1, "root marketplace.json must declare at least one plugin"
     source = plugins[0].get("source", "")
-    assert (
-        "integrations/claude/plugin" in source or source == "./"
-    ), f"root marketplace.json source must point to integrations/claude/plugin or './', got: {source}"
+    assert "integrations/claude/plugin" in source or source == "./", (
+        f"root marketplace.json source must point to integrations/claude/plugin or './', got: {source}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -898,7 +898,7 @@ def test_install_claude_stages_workflow_assets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 19. Docs use correct /lc:skill namespacing (not /lemoncrow-skill)
+# 19. Docs use correct /lemoncrow:skill namespacing (not /lemoncrow-skill)
 # ---------------------------------------------------------------------------
 
 
@@ -950,14 +950,14 @@ def test_agents_lemoncrow_md_has_persona() -> None:
     f = INTEGRATIONS / "AGENTS.lemoncrow.md"
     assert f.exists(), "Missing: integrations/AGENTS.lemoncrow.md"
     content = f.read_text()
-    assert "lc:code" in content, "AGENTS.lemoncrow.md must declare lc:code persona"
+    assert "lemoncrow:code" in content, "AGENTS.lemoncrow.md must declare lemoncrow:code persona"
 
 
 def test_opencode_lemoncrow_agent_exists() -> None:
     f = INTEGRATIONS / "opencode" / "agents" / "code.md"
     assert f.exists(), "Missing: integrations/opencode/agents/code.md"
     text = f.read_text()
-    assert "lc:code" in text
+    assert "lemoncrow:code" in text
     assert "---" in text, "opencode agent must have frontmatter"
 
 
@@ -967,7 +967,7 @@ def test_copilot_lemoncrow_agents_exist() -> None:
     assert code_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.code.agent.md"
     assert execute_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.execute.agent.md"
     text = code_agent.read_text()
-    assert "lc:code" in text
+    assert "lemoncrow:code" in text
     assert "description:" in text, "agent must have description: frontmatter"
     assert "model: gpt-5.4" in text, "Copilot agent must pin the model in frontmatter"
 

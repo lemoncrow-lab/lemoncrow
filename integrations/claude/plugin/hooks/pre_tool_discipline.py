@@ -61,9 +61,15 @@ def _edited_paths() -> set[str]:
 
 
 def _is_read(name: str, ti: dict[str, Any]) -> bool:
-    if name.endswith("__read") or name == "read":
-        return True
-    return ("path" in ti or "files" in ti) and "edits" not in ti and "command" not in ti
+    """True only for an actual read tool call.
+
+    Gate on the tool NAME, never on the mere presence of a 'files'/'path' key:
+    other tools carry those fields for unrelated reasons -- e.g. a
+    StructuredOutput call whose payload enumerates a files=[...] array -- and
+    inferring 'read' from shape wrongly denied them (an enumerated path that
+    happened to be in the edited set produced a bogus :full-read deny).
+    """
+    return name in ("read", "Read") or name.endswith("__read")
 
 
 # ':Lx-Ly' / ':full' / ':head=N' / ':tail=N' / ':summary' / ':outline' suffixes

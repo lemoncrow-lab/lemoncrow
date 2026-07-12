@@ -156,12 +156,12 @@ if [ -n "${_SEG_SID}" ]; then
   fi
 fi
 if [ -z "${DYNAMIC_SEG:-}" ]; then
-  LEMONCROW_BIN="$(command -v lc 2>/dev/null || true)"
+  LEMONCROW_BIN="$(command -v lemoncrow 2>/dev/null || true)"
   if [ -n "$LEMONCROW_BIN" ]; then
     DYNAMIC_SEG="$("$LEMONCROW_BIN" savings --segment 2>/dev/null || true)"
   fi
   if [ -z "${DYNAMIC_SEG:-}" ]; then
-    DYNAMIC_SEG="$(uv run --quiet lc savings --segment 2>/dev/null || true)"
+    DYNAMIC_SEG="$(uv run --quiet lemoncrow savings --segment 2>/dev/null || true)"
   fi
   # Cache only with a real session id and real live usage -- never a shared,
   # unkeyed slot, never a stale zero-token segment. Atomic renames so a

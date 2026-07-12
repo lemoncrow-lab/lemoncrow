@@ -28,6 +28,19 @@ def codebench_tasks_dir() -> Path:
     return repo_root.parent / "benchmarks" / repo_root.name / "codebench-tasks"
 
 
+# Portable (checkout-name-independent) path to this repo's own lemoncrow binary,
+# used by every cg_* task's pre-index setup_cmds below. A prior hardcoded
+# absolute path baked in a stale checkout name and silently no-op'd (`|| true`)
+# on any machine where that name doesn't match -- no crash, just a permanently
+# cold-started index for the lemoncrow arm, which quietly biases the whole
+# cg_* cost/time comparison against it.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_LEMONCROW_BIN = _REPO_ROOT / ".venv" / "bin" / "lemoncrow"
+_INDEX_ON_LEMONCROW_REP: tuple[str, ...] = (
+    f'case "$(pwd)" in *_lemoncrow_rep*) {_LEMONCROW_BIN} code index --repo-root . || true ;; esac',
+)
+
+
 @dataclass(frozen=True)
 class Task:
     id: str
@@ -81,9 +94,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/microsoft/vscode", "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7"),
         3,
         "cg_vscode",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_excalidraw",
@@ -91,9 +102,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/excalidraw/excalidraw", "28a9b1711dc0625b8ab5d643dc871810ee13642f"),
         2,
         "cg_excalidraw",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_django",
@@ -101,9 +110,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/django/django", "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c"),
         2,
         "cg_django",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_tokio",
@@ -111,9 +118,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/tokio-rs/tokio", "7892f6020d9c914a41d0c350693fb71937d43c03"),
         2,
         "cg_tokio",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_okhttp",
@@ -121,9 +126,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/square/okhttp", "6abc678ad07aefe055cb1afb6fd897c34a988eb9"),
         2,
         "cg_okhttp",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_gin",
@@ -131,9 +134,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/gin-gonic/gin", "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11"),
         1,
         "cg_gin",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_alamofire",
@@ -141,9 +142,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/Alamofire/Alamofire", "7595cbcf59809f9977c5f6378500de2ad73b7ddb"),
         1,
         "cg_alamofire",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     # --- cg q2-q5 (additional exploration questions, same repos) ---
     Task(
@@ -152,9 +151,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/microsoft/vscode", "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7"),
         3,
         "cg_vscode_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_vscode_3",
@@ -162,9 +159,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/microsoft/vscode", "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7"),
         3,
         "cg_vscode_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_vscode_4",
@@ -172,9 +167,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/microsoft/vscode", "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7"),
         3,
         "cg_vscode_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_vscode_5",
@@ -182,9 +175,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/microsoft/vscode", "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7"),
         3,
         "cg_vscode_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_excalidraw_2",
@@ -192,9 +183,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/excalidraw/excalidraw", "28a9b1711dc0625b8ab5d643dc871810ee13642f"),
         2,
         "cg_excalidraw_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_excalidraw_3",
@@ -202,9 +191,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/excalidraw/excalidraw", "28a9b1711dc0625b8ab5d643dc871810ee13642f"),
         2,
         "cg_excalidraw_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_excalidraw_4",
@@ -212,9 +199,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/excalidraw/excalidraw", "28a9b1711dc0625b8ab5d643dc871810ee13642f"),
         2,
         "cg_excalidraw_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_excalidraw_5",
@@ -222,9 +207,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/excalidraw/excalidraw", "28a9b1711dc0625b8ab5d643dc871810ee13642f"),
         2,
         "cg_excalidraw_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_django_2",
@@ -232,9 +215,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/django/django", "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c"),
         2,
         "cg_django_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_django_3",
@@ -242,9 +223,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/django/django", "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c"),
         2,
         "cg_django_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_django_4",
@@ -252,9 +231,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/django/django", "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c"),
         2,
         "cg_django_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_django_5",
@@ -262,9 +239,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/django/django", "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c"),
         2,
         "cg_django_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_tokio_2",
@@ -272,9 +247,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/tokio-rs/tokio", "7892f6020d9c914a41d0c350693fb71937d43c03"),
         2,
         "cg_tokio_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_tokio_3",
@@ -282,9 +255,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/tokio-rs/tokio", "7892f6020d9c914a41d0c350693fb71937d43c03"),
         2,
         "cg_tokio_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_tokio_4",
@@ -292,9 +263,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/tokio-rs/tokio", "7892f6020d9c914a41d0c350693fb71937d43c03"),
         2,
         "cg_tokio_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_tokio_5",
@@ -302,9 +271,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/tokio-rs/tokio", "7892f6020d9c914a41d0c350693fb71937d43c03"),
         2,
         "cg_tokio_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_okhttp_2",
@@ -312,9 +279,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/square/okhttp", "6abc678ad07aefe055cb1afb6fd897c34a988eb9"),
         2,
         "cg_okhttp_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_okhttp_3",
@@ -322,9 +287,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/square/okhttp", "6abc678ad07aefe055cb1afb6fd897c34a988eb9"),
         2,
         "cg_okhttp_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_okhttp_4",
@@ -332,9 +295,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/square/okhttp", "6abc678ad07aefe055cb1afb6fd897c34a988eb9"),
         2,
         "cg_okhttp_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_okhttp_5",
@@ -342,9 +303,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/square/okhttp", "6abc678ad07aefe055cb1afb6fd897c34a988eb9"),
         2,
         "cg_okhttp_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_gin_2",
@@ -352,9 +311,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/gin-gonic/gin", "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11"),
         1,
         "cg_gin_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_gin_3",
@@ -362,9 +319,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/gin-gonic/gin", "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11"),
         1,
         "cg_gin_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_gin_4",
@@ -372,9 +327,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/gin-gonic/gin", "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11"),
         1,
         "cg_gin_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_gin_5",
@@ -382,9 +335,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/gin-gonic/gin", "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11"),
         1,
         "cg_gin_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_alamofire_2",
@@ -392,9 +343,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/Alamofire/Alamofire", "7595cbcf59809f9977c5f6378500de2ad73b7ddb"),
         1,
         "cg_alamofire_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_alamofire_3",
@@ -402,9 +351,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/Alamofire/Alamofire", "7595cbcf59809f9977c5f6378500de2ad73b7ddb"),
         1,
         "cg_alamofire_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_alamofire_4",
@@ -412,9 +359,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/Alamofire/Alamofire", "7595cbcf59809f9977c5f6378500de2ad73b7ddb"),
         1,
         "cg_alamofire_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_alamofire_5",
@@ -422,9 +367,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/Alamofire/Alamofire", "7595cbcf59809f9977c5f6378500de2ad73b7ddb"),
         1,
         "cg_alamofire_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     # --- Linux kernel (5 exploration questions) ---
     Task(
@@ -433,9 +376,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/torvalds/linux", None),
         3,
         "cg_linux_1",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_linux_2",
@@ -443,9 +384,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/torvalds/linux", None),
         3,
         "cg_linux_2",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_linux_3",
@@ -453,9 +392,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/torvalds/linux", None),
         3,
         "cg_linux_3",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_linux_4",
@@ -463,9 +400,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/torvalds/linux", None),
         3,
         "cg_linux_4",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     Task(
         "cg_linux_5",
@@ -473,9 +408,7 @@ TASKS: list[Task] = [
         ("repo", "https://github.com/torvalds/linux", None),
         3,
         "cg_linux_5",
-        setup_cmds=(
-            'case "$(pwd)" in *_lemoncrow_rep*) /home/pankaj/Projects/leanchain/lemoncrow/.venv/bin/lemoncrow code index --repo-root . || true ;; esac',
-        ),
+        setup_cmds=_INDEX_ON_LEMONCROW_REP,
     ),
     # --- original task1-8 (coding capability) ---
     Task(

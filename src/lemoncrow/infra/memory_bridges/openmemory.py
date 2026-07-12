@@ -27,7 +27,7 @@ from lemoncrow.infra.storage.sqlite_memory_store import MEMORY_DB_NAME, SqliteMe
 
 _BLOCK_KIND = "lemoncrow_block"
 _PASSAGE_KIND = "lemoncrow_passage"
-_PINNED_TAG = "lc:pinned"
+_PINNED_TAG = "lemoncrow:pinned"
 _T = TypeVar("_T")
 
 
@@ -206,7 +206,9 @@ class OpenMemoryAdapter:
         params: dict[str, str] | None = None,
         timeout_seconds: int | None = None,
     ) -> Any:
-        base_url = str(getattr(self.client, "base_url", "") or os.environ.get("LEMONCROW_OPENMEMORY_URL", "")).rstrip("/")
+        base_url = str(getattr(self.client, "base_url", "") or os.environ.get("LEMONCROW_OPENMEMORY_URL", "")).rstrip(
+            "/"
+        )
         if not base_url:
             raise RuntimeError("LEMONCROW_OPENMEMORY_URL not set")
         url = f"{base_url}{path}"
@@ -415,7 +417,9 @@ class OpenMemoryMemoryStore:
             text=passage.text,
             user_id=self._user_id,
             metadata=metadata,
-            force_rest=bool(getattr(self._adapter.client, "base_url", "") or os.environ.get("LEMONCROW_OPENMEMORY_URL")),
+            force_rest=bool(
+                getattr(self._adapter.client, "base_url", "") or os.environ.get("LEMONCROW_OPENMEMORY_URL")
+            ),
         )
         return passage.model_copy(update={"dedup_hit": False})
 

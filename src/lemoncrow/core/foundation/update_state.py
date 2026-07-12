@@ -29,20 +29,22 @@ _COMMON_LEMONCROW_BIN_DIRS = (
 
 
 def installed_cli_version() -> str | None:
-    """Return the version reported by the installed ``lc`` executable.
+    """Return the version reported by the installed ``lemoncrow`` executable.
 
     Queries the CLI itself (not the current process's in-memory package
     metadata) so callers see the version actually on disk after a
     reinstall/update, even when the calling process is stale. The PATH used
-    to resolve ``lc`` is augmented with common install locations so
+    to resolve ``lemoncrow`` is augmented with common install locations so
     this also works for callers (e.g. the servicectl daemon under launchd)
-    whose inherited PATH is minimal. Returns ``None`` if the binary can't be
-    resolved or fails to report a version.
+    whose inherited PATH is minimal. Uses the guaranteed ``lemoncrow`` binary
+    rather than the ``lc`` convenience alias, which a caller may not have on
+    PATH. Returns ``None`` if the binary can't be resolved or fails to report
+    a version.
     """
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([env.get("PATH", ""), *_COMMON_LEMONCROW_BIN_DIRS])
     try:
-        result = subprocess.run(["lc", "--version"], capture_output=True, text=True, timeout=15, env=env)
+        result = subprocess.run(["lemoncrow", "--version"], capture_output=True, text=True, timeout=15, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     match = _VERSION_RE.search(result.stdout)

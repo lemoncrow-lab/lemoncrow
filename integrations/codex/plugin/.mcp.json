@@ -1,6 +1,6 @@
 {
   "lc": {
-    "command": "lc",
+    "command": "lemoncrow",
     "args": ["mcp", "--host", "codex"],
     "env": {}
   }
