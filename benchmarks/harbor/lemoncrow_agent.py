@@ -37,7 +37,23 @@ from harbor.models.agent.context import AgentContext
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _LEMONCROW_VERSION = os.environ.get("LEMONCROW_BENCH_VERSION", "latest")
-_DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-sonnet-4-5")
+_DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-opus-4-8")
+
+
+def _host_lemoncrow_auth_token() -> str:
+    """Host's activated LemonCrow account token (env wins, then ~/.lemoncrow/auth_token).
+
+    `lemoncrow init` / `lc init` inside the container needs an activated free
+    account or it exits nonzero asking for an interactive `lc login` -- not
+    viable in a headless container. Forwarding the host's already-activated
+    token lets init succeed non-interactively, mirroring how
+    CLAUDE_CODE_OAUTH_TOKEN is forwarded for Claude auth.
+    """
+    from lemoncrow.core.capabilities.licensing.store import load_auth_token
+
+    return load_auth_token() or ""
+
+
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
 # Terminal-Bench 2.1 runs use "high" effort (Opus 4.8 System Card, sec 8.3);
 # overridable via LEMONCROW_BENCH_EFFORT.
@@ -294,6 +310,11 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
+        # Forward the host's activated LemonCrow account token so `lc init`
+        # doesn't need an interactive `lc login` inside the container.
+        lemoncrow_token = _host_lemoncrow_auth_token()
+        if lemoncrow_token:
+            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
         return env
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
@@ -335,7 +356,9 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         """Run LemonCrow on the task instruction and stream results to the log."""
         escaped = shlex.quote(instruction)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
-        cmd = f"lc run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
+        cmd = (
+            f"lc run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
+        )
         await self.exec_as_agent(
             environment,
             command=cmd,
@@ -444,6 +467,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+        # Forward the host's activated LemonCrow account token so `lc init`
+        # doesn't need an interactive `lc login` inside the container.
+        lemoncrow_token = _host_lemoncrow_auth_token()
+        if lemoncrow_token:
+            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
         return env
 
     async def install(self, environment: BaseEnvironment) -> None:
@@ -493,6 +521,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "tar -C /opt -xzf /lemoncrow-bundle.tar.gz && "
                 "chmod -R a+rX /opt/lemoncrow-venv /opt/uvpy && "
                 "ln -sf /opt/lemoncrow-venv/bin/lemoncrow /usr/local/bin/lemoncrow && "
+                "ln -sf /opt/lemoncrow-venv/bin/lc /usr/local/bin/lc && "
                 "/opt/lemoncrow-venv/bin/python -c 'import lemoncrow'"
             ),
         )
@@ -513,6 +542,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "cd /root && LEMONCROW_ROOT=/root/.lemoncrow LEMONCROW_WORKSPACE_ROOT=/root "
                 "/opt/lemoncrow-venv/bin/lemoncrow init"
             ),
+            env={"LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token()},
         )
         # Bench-lean copy of the plugin: keep only the persona this arm runs
         # (solve) and drop skills/ entirely -- mounting/reading the raw plugin
@@ -567,7 +597,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # making the plugin the ONLY variable vs the "on" arm. Select the
         # baseline at run time with `--ak bench_mode=off`.
         plugin_flags = (
-            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lc:solve "
+            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lemoncrow:solve "
         )
         # LemonCrow arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental

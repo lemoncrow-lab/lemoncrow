@@ -407,8 +407,22 @@ def _open_stream_file(session_id: str, stream_name: str) -> tuple[Any, str]:
     return handle, str(path)
 
 
+_LITERAL_UNSAFE_CHARS = "$`\\*?["
+
+
+def _literal_operand(tok: str) -> bool:
+    """True when *tok* is a plain literal path operand -- something the shell
+    would pass through unchanged. A variable ($VAR), tilde or glob operand is
+    expanded by a real shell but would be taken literally by a rewrite, and
+    ``-`` means stdin; any of those must fall back to real execution.
+    """
+    if not tok or tok.startswith(("~", "-")):
+        return False
+    return not any(ch in tok for ch in _LITERAL_UNSAFE_CHARS)
+
+
 def _rewrite_cat(tokens: list[str]) -> CommandPolicyDecision:
-    if len(tokens) != 2:
+    if len(tokens) != 2 or not _literal_operand(tokens[1]):
         return CommandPolicyDecision(category="file-read", action="allow")
     return CommandPolicyDecision(
         category="file-read",
@@ -472,7 +486,7 @@ def _rewrite_head(tokens: list[str]) -> CommandPolicyDecision:
             continue
         files.append(tok)
         i += 1
-    if len(files) != 1:
+    if len(files) != 1 or not _literal_operand(files[0]):
         return CommandPolicyDecision(category="file-read", action="allow")
     return CommandPolicyDecision(
         category="file-read",
@@ -523,7 +537,7 @@ def _rewrite_tail(tokens: list[str]) -> CommandPolicyDecision:
             continue
         files.append(tok)
         i += 1
-    if len(files) != 1:
+    if len(files) != 1 or not _literal_operand(files[0]):
         return CommandPolicyDecision(category="file-read", action="allow")
     return CommandPolicyDecision(
         category="file-read",
@@ -575,8 +589,7 @@ def _rewrite_wc(tokens: list[str]) -> CommandPolicyDecision:
             continue
         files.append(tok)
         i += 1
-    if len(files) != 1:
-        # stdin or multiple files → subprocess
+    if len(files) != 1 or not _literal_operand(files[0]):
         return CommandPolicyDecision(category="file-read", action="allow")
     return CommandPolicyDecision(
         category="file-read",
@@ -701,8 +714,6 @@ _GREP_SAFE_IGNORE_FLAGS: frozenset[str] = frozenset(
         "--no-filename",
         "-E",
         "--extended-regexp",
-        "-P",
-        "--perl-regexp",
         "-s",
         "--no-messages",
         "-a",
@@ -749,6 +760,8 @@ _GREP_FALLBACK_FLAGS: frozenset[str] = frozenset(
         "--word-regexp",
         "-F",
         "--fixed-strings",
+        "-P",
+        "--perl-regexp",
         "-z",
         "--null-data",
         "-Z",
@@ -758,23 +771,16 @@ _GREP_FALLBACK_FLAGS: frozenset[str] = frozenset(
 )
 
 
-def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecision:
-    # Split on the first shell pipe token so we can rewrite the grep part and
-    # feed its output through the remainder (e.g. ``grep -A5 pat file | head -20``).
-    pipe_idx: int | None = None
-    for idx, tok in enumerate(tokens):
-        if tok == "|":
-            pipe_idx = idx
-            break
-    if pipe_idx is not None:
-        grep_tokens = tokens[:pipe_idx]
-        # Reconstruct the pipe tail as a single shell string.
-        pipe_remainder: str | None = (
-            " ".join(shlex.quote(t) for t in tokens[pipe_idx + 1 :]) if pipe_idx + 1 < len(tokens) else None
-        )
-    else:
-        grep_tokens = tokens
-        pipe_remainder = None
+def _rewrite_search(tokens: list[str], command_name: str, cwd: Path | None = None) -> CommandPolicyDecision:
+    # A pipe consumer downstream (`grep ... | wc -l`, `| cut -d: -f1`) parses
+    # REAL grep's output format; the internal grep tool renders differently
+    # (grouped/ranked), so feeding its output through the pipe would compute
+    # wrong results. Piped searches run verbatim. Checked per-token substring
+    # so a glued pipe (`f|wc`) is caught too; a `|` inside a quoted regex
+    # false-positives, which only skips the optimization.
+    if any("|" in tok for tok in tokens[1:]):
+        return CommandPolicyDecision(category="search", action="allow")
+    grep_tokens = tokens
 
     ignore_case = False
     file_type: str | None = None
@@ -796,6 +802,9 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
             # the agent gets correct (not silently wrong) results.
             flag_stem = tok.split("=", 1)[0]  # strip =value suffix for lookup
             if flag_stem in _GREP_FALLBACK_FLAGS or tok in _GREP_FALLBACK_FLAGS:
+                return CommandPolicyDecision(category="search", action="allow")
+            if command_name == "grep" and flag_stem in {"-L", "--files-without-match"}:
+                # grep -L = files WITHOUT match (rg's -L is --follow); can't replicate.
                 return CommandPolicyDecision(category="search", action="allow")
             # Safe structural/formatting flags — skip quietly.
             if tok in _GREP_SAFE_IGNORE_FLAGS or flag_stem in _GREP_SAFE_IGNORE_FLAGS:
@@ -875,6 +884,9 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
                     single = f"-{ch}"
                     if single in _GREP_FALLBACK_FLAGS:
                         return CommandPolicyDecision(category="search", action="allow")
+                    if command_name == "grep" and single == "-L":
+                        # grep -L = files WITHOUT match; can't replicate.
+                        return CommandPolicyDecision(category="search", action="allow")
                     if single not in _GREP_SAFE_IGNORE_FLAGS:
                         # Check -i specially (case-insensitive embedded in bundle)
                         if ch == "i":
@@ -891,6 +903,10 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
 
     if not cleaned:
         return CommandPolicyDecision(category="search", action="allow")
+    if len(cleaned) > 2:
+        # More than pattern + one path: real grep searches every path given;
+        # the internal rewrite takes exactly one. Fall back to real grep.
+        return CommandPolicyDecision(category="search", action="allow")
 
     pattern = cleaned[0]
     # GNU grep BRE treats \| as alternation (extension); rg uses Rust regex
@@ -899,11 +915,18 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
     if command_name == "grep" and r"\|" in pattern:
         pattern = pattern.replace(r"\|", "|")
     path = cleaned[1] if len(cleaned) > 1 else "."
+    if len(cleaned) > 1 and not _literal_operand(path):
+        # $VAR/~/glob path operands are expanded by a real shell; the rewrite
+        # would take them literally and search the wrong place.
+        return CommandPolicyDecision(category="search", action="allow")
     # Single-file targets: fall through to shell grep/rg.  The Python rewrite
     # adds value only for directory-wide searches (ranking, context, file caps).
     # For a specific file, real grep is faster, handles pipes/redirections
     # natively, and avoids any Python overhead or GIL contention.
-    if path != "." and Path(path).is_file():
+    resolved_path = Path(path)
+    if cwd is not None and not resolved_path.is_absolute():
+        resolved_path = cwd / resolved_path
+    if path != "." and resolved_path.is_file():
         return CommandPolicyDecision(category="search", action="allow")
     if (
         command_name == "rg"
@@ -913,7 +936,6 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
         and not list_files_only
         and lines_after == 0
         and lines_before == 0
-        and pipe_remainder is None
         and len(cleaned) <= 2
         and not _SEARCH_REGEX_METACHARS.search(pattern)
     ):
@@ -937,8 +959,6 @@ def _rewrite_search(tokens: list[str], command_name: str) -> CommandPolicyDecisi
         payload["type"] = file_type
     if globs:
         payload["glob"] = globs
-    if pipe_remainder:
-        payload["pipe_remainder"] = pipe_remainder
     return CommandPolicyDecision(
         category="search",
         action="rewrite",
@@ -1429,7 +1449,6 @@ def _block_check_segment(
 # scenes and its result is returned in the SAME turn (like grep->grep_tool), so no
 # turn is wasted. Everything else (incl. sed -i replacements, git navigation) is
 # ALLOWED to run -- a git-archaeology *spiral* is caught by the convergence escalation.
-_FETCH_RE = re.compile(r"\b(?:curl|wget)\b", re.IGNORECASE)
 _FETCH_URL_RE = re.compile(r"https?://[^\s'\"|>;)]+", re.IGNORECASE)
 _FETCH_SETUP_RE = re.compile(
     r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|pip[0-9]*|python[0-9.]*|tar|unzip|gunzip|apt|apt-get|brew|npm|node|tee)\b"
@@ -1448,48 +1467,102 @@ _FETCH_REQUEST_FLAGS_RE = re.compile(
     r"|-[A-Za-z]*[HXduFTbIA][A-Za-z]*(?=\s|$)"
     r")"
 )
-_FIND_NAME_RE = re.compile(r"\bfind\s+(?:(\S+)\s+)?-(?:i?name|wholename)\s+['\"]?([^'\"\s|>;]+)", re.IGNORECASE)
-_SED_PRINT_RE = re.compile(r"\bsed\s+-n\s+['\"]?(\d+)(?:,(\d+))?\s*p['\"]?\s+(\S+)", re.IGNORECASE)
+# A find -name pattern the internal glob engine reproduces exactly: a basename
+# glob with no path separator and no shell-expansion/quoting characters.
+_FIND_PATTERN_RE = re.compile(r"^[A-Za-z0-9._*?\[\]-]+$")
+# sed line-print expression: A[,B]p and nothing else -- scripts, regex
+# addresses, multiple expressions and extra flags all run for real.
+_SED_EXPR_RE = re.compile(r"^(\d+)(?:,(\d+))?p$")
+# A rewrite replaces the ENTIRE command with an internal-tool equivalent, so it
+# is only sound when the command IS that single invocation. Chaining (&&, ||,
+# ;, &), redirection (>, <), substitution (`...` or $(...)) or a newline means
+# a rewrite would silently drop every other part -- e.g.
+# `sed -i ... && sed -n ...` must NOT collapse into a read of the (unedited)
+# file. A *quoted* operator false-positives here, which only skips the
+# optimization: the command then runs verbatim, never wrongly. Bare `|` stays
+# allowed -- _rewrite_pipeline and _rewrite_search handle pipe tails explicitly.
+_REWRITE_UNSAFE_RE = re.compile(r"[;&<>`\n]|\$\(")
 
 
 def _redirect_known_bad(command: str) -> CommandPolicyDecision | None:
-    """Rewrite known-bad read-only calls to the right tool (executed inline). Never blocks."""
-    if _FETCH_RE.search(command) and not _FETCH_SETUP_RE.search(command):
+    """Rewrite known-bad read-only calls to the right tool (executed inline). Never blocks.
+
+    Only called for a single unchained, unpiped command (``classify_command``
+    gates on ``_REWRITE_UNSAFE_RE`` and ``|``). Each rewrite anchors on the
+    head token and requires the exact, fully-understood shape -- anything else
+    runs verbatim. A skipped rewrite is always safe; a wrong one never is.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    head_tok = tokens[0].lower()
+    if head_tok == "curl" and not _FETCH_SETUP_RE.search(command):
+        # curl only: its default prints the body to stdout, which web_fetch
+        # reproduces. wget's default DOWNLOADS to a file a later command may
+        # depend on, so wget always runs for real.
         if _FETCH_REQUEST_FLAGS_RE.search(command):
             # Headers/method/auth/body present: a plain-URL web_fetch rewrite
             # would silently drop them and fetch the wrong thing — run as-is.
             return None
-        m = _FETCH_URL_RE.search(command)
-        if m:  # plain content fetch -> run web_fetch behind the scenes
+        urls = _FETCH_URL_RE.findall(command)
+        if len(urls) == 1 and "$" not in urls[0]:
+            # Exactly one literal URL: a second URL or a $VAR would be
+            # dropped/taken literally by the rewrite.
             return CommandPolicyDecision(
                 category="web-fetch",
                 action="rewrite",
                 rewrite_target="web_fetch",
-                rewrite_payload={"url": m.group(0)},
+                rewrite_payload={"url": urls[0]},
             )
-        return None  # no URL to fetch -> just allow
-    mf = _FIND_NAME_RE.search(command)
-    if mf:  # find -name PATTERN -> internal file glob, returned inline
-        path = mf.group(1) or "."
-        if path.startswith("-"):
-            path = "."
-        return CommandPolicyDecision(
-            category="find",
-            action="rewrite",
-            rewrite_target="find_glob",
-            rewrite_payload={"glob": mf.group(2), "path": path},
-        )
-    ms = _SED_PRINT_RE.search(command)
-    if ms:  # sed -n 'A,Bp' FILE  (read-only print) -> read that exact range, inline
-        a = ms.group(1)
-        b = ms.group(2) or a
-        return CommandPolicyDecision(
-            category="sed-read",
-            action="rewrite",
-            rewrite_target="read_range",
-            rewrite_payload={"spec": f"{ms.group(3)}:L{a}-L{b}"},
-        )
-    return None  # sed -i / other sed / other find / git navigation -> ALLOW
+        return None  # no/multiple/variable URL -> just allow
+    if head_tok == "find":
+        # Exact shape only: find [PATH] -name PATTERN -type f (any predicate
+        # order). Everything else diverges from the internal glob listing:
+        # -iname (case), -wholename (path match), -maxdepth/-mtime/... (extra
+        # filters), -delete/-exec (side effects), no -type f (real find also
+        # lists matching DIRECTORIES) -- all of those run for real.
+        rest = tokens[1:]
+        path = "."
+        if rest and not rest[0].startswith("-"):
+            path, rest = rest[0], rest[1:]
+        valid = len(rest) == 4
+        opts: dict[str, str] = {}
+        if valid:
+            for flag, val in zip(rest[::2], rest[1::2], strict=True):
+                if flag in opts:
+                    valid = False
+                    break
+                opts[flag] = val
+        if (
+            valid
+            and set(opts) == {"-name", "-type"}
+            and opts["-type"] == "f"
+            and (path == "." or _literal_operand(path))
+            and _FIND_PATTERN_RE.match(opts["-name"])
+        ):
+            return CommandPolicyDecision(
+                category="find",
+                action="rewrite",
+                rewrite_target="find_glob",
+                rewrite_payload={"glob": opts["-name"], "path": path},
+            )
+        return None
+    if head_tok == "sed" and len(tokens) == 4 and tokens[1] == "-n":
+        # Exact shape only: sed -n 'A[,B]p' FILE -> read that range inline.
+        ms = _SED_EXPR_RE.match(tokens[2])
+        if ms and _literal_operand(tokens[3]) and ":" not in tokens[3]:
+            a = ms.group(1)
+            b = ms.group(2) or a
+            return CommandPolicyDecision(
+                category="sed-read",
+                action="rewrite",
+                rewrite_target="read_range",
+                rewrite_payload={"spec": f"{tokens[3]}:L{a}-L{b}"},
+            )
+    return None  # sed -i / other sed / other find / wget / git navigation -> ALLOW
 
 
 # Pipeline-aware rewrite (tier 1 detect + tier 2 safe rewrite). A streaming hex
@@ -1693,14 +1766,19 @@ def classify_command(
                 ),
             )
 
-    bad = _redirect_known_bad(command)
+    # Rewrites replace the whole command -- only sound for a single simple
+    # invocation (see _REWRITE_UNSAFE_RE). When the command chains, redirects,
+    # or substitutes, skip every rewrite and run it verbatim.
+    rewrite_safe = _REWRITE_UNSAFE_RE.search(command) is None
+
+    bad = _redirect_known_bad(command) if rewrite_safe and "|" not in command else None
     if bad is not None:
         return bad
 
     # Pipeline-aware rewrite runs before the single-command tokens[0] dispatch
     # (which never sees into `producer | consumer`). Only fires for the narrow
     # `od <bigfile> | tail` shape; returns None -> normal flow -> untouched.
-    pipeline_rewrite = _rewrite_pipeline(command, resolved_cwd)
+    pipeline_rewrite = _rewrite_pipeline(command, resolved_cwd) if rewrite_safe else None
     if pipeline_rewrite is not None:
         return pipeline_rewrite
 
@@ -1712,16 +1790,17 @@ def classify_command(
         return CommandPolicyDecision(category="generic", action="allow")
 
     head = tokens[0].lower()
-    if head == "cat":
-        return _rewrite_cat(tokens)
-    if head == "head":
-        return _rewrite_head(tokens)
-    if head == "tail":
-        return _rewrite_tail(tokens)
-    if head == "wc":
-        return _rewrite_wc(tokens)
-    if head in {"rg", "grep"}:
-        return _rewrite_search(tokens, head)
+    if rewrite_safe:
+        if head == "cat":
+            return _rewrite_cat(tokens)
+        if head == "head":
+            return _rewrite_head(tokens)
+        if head == "tail":
+            return _rewrite_tail(tokens)
+        if head == "wc":
+            return _rewrite_wc(tokens)
+        if head in {"rg", "grep"}:
+            return _rewrite_search(tokens, head, resolved_cwd)
     if external_compactors_enabled():
         compactor = compactor_for_command(tokens)
         if compactor is not None:

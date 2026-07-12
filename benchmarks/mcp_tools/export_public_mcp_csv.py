@@ -774,7 +774,23 @@ def run_public_surface(
     return reports
 
 
+def _increase_csv_field_size_limit() -> None:
+    """Raise csv's default 128KB field cap -- shard result rows can carry a
+    full tool payload (e.g. ranked_file_map/with_content dumps) well past
+    that, and the stdlib default makes _read_csv_rows raise
+    ``_csv.Error: field larger than field limit`` on the merge step.
+    """
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    _increase_csv_field_size_limit()
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 

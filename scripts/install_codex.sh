@@ -172,9 +172,9 @@ PYEOF
 
 resolve_lemoncrow_runtime_python() {
     local lemoncrow_launcher lemoncrow_python
-    lemoncrow_launcher="$(command -v lemoncrow || command -v lc || true)"
+    lemoncrow_launcher="$(command -v lemoncrow || true)"
     if [ -z "$lemoncrow_launcher" ]; then
-        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter: neither 'lemoncrow' nor 'lc' is on PATH" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter: 'lemoncrow' is not on PATH" >&2
         exit 1
     fi
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
@@ -194,9 +194,9 @@ resolve_lemoncrow_runtime_python() {
 resolve_lemoncrow_hook_python() {
     local lemoncrow_launcher
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
-        lemoncrow_launcher="$(command -v lemoncrow || command -v lc || true)"
+        lemoncrow_launcher="$(command -v lemoncrow || true)"
         if [ -z "$lemoncrow_launcher" ]; then
-            echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow launcher: neither 'lemoncrow' nor 'lc' is on PATH" >&2
+            echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow launcher: 'lemoncrow' is not on PATH" >&2
             exit 1
         fi
         resolve_real_path "$lemoncrow_launcher"

@@ -248,7 +248,6 @@ def test_stdio_server_round_trip_edits_and_searches_real_files(mcp_env: Path) ->
                                 "edits": [
                                     {
                                         "path": str(target),
-                                        "op": "replace",
                                         "old_string": "world",
                                         "new_string": "stdio",
                                     }
@@ -364,7 +363,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "store_fact",
-                "agent_id": "lc:code",
+                "agent_id": "lemoncrow:code",
                 "subject": "mcp-e2e",
                 "fact": "Prefer JSON-RPC MCP tests with real side effects.",
                 "citations": "tests/gateway/test_mcp_jsonrpc_e2e.py",
@@ -380,7 +379,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "recall",
-                "agent_id": "lc:code",
+                "agent_id": "lemoncrow:code",
                 "query": "JSON-RPC MCP tests",
                 "top_k": 3,
             },
@@ -393,7 +392,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "store_fact",
-                "agent_id": "lc:code",
+                "agent_id": "lemoncrow:code",
                 "subject": "checkout-retry",
                 "fact": "Archived checkout retry guidance for MCP JSON-RPC task tests.",
                 "citations": "tests/gateway/test_mcp_jsonrpc_e2e.py",
@@ -409,7 +408,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "memory",
             {
                 "op": "recall",
-                "agent_id": "lc:code",
+                "agent_id": "lemoncrow:code",
                 "query": "checkout retry guidance",
                 "top_k": 3,
             },
@@ -426,7 +425,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             "context",
             {
                 "task": "Use checkout retry guidance in MCP JSON-RPC task tests.",
-                "agent_id": "lc:code",
+                "agent_id": "lemoncrow:code",
             },
         )
     )
@@ -510,7 +509,6 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
                 "edits": [
                     {
                         "path": str(target),
-                        "op": "replace",
                         "old_string": "secondary needle",
                         "new_string": "secondary lemoncrow",
                     }
@@ -531,13 +529,11 @@ def test_read_search_edit_and_compact_e2e(mcp_env: Path) -> None:
                 "edits": [
                     {
                         "path": str(partial),
-                        "op": "replace",
                         "old_string": "YES",
                         "new_string": "OK",
                     },
                     {
                         "path": str(partial),
-                        "op": "replace",
                         "old_string": "MISSING",
                         "new_string": "NO",
                     },
@@ -561,13 +557,11 @@ def test_edit_atomic_rollback_e2e(mcp_env: Path) -> None:
                 "edits": [
                     {
                         "path": str(good),
-                        "op": "replace",
                         "old_string": "original",
                         "new_string": "changed",
                     },
                     {
                         "path": str(good),
-                        "op": "replace",
                         "old_string": "missing",
                         "new_string": "boom",
                     },

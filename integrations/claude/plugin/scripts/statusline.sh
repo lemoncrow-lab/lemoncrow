@@ -89,7 +89,7 @@ except Exception:
     pro|enterprise)
       # Wall-clock rotation (5s per icon), same cadence as the dynamic segment
       # below -- deterministic within a render, no flicker.
-      _LEMONCROW_PRO_ICONS=("⚡" "🏆" "💰" "🐦‍⬛" "🍋")
+      _LEMONCROW_PRO_ICONS=("🎨" "⚡" "🏆" "💰" "🍋", "✨")
       _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_PRO_ICONS[@]} ))
       PLUGIN_LABEL="${_LEMONCROW_PRO_ICONS[$_LEMONCROW_ICON_IDX]} lc"
       ;;
@@ -250,7 +250,7 @@ if [ -z "${DYNAMIC_SEG:-}" ]; then
     DYNAMIC_SEG=$("${_LEMONCROW_BIN}" savings --segment 2>/dev/null)
   fi
   if [ -z "${DYNAMIC_SEG:-}" ]; then
-    DYNAMIC_SEG=$(uv run --quiet lc savings --segment 2>/dev/null)
+    DYNAMIC_SEG=$(uv run --quiet lemoncrow savings --segment 2>/dev/null)
   fi
   # Only cache when there is real live usage — avoids serving a stale
   # zero-token result to the next render that has actual tokens in context.
@@ -410,7 +410,7 @@ if [ -n "${_TODAY}" ]; then
       _STALE_LINE=$("${_LEMONCROW_BIN}" stale-nudge --host claude 2>/dev/null | head -n1)
     fi
     if [ -z "${_STALE_LINE:-}" ]; then
-      _STALE_LINE=$(uv run --quiet lc stale-nudge --host claude 2>/dev/null | head -n1)
+      _STALE_LINE=$(uv run --quiet lemoncrow stale-nudge --host claude 2>/dev/null | head -n1)
     fi
     if [ -n "${_STALE_LINE:-}" ]; then
       IFS='|' read -r _S_KIND _S_NAME _S_DAYS _S_COST <<<"${_STALE_LINE}"

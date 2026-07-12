@@ -77,8 +77,8 @@ PYEOF
 )"
     fi
 
-    if [[ -z "$version" ]] && command -v lc >/dev/null 2>&1; then
-        version="$(lc --version 2>/dev/null | sed -n 's/^lc, version //p' | head -n 1)"
+    if [[ -z "$version" ]] && command -v lemoncrow >/dev/null 2>&1; then
+        version="$(lemoncrow --version 2>/dev/null | sed -n 's/^lemoncrow, version //p' | head -n 1)"
     fi
 
     if [[ -z "$version" ]]; then

@@ -81,7 +81,7 @@ def background_install(
     """Install LemonCrow services as background units."""
     root = ctx.obj["root"]
     project_root = _project_root()
-    lemoncrow_bin = shutil.which("lc") or str(Path(sys.argv[0]).resolve())
+    lemoncrow_bin = shutil.which("lemoncrow") or str(Path(sys.argv[0]).resolve())
     # We no longer need a separate lemoncrowd/lcd binary; we use 'lc background service'
     service_start_cmd = f"{lemoncrow_bin} background service start"
 
@@ -93,8 +93,7 @@ def background_install(
 
     if with_zoekt and not shutil.which("docker"):
         click.echo(
-            "Warning: 'docker' not found on PATH. "
-            "Managed Zoekt search will be unavailable until Docker is available."
+            "Warning: 'docker' not found on PATH. Managed Zoekt search will be unavailable until Docker is available."
         )
 
     if with_openmemory:
