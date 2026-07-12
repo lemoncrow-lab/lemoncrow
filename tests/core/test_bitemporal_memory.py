@@ -26,7 +26,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=pid,
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         text=text,
         embedding_provenance="none",
         source="user",

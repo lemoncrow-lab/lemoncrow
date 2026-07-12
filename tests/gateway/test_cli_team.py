@@ -44,11 +44,11 @@ def test_team_usage_and_memory_share_commands(tmp_path: Path) -> None:
     assert init.exit_code == 0, init.output
     _write_done_session(root, "admin@example.com", cost=1.25)
     SqliteMemoryStore(root).upsert_block(
-        MemoryBlock(agent_id="lc:code", label="fact", value="remember this"),
+        MemoryBlock(agent_id="lemoncrow:code", label="fact", value="remember this"),
         actor="test",
     )
 
-    shared = _invoke(root, "memory", "share", "--agent-id", "lc:code", "--label", "fact", "--json")
+    shared = _invoke(root, "memory", "share", "--agent-id", "lemoncrow:code", "--label", "fact", "--json")
     usage = _invoke(root, "team", "usage", "--since", "30d", "--json")
 
     assert shared.exit_code == 0, shared.output

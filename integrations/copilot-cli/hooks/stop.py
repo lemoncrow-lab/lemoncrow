@@ -258,7 +258,7 @@ def main() -> int:
         return 0
 
     summary = _format_summary(stats, savings)
-    sys.stdout.write(json.dumps({"systemMessage": f"lc: session complete.\n{summary}"}) + "\n")
+    sys.stdout.write(json.dumps({"systemMessage": f"lemoncrow: session complete.\n{summary}"}) + "\n")
     return 0
 
 

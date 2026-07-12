@@ -397,7 +397,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lc:knowledge|skills/knowledge|name:\\s*knowledge",
+      "lemoncrow:knowledge|skills/knowledge|name:\\s*knowledge",
       "session_507",
       "lemoncrow__lemoncrow"
     ],
@@ -1387,7 +1387,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "LEMONCROW_BENCH_AGENT|_lemoncrow_claude_agent_args|lc:code|add_argument\\(|\\.add_argument|def main\\(|argparse",
+      "LEMONCROW_BENCH_AGENT|_lemoncrow_claude_agent_args|lemoncrow:code|add_argument\\(|\\.add_argument|def main\\(|argparse",
       "session_1196",
       "lemoncrow__lemoncrow"
     ],
@@ -1887,7 +1887,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lc:review|subagent_type|agent_type|agentType",
+      "lemoncrow:review|subagent_type|agent_type|agentType",
       "session_468",
       "lemoncrow__lemoncrow"
     ],
@@ -2192,7 +2192,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "code-review|lc:review",
+      "code-review|lemoncrow:review",
       "session_469",
       "lemoncrow__lemoncrow"
     ],
@@ -2442,7 +2442,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "--agent|lc:code|lc:auto|plugin_flags|--plugin-dir",
+      "--agent|lemoncrow:code|lemoncrow:auto|plugin_flags|--plugin-dir",
       "session_114",
       "lemoncrow__lemoncrow"
     ],

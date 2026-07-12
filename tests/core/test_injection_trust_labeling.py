@@ -34,7 +34,7 @@ def test_detector_is_conservative_on_benign_text() -> None:
 
 def _passage(text: str) -> ArchivalPassage:
     return ArchivalPassage(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         text=text,
         source="file_chunk",
         source_ref="docs/readme.md",

@@ -78,7 +78,7 @@ Related choices in the same area:
   partial.
 - **Spawn-aware delegation.** Roles whose policy denies the `Agent` tool
   (execute, solve) do not get the "delegate read-only work to
-  lc:explore/lc:plan" line — telling an agent to use a tool it
+  lemoncrow:explore/lemoncrow:plan" line — telling an agent to use a tool it
   cannot call wastes a turn.
 - **auto has an unattended override.** `auto` denies questions and plan gates
   (CI/headless), but the shared change discipline demands explicit

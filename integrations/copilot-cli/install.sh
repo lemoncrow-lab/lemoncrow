@@ -25,13 +25,13 @@ run() { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 HOOKS_DEST="${HOME}/.lemoncrow/copilot-cli-hooks"
 COPILOT_HOOKS_DIR="${HOME}/.copilot/hooks"
 
-echo "[lc:copilot-cli] Installing hook scripts → ${HOOKS_DEST}"
+echo "[lemoncrow:copilot-cli] Installing hook scripts → ${HOOKS_DEST}"
 run "mkdir -p '${HOOKS_DEST}'"
 run "cp '${SCRIPT_DIR}/hooks/session_start.py' '${HOOKS_DEST}/'"
 run "cp '${SCRIPT_DIR}/hooks/post_tool_use_failure.py' '${HOOKS_DEST}/'"
 run "cp '${SCRIPT_DIR}/hooks/stop.py' '${HOOKS_DEST}/'"
 
-echo "[lc:copilot-cli] Writing hooks.json → ${COPILOT_HOOKS_DIR}/hooks.json"
+echo "[lemoncrow:copilot-cli] Writing hooks.json → ${COPILOT_HOOKS_DIR}/hooks.json"
 run "mkdir -p '${COPILOT_HOOKS_DIR}'"
 if ! $DRY_RUN; then
     sed "s|__HOOKS_DIR__|${HOOKS_DEST}|g" \
@@ -41,7 +41,7 @@ else
     echo "  [dry-run] sed __HOOKS_DIR__ → ${HOOKS_DEST} > ${COPILOT_HOOKS_DIR}/hooks.json"
 fi
 
-echo "[lc:copilot-cli] Done."
+echo "[lemoncrow:copilot-cli] Done."
 echo "  Hook scripts: ${HOOKS_DEST}/"
 echo "  Hooks config: ${COPILOT_HOOKS_DIR}/hooks.json"
 echo ""

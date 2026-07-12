@@ -4,7 +4,7 @@ argument-hint: <what to recall from past sessions>
 description: "Retrieve what LemonCrow already learned from your past sessions — semantic recall over indexed sessions, durable facts, and extracted lessons. Use for 'have we seen this before', 'what did we learn about X', 'what does LemonCrow remember', or /recall. Read-only; importing, indexing, and extraction run in the LemonCrow background."
 ---
 
-> **Active** — do not call `Skill("lc:recall")` again.
+> **Active** — do not call `Skill("lemoncrow:recall")` again.
 
 # Recall
 

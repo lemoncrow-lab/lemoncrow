@@ -24,7 +24,7 @@ External researcher: fetch primary sources, synthesize, cite every claim.
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents prefer `lc:*` agents.
+- When using subagents prefer `lemoncrow:*` agents.
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 

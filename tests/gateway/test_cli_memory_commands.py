@@ -33,7 +33,7 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "lc:code",
+                    "agent_id": "lemoncrow:code",
                     "subject": "scratch",
                     "fact": "hello",
                     "citations": 'User input: "hello"',
@@ -62,7 +62,7 @@ def test_cli_memory_upsert_and_get_round_trip(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "lc:code",
+                    "agent_id": "lemoncrow:code",
                     "subject": "scratch",
                     "fact": "hello",
                     "citations": 'User input: "hello"',
@@ -97,7 +97,7 @@ def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
             "--scope",
             "user",
             "--agent-id",
-            "lc:code",
+            "lemoncrow:code",
             "--citations",
             'User input: "host-neutral"',
             "--reason",
@@ -124,7 +124,7 @@ def test_cli_memory_remember_and_vote_round_trip(tmp_path: Path) -> None:
             "--scope",
             "user",
             "--agent-id",
-            "lc:code",
+            "lemoncrow:code",
             "--json",
         ],
     )
@@ -155,7 +155,7 @@ def test_cli_memory_upsert_reads_value_from_file(tmp_path: Path) -> None:
             json.dumps(
                 {
                     "op": "store_fact",
-                    "agent_id": "lc:code",
+                    "agent_id": "lemoncrow:code",
                     "subject": "from-file",
                     "fact": value_file.read_text(encoding="utf-8"),
                     "citations": 'User input: "file-backed memory"',

@@ -8717,7 +8717,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "lc:knowledge|skills/knowledge|name:\\s*knowledge",
+      "lemoncrow:knowledge|skills/knowledge|name:\\s*knowledge",
       "session_569",
       "lemoncrow__lemoncrow"
     ],
@@ -9297,7 +9297,7 @@
       "lemoncrow__lemoncrow"
     ],
     [
-      "_ARM_AGENT|lc:code|lc:auto|lc:solve",
+      "_ARM_AGENT|lemoncrow:code|lemoncrow:auto|lemoncrow:solve",
       "session_1450",
       "lemoncrow__lemoncrow"
     ],

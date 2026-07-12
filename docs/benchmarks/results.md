@@ -132,7 +132,7 @@ for every suite in full.
 
 ```bash
 # SWE-bench Verified
-CODEBENCH_LEMONCROW_AGENT=lc:auto uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
+CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --suite swe-bench-verified --instances $(cat benchmarks/codebench/data/verified.txt) \
   --min-changed-files 1 -a baseline lc --reps 5 --model claude-opus-4-8 --jobs 8
 

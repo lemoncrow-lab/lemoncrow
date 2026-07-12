@@ -27,7 +27,7 @@ or after plugin changes.
 | --- | --- | --- |
 | Plugin source | `~/.codex/plugins/lemoncrow/` | Skills, hooks, bundled MCP config, and plugin metadata |
 | Marketplace | `~/.agents/plugins/marketplace.json` | Makes `lemoncrow@lemoncrow-local` discoverable by Codex |
-| Main-session instructions | `~/.codex/AGENTS.md` | Makes Codex `Main [default]` operate as `lc:code` |
+| Main-session instructions | `~/.codex/AGENTS.md` | Makes Codex `Main [default]` operate as `lemoncrow:code` |
 | Custom agents | `~/.codex/agents/lemoncrow.*.toml` | Seven globally available custom subagents |
 
 The plugin's `.mcp.json` launches:
@@ -72,7 +72,7 @@ Each file contains `name`, `description`, optional `model`, and
 is written.
 
 Codex keeps the root thread label `Main [default]`; that root session receives the
-`lc:code` behavior from `~/.codex/AGENTS.md`. Custom agents are spawned by name,
+`lemoncrow:code` behavior from `~/.codex/AGENTS.md`. Custom agents are spawned by name,
 for example:
 
 ```text
@@ -93,7 +93,7 @@ has been spawned.
 ```bash
 codex --version
 ls ~/.codex/agents/lemoncrow.*.toml
-grep -n "You are operating as.*lc:code" ~/.codex/AGENTS.md
+grep -n "You are operating as.*lemoncrow:code" ~/.codex/AGENTS.md
 python -m json.tool ~/.codex/plugins/lemoncrow/.mcp.json >/dev/null
 ```
 
@@ -134,7 +134,7 @@ Do not run both installation modes for the normal global-plus-`lc init` workflow
 | Problem | Check |
 | --- | --- |
 | Plugin not visible | Restart Codex, open `/plugins`, and enable `lemoncrow@lemoncrow-local`; verify `~/.agents/plugins/marketplace.json` and `~/.codex/plugins/lemoncrow/` exist |
-| Main does not behave as LemonCrow code mode | Verify `~/.codex/AGENTS.md` contains `You are operating as *lc:code*.` and start a new Codex session |
+| Main does not behave as LemonCrow code mode | Verify `~/.codex/AGENTS.md` contains `You are operating as *lemoncrow:code*.` and start a new Codex session |
 | Agents are missing | Run `lc init` in the repository and verify `.codex/agents/lemoncrow.*.toml` contains seven files |
 | `/agent` shows only Main | Spawn a custom agent by name first; `/agent` lists active threads, not every installed definition |
 | LemonCrow tools are missing | Confirm the plugin is enabled in `/plugins` and inspect `~/.codex/plugins/lemoncrow/.mcp.json` |

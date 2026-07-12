@@ -267,13 +267,13 @@ def test_codex_subagent_hook_tracks_start_and_stop(tmp_path: Path) -> None:
         "hook_event_name": "SubagentStart",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lc:explore",
+        "agent_type": "lemoncrow:explore",
     }
     stop_payload = {
         "hook_event_name": "SubagentStop",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lc:explore",
+        "agent_type": "lemoncrow:explore",
     }
 
     start = _run_hook("subagent.py", root, start_payload)

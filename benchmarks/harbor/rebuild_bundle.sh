@@ -7,7 +7,7 @@
 # enough -- do a full bullseye build instead.
 #
 #   docker run --rm \
-#     -v <repo>:/lc:ro \
+#     -v <repo>:/lemoncrow:ro \
 #     -v /tmp/avbuild:/out \
 #     debian:bullseye-slim bash /lemoncrow/benchmarks/harbor/rebuild_bundle.sh
 #

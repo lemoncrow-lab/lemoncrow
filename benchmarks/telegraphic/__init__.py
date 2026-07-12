@@ -4,7 +4,7 @@ Reproduces JuliusBrussee/caveman's benchmark+eval prompt sets
 (https://github.com/JuliusBrussee/caveman/tree/main/benchmarks,
 https://github.com/JuliusBrussee/caveman/tree/main/evals -- MIT, prompts used
 verbatim, see prompts.json) as an ad-hoc ``benchmarks.codebench.run`` local
-run: baseline = vanilla Claude Code, lemoncrow = the real ``lc:auto``
+run: baseline = vanilla Claude Code, lemoncrow = the real ``lemoncrow:auto``
 persona (LemonCrow's shipped ultra reply-register + real tools/MCP) -- apples
 to apples with every other number in this repo's BENCHMARKS.md, not an
 isolated system-prompt swap. See ``lc benchmark telegraphic --help``.

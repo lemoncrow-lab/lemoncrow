@@ -4,7 +4,7 @@ argument-hint: <the goal for the swarm, e.g. "optimize bundle size">
 description: "Launch N parallel attempts at one hard task in isolated worktrees, then reduce to the best by merge, fitness, findings-union, or vote — for 'try this N ways', 'swarm on X', 'optimize/tune X', 'find all bugs', or /swarm. Use /orchestrate for a single sequential run instead."
 ---
 
-> **Active** — do not call `Skill("lc:swarm")` again.
+> **Active** — do not call `Skill("lemoncrow:swarm")` again.
 
 # Swarm
 

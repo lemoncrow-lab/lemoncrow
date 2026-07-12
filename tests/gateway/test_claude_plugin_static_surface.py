@@ -67,7 +67,7 @@ def test_editing_personas_carry_fixme_must_act_rule() -> None:
 def test_read_only_personas_carry_no_edit_discipline() -> None:
     for role in sorted(READ_ONLY_ROLES):
         body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
-        for edit_marker in ("edits[]", "bulk edit", "lc:explore` / `"):
+        for edit_marker in ("edits[]", "bulk edit", "lemoncrow:explore` / `"):
             assert edit_marker not in body, f"{role}: edit-centric rule leaked into read-only persona: {edit_marker!r}"
 
 

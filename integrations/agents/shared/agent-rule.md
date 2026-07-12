@@ -1,1 +1,1 @@
-- When using subagents prefer `lc:*` agents.
+- When using subagents prefer `lemoncrow:*` agents.

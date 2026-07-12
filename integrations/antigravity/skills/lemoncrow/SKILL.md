@@ -4,7 +4,7 @@ argument-hint: <install|remove|list|set|...> [agent|skill|key] [name|value]
 description: "Extras manager."
 ---
 
-> **Active** — do not call `Skill("lc:lemoncrow")` again.
+> **Active** — do not call `Skill("lemoncrow:lemoncrow")` again.
 
 # LemonCrow
 
