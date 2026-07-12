@@ -154,7 +154,7 @@ fi
 # dead entries that mask typos.
 LEMONCROW_MCP_TOOLS_JSON='["mcp__lc__codemod", "mcp__lc__code_search", "mcp__lc__compact", "mcp__lc__context", "mcp__lc__edit", "mcp__lc__grep", "mcp__lc__memory", "mcp__lc__read", "mcp__lc__rescue", "mcp__lc__search", "mcp__lc__bash", "mcp__lc__sql", "mcp__lc__trace", "mcp__lc__verify"]'
 # git: read/commit subset only -- push/reset/rebase still prompt.
-LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lc *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
+LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemoncrow *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
 
 # --------------------------------------------------------------------------- #
 # apply_enforcement_to_settings <path>

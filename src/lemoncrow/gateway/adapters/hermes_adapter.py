@@ -16,7 +16,7 @@ Hermes config format (YAML)::
 
     mcp_servers:
       lc:
-        command: lc mcp
+        command: lemoncrow mcp
         args: []
         timeout: 120
         connect_timeout: 60

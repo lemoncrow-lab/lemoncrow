@@ -33,13 +33,13 @@ them into "search episodes" between prompts, shows:
 
 ```bash
 # Analyze your LemonCrow sessions and show savings
-uv run lc eval sessions --repo-filter lemoncrow
+uv run lemoncrow eval sessions --repo-filter lemoncrow
 
 # Also run the retrieval benchmark on mined grep patterns
-uv run lc eval sessions --repo-filter lemoncrow --run-eval --channel lexical
+uv run lemoncrow eval sessions --repo-filter lemoncrow --run-eval --channel lexical
 
 # Analyze all session files (no filter)
-uv run lc eval sessions --run-eval --channel cg --full
+uv run lemoncrow eval sessions --run-eval --channel cg --full
 ```
 
 ---
@@ -78,7 +78,7 @@ through to the terminal (the Stop hook will intercept it).**
 **Phase A — estimate only:**
 
 ```bash
-uv run lc benchmark local --repo . \
+uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
   --estimate-only
 ```
@@ -95,7 +95,7 @@ Run as a background job so it doesn't hit the bash tool's 30-minute timeout:
 
 ```bash
 LOG="/tmp/lemoncrow-bench-$$.log"
-nohup uv run lc benchmark local --repo . \
+nohup uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
   -y > "$LOG" 2>&1 &
 echo "PID=$! log=$LOG"
@@ -128,19 +128,19 @@ For comparing retrieval accuracy across channels (no LLM cost):
 
 ```bash
 # LemonCrow lexical (FTS/trigram)
-uv run lc eval retrieval --channel lexical
+uv run lemoncrow eval retrieval --channel lexical
 
 # LemonCrow lexical full (no sampling)
-uv run lc eval retrieval --channel lexical --full
+uv run lemoncrow eval retrieval --channel lexical --full
 
 # CodeGraph (tree-sitter knowledge graph)
-uv run lc eval retrieval --channel cg --full
+uv run lemoncrow eval retrieval --channel cg --full
 
 # Zoekt (trigram index, needs zoekt on PATH)
-LEMONCROW_ZOEKT_MODE=installed uv run lc eval retrieval --channel zoekt
+LEMONCROW_ZOEKT_MODE=installed uv run lemoncrow eval retrieval --channel zoekt
 
 # Semantic (BGE embeddings, needs sentence-transformers)
-uv run lc eval retrieval --channel semantic
+uv run lemoncrow eval retrieval --channel semantic
 ```
 
 ---

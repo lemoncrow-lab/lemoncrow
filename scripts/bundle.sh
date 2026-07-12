@@ -120,6 +120,8 @@ install_lemoncrow_from_wheel() {
         verbose "LemonCrow installed (binary not found in uv tool dir; using PATH fallback)"
     fi
 
+    ensure_lc_alias
+
     persist_install_record
 
     # Remove stale wheels left over from previous installs so future runs
