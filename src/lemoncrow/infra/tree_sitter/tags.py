@@ -258,7 +258,12 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
         return None
     try:
         source = text.encode("utf-8")
-        tree = parser.parse(source)
+        try:
+            tree = parser.parse(source)
+        except TypeError:
+            # tree-sitter binding versions disagree on the source type: 0.22+
+            # wants a bytestring, some older builds want str. Retry the other.
+            tree = parser.parse(text)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return None
@@ -394,8 +399,14 @@ def detect_language(path: Path) -> str | None:
     return lang.name if lang is not None else None
 
 
-def extract_tags_from_text(text: str, file_path: str | Path, language: str | None = None) -> list[Tag]:
+def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: str | None = None) -> list[Tag]:
     """Extract definition/reference tags from source text without reading from disk."""
+    if isinstance(text, bytes):
+        # Defensive: callers occasionally hand us raw bytes despite the str
+        # contract (e.g. an un-decoded blob). Normalize once here so every
+        # downstream `.encode("utf-8")` call below operates on str, not bytes
+        # (bytes has no `.encode`, so that would otherwise raise).
+        text = text.decode("utf-8", errors="replace")
 
     from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import (
         supported_tree_sitter_languages,

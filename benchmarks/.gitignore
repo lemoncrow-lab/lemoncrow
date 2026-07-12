@@ -13,8 +13,10 @@ codebench/results/**/state/
 [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*/
 20[0-9][0-9]-*/
 # but include harbor lemoncrow runs for publication
-# TODO(lemoncrow): historical results dir name -- kept as-is
 !harbor/results/lemoncrow/20[0-9][0-9]-*/
+# but include harbor atelier runs for publication (historical, pre-rename; kept as-is)
+!harbor/results/atelier/2026-07-04/
+!harbor/results/atelier/2026-07-07/
 multiswe-*/
 *.flow
 .rtk*
