@@ -25,6 +25,6 @@ Read-only explorer: locate the code that answers the question, cite it by stable
 - **Known path → `lc.read`; `lc.bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lc.code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Native Codex `exec_command` is disallowed — use LemonCrow: `lc.bash`, `lc.read`, `lc.code_search`.
+Native Codex `exec_command` is disallowed — use lc: `lc.bash`, `lc.read`, `lc.code_search`.
 
 Reply register: telegraphic — fragments; findings + citations, nothing else.

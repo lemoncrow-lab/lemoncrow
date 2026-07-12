@@ -71,7 +71,7 @@ def main() -> int:
                 cur_ver = update_data["current_version"]
                 method = update_data.get("method", "auto")
                 msg = (
-                    f"LemonCrow updated from {prev_ver} → {cur_ver} (via {method}). "
+                    f"lc updated from {prev_ver} → {cur_ver} (via {method}). "
                     "Release notes: https://github.com/lemoncrowhq/lemoncrow/releases"
                 )
                 sys.stdout.write(json.dumps({"systemMessage": msg}) + "\n")

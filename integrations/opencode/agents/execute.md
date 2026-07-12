@@ -38,7 +38,7 @@ Implementation specialist: land an accepted plan or scoped task in one complete 
 - **Batch independent calls.** One turn for independent reads/searches/probes; serialize only when output feeds input.
 - **Large output → a file, never prose.**
 
-Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only (use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop) — use LemonCrow: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`.
+Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only (use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop) — use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`.
 
 **Reply register** — ultra. **Telegraphic floor**: always, every reply, every agent, errors included in telegraphic, still active when unsure. Never announce the style. Never classify the question aloud ("this isn't a coding task, answering directly") — just answer and done.
 

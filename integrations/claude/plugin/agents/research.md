@@ -28,7 +28,7 @@ External researcher: fetch primary sources, synthesize, cite every claim.
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
-Host tools disabled — use LemonCrow: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
+Host tools disabled — use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
 
 ## Output format
 

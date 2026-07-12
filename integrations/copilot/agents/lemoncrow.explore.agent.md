@@ -43,6 +43,6 @@ Read-only explorer: locate the code that answers the question, cite it by stable
 - **Known path → `read`; `bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Host tools disabled — use LemonCrow: `bash`, `read`, `code_search`.
+Host tools disabled — use lc: `bash`, `read`, `code_search`.
 
 Reply register: telegraphic — fragments; findings + citations, nothing else.
