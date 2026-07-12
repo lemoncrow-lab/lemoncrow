@@ -2,9 +2,9 @@
 #   harbor leaderboard submit --leaderboard terminal-bench/terminal-bench-2-1 \
 #     --job-id <JOB_UUID> --metadata benchmarks/harbor/metadata.yaml \
 #     --output validation-report.json
-agent_url: https://github.com/atelier-ws/atelier
-agent_display_name: Claude Code + Atelier
-agent_org_display_name: Atelier
+agent_url: https://github.com/lemoncrowhq/lemoncrow
+agent_display_name: Claude Code + Lemoncrow
+agent_org_display_name: Lemoncrow
 
 models:
   - model_name: claude-opus-4-8

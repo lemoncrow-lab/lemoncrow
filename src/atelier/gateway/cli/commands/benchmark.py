@@ -329,6 +329,13 @@ def benchmark_mini_cmd(
     default=True,
     help="Rebuild bundle from current source before a fresh run (default: on).",
 )
+@click.option(
+    "--filter-error-type",
+    "-f",
+    "filter_error_types",
+    multiple=True,
+    help="Remove trials with these error types before resuming (repeatable). Forwarded to harbor job resume -f.",
+)
 @click.option("--resume", "resume_dir", default=None, help="Resume an existing job dir instead of starting fresh.")
 @click.option(
     "--output", "-o", default=None, help="Output directory for results (default: benchmarks/harbor/results/<arm>/)."
@@ -349,6 +356,7 @@ def benchmark_harbor_cmd(
     bundle: str,
     rebuild_bundle: bool,
     resume_dir: str | None,
+    filter_error_types: tuple[str, ...],
     output: str | None,
     yes: bool,
 ) -> None:
@@ -452,8 +460,11 @@ def benchmark_harbor_cmd(
         env = {**_os.environ, "PYTHONPATH": pythonpath, "ATELIER_BENCH_TOKEN_SLOTS": str(slots)}
         for i, tok in enumerate(tokens, 1):
             env[f"CLAUDE_CODE_OAUTH_TOKEN_{i}"] = tok
+        filter_args = []
+        for et in filter_error_types:
+            filter_args.extend(["-f", et])
         ret = _subprocess.call(
-            [*harbor_cmd_prefix, "job", "resume", "-p", str(jd), "-y"],
+            [*harbor_cmd_prefix, "job", "resume", "-p", str(jd), *filter_args, "-y"],
             env=env,
         )
         if ret != 0:

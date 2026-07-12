@@ -108,6 +108,66 @@ def test_docs_only_edit_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
+def test_text_deliverable_without_verification_blocks(tmp_path: Path) -> None:
+    # A written data artifact (csv/txt/json/...) with no verification run is the
+    # over-claim failure this hook must catch, not just source edits.
+    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/result.csv"})))
+    assert _blocked(_run(t))
+
+
+def test_text_deliverable_with_pytest_allows(tmp_path: Path) -> None:
+    t = _transcript(
+        tmp_path,
+        _assistant(("Write", {"file_path": "/app/out.json"})),
+        _assistant(("Bash", {"command": "python -m pytest -q"})),
+    )
+    assert not _blocked(_run(t))
+
+
+def test_docs_deliverable_blocks_in_bench_mode(tmp_path: Path) -> None:
+    # A .md deliverable is graded in a benchmark -> nag under bench mode, while
+    # test_docs_only_edit_allows pins that ordinary (non-bench) docs edits do not.
+    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/answer.md"})))
+    assert _blocked(_run(t, env_extra={"ATELIER_BENCH_MODE": "on"}))
+
+
+def test_binary_deliverable_does_not_block(tmp_path: Path) -> None:
+    # Binary artifacts (.npy/.bin/...) are out of scope -- text/data deliverables only.
+    t = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/stolen.npy"})))
+    assert not _blocked(_run(t))
+
+
+def test_text_deliverable_exercised_by_command_allows(tmp_path: Path) -> None:
+    # Running a command that names the produced artifact IS the check for a
+    # suite-less data task -- must not nag (closes the _TEST_RUN false-positive).
+    t = _transcript(
+        tmp_path,
+        _assistant(("Write", {"file_path": "/app/result.csv"})),
+        _assistant(("Bash", {"command": "python eval.py /app/result.csv"})),
+    )
+    assert not _blocked(_run(t))
+
+
+def test_code_edit_run_by_name_still_blocks(tmp_path: Path) -> None:
+    # Code keeps the strict test-runner bar -- running the file by name in a
+    # snippet is not enough (misses regressions a withheld suite catches).
+    t = _transcript(
+        tmp_path,
+        _assistant(("Edit", {"file_path": "app/core.py"})),
+        _assistant(("Bash", {"command": "python app/core.py"})),
+    )
+    assert _blocked(_run(t))
+
+
+def test_skip_suffixes_env_excludes_configured_types(tmp_path: Path) -> None:
+    # ATELIER_VERIFY_SKIP_SUFFIXES lets the user keep archival docs / data dumps
+    # out of the nudge -- overriding text and (bench) doc classification alike.
+    csv = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/result.csv"})))
+    assert not _blocked(_run(csv, env_extra={"ATELIER_VERIFY_SKIP_SUFFIXES": ".csv, md"}))
+    md = _transcript(tmp_path, _assistant(("Write", {"file_path": "/app/answer.md"})))
+    assert not _blocked(_run(md, env_extra={"ATELIER_BENCH_MODE": "on", "ATELIER_VERIFY_SKIP_SUFFIXES": "md"}))
+
+
 def test_no_edits_allows(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Bash", {"command": "ls -la && grep -r foo ."})))
     assert not _blocked(_run(t))

@@ -1407,6 +1407,170 @@ def _redirect_known_bad(command: str) -> CommandPolicyDecision | None:
     return None  # sed -i / other sed / other find / git navigation -> ALLOW
 
 
+# Pipeline-aware rewrite (tier 1 detect + tier 2 safe rewrite). A streaming hex
+# formatter over a large file piped into `tail` forces the formatter to process
+# the ENTIRE file -- `tail` can't SIGPIPE-abort it early the way `head` can, so
+# `od bigfile | tail -60` hex-formats all N bytes just to show the end. Rewrite
+# to an in-place seek (`od -j <offset>`), which preserves od's absolute byte
+# addresses. The naive `tail -c N file | od` does NOT: its addresses restart at
+# 0. Deliberately narrow -- od only, one seekable regular file, tail-only
+# consumer, no geometry-changing od flags; every other shape returns None and
+# runs unchanged (no silent rewrite of a command we can't prove equivalent).
+_PIPELINE_SEEK_MIN_BYTES = 8 * 1024 * 1024
+_OD_BYTES_PER_LINE = 16  # od/hexdump default row width; the line-mode seek assumes it
+
+
+def _split_top_level_pipeline(command: str) -> list[list[str]] | None:
+    """The ``|``-separated stages of a simple single-line pipeline as token
+    lists, or None if *command* is anything more complex -- a newline, ``;``,
+    ``&&``, ``||``, ``&``, a redirect, a subshell, or command substitution. Used
+    only to spot a narrow, safely-rewritable shape; when in doubt, return None
+    and leave the command untouched.
+    """
+    if any(marker in command for marker in ("\n", "`", "$(")):
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        toks = list(lexer)
+    except ValueError:
+        return None
+    forbidden = {"&&", "||", "&", ";", "(", ")", "<", ">", ">>", "<<", "|&", "<>", "&>"}
+    if any(tok in forbidden for tok in toks):
+        return None
+    if "|" not in toks:
+        return None
+    stages: list[list[str]] = []
+    current: list[str] = []
+    for tok in toks:
+        if tok == "|":
+            if not current:
+                return None
+            stages.append(current)
+            current = []
+        else:
+            current.append(tok)
+    if not current:
+        return None
+    stages.append(current)
+    return stages
+
+
+def _parse_tail_bound(tokens: list[str]) -> tuple[str | None, int]:
+    """``('lines'|'bytes', count)`` for a plain bounded ``tail`` reading stdin,
+    or ``(None, 0)`` for any shape whose output can't be reproduced by a byte
+    seek (``-f``/follow, suffixed or ``+N`` counts, a file operand, ...).
+    """
+    mode = "lines"
+    count = 10
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in {"-c", "--bytes", "-n", "--lines"}:
+            if i + 1 >= len(tokens):
+                return None, 0
+            val = tokens[i + 1]
+            if not val.isdigit():
+                return None, 0
+            mode = "bytes" if tok in {"-c", "--bytes"} else "lines"
+            count = int(val)
+            i += 2
+            continue
+        if tok.startswith(("--bytes=", "--lines=")):
+            val = tok.split("=", 1)[1]
+            if not val.isdigit():
+                return None, 0
+            mode = "bytes" if tok.startswith("--bytes=") else "lines"
+            count = int(val)
+            i += 1
+            continue
+        if tok.startswith("-c") and tok[2:].isdigit():
+            mode, count, i = "bytes", int(tok[2:]), i + 1
+            continue
+        if tok.startswith("-n") and tok[2:].isdigit():
+            mode, count, i = "lines", int(tok[2:]), i + 1
+            continue
+        if re.fullmatch(r"-\d+", tok):  # `tail -60` == `tail -n 60`
+            mode, count, i = "lines", int(tok[1:]), i + 1
+            continue
+        # any other flag (-f/--follow, -q, ...) or a file operand: the consumer
+        # isn't a plain bounded stdin tail -- don't rewrite.
+        return None, 0
+    return mode, count
+
+
+def _rewrite_pipeline(command: str, cwd: str | Path | None) -> CommandPolicyDecision | None:
+    stages = _split_top_level_pipeline(command)
+    if stages is None or len(stages) != 2:
+        return None
+    producer, consumer = stages
+    if not producer or not consumer:
+        return None
+    if producer[0].lower() != "od" or consumer[0].lower() != "tail":
+        return None
+    # Bail on od flags that change row geometry or already seek/limit the read --
+    # the offset math and the printed addresses would no longer line up.
+    for tok in producer[1:]:
+        if tok.startswith(("-w", "--width", "-N", "--read-bytes", "-j", "--skip-bytes", "-S", "--strings")):
+            return None
+    # Producer operands that exist as regular files (a flag value like `-A`'s
+    # `d` or `-t`'s `x1` doesn't name a real file, so statting also tells the
+    # file apart from option arguments without parsing od's grammar). od over
+    # multiple files concatenates their dumps -- which a single-file seek can't
+    # reproduce -- so require exactly one, and it must be large enough that
+    # formatting the whole thing is the actual waste we're avoiding.
+    file_operands: list[tuple[str, int]] = []
+    for tok in producer[1:]:
+        if tok.startswith("-") and tok != "-":
+            continue
+        path = Path(tok)
+        if not path.is_absolute() and cwd is not None:
+            path = Path(cwd) / tok
+        try:
+            if not path.is_file():
+                continue
+            size = path.stat().st_size
+        except OSError:
+            continue
+        file_operands.append((tok, size))
+    if len(file_operands) != 1:
+        return None
+    file_tok, size = file_operands[0]
+    if size <= _PIPELINE_SEEK_MIN_BYTES:
+        return None
+    mode, count = _parse_tail_bound(consumer)
+    if mode is None or count <= 0:
+        return None
+    if mode == "bytes":
+        offset = size - count
+    else:
+        # Seek one extra row back so we never return FEWER rows than asked (od
+        # also prints a trailing address-only line): a safe superset of `tail -n`.
+        offset = size - (count + 1) * _OD_BYTES_PER_LINE
+    if offset <= 0:
+        return None  # requested tail already spans (nearly) the whole file
+    # Rebuild: original od invocation minus the file operand (and any lone `--`),
+    # plus our skip and the file at the end behind a fresh `--`.
+    rebuilt = ["od"]
+    for tok in producer[1:]:
+        if tok == file_tok or tok == "--":
+            continue
+        rebuilt.append(tok)
+    rebuilt += ["-j", str(offset), "--", file_tok]
+    rewritten = " ".join(shlex.quote(tok) for tok in rebuilt)
+    note = (
+        f"[atelier: `od … | tail` over a {size // (1024 * 1024)}MB file would hex-format the "
+        f"whole file; seeked to byte {offset} instead (od -j; absolute addresses preserved)]"
+    )
+    return CommandPolicyDecision(
+        category="file-read",
+        action="rewrite",
+        reason=note,
+        rewrite_target="pipeline_seek",
+        rewrite_payload={"command": rewritten, "note": note},
+    )
+
+
 def classify_command(
     command: str, *, allowed_write_roots: list[Path] | None = None, cwd: str | Path | None = None
 ) -> CommandPolicyDecision:
@@ -1425,6 +1589,13 @@ def classify_command(
     bad = _redirect_known_bad(command)
     if bad is not None:
         return bad
+
+    # Pipeline-aware rewrite runs before the single-command tokens[0] dispatch
+    # (which never sees into `producer | consumer`). Only fires for the narrow
+    # `od <bigfile> | tail` shape; returns None -> normal flow -> untouched.
+    pipeline_rewrite = _rewrite_pipeline(command, resolved_cwd)
+    if pipeline_rewrite is not None:
+        return pipeline_rewrite
 
     try:
         tokens = shlex.split(command)
@@ -1876,11 +2047,40 @@ def compact_host_bash_output(command: str, stdout: str, stderr: str, exit_code: 
     )
 
 
+def _neutralize_pipe_fds(*streams: Any) -> None:
+    """Release the read ends of a wedged reader's pipes without the double-close
+    hazard of os.close(fd).
+
+    A reader stuck in readline() still owns the TextIOWrapper wrapping the fd;
+    that wrapper's finalizer (or subprocess teardown) closes the fd *again*
+    later -- and if the raw fd number was recycled in the meantime, that second
+    close() silently closes an unrelated resource (surfaced as stray
+    "Bad file descriptor" noise at best, a wrong-fd close at worst). dup2 of
+    /dev/null onto the fd instead keeps the number *allocated* (now pointing at
+    /dev/null), so the wrapper's eventual close is a valid single close of a
+    still-live fd, and a stuck reader's next read sees EOF.
+
+    fileno()/dup2 never touch the BufferedReader lock the reader holds while
+    blocked in readline(), so -- unlike stream.close() -- this can't deadlock
+    against the in-flight read. The fd is stably owned by the live wrapper, so
+    it can't be recycled between fileno() and dup2 either.
+    """
+    null_fd: int | None = None
+    try:
+        null_fd = os.open(os.devnull, os.O_RDONLY)
+        for stream in streams:
+            if stream is None:
+                continue
+            with contextlib.suppress(Exception):
+                os.dup2(null_fd, stream.fileno())
+    finally:
+        if null_fd is not None:
+            with contextlib.suppress(Exception):
+                os.close(null_fd)
+
+
 def _close_managed_process_pipes(managed: _ManagedCommand) -> None:
-    for stream in (managed.proc.stdout, managed.proc.stderr):
-        with contextlib.suppress(Exception):
-            if stream is not None:
-                stream.close()
+    _neutralize_pipe_fds(managed.proc.stdout, managed.proc.stderr)
 
 
 def _finish_managed_readers(managed: _ManagedCommand, grace_s: float) -> bool:
@@ -2030,8 +2230,14 @@ def start_managed_command(
     timeout: int = 30,
     max_lines: int = 200,
     max_chars: int | None = None,
+    note: str = "",
 ) -> dict[str, Any]:
-    """Start a command without blocking the MCP request."""
+    """Start a command without blocking the MCP request.
+
+    *note*, when given, seeds the managed command's ``injected_note`` (prepended
+    to the compacted stdout at poll time) -- used by a caller that rewrote the
+    command (e.g. a pipeline seek) to tell the model what actually ran.
+    """
     policy = classify_command(command, cwd=cwd)
     if policy.action == "block":
         return {
@@ -2043,6 +2249,9 @@ def start_managed_command(
         }
 
     exec_command, injected_note = _inject_stable_flags(command)
+    # A caller-supplied note (e.g. a pipeline rewrite) wins: the rewritten
+    # command won't trigger flag injection, and the note explains the transform.
+    injected_note = note or injected_note
     session_id = uuid.uuid4().hex
     stdout_file, stdout_path = _open_stream_file(session_id, "stdout")
     stderr_file, stderr_path = _open_stream_file(session_id, "stderr")
@@ -2425,17 +2634,34 @@ def run_command(
         ]
         for reader in readers:
             reader.start()
+
+        def _finish_run_readers() -> None:
+            # Bounded join, same hazard the managed path guards against in
+            # _finish_managed_readers: a self-daemonizing child can fork a
+            # grandchild that inherits and holds this pipe open, leaving _drain
+            # blocked in readline() long after `proc` (the wrapping bash) has
+            # exited -- an unbounded join here hangs the whole synchronous call
+            # forever. Join with a grace; on wedge neutralize the raw fds (dup2
+            # /dev/null, never stream.close -- that serializes with the reader's
+            # in-flight readline on the BufferedReader lock and would deadlock
+            # this thread) and ship whatever was captured before the command's
+            # own process exited.
+            if proc is None:
+                return
+            if _join_readers_within(readers, _READER_JOIN_GRACE_S):
+                _neutralize_pipe_fds(proc.stdout, proc.stderr)
+                _join_readers_within(readers, 0.2)
+
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Kill the group first so the child's pipes close; otherwise the
-            # reader joins below would block forever on a still-open pipe.
+            # Kill the group first so the child's pipes close (the common case);
+            # a grandchild that setsid'd out of the group can still hold the pipe
+            # open, so bound the join the same way the success path does.
             _terminate_process_group(proc)
-            for reader in readers:
-                reader.join()
+            _finish_run_readers()
             raise
-        for reader in readers:
-            reader.join()
+        _finish_run_readers()
         exit_code = proc.returncode
         raw_stdout = _strip_ansi("".join(stdout_buf))
         raw_stderr = _strip_ansi("".join(stderr_buf))

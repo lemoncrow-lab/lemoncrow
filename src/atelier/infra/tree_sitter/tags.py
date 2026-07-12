@@ -258,7 +258,12 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
         return None
     try:
         source = text.encode("utf-8")
-        tree = parser.parse(source)
+        try:
+            tree = parser.parse(source)
+        except TypeError:
+            # tree-sitter binding versions disagree on the source type: 0.22+
+            # wants a bytestring, some older builds want str. Retry the other.
+            tree = parser.parse(text)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return None

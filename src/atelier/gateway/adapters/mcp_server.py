@@ -9472,6 +9472,17 @@ def _run_bash_tool(
         if _binary_path:
             command = f"{shlex.quote(_binary_path)} {_original_command}"
 
+    # Pipeline seek rewrite (classify_command): `od <bigfile> | tail` -> an
+    # in-place `od -j <offset>` that formats only the tail region instead of the
+    # whole file. Substitute the command and run it through the normal managed
+    # path like external_compactor; carry the note so the model sees the rewrite.
+    _pipeline_note = ""
+    if policy.action == "rewrite" and policy.rewrite_target == "pipeline_seek" and policy.rewrite_payload:
+        _seek_command = str(policy.rewrite_payload.get("command") or "")
+        if _seek_command:
+            command = _seek_command
+            _pipeline_note = str(policy.rewrite_payload.get("note") or "")
+
     if policy.action == "rewrite" and policy.rewrite_target in {"head", "tail", "wc"} and policy.rewrite_payload:
         _stdout, _stderr, _exit = execute_inline_op(policy.rewrite_target, policy.rewrite_payload, effective_cwd)
         return {
@@ -9679,6 +9690,7 @@ def _run_bash_tool(
         timeout=timeout,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
+        note=_pipeline_note,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:

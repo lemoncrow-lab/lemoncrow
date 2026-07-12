@@ -13,7 +13,8 @@ codebench/results/**/state/
 [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*/
 20[0-9][0-9]-*/
 # but include harbor atelier runs for publication
-!harbor/results/atelier/20[0-9][0-9]-*/
+!harbor/results/atelier/2026-07-04/
+!harbor/results/atelier/2026-07-07/
 multiswe-*/
 *.flow
 .rtk*
