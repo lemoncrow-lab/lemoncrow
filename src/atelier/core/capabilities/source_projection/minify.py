@@ -171,7 +171,11 @@ def build_minified_projection(
 
     source_bytes = text.encode("utf-8")
     try:
-        tree = parser.parse(source_bytes)
+        try:
+            tree = parser.parse(source_bytes)
+        except TypeError:
+            # Some tree-sitter-language-pack grammars expect str, not bytes.
+            tree = parser.parse(text)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return _skip("parse failed")
@@ -201,7 +205,11 @@ def build_minified_projection(
 
     # Revalidate: the minified text must still parse cleanly.
     try:
-        check = parser.parse(minified.encode("utf-8"))
+        try:
+            check = parser.parse(minified.encode("utf-8"))
+        except TypeError:
+            # Some tree-sitter-language-pack grammars expect str, not bytes.
+            check = parser.parse(minified)
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return _skip("revalidation parse failed")
@@ -365,8 +373,17 @@ def apply_minified_edit(
     parser = _parser_for((lang or "").strip().lower())
     if parser is not None:
         try:
-            before_ok = not parser.parse(content.encode("utf-8")).root_node.has_error
-            after_ok = not parser.parse(updated.encode("utf-8")).root_node.has_error
+            try:
+                before_tree = parser.parse(content.encode("utf-8"))
+            except TypeError:
+                # Some tree-sitter-language-pack grammars expect str, not bytes.
+                before_tree = parser.parse(content)
+            try:
+                after_tree = parser.parse(updated.encode("utf-8"))
+            except TypeError:
+                after_tree = parser.parse(updated)
+            before_ok = not before_tree.root_node.has_error
+            after_ok = not after_tree.root_node.has_error
         except Exception:
             logging.exception("Recovered from broad exception handler")
             raise MinifiedEditError(

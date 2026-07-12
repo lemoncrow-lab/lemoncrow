@@ -399,8 +399,14 @@ def detect_language(path: Path) -> str | None:
     return lang.name if lang is not None else None
 
 
-def extract_tags_from_text(text: str, file_path: str | Path, language: str | None = None) -> list[Tag]:
+def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: str | None = None) -> list[Tag]:
     """Extract definition/reference tags from source text without reading from disk."""
+    if isinstance(text, bytes):
+        # Defensive: callers occasionally hand us raw bytes despite the str
+        # contract (e.g. an un-decoded blob). Normalize once here so every
+        # downstream `.encode("utf-8")` call below operates on str, not bytes
+        # (bytes has no `.encode`, so that would otherwise raise).
+        text = text.decode("utf-8", errors="replace")
 
     from atelier.core.capabilities.semantic_file_memory.treesitter_ast import (
         supported_tree_sitter_languages,

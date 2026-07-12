@@ -113,7 +113,11 @@ class PromptBlock:
     @property
     def version_hash(self) -> str:
         """SHA-256 of content encoded as UTF-8. Deterministic across processes."""
-        return sha256(self.content.encode("utf-8")).hexdigest()
+        # Defensive: some callers (SDK adapters ingesting external tool/provider
+        # content) hand us raw bytes despite the str contract; bytes has no
+        # `.encode`, so guard here rather than let that raise.
+        content = self.content if isinstance(self.content, bytes) else self.content.encode("utf-8")
+        return sha256(content).hexdigest()
 
     @property
     def token_estimate(self) -> int:

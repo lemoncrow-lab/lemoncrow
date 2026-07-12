@@ -12641,7 +12641,7 @@ def _read_inline_budget_bytes() -> int:
     return max(8 * 1024, configured)
 
 
-def _truncate_result_text(text: str, limit: int, tool_name: str | None = None) -> str:
+def _truncate_result_text(text: str | bytes, limit: int, tool_name: str | None = None) -> str:
     """Bound a tool-result string to *limit* UTF-8 bytes, appending a notice.
 
     A single oversized result would otherwise serialize into one JSON-RPC frame
@@ -12653,6 +12653,11 @@ def _truncate_result_text(text: str, limit: int, tool_name: str | None = None) -
     is given, the full pre-truncation text is persisted here too, so the footer
     names a recoverable path instead of the bare spill-failed shape.
     """
+    if isinstance(text, bytes):
+        # Defensive: this is the last-resort backstop for arbitrary tool output --
+        # normalize once here so `.encode("utf-8")` below never raises on bytes
+        # handed in despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     encoded = text.encode("utf-8")
     if len(encoded) <= limit:
         return text
@@ -12719,7 +12724,7 @@ def _spill_result_chars(tool_name: str | None = None) -> int:
     return _DEFAULT_SPILL_RESULT_CHARS
 
 
-def _compact_result_text(text: str, tool_name: str) -> str:
+def _compact_result_text(text: str | bytes, tool_name: str) -> str:
     """Head+tail compact a single oversized tool result before it reaches the host.
 
     Deterministic (no LLM) so identical calls yield identical bytes and never
@@ -12734,6 +12739,11 @@ def _compact_result_text(text: str, tool_name: str) -> str:
     persisted here too, so the recovery hint names a path instead of just
     "narrow the query" regardless of which tool produced the result.
     """
+    if isinstance(text, bytes):
+        # Defensive: generic backstop for arbitrary tool output -- normalize once
+        # here so `.encode("utf-8")` below never raises on bytes handed in
+        # despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     threshold = _compact_result_chars()
     if threshold <= 0:
         return text
@@ -12931,7 +12941,7 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
 
 
 def _spill_oversized_result_text(
-    text: str,
+    text: str | bytes,
     tool_name: str,
     args: dict[str, Any],
     limit: int,
@@ -12960,6 +12970,11 @@ def _spill_oversized_result_text(
     -> returns ``text`` unchanged so the caller's existing compaction/truncation
     runs exactly as before.
     """
+    if isinstance(text, bytes):
+        # Defensive: T7 spill backstop for arbitrary tool output -- normalize once
+        # here so `.encode("utf-8")` below never raises on bytes handed in
+        # despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     if not _tool_output_spill_enabled() or tool_name not in tools:
         return text
     # Don't re-spill a read that targets an already-spilled file: let normal

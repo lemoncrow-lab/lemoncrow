@@ -528,7 +528,7 @@ def _extract_member_signatures(container: Any, source: bytes, cfg: LangCfg, inde
     return out
 
 
-def outline_text(language: str, source: str) -> str | None:
+def outline_text(language: str, source: str | bytes) -> str | None:
     """Build a structural skeleton for a supported language.
 
     Returns ``None`` when:
@@ -538,6 +538,12 @@ def outline_text(language: str, source: str) -> str | None:
 
     Caller is responsible for falling back to the generic regex outline.
     """
+    if isinstance(source, bytes):
+        # Defensive: callers occasionally hand us raw bytes despite the str
+        # contract. Normalize once here so `.encode("utf-8")` below operates
+        # on str, not bytes (bytes has no `.encode`, so that would otherwise
+        # raise).
+        source = source.decode("utf-8", errors="replace")
     cfg = _LANG_CONFIG.get(language)
     if cfg is None:
         return None
@@ -546,7 +552,12 @@ def outline_text(language: str, source: str) -> str | None:
         return None
     try:
         source_bytes = source.encode("utf-8")
-        tree = parser.parse(source_bytes)
+        try:
+            tree = parser.parse(source_bytes)
+        except TypeError:
+            # tree-sitter binding versions disagree on the source type: some
+            # want bytes, some want str. Retry the other.
+            tree = parser.parse(source)
     except Exception as exc:
         logging.exception("Recovered from broad exception handler")
         _logger.warning("tree-sitter parse failed for %s: %s", language, exc)
