@@ -22,9 +22,10 @@ Unattended software engineer: run tasks end to end, autonomously — no approval
 - **No scope creep.** Exactly what was asked — no unrequested refactors, features, configurability, or scratch artifacts.
 - **Finish at every site.** Every caller of a changed contract, every trigger of the symptom, every `FIXME` a tool flags — fixed or "why no change" stated, before reporting done.
 - **Iterate against the real check, not a proxy.** Same inputs, format, call path as the reported scenario; each failure delta drives the next edit; don't chase pre-existing failures. Type/lint/format ≠ behavioral verification; unexecuted work ≠ done.
+- **Broad check before narrow loop.** Cheapest check that surfaces the whole error class at once (syntax-only pass, typecheck, symbol listing, dry run) → fix in bulk → slow build/run once — never one error per rerun.
 - **Recheck the literal spec before done.** Diff final state against stated constraints (exact paths/values/invocation), not just the goal — reconcile mid-task workarounds, don't silently substitute.
 
-- **Efficient by default.** Name N before a loop; no re-implementing what a library provides; no quadratic where linear exists; memoize/cache repeated work.
+- **Efficient by default.** Name N before a loop; no re-implementing what a library provides; no quadratic where linear exists; memoize/cache repeated work; long build/compute, use all cores.
 - **Least code that works.** No excess — but never drop error handling, validation, or edge cases.
 - **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code.
 

@@ -9543,6 +9543,17 @@ def _run_bash_tool(
         if _binary_path:
             command = f"{shlex.quote(_binary_path)} {_original_command}"
 
+    # Pipeline seek rewrite (classify_command): `od <bigfile> | tail` -> an
+    # in-place `od -j <offset>` that formats only the tail region instead of the
+    # whole file. Substitute the command and run it through the normal managed
+    # path like external_compactor; carry the note so the model sees the rewrite.
+    _pipeline_note = ""
+    if policy.action == "rewrite" and policy.rewrite_target == "pipeline_seek" and policy.rewrite_payload:
+        _seek_command = str(policy.rewrite_payload.get("command") or "")
+        if _seek_command:
+            command = _seek_command
+            _pipeline_note = str(policy.rewrite_payload.get("note") or "")
+
     if policy.action == "rewrite" and policy.rewrite_target in {"head", "tail", "wc"} and policy.rewrite_payload:
         _stdout, _stderr, _exit = execute_inline_op(policy.rewrite_target, policy.rewrite_payload, effective_cwd)
         return {
@@ -9751,6 +9762,7 @@ def _run_bash_tool(
         timeout_explicit=timeout_explicit,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
+        note=_pipeline_note,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
@@ -12717,7 +12729,7 @@ def _read_inline_budget_bytes() -> int:
     return max(8 * 1024, configured)
 
 
-def _truncate_result_text(text: str, limit: int, tool_name: str | None = None) -> str:
+def _truncate_result_text(text: str | bytes, limit: int, tool_name: str | None = None) -> str:
     """Bound a tool-result string to *limit* UTF-8 bytes, appending a notice.
 
     A single oversized result would otherwise serialize into one JSON-RPC frame
@@ -12729,6 +12741,11 @@ def _truncate_result_text(text: str, limit: int, tool_name: str | None = None) -
     is given, the full pre-truncation text is persisted here too, so the footer
     names a recoverable path instead of the bare spill-failed shape.
     """
+    if isinstance(text, bytes):
+        # Defensive: this is the last-resort backstop for arbitrary tool output --
+        # normalize once here so `.encode("utf-8")` below never raises on bytes
+        # handed in despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     encoded = text.encode("utf-8")
     if len(encoded) <= limit:
         return text
@@ -12795,7 +12812,7 @@ def _spill_result_chars(tool_name: str | None = None) -> int:
     return _DEFAULT_SPILL_RESULT_CHARS
 
 
-def _compact_result_text(text: str, tool_name: str) -> str:
+def _compact_result_text(text: str | bytes, tool_name: str) -> str:
     """Head+tail compact a single oversized tool result before it reaches the host.
 
     Deterministic (no LLM) so identical calls yield identical bytes and never
@@ -12810,6 +12827,11 @@ def _compact_result_text(text: str, tool_name: str) -> str:
     persisted here too, so the recovery hint names a path instead of just
     "narrow the query" regardless of which tool produced the result.
     """
+    if isinstance(text, bytes):
+        # Defensive: generic backstop for arbitrary tool output -- normalize once
+        # here so `.encode("utf-8")` below never raises on bytes handed in
+        # despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     threshold = _compact_result_chars()
     if threshold <= 0:
         return text
@@ -13007,7 +13029,7 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
 
 
 def _spill_oversized_result_text(
-    text: str,
+    text: str | bytes,
     tool_name: str,
     args: dict[str, Any],
     limit: int,
@@ -13036,6 +13058,11 @@ def _spill_oversized_result_text(
     -> returns ``text`` unchanged so the caller's existing compaction/truncation
     runs exactly as before.
     """
+    if isinstance(text, bytes):
+        # Defensive: T7 spill backstop for arbitrary tool output -- normalize once
+        # here so `.encode("utf-8")` below never raises on bytes handed in
+        # despite the str contract.
+        text = text.decode("utf-8", errors="replace")
     if not _tool_output_spill_enabled() or tool_name not in tools:
         return text
     # Don't re-spill a read that targets an already-spilled file: let normal
