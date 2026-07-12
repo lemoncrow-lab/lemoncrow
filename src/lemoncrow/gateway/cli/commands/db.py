@@ -1,4 +1,4 @@
-"""``lc db`` — database maintenance (reclaim space, start fresh)."""
+"""``lc db`` -- database maintenance (reclaim space, start fresh)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,18 @@ from pathlib import Path
 import click
 
 from lemoncrow.gateway.cli.commands._shared import _emit
+
+# The store is split into six per-concern SQLite files (see infra.storage.bundle).
+# Trace history -- the large, reclaimable data -- lives in the history file.
+HISTORY_DB_NAME = "lemoncrow_history.db"
+SPLIT_DB_NAMES = (
+    HISTORY_DB_NAME,
+    "lemoncrow_knowledge.db",
+    "lemoncrow_lessons.db",
+    "lemoncrow_jobs.db",
+    "lemoncrow_memory.db",
+    "lemoncrow_telemetry.db",
+)
 
 
 @click.group("db")
@@ -21,14 +33,14 @@ def db_group() -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def db_vacuum_cmd(ctx: click.Context, reset_traces: bool, force: bool, as_json: bool) -> None:
-    """VACUUM lemoncrow.db; with --reset-traces, drop trace history first to reclaim it."""
+    """VACUUM every LemonCrow store file; with --reset-traces, drop trace history first."""
     root: Path = ctx.obj["root"]
-    db_path = root / "lemoncrow.db"
-    if not db_path.exists():
-        click.echo("no lemoncrow.db to vacuum")
+    db_paths = [root / name for name in SPLIT_DB_NAMES if (root / name).exists()]
+    if not db_paths:
+        click.echo("no LemonCrow store to vacuum")
         return
 
-    before = db_path.stat().st_size
+    before = sum(p.stat().st_size for p in db_paths)
     if reset_traces and not force:
         click.confirm(
             "Delete ALL trace history (traces, search index, raw artifacts) and reclaim space?",
@@ -36,11 +48,13 @@ def db_vacuum_cmd(ctx: click.Context, reset_traces: bool, force: bool, as_json: 
         )
 
     cleared: dict[str, int] = {}
-    conn = sqlite3.connect(str(db_path))
-    try:
-        if reset_traces:
-            # traces/traces_fts/sync_status/raw_artifacts are legacy (removed from the
-            # schema once sessions became file-based) — drop them to reclaim old DBs.
+    history_db = root / HISTORY_DB_NAME
+    if reset_traces and history_db.exists():
+        conn = sqlite3.connect(str(history_db))
+        try:
+            # Trace history lives in the history file: traces + its FTS mirror,
+            # sync bookkeeping, and redacted raw artifacts. Drop them so the
+            # subsequent VACUUM reclaims the freed pages.
             for table in ("traces", "traces_fts", "sync_status", "raw_artifacts"):
                 try:
                     cleared[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -48,12 +62,18 @@ def db_vacuum_cmd(ctx: click.Context, reset_traces: bool, force: bool, as_json: 
                 except sqlite3.OperationalError:
                     continue
             conn.commit()
-        conn.execute("VACUUM")
-        conn.commit()
-    finally:
-        conn.close()
+        finally:
+            conn.close()
 
-    after = db_path.stat().st_size
+    for db_path in db_paths:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("VACUUM")
+            conn.commit()
+        finally:
+            conn.close()
+
+    after = sum(p.stat().st_size for p in db_paths)
     result = {
         "before_mb": round(before / 1e6, 1),
         "after_mb": round(after / 1e6, 1),
@@ -64,7 +84,9 @@ def db_vacuum_cmd(ctx: click.Context, reset_traces: bool, force: bool, as_json: 
     if as_json:
         _emit(result, as_json=True)
         return
-    line = f"lemoncrow.db: {result['before_mb']} MB → {result['after_mb']} MB (reclaimed {result['reclaimed_mb']} MB)"
+    line = (
+        f"LemonCrow store: {result['before_mb']} MB -> {result['after_mb']} MB (reclaimed {result['reclaimed_mb']} MB)"
+    )
     if reset_traces:
         line += f"; cleared {sum(cleared.values())} trace rows"
     click.echo(line)

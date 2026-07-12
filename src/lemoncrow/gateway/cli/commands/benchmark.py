@@ -475,15 +475,19 @@ def benchmark_harbor_cmd(
     bundle_path = _Path(bundle)
     if agent_arm == "lemoncrow-claude-code":
         if rebuild_bundle:
-            click.echo(f"Rebuilding bundle from current source -> {bundle_path} ...")
-            rebuild_script = repo_root / "benchmarks" / "harbor" / "rebuild_bundle.sh"
+            # Always a from-scratch build, never a patch onto whatever bundle a
+            # prior run left behind -- back-to-back fresh runs must not leak
+            # state into each other. Only --resume (handled earlier, above)
+            # reuses an existing bundle.
+            click.echo(f"Building bundle from current source -> {bundle_path} ...")
+            rebuild_script = repo_root / "benchmarks" / "harbor" / "build_bundle.sh"
             bundle_path.parent.mkdir(parents=True, exist_ok=True)
             rebuild_cmd = [
                 "docker",
                 "run",
                 "--rm",
                 "-v",
-                f"{repo_root_str}:/lc:ro",
+                f"{repo_root_str}:/lemoncrow:ro",
                 "-v",
                 f"{bundle_path.parent}:/out",
                 "debian:bullseye-slim",
@@ -498,7 +502,7 @@ def benchmark_harbor_cmd(
             if not new_bundle.exists():
                 raise click.ClickException("Bundle rebuild produced no output.")
             new_bundle.rename(bundle_path)
-            click.echo(f"Bundle rebuilt: {bundle_path} ({bundle_path.stat().st_size // 1024 // 1024} MB)")
+            click.echo(f"Bundle built: {bundle_path} ({bundle_path.stat().st_size // 1024 // 1024} MB)")
         if not bundle_path.exists():
             raise click.ClickException(
                 f"Bundle not found: {bundle_path}. Run without --no-rebuild-bundle to build it first."
@@ -598,7 +602,10 @@ def benchmark_harbor_cmd(
 )
 def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None:
     """Load an existing benchmark gate artifact and optionally fail on a failed gate."""
-    gate = load_benchmark_gate(run_dir.resolve())
+    try:
+        gate = load_benchmark_gate(run_dir.resolve())
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
     if as_json:
         click.echo(json.dumps(gate))
     else:
@@ -1195,7 +1202,7 @@ def benchmark_telegraphic_cmd(
     Reproduces JuliusBrussee/caveman's benchmark+eval prompt sets
     (github.com/JuliusBrussee/caveman/tree/main/{benchmarks,evals}) with the
     FULL real LemonCrow runtime as the "lemoncrow" arm (tools + MCP + the
-    ``lc:auto`` persona's shipped ultra reply-register) -- not an
+    ``lemoncrow:auto`` persona's shipped ultra reply-register) -- not an
     isolated system-prompt swap, so the number is apples-to-apples with every
     other figure in BENCHMARKS.md. Prints a cost estimate and confirms before
     spending real tokens; report = per-prompt output-token savings, not

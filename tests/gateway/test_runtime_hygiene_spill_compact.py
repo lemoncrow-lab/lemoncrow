@@ -219,21 +219,21 @@ def test_spill_notice_shrunk_with_path() -> None:
     text = tool_output_spill.spill_notice(
         verb="shrunk", original_chars=100907, kept_chars=5035, path=Path("/tmp/lemoncrow-spill/tool_output-x.txt")
     )
-    assert text == ("[lc: shrunk 100907→5035; full: read /tmp/lemoncrow-spill/tool_output-x.txt]")
+    assert text == ("[lc: shrunk 100907→5035; full: /tmp/lemoncrow-spill/tool_output-x.txt]")
 
 
 def test_spill_notice_truncated_with_path() -> None:
     text = tool_output_spill.spill_notice(
         verb="truncated", original_chars=9000, kept_chars=1024, path=Path("/tmp/x.txt")
     )
-    assert text == "[lc: truncated 9000→1024; full: read /tmp/x.txt]"
+    assert text == "[lc: truncated 9000→1024; full: /tmp/x.txt]"
 
 
 def test_spill_notice_compacted_with_method_verb() -> None:
     text = tool_output_spill.spill_notice(
         verb="compacted:dedup", original_chars=500, kept_chars=100, path=Path("/tmp/x.txt")
     )
-    assert text == "[lc: compacted:dedup 500→100; full: read /tmp/x.txt]"
+    assert text == "[lc: compacted:dedup 500→100; full: /tmp/x.txt]"
 
 
 def test_spill_notice_no_path_is_spill_failed_shape() -> None:
@@ -327,7 +327,7 @@ def test_auto_compact_is_reversible_via_spill(monkeypatch: pytest.MonkeyPatch) -
     assert len(out) < len(text)  # compacted
     assert "compacted" in out
     # Recovery hint uses `read <path>`
-    path_match = re.search(r"full: read (\S+\.txt)", out)
+    path_match = re.search(r"full: (\S+\.txt)", out)
     assert path_match is not None
     spill_path = Path(path_match.group(1))
     assert spill_path.read_text(encoding="utf-8") == text  # original fully recoverable
@@ -343,7 +343,7 @@ def test_auto_compact_code_is_ast_aware(monkeypatch: pytest.MonkeyPatch) -> None
     out = mcp_server._auto_compact_result_text(src, "read", {"path": "mod.py"})
     assert "source_projection:python" in out  # AST/structure-aware method tag
     # Still reversible: a .txt spill path appears in the hint
-    path_match = re.search(r"full: read (\S+\.txt)", out)
+    path_match = re.search(r"full: (\S+\.txt)", out)
     assert path_match is not None
     assert Path(path_match.group(1)).exists()
 

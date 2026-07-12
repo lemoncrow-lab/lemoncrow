@@ -2,12 +2,8 @@
   "mcpServers": {
     "lc": {
       "alwaysLoad": true,
-      "args": [
-        "mcp",
-        "--host",
-        "claude"
-      ],
-      "command": "lc",
+      "args": ["mcp", "--host", "claude"],
+      "command": "lemoncrow",
       "env": {
         "CLAUDE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       },

@@ -110,7 +110,7 @@ def bench_repo(prefix: str, meta: dict, *, bge_py: str, zoekt: str | None) -> di
     # 1) Lexical index (embedder OFF so we time only parse + FTS/trigram).
     env = {**os.environ, "LEMONCROW_CODE_EMBEDDER": "null", "LEMONCROW_ZOEKT_MODE": "off"}
     lex_s, rc, err = _run(
-        ["lc", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
+        ["lemoncrow", "code", "index", "--repo-root", str(ws), "--db-path", str(lex_db), "--reindex", "--no-stats"],
         env=env,
     )
     row["lexical_s"] = lex_s if rc == 0 else None

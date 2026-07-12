@@ -110,7 +110,6 @@ flowchart TB
 
 ### Core language & runtime
 
-
 | Technology                | What it is                                                                                                            | Why LemonCrow uses it                                                                                                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Python 3.12–3.13**     | Implementation language                                                                                               | Ubiquitous in the AI/agent ecosystem; rich parsing, ML, and tooling libraries                                                                      |
@@ -121,7 +120,6 @@ flowchart TB
 | **rtk**                   | CLI proxy that reduces LLM token consumption by 60-90% on common dev commands (single Rust binary, zero dependencies) | Improves token efficiency for agent commands, reducing context usage and cost                                                                      |
 
 ### Code intelligence — the grounded layer
-
 
 | Technology                                      | What it is                                                                            | Why LemonCrow uses it                                                                                                                                   |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -136,7 +134,6 @@ flowchart TB
 
 ### Search & retrieval
 
-
 | Technology                              | What it is                     | Why LemonCrow uses it                                                                                                                                                                                                                                                    |
 | ----------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **SQLite (+ FTS)**                      | Embedded, single-file index DB | The local code index, keyword/BM25 search, and the`sql` tool — zero servers, ships with Python                                                                                                                                                                        |
@@ -149,7 +146,6 @@ flowchart TB
 
 ### Web & content extraction
 
-
 | Technology                                                                 | What it is                | Why LemonCrow uses it                                                                             |
 | ---------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------- |
 | **trafilatura** + **BeautifulSoup** + **markdownify** + **markdown-it-py** | HTML → clean Markdown    | `web_fetch` strips nav, scripts, and chrome so only readable content reaches the context window |
@@ -158,14 +154,12 @@ flowchart TB
 
 ### Memory
 
-
 | Technology                      | What it is                  | Why LemonCrow uses it                                                                    |
 | --------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
 | **Local memory store (SQLite)** | Default, server-free recall | Repo/session facts and lessons without any hosted backend                              |
 | **Letta (MemGPT)**              | Agent memory server         | Optional durable cross-session memory and archival recall (`letta-client` talks to it) |
 
 ### Token economics & model routing
-
 
 | Technology          | What it is                     | Why LemonCrow uses it                                                          |
 | --------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
@@ -178,13 +172,11 @@ flowchart TB
 
 ### Service, API & daemon
 
-
 | Technology                | What it is              | Why LemonCrow uses it                                                |
 | --------------------------- | ------------------------- | -------------------------------------------------------------------- |
 | **FastAPI** + **Uvicorn** | ASGI framework + server | The`lcd` daemon, local HTTP API, and badge/insights endpoints |
 
 ### Reliability & supervision
-
 
 | Technology                                         | What it is                                                                                                                                                                                                                                                                                                                                                                    | Why LemonCrow uses it                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -196,11 +188,10 @@ flowchart TB
 | **Security SAST scanner** (in-house)               | Bundled OWASP/CWE ast-grep rule pack (eval/exec, subprocess shell injection, SQL concatenation, hardcoded secrets) plus bounded Python taint analysis (intra-procedural sources→sinks)                                                                                                                                                                                    | First-iteration SAST for agent-generated code — fail-open, every finding carries rule_id/severity/confidence; exposed as the `scan` MCP tool; without ast-grep the rule pack is skipped, taint-only runs                                                                                                                                                                                                             |
 | **Run-and-dedup delta layer** (in-house)           | Session-local SHA-256 digest of`(stdout, stderr, exit_code)` keyed by `(cwd, command)`                                                                                                                                                                                                                                                                                        | A byte-identical re-run (e.g.`git status` polled in a loop) collapses to a one-line "unchanged" marker; execution is never skipped, so external-state commands (`docker ps`, timestamped output) stay correct by construction — there's no cache to invalidate                                                                                                                                                     |
 | **MCP proxy lane** (in-house)                      | One`mcp(server, tool, params)` tool + an on-demand catalog; configured stdio MCP servers are discovered from host configs and spawned lazily on first use                                                                                                                                                                                                                     | Foreign MCP tools run*behind* the gateway and inherit the same output bounding as LemonCrow's own tools — one schema instead of N servers × M tool schemas — kept off the advertised surface by design (an escape-hatch surface, callable by name); the supported path for third-party MCP savings is the shadow hook, which changes no routing and leaves MCP lifecycle, permissions, and status UX with the host |
-| **Spill store + one notice grammar** (in-house)    | Oversized output lands in a recoverable file; every shrink/spill/truncate/compact event — across bash, MCP results, web_fetch, sql, and the host-lane hooks — emits the same single footer:`[lc: {verb} {orig}→{kept} chars; full: read {path} (:L1-L200 to page)]`                                                                                                   | The model learns exactly one pattern for "output was reduced, here's how to recover the rest" instead of per-tool notice dialects; recovery is always the same`read` call                                                                                                                                                                                                                                           |
+| **Spill store + one notice grammar** (in-house)    | Oversized output lands in a recoverable file; every shrink/spill/truncate/compact event — across bash, MCP results, web_fetch, sql, and the host-lane hooks — emits the same single footer:`[lc: {verb} {orig}→{kept} chars; full: {path} (:L1-L200 to page)]`                                                                                                   | The model learns exactly one pattern for "output was reduced, here's how to recover the rest" instead of per-tool notice dialects; recovery is always the same`read` call                                                                                                                                                                                                                                           |
 | **Type-aware summary ladder** (in-house)           | `read <path>:summary` / `web_fetch(summary=true)`: extractive gist picked by content type — heading tree for docs, shape+samples for JSON, header+rows for CSV, traceback surfacing for logs, outline-if-it-fits or symbol inventory for code, LexRank sentence centrality for prose — upgraded to a local LLM (Ollama / OpenAI-compatible) when reachable, never dependent on it | The cheap "should I spend tokens here?" read is one bounded call (≤4 KiB) on any content, including spill files; footer verb records the tier (`summarized:heuristic` / `summarized:{model}` / `summarized:outline`)                                                                                                                                                                                               |
 
 ### Observability & telemetry
-
 
 | Technology                           | What it is                      | Why LemonCrow uses it                                                                |
 | -------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
@@ -210,7 +201,6 @@ flowchart TB
 | **Langfuse**                         | LLM-level tracing               | Optional trace-level LLM observability                                             |
 
 ### Packaging & distribution
-
 
 | Technology                           | What it is                  | Why LemonCrow uses it                                                                                                    |
 | -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -222,7 +212,6 @@ flowchart TB
 
 ### Monetization backend (proprietary)
 
-
 | Technology             | What it is              | Why LemonCrow uses it                                                     |
 | ------------------------ | ------------------------- | ------------------------------------------------------------------------- |
 | **Cloudflare Workers** | Edge serverless runtime | The Stripe→plan bridge and the landing auth API — global, low-latency |
@@ -230,7 +219,6 @@ flowchart TB
 | **Stripe**             | Payments                | Checkout → plan on the account → OAuth entitlement                    |
 
 ### Quality gate (developer tooling)
-
 
 | Technology                         | What it is          | Why LemonCrow uses it                          |
 | ------------------------------------ | --------------------- | ---------------------------------------------- |
@@ -247,7 +235,7 @@ flowchart TB
 - **Token budgeting everywhere** — every tool caps and structures output, spilling to disk instead of dumping into context.
 - **Host-lane parity for output shrinking** — PostToolUse hooks apply that same compaction pipeline to the host's builtin Bash tool (≥2K chars with ≥500 saved) and to oversized results from any other (non-LemonCrow) MCP server (32 KiB default, `LEMONCROW_SHADOW_SHRINK_CHARS`), so the savings aren't confined to LemonCrow's own MCP lane. Fail-open by construction: any hook error leaves the original result untouched.
 - **One proxy for foreign MCPs** — `mcp(server=…, tool=…, params=…)` runs any configured stdio MCP server behind the gateway with lazy spawn and an on-demand catalog, replacing N×M tool schemas with one and giving every third-party result the same spill/compact bounding; deliberately hidden — the host keeps MCP lifecycle, updates, permissions, and status UX, and the shadow hooks cover the token side with no routing change.
-- **One notice grammar** — every reduced output, whatever tool produced it, ends with the same footer (`[lc: {verb} {orig}→{kept} chars; full: read {path} (:L1-L200 to page)]`), so recovering full output is one learned pattern, not per-tool folklore.
+- **One notice grammar** — every reduced output, whatever tool produced it, ends with the same footer (`[lc: {verb} {orig}→{kept} chars; full: {path} (:L1-L200 to page)]`), so recovering full output is one learned pattern, not per-tool folklore.
 - **Budget-first read projections** — `read` takes `:summary` (type-aware extractive gist — headings for docs, shape for JSON, tracebacks for logs, outline-if-it-fits for code — upgraded by a local LLM when one is reachable, never dependent on it) and `:outline` (forced structural projection); `web_fetch(summary=true)` applies the same ladder to fetched pages. Conflicting projections never error: the most detailed request wins (expand > range > outline > summary), because an agent can gist down for free but recovering detail costs a turn.
 - **Self-auditing token spend** — `lc audit bash` ranks command families by tokens still shipped vs. saved after compaction, turning missed savings into a concrete backlog instead of a guess.
 - **Hybrid lexical + semantic search** — BM25 for exact matches, embeddings for intent.
@@ -276,7 +264,7 @@ Tool schemas ship on **every request**, so this saving repeats every turn of eve
 
 **2. What the model writes** — the same question answered without and with the terse persona instruction:
 
-_Prompt:_ "Why is the retry test flaky?"
+*Prompt:* "Why is the retry test flaky?"
 
 > **Default output — 350 chars ≈ 71 tokens**
 >

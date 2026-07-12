@@ -964,7 +964,7 @@ def eval_fitness(
             )
             active_channels.remove("lexical+zoekt+semantic")
 
-    eval_cmd = ["lc", "eval", "retrieval"]
+    eval_cmd = ["lemoncrow", "eval", "retrieval"]
     for pair_path in split_pairs:
         eval_cmd += ["--pairs", str(pair_path)]
     for ch in active_channels:

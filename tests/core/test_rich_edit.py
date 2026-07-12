@@ -599,3 +599,123 @@ def test_rich_edit_trailing_newline_old_string_reports_inclusive_line_end(tmp_pa
     hunk = result["applied"][0]["hunks"][0]
     # Lines 2-3 were replaced; line_end must be 3 (inclusive), not 4.
     assert (hunk["line_start"], hunk["line_end"]) == (2, 3)
+
+
+def test_rich_edit_content_edit_then_range_edit_same_file(tmp_path: Path) -> None:
+    """A content (old/new) edit and a range (:Lx) edit to the same file in one
+    batch now co-apply -- the exact case that used to roll the batch back."""
+    path = tmp_path / "mod.py"
+    path.write_text("line1\nlemoncrow_label\nline3\nline4\nline5\n", encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py", "old_string": "lemoncrow_label", "new_string": "lc_label"},
+            {"file_path": "mod.py:L4", "new_string": "REPLACED"},
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    assert path.read_text(encoding="utf-8") == "line1\nlc_label\nline3\nREPLACED\nline5\n"
+
+
+def test_rich_edit_range_edit_translates_across_earlier_line_growth(tmp_path: Path) -> None:
+    """A content edit that ADDS lines shifts a later range edit's pre-batch line
+    number; the range must still land on the row the caller pointed at."""
+    path = tmp_path / "mod.py"
+    path.write_text("a\nb\nc\nd\n", encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py", "old_string": "b", "new_string": "b1\nb2"},
+            {"file_path": "mod.py:L4", "new_string": "D"},  # pre-batch L4 == 'd'
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    assert path.read_text(encoding="utf-8") == "a\nb1\nb2\nc\nD\n"
+    # The range hunk is echoed at the line it LANDED on (pre-batch L4 + 1 line of
+    # growth above it), not the raw :L4 the caller passed.
+    range_hunk = next(e for e in result["applied"] if e.get("match_mode") == "range")["hunks"][0]
+    assert (range_hunk["line_start"], range_hunk["line_end"]) == (5, 5)
+
+
+def test_rich_edit_range_edit_after_range_then_content_same_file(tmp_path: Path) -> None:
+    """Range, then content, then range on one file: every splice is tracked in
+    the ledger so the trailing range edit still resolves."""
+    path = tmp_path / "mod.py"
+    path.write_text("a\nb\nc\nd\n", encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py:L1", "new_string": "A"},
+            {"file_path": "mod.py", "old_string": "c", "new_string": "C"},
+            {"file_path": "mod.py:L4", "new_string": "D"},
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    assert path.read_text(encoding="utf-8") == "A\nb\nC\nD\n"
+
+
+def test_rich_edit_range_edit_overlapping_earlier_content_edit_fails(tmp_path: Path) -> None:
+    """A range edit that targets the same line an earlier content edit changed is
+    ambiguous and must fail the batch rather than clobber the wrong region."""
+    path = tmp_path / "mod.py"
+    original = "a\nb\nc\n"
+    path.write_text(original, encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py", "old_string": "b", "new_string": "B"},
+            {"file_path": "mod.py:L2", "new_string": "X"},
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"]
+    assert "overlaps" in result["failed"][0]["error"]
+    assert result["rolled_back"] is True
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_rich_edit_range_edit_translates_across_earlier_line_shrink(tmp_path: Path) -> None:
+    """A content edit that REMOVES lines shifts a later range edit up (negative
+    delta); the range must still land on the row the caller pointed at."""
+    path = tmp_path / "mod.py"
+    path.write_text("a\nb\nc\nd\n", encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py", "old_string": "b\nc", "new_string": "B"},  # 2 lines -> 1
+            {"file_path": "mod.py:L4", "new_string": "D"},  # pre-batch L4 == 'd'
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["failed"] == []
+    assert path.read_text(encoding="utf-8") == "a\nB\nD\n"
+
+
+def test_rich_edit_chained_content_match_poisons_later_range_edit(tmp_path: Path) -> None:
+    """When a content edit matches text an EARLIER edit inserted (a chained match),
+    that splice has no pre-batch coordinate, so a following range edit to the same
+    file must still be rejected loudly rather than silently hit the wrong line."""
+    path = tmp_path / "mod.py"
+    original = "a\nb\nc\nd\n"
+    path.write_text(original, encoding="utf-8")
+
+    result = apply_rich_edits(
+        [
+            {"file_path": "mod.py", "old_string": "b", "new_string": "MID"},
+            {"file_path": "mod.py", "old_string": "MID", "new_string": "X\nY"},  # chained
+            {"file_path": "mod.py:L3", "new_string": "Z"},
+        ],
+        repo_root=tmp_path,
+    )
+
+    assert result["rolled_back"] is True
+    assert "untrackable edit" in result["failed"][0]["error"]
+    assert path.read_text(encoding="utf-8") == original

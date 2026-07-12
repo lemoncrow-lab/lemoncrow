@@ -265,9 +265,7 @@ def _text_lemoncrow(a: dict[str, Any]) -> list[str]:
         extra = f" → {a['rewrite']}" if a.get("rewrite") else ""
         return [f"     ↳ lc bash [preview, not run]: {a.get('category') or 'classified'}{extra}"]
     if tool == "edit":
-        return [
-            f"     ↳ lc edit [preview, not written]: {a.get('path') or ''} ({a.get('changed_lines', 0)} lines)"
-        ]
+        return [f"     ↳ lc edit [preview, not written]: {a.get('path') or ''} ({a.get('changed_lines', 0)} lines)"]
     if tool == "web_fetch":
         return [f"     ↳ lc web_fetch: {str(a.get('content') or '').splitlines()[0][:80]}"]
     if tool == "code_search":
@@ -376,6 +374,11 @@ def _html_tool_call(turn: dict[str, Any], tool_results: dict[str, str]) -> str:
     name = _esc(_tool_name(turn) or turn.get("kind"))
     summary = _esc(_arg_summary(turn))
     kind = turn.get("kind")
+    # _arg_summary includes the tool name (e.g. "lc_read(path)"), but the
+    # HTML renderer shows the name in its own <span class="tool">.  Strip
+    # the leading name to avoid "mcp__lc__read mcp__lc__read(...)".
+    if name and summary.startswith(name):
+        summary = summary[len(name) :]
     parts = [f'<div class="call"><span class="tool">{name}</span> <span class="arg">{summary}</span>']
 
     if kind == "file_edit" and turn.get("diff"):
@@ -769,7 +772,7 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .turn .body{border-left:2px solid var(--rail);padding:1px 0 4px 15px}
 .role{font-size:11px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-bottom:3px}
 /* per message-kind accents (border + role label) */
-.k-user_message .body{border-left-color:#3b82f6}.k-user_message .role{color:#3b82f6}
+.k-user_message .body{border-left-color:#3b82f6;background:#f0f6ff;border-radius:6px;padding-left:15px}.k-user_message .role{color:#3b82f6}
 .k-agent_message .body{border-left-color:#6366f1}.k-agent_message .role{color:#6366f1}
 .k-thinking .body{border-left-color:#8a8f98}.k-thinking .role{color:#8a8f98}
 .k-tool_call .body{border-left-color:#8b5cf6}.k-tool_call .role{color:#8b5cf6}
@@ -806,7 +809,7 @@ details.subagent .wrap{padding:0}
 .cut-tag{font-family:var(--font-mono);font-size:10.5px;color:#c2611d;font-weight:600;margin-left:7px;text-decoration:none;display:inline-block;opacity:1}
 :root[data-theme=dark] .turn.cut .body{border-left-color:#d98a4a}
 :root[data-theme=dark] .turn.cut .call{border-color:#d98a4a}
-:root[data-theme=dark] .cut-tag{color:#d98a4a}
+:root[data-theme=dark] .cut-tag{color:#d98a4a}:root[data-theme=dark] .k-user_message .body{background:#111d33}
 :root[data-theme=light] .turn.cut .body{border-left-color:#c2611d}
 :root[data-theme=light] .turn.cut .call{border-color:#c2611d}
 :root[data-theme=light] .cut-tag{color:#c2611d}

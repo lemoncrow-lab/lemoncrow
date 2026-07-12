@@ -168,7 +168,7 @@ check_tokscale() {
 
 get_latest_run() {
     if [ -d "${HOME}/.lemoncrow/runs" ]; then
-        lc status --line --root "${HOME}/.lemoncrow" 2>/dev/null || echo "(no runs yet)"
+        lemoncrow status --line --root "${HOME}/.lemoncrow" 2>/dev/null || echo "(no runs yet)"
     else
         echo "(no runs yet)"
     fi
