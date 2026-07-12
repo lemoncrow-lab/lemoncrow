@@ -19,8 +19,7 @@ import json
 from pathlib import Path
 from typing import TypedDict
 
-# TODO(lemoncrow): historical results dir name -- kept as-is
-RESULTS_DIR = Path(__file__).parent / "results" / "atelier"
+RESULTS_DIR = Path(__file__).parent / "results" / "lemoncrow"
 BASELINE_CSV = Path(__file__).parent / "results" / "baseline" / "normalized_cost.csv"
 
 
