@@ -111,12 +111,12 @@ _CODEX_TOOL_PREFIX = "lc."
 # Every other surface (codex — openai/codex#6148 closed not-planned — opencode,
 # copilot, cursor, and owned lanes, none of which receive MCP instructions)
 # keeps the full shared block.
-_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use LemonCrow: `bash`, `read`, `edit`, `code_search`."
+_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`."
 _CLAUDE_TOOL_DISCIPLINE_READ = (
     "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Host tools disabled — use LemonCrow: `bash`, `read`, `code_search`."
+    "Host tools disabled — use lc: `bash`, `read`, `code_search`."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
@@ -128,7 +128,7 @@ _CLAUDE_SHARED_OVERRIDES = {
 # no permission-deny for them (see scripts/install_opencode.sh's opencode.json,
 # only "lc_*": "allow" is ever set) -- so "Host tools disabled" is as
 # inaccurate for OpenCode as it is for Codex. Same swap-the-lead-in fix,
-# keeping the "use LemonCrow: ..." clause (same shared helper Codex uses).
+# keeping the "use lc: ..." clause (same shared helper Codex uses).
 #
 # Unlike Codex's apply_patch/exec_command, these names (read/bash/edit) DO
 # collide with INLINE_TOOL_NAMES -- render_agent's replace_inline_tool_names

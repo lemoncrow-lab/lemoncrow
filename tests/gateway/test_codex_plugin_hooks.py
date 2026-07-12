@@ -334,7 +334,7 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     output = json.loads(result.stdout)
     assert set(output) == {"systemMessage"}
     message = output["systemMessage"]
-    assert "LemonCrow session complete." in message
+    assert "lc session complete." in message
     assert "0 LLM turns · 1 prompt turn · 1 tool call (hooks)" in message
     assert "est. cost: ~$" in message
     # Routing/carry/output are all 0 in this fixture -- suppressed like

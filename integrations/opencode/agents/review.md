@@ -39,6 +39,6 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 - **Known path → `lc_read`; `lc_bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `lc_code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Host tools disabled — use LemonCrow: `lc_bash`, `lc_read`, `lc_code_search`.
+Host tools disabled — use lc: `lc_bash`, `lc_read`, `lc_code_search`.
 
 Final element of every reply: the fenced JSON verdict — nothing after it.

@@ -6,7 +6,7 @@ Reads the hook payload (stdin: JSON with session_id, transcript_path).
 Behavior:
 1. Discussion-only session (no code-editing tools used in the transcript) →
    show plain stats under a "Session stats:" header.
-2. Code work happened → show stats under an "LemonCrow session complete." header.
+2. Code work happened → show stats under an "lc session complete." header.
 
 Token and tool-call counts are read directly from the Claude Code
 transcript JSONL at `transcript_path`.
@@ -81,7 +81,9 @@ def _workspace_key(path: str) -> str:
 def _state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -1438,7 +1440,7 @@ def main() -> int:
     # valid here, unlike PreToolUse/PostToolUse/UserPromptSubmit/PostToolBatch.)
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
-        print(json.dumps({"systemMessage": f"LemonCrow session complete.\n{summary}{review_suffix}"}))
+        print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{review_suffix}"}))
     return 0
 
 

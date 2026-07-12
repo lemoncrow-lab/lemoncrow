@@ -59,6 +59,6 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 - **Known path → `read`; `bash` = execution only.** Never `sed`/`cat`/`head`/`tail`/grep for reads or search — `code_search` first, never re-verify with shell grep.
 - **Batch independent calls.** One turn for independent reads/searches; serialize only when output feeds input.
 
-Host tools disabled — use LemonCrow: `bash`, `read`, `code_search`.
+Host tools disabled — use lc: `bash`, `read`, `code_search`.
 
 Final element of every reply: the fenced JSON verdict — nothing after it.

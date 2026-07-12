@@ -561,13 +561,13 @@ def format_native_names_and_verb(names: tuple[str, ...]) -> tuple[str, str]:
 
 def swap_tool_discipline_lead_in(body: str, lead_in: str) -> str:
     """Swap the lead-in of tool-discipline*.md's closing '<lead-in> — use
-    LemonCrow: ...' line for a host-specific one, keeping the '— use LemonCrow: ...'
+    lc: ...' line for a host-specific one, keeping the '— use lc: ...'
     clause verbatim (its bare tool names still get prefixed by
     replace_inline_tool_names downstream, same as every other host).
     """
     bullets, _, tail = body.rpartition("\n\n")
-    _disabled_clause, _, use_clause = tail.partition(" — use LemonCrow:")
-    return f"{bullets}\n\n{lead_in} — use LemonCrow:{use_clause}"
+    _disabled_clause, _, use_clause = tail.partition(" — use lc:")
+    return f"{bullets}\n\n{lead_in} — use lc:{use_clause}"
 
 
 # Codex's real native tool-call names (session_parsers/codex.py's
