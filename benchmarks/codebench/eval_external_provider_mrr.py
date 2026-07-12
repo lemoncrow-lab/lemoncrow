@@ -43,7 +43,7 @@ class _JsonRpcLineClient:
         # Bounded tail of the child's stderr, kept drained by a background
         # thread (started in start()). Draining is mandatory, not cosmetic:
         # the OS stderr pipe buffer is only ~64KB, and the child -- plus any
-        # subprocess that inherits its stderr (ast-grep/zoekt/`lemon code
+        # subprocess that inherits its stderr (ast-grep/zoekt/`lc code
         # index` warm) and Python's root-logger lastResort handler -- BLOCKS
         # on write() once it fills. Because only stdout is read on the hot
         # path, an undrained stderr pipe wedges the server mid-write: it stops
@@ -1554,7 +1554,7 @@ class CccProvider(Provider):
 class LemonCrowProvider(Provider):
     """LemonCrow's stock MCP server over stdio, no special treatment.
 
-    Launches ``lemon mcp`` per workspace and calls the shipped ``code_search``
+    Launches ``lc mcp`` per workspace and calls the shipped ``code_search``
     tool with the RAW query (the surface agents actually use -- no ``_sym()``
     shaping, or MRR loses continuity with the retired fitness_explore_mrr
     history). Measures engine + serialization + transport end-to-end.

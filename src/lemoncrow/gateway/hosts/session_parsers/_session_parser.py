@@ -78,7 +78,7 @@ _MODEL_FIELD_KEYS = (
 
 
 # LemonCrow MCP tools are exposed under several host-specific namespace variants.
-# Treat any name with an ``lemon`` namespace segment as an LemonCrow tool and use
+# Treat any name with an ``lc`` namespace segment as an LemonCrow tool and use
 # the trailing segment as the actual tool name.
 def _tool_name_parts(name: str) -> list[str]:
     return [part for part in re.split(r"__|::|\.", (name or "").strip().lower()) if part]
@@ -86,9 +86,9 @@ def _tool_name_parts(name: str) -> list[str]:
 
 def _is_lemoncrow_mcp_tool(name: str) -> bool:
     lowered = (name or "").strip().lower()
-    if lowered.startswith(("lemon_", "lemon:", "lemoncrow_")):
+    if lowered.startswith(("lc_", "lc:", "lemoncrow_")):
         return True
-    return any(part == "lemon" or "lemoncrow" in part for part in _tool_name_parts(name))
+    return any(part == "lc" or "lemoncrow" in part for part in _tool_name_parts(name))
 
 
 def _extract_claude_session_id(content: str) -> str:
@@ -111,18 +111,18 @@ def _normalize_tool_basename(name: str) -> str:
     """Return the bare tool name, lowercased.
 
     Examples:
-        ``mcp__lemon__grep``                       -> ``grep``
-        ``mcp__plugin_lemoncrow_lemon__bash``        -> ``bash``
-        ``lemon::read``                            -> ``read``
+        ``mcp__lc__grep``                          -> ``grep``
+        ``mcp__plugin_lemoncrow_lc__bash``           -> ``bash``
+        ``lc::read``                               -> ``read``
         ``edit``                                     -> ``edit``
     """
     lowered = (name or "").strip().lower()
-    if lowered.startswith("lemon_"):
-        return lowered[len("lemon_") :]
+    if lowered.startswith("lc_"):
+        return lowered[len("lc_") :]
     if lowered.startswith("lemoncrow_"):
         return lowered[len("lemoncrow_") :]
     parts = _tool_name_parts(name)
-    if any(part == "lemon" or "lemoncrow" in part for part in parts) and len(parts) > 1:
+    if any(part == "lc" or "lemoncrow" in part for part in parts) and len(parts) > 1:
         return parts[-1]
     return lowered
 
@@ -1612,7 +1612,7 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
                 if len(native) == 1:
                     name = native[0]
                 elif len(native) == 0 and len(invoked) == 1 and _is_lemoncrow_mcp_tool(invoked[0]):
-                    mcp_name = f"lemon.{_normalize_tool_basename(invoked[0])}"
+                    mcp_name = f"lc.{_normalize_tool_basename(invoked[0])}"
                     if mcp_call_counts.get(mcp_name, 0) > 0:
                         mcp_call_counts[mcp_name] -= 1
                         continue

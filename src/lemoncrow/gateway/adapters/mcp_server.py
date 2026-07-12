@@ -128,7 +128,13 @@ def _warm_pricing_table() -> None:
 threading.Thread(target=_warm_pricing_table, name="lemoncrow-pricing-warm", daemon=True).start()
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "lemon"
+SERVER_NAME = "lc"
+# Human-readable name reported in the initialize response's serverInfo — purely
+# cosmetic (shown in host UIs like Claude Code's "User MCPs" connection list).
+# Tool-name rendering (mcp__{SERVER_NAME}__*) and self-detection both key off
+# the .mcp.json config entry name ("lc"), not this field, so it's safe to
+# diverge from SERVER_NAME for display purposes.
+SERVER_DISPLAY_NAME = "lemoncrow"
 SERVER_VERSION = lemoncrow_version
 # Injected into the host's system prompt via the MCP initialize response — the
 # one steering surface every MCP client reads automatically, even hosts and
@@ -1054,7 +1060,7 @@ _log = logging.getLogger("lemoncrow.mcp")
 
 
 def _installed_cli_version() -> str | None:
-    """Return the version reported by the installed ``lemon`` executable."""
+    """Return the version reported by the installed ``lc`` executable."""
     from lemoncrow.core.foundation.update_state import installed_cli_version
 
     return installed_cli_version()
@@ -2593,7 +2599,7 @@ def _is_registrable_workspace(ws: Path) -> bool:
     Registering either lets the code-warm daemon (``code_warm.py``) try to
     reindex that entire tree on every ~15s poll, forever: such a root never
     finishes indexing (or writes a ``session_state.json``), so it also never
-    becomes eligible for ``lemon code prune`` to reclaim -- it just burns a
+    becomes eligible for ``lc code prune`` to reclaim -- it just burns a
     CPU core indefinitely for as long as the registering process stays
     alive. Concretely: a host launched with cwd/``CLAUDE_WORKSPACE_ROOT``
     pointed at ``$HOME`` (or ``/``) rather than a repo.
@@ -2621,9 +2627,9 @@ def _register_mcp_session() -> None:
             if not _is_recognized_workspace(cwd):
                 _log.warning(
                     "Refusing to register MCP session workspace %s: not a git "
-                    "repository and not registered via `lemon init` -- would "
+                    "repository and not registered via `lc init` -- would "
                     "make the code-warm daemon index an arbitrary directory "
-                    "forever. Run `lemon init` here, or launch from inside a "
+                    "forever. Run `lc init` here, or launch from inside a "
                     "git repository.",
                     cwd,
                 )
@@ -3026,7 +3032,7 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
     ``tokens``/``calls`` plus the pre-priced ``cost_saved_usd`` /
     ``calls_usd`` so analytics readers need not re-price.
     """
-    # A latency-profile run (`lemon perf`) drives `_handle` with synthetic
+    # A latency-profile run (`lc perf`) drives `_handle` with synthetic
     # probe calls; those aren't work the agent avoided, so don't credit them.
     if os.environ.get("LEMONCROW_TOOL_PROFILE_PATH"):
         return
@@ -3564,7 +3570,7 @@ def _record_smart_state_savings(tokens_saved: int, calls_avoided: int) -> None:
             _release_smart_state_flock(_flock)
 
 
-# ── Per-command bash spend ledger (`lemon audit bash`) ─────────────────────
+# ── Per-command bash spend ledger (`lc audit bash`) ─────────────────────
 # For every normalized bash command family, accumulate how many chars its
 # output still SHIPPED into context after all compaction next to how many it
 # OMITTED. The top shipped rows are the compaction gaps worth new filters --
@@ -3934,7 +3940,7 @@ _tool_call_tokens_saved: threading.local = threading.local()
 _tool_call_counterfactual: threading.local = threading.local()
 _tool_call_rendered_text: threading.local = threading.local()
 # Raw structured result of the last tool call, stashed per-call for the in-process
-# `lemon tools call ... --json` CLI to recover the full dict. Never serialized
+# `lc tools call ... --json` CLI to recover the full dict. Never serialized
 # into the host-facing MCP response, so the host's main model only sees `content`.
 _tool_call_raw_result: threading.local = threading.local()
 # Image content blocks produced by reading an image file, drained into the
@@ -4536,7 +4542,7 @@ def tool_record_trace(
             return "claude"
 
         # Default to the agent name if no known host environment is detected
-        return "lemoncrow" if al.startswith("lemon:") else al
+        return "lemoncrow" if al.startswith("lc:") else al
 
     normalized_capture_sources = [redact(str(source)) for source in capture_sources]
     normalized_trace_confidence = _normalize_trace_confidence(trace_confidence)
@@ -5994,7 +6000,7 @@ def _smart_read_single(
             # (re-read this SAME file at a narrower range) rather than the
             # generic "narrow the query for full" tail: this is not a spill
             # failure, the file itself is the already-known recovery path.
-            notice = f"\n\n[lemon: truncated {total_bytes}→{disconnect_cap} chars; re-read narrow range=]"
+            notice = f"\n\n[lc: truncated {total_bytes}→{disconnect_cap} chars; re-read narrow range=]"
             prefix_bytes = max(0, disconnect_cap - len(notice.encode("utf-8")) - 1024)
             with open(target, "rb") as fh:
                 head = fh.read(prefix_bytes)
@@ -8210,7 +8216,7 @@ def _maybe_attach_code_rendered(op: str, payload: dict[str, Any], *, render_comp
         if engine is not None and not Path(engine.db_path).exists():
             result["bootstrap_note"] = (
                 "Repository not yet indexed — results may be incomplete. "
-                "Run `lemon code index` (or `lemon project init`) to bootstrap the index."
+                "Run `lc code index` (or `lc project init`) to bootstrap the index."
             )
 
     return result
@@ -10125,7 +10131,7 @@ _LEAN_MAX_CANDIDATES = 8
 # a measured 0.8-1.5k chars resident per turn -- but trimming it (10, then 6)
 # was part of a measured -0.10 overall retrieval MRR regression (2026-07-06):
 # the tail is where non-top-1 golds live, so it earns its chars. Do not trim
-# this without re-running `lemon eval retrieval`. The symbol map
+# this without re-running `lc eval retrieval`. The symbol map
 # (_LEAN_MAX_CANDIDATES) stays tight because each entry carries structure.
 _LEAN_MAX_CANDIDATE_FILES = 24
 _LEAN_DOMINANT_RATIO = 4.0
@@ -11902,7 +11908,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             rid,
             {
                 "protocolVersion": PROTOCOL_VERSION,
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                "serverInfo": {"name": SERVER_DISPLAY_NAME, "version": SERVER_VERSION},
                 "capabilities": {"tools": {}},
                 # Read automatically by MCP clients and folded into the host
                 # system prompt — the steering surface that reaches every host
@@ -12123,7 +12129,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                     # Refresh the statusline frames sidecar on EVERY dispatch
                     # (not only savings-bearing calls) so the shell render's
                     # 10s freshness gate keeps passing during active work and
-                    # the slow `lemon savings --segment` subprocess fallback
+                    # the slow `lc savings --segment` subprocess fallback
                     # never fires. Rate-limited internally to one write per 5s.
                     with contextlib.suppress(Exception):
                         _write_statusline_sidecar()
@@ -12502,7 +12508,7 @@ def _feature_locked_response(rid: str | int | None, exc: Exception) -> dict[str,
     else:
         msg = (
             f"This feature ({exc.feature}) requires LemonCrow Pro and you're not signed in. "
-            "Run `lemon login` in your terminal to sign in, then try again."
+            "Run `lc login` in your terminal to sign in, then try again."
         )
     return _ok(rid, {"content": [{"type": "text", "text": msg}]})
 
@@ -13205,7 +13211,7 @@ def _setup_file_logging(root: str | Path) -> None:
     """Configure the lemoncrow.mcp logger to write to a file.
 
     This ensures logs survive process termination and can be inspected
-    via ``lemon logs mcp``.
+    via ``lc logs mcp``.
     """
     log_dir = Path(root) / "mcp"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -13310,7 +13316,7 @@ def _auto_init_workspace() -> None:
             # workspace env var and no git repo was detected -- never
             # auto-create `.lemoncrow/` (with seeded lessons/rubrics) at an
             # arbitrary directory like $HOME or a multi-repo container. Only
-            # a git repo or an already `lemon init`-registered dir qualifies.
+            # a git repo or an already `lc init`-registered dir qualifies.
             _log.debug("skipping workspace auto-init: %s is not a recognized workspace", ws_root)
             return
 
@@ -13319,7 +13325,7 @@ def _auto_init_workspace() -> None:
             return
 
         if not _ensure_account_activated(lemoncrow_root):
-            _log.info("LemonCrow account required for workspace auto-init; skipping until `lemon login` completes.")
+            _log.info("LemonCrow account required for workspace auto-init; skipping until `lc login` completes.")
             return
 
         # --- Seed playbooks and rubrics ---
@@ -13368,9 +13374,9 @@ def _warm_stdio_code_index() -> None:
     Reuses the service ``_CodeWarmer`` patterns via ``warm_stdio_workspace``.
     Fail-open: any failure is swallowed so stdio server startup is unaffected.
 
-    No-ops when ``_workspace_root()`` isn't a git repo or an ``lemon
+    No-ops when ``_workspace_root()`` isn't a git repo or an ``lc
     init``-registered directory: ``warm_stdio_workspace`` has no such check
-    of its own and will fire an ``lemon code index`` subprocess against
+    of its own and will fire an ``lc code index`` subprocess against
     *any* directory (e.g. cwd falling all the way through to an unrelated
     multi-repo container or ``$HOME``), which never finishes and burns a CPU
     core indefinitely.
@@ -13382,7 +13388,7 @@ def _warm_stdio_code_index() -> None:
         _log.debug("skipping stdio code-index warm: %s is not a recognized workspace", ws_root)
         return
     if not _ensure_account_activated(_lemoncrow_root()):
-        _log.info("LemonCrow account required for code-index warm; skipping until `lemon login` completes.")
+        _log.info("LemonCrow account required for code-index warm; skipping until `lc login` completes.")
         return
     try:
         from lemoncrow.core.service.code_warm import warm_stdio_workspace
@@ -13464,7 +13470,7 @@ def _warm_stdio_zoekt_webserver() -> None:
 
 
 def main() -> None:
-    # Phase 1: Absorb wrapper logic into `lemon mcp` (zero-config)
+    # Phase 1: Absorb wrapper logic into `lc mcp` (zero-config)
     os.environ.setdefault("LEMONCROW_SERVICE_URL", "http://127.0.0.1:8787")
     # If no host has injected a workspace env var, detect the git repo root so
     # global-mode installs on any host always point at the project root.
@@ -13490,7 +13496,7 @@ def main() -> None:
 
     argv = sys.argv[1:]
     if "--version" in argv or "-V" in argv:
-        sys.stdout.write(f"lemon mcp {SERVER_VERSION}\n")
+        sys.stdout.write(f"lc mcp {SERVER_VERSION}\n")
         return
     if "--root" in argv:
         i = argv.index("--root")

@@ -56,7 +56,7 @@ def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch:
     assert "claude: discovered sessions" in result.stderr
 
     # Import progress text must NOT leak onto stdout.
-    assert "[lemon]" not in result.stdout
+    assert "[lc]" not in result.stdout
     assert "discovering sessions" not in result.stdout
 
     # User-facing result line stays on stdout.

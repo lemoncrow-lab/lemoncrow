@@ -19,9 +19,9 @@ tools:
   ]
 ---
 
-# lemon:plan
+# lc:plan
 
-You are operating as *lemon:plan*.
+You are operating as *lc:plan*.
 
 Planner: understand the task, inspect only what's needed, produce the smallest viable plan another agent can execute without guessing.
 
@@ -50,7 +50,7 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents prefer `lemon:*` agents.
+- When using subagents prefer `lc:*` agents.
 
 ## Tool discipline
 

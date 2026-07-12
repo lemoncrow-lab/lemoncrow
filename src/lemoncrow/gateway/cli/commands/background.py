@@ -1,4 +1,4 @@
-"""Thin ``lemon background`` group + hidden ``systemd`` alias (Phase 25-03).
+"""Thin ``lc background`` group + hidden ``systemd`` alias (Phase 25-03).
 
 Installs/uninstalls LemonCrow services as systemd (Linux) / launchd (macOS)
 units. Unit and label constants are imported verbatim from
@@ -57,7 +57,7 @@ def background_group() -> None:
     """Manage LemonCrow background services (systemd on Linux, launchd on macOS)."""
 
 
-# Add the daemon service commands (start/stop/status/logs) as 'lemon background service'
+# Add the daemon service commands (start/stop/status/logs) as 'lc background service'
 background_group.add_command(_daemon_cli, name="service")
 
 
@@ -81,8 +81,8 @@ def background_install(
     """Install LemonCrow services as background units."""
     root = ctx.obj["root"]
     project_root = _project_root()
-    lemoncrow_bin = shutil.which("lemon") or str(Path(sys.argv[0]).resolve())
-    # We no longer need a separate lemond binary; we use 'lemon background service'
+    lemoncrow_bin = shutil.which("lc") or str(Path(sys.argv[0]).resolve())
+    # We no longer need a separate lemoncrowd/lcd binary; we use 'lc background service'
     service_start_cmd = f"{lemoncrow_bin} background service start"
 
     if with_letta and not shutil.which("docker"):
@@ -236,7 +236,7 @@ WantedBy=default.target
             if _systemd_user_bus_unavailable(output):
                 click.echo(
                     "Warning: systemd user bus is unavailable; unit files were installed "
-                    "but services were not enabled or started. Run 'lemon background install' "
+                    "but services were not enabled or started. Run 'lc background install' "
                     "from a login session to activate them.",
                     err=True,
                 )

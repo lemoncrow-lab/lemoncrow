@@ -28,7 +28,7 @@ _TAG = "session-recall"
 # *within the recall store* (see SqliteMemoryStore.list_passages). Cross-store
 # visibility is handled by mcp_server._memory_recall, which reads this store
 # (recall.db) in addition to memory.db, so past-session context surfaces through
-# the memory(op=recall) tool, not just the `lemon recall` CLI.
+# the memory(op=recall) tool, not just the `lc recall` CLI.
 _SHARED_TAG = "agent:any"
 _MAX_SESSIONS = 80
 _MAX_SNIPPETS_PER_SESSION = 40

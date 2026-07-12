@@ -146,7 +146,7 @@ class ZoektServer:
 
         Only wires up the binary handle and returns.  Never builds or
         rebuilds the index -- that is ``build_index()``'s job, called
-        offline from ``lemon code index`` / ``lemon zoekt up``.
+        offline from ``lc code index`` / ``lc zoekt up``.
         Raises ``RuntimeError`` if no index is available so the caller
         can degrade gracefully instead of paying an inline build cost.
         """
@@ -173,7 +173,7 @@ class ZoektServer:
                     return self.handle
                 raise RuntimeError(
                     f"no Zoekt index found at {self.index_root} -- "
-                    "run 'lemon code index' or 'lemon zoekt up' to build it first"
+                    "run 'lc code index' or 'lc zoekt up' to build it first"
                 )
             self.start_count += 1
             return self.handle
@@ -275,7 +275,7 @@ class ZoektServer:
         if self.resolution.runtime == "docker":
             return self._container_id is not None and self._bridge is not None and self._bridge.poll() is None
         # Host binary mode: check on-disk state so a prior-process prewarm
-        # (entry-script or `lemon code index`) survives MCP server restart
+        # (entry-script or `lc code index`) survives MCP server restart
         # without a full rebuild.  The in-process _host_search_binary pointer
         # is lazily restored from the resolution if disk state is present.
         if not self.state_path.exists() or not any(self.index_root.glob("*.zoekt")):
@@ -335,7 +335,7 @@ class ZoektServer:
         """Build or incrementally update the Zoekt index for this workspace.
 
         **Never call this on the MCP tool-call hot path.**  It is the
-        indexing route: ``lemon code index``, ``lemon zoekt up``, and
+        indexing route: ``lc code index``, ``lc zoekt up``, and
         the benchmark prewarm script.  MCP search calls go through
         ``ensure_started()`` which only *registers* an existing index.
 

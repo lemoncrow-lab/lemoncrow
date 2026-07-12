@@ -35,7 +35,7 @@ def _load_store(root: Path) -> Any:
 
     db_path = getattr(store, "db_path", None)
     if db_path is not None and not Path(db_path).exists():
-        raise click.ClickException(f"No LemonCrow store at {root}. Run `lemon init` first.")
+        raise click.ClickException(f"No LemonCrow store at {root}. Run `lc init` first.")
     return store
 
 

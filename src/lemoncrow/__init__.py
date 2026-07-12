@@ -56,7 +56,7 @@ except Exception:  # noqa: BLE001 — metadata may be missing in dev/bundle cont
         __version__ = "0.0.0"
 
 
-# Seed process env vars from persisted `lemon settings set` overrides before
+# Seed process env vars from persisted `lc settings set` overrides before
 # anything else reads them. Cheap (small local JSON, stdlib-only import) and
 # must never block a plain `import lemoncrow` — see apply_settings_env().
 try:

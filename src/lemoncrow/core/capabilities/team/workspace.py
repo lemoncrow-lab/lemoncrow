@@ -48,7 +48,7 @@ def _workspace_lock_path(root: Path) -> Path:
 # Serialize workspace read-modify-write critical sections across worker threads
 # sharing this process (the FastAPI sync-handler threadpool serves concurrent
 # /v1/team/* requests here); a sidecar flock additionally guards sibling
-# processes (e.g. simultaneous `lemon team` invocations).
+# processes (e.g. simultaneous `lc team` invocations).
 _WORKSPACE_MUTATION_LOCK = threading.Lock()
 
 

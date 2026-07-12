@@ -10,8 +10,8 @@ Layout on disk::
 
 Resume flow::
 
-    lemon checkpoint list                          # see available checkpoints
-    lemon checkpoint resume <session_id> --from-step 7   # replay from step 7
+    lc checkpoint list                          # see available checkpoints
+    lc checkpoint resume <session_id> --from-step 7   # replay from step 7
 """
 
 from __future__ import annotations

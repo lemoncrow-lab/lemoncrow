@@ -1,4 +1,4 @@
-"""Thin ``lemon openmemory`` command group.
+"""Thin ``lc openmemory`` command group.
 
 The OpenMemory checkout / env-file generation / ``docker compose`` / ``make``
 lifecycle lives in ``gateway/integrations/openmemory_lifecycle.py`` (QBL-CLI-03).

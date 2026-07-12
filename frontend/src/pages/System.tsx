@@ -636,7 +636,7 @@ export function ToolsSection() {
           return (
             <div className="grid gap-5 sm:grid-cols-2">
               <p className="text-[10px] font-mono text-neutral-400 sm:col-span-2">
-                {deduped.length} tools on stdio server: <code>lemon mcp</code>
+                {deduped.length} tools on stdio server: <code>lc mcp</code>
               </p>
               {nsOrder
                 .filter((ns) => groups[ns]?.length)

@@ -201,7 +201,7 @@ def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
     assert manifest["suite"] == "codebench"
     assert manifest["protocol"]["baseline_arm"] == "baseline"
     assert manifest["protocol"]["arm_agents"] == {
-        "lemoncrow": "lemon:code",
+        "lemoncrow": "lc:code",
         "baseline": "host-default",
     }
     assert manifest["corpus"]["tasks"][0]["id"] == "cg_vscode"

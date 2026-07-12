@@ -20,7 +20,7 @@
 make install
 ```
 
-This registers the local Claude plugin source (`lemon`), installs
+This registers the local Claude plugin source (`lc`), installs
 `lemoncrow@lemoncrow`, and registers the MCP server in Claude's user scope.
 Pass `--workspace /path/to/workspace` to write a project-local `.mcp.json`
 instead.
@@ -30,7 +30,7 @@ The script is idempotent — safe to run again after updates.
 To configure project-specific role models after the global install, run:
 
 ```bash
-uv run lemon init --configure-models
+uv run lc init --configure-models
 ```
 
 The init wizard writes `<workspace>/.lemoncrow/settings.json` and materializes
@@ -46,9 +46,9 @@ make verify
 All checks should show `PASS`:
 
 - `claude plugin list` shows `lemoncrow@lemoncrow ✔ enabled`
-- Plugin source `lemon` is registered
-- Global install: `claude mcp list` shows `lemon`
-- Workspace install: `.mcp.json` contains lemon server entry
+- Plugin source `lc` is registered
+- Global install: `claude mcp list` shows `lc`
+- Workspace install: `.mcp.json` contains lc server entry
 
 ### Manual steps (print-only mode)
 
@@ -91,7 +91,7 @@ bash scripts/install_claude.sh --print-only
 ```
 
 > **WARNING**: This is NOT the full plugin. It installs the MCP server entry in
-> `.mcp.json` only if you apply the printed manual steps. Agents and `/lemon:*` skills are NOT available.
+> `.mcp.json` only if you apply the printed manual steps. Agents and `/lc:*` skills are NOT available.
 > Use this only when `claude plugin install` is unavailable.
 
 ---
@@ -114,7 +114,7 @@ bash scripts/install_claude.sh --print-only
 The intended flow is:
 
 1. Install the shared Claude plugin globally.
-2. Run `uv run lemon init --configure-models` inside a repository.
+2. Run `uv run lc init --configure-models` inside a repository.
 3. Let the wizard write `.lemoncrow/settings.json`, `.claude/settings.local.json`,
    `.claude/agents/`, and `.claude/skills/`.
 
@@ -127,24 +127,24 @@ the shared global plugin remains unpinned.
 Start Claude Code in your workspace and type:
 
 ```text
-/lemon:explore
+/lemoncrow:explore
 ```
 
 You should switch into the read-only LemonCrow explore mode and get a focused repo-mapping workflow.
 
 ## Slash Commands (Skills)
 
-All commands use the `/lemon:name` format (colon, not dash):
+All commands use the `/lemoncrow:name` format (colon, not dash):
 
 | Command             | Description                                    |
 | ------------------- | ---------------------------------------------- |
-| `/lemon:code`     | Switch to main coding mode                     |
-| `/lemon:explore`  | Switch to read-only exploration mode           |
-| `/lemon:plan`     | Switch to implementation planning mode         |
-| `/lemon:execute` | Switch to focused execution mode               |
-| `/lemon:review`   | Switch to adversarial review mode              |
-| `/lemon:research` | Switch to external research mode with citations |
-| `/lemon:solve`   | Switch to autonomous solve mode                |
+| `/lemoncrow:code`     | Switch to main coding mode                     |
+| `/lemoncrow:explore`  | Switch to read-only exploration mode           |
+| `/lemoncrow:plan`     | Switch to implementation planning mode         |
+| `/lemoncrow:execute` | Switch to focused execution mode               |
+| `/lemoncrow:review`   | Switch to adversarial review mode              |
+| `/lemoncrow:research` | Switch to external research mode with citations |
+| `/lemoncrow:solve`   | Switch to autonomous solve mode                |
 
 ## Agents
 
@@ -152,13 +152,13 @@ Select from the `/agents` list in Claude Code:
 
 | Agent             | Role                                         |
 | ----------------- | -------------------------------------------- |
-| `lemon:code`    | Main coding agent — full task loop           |
-| `lemon:explore` | Read-only repo exploration                   |
-| `lemon:plan`    | Planner — grounded implementation plan       |
-| `lemon:execute` | Executor — focused edits + self-check       |
-| `lemon:review`  | Verifier — plan checks + rubric gate         |
-| `lemon:research`| External research with citations             |
-| `lemon:solve`  | Autonomous solver — artifact/check loop      |
+| `lemoncrow:code`    | Main coding agent — full task loop           |
+| `lemoncrow:explore` | Read-only repo exploration                   |
+| `lemoncrow:plan`    | Planner — grounded implementation plan       |
+| `lemoncrow:execute` | Executor — focused edits + self-check       |
+| `lemoncrow:review`  | Verifier — plan checks + rubric gate         |
+| `lemoncrow:research`| External research with citations             |
+| `lemoncrow:solve`  | Autonomous solver — artifact/check loop      |
 
 ## Dynamic Workflows
 

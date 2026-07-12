@@ -3,9 +3,9 @@
 Covers the usage-log write path (`plugin_runtime.record_optional_use` /
 `last_optional_use_ms`), the `update_session_stats` hook integration that
 records optional-agent/skill use while never recording the default `code`
-role or `lemon` skill, the `stale_optional_items` staleness classifier
+role or `lc` skill, the `stale_optional_items` staleness classifier
 (installed+optional+stale vs. recently-used vs. not-installed vs. default),
-and the `lemon stale-nudge` CLI surface.
+and the `lc stale-nudge` CLI surface.
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ def test_stale_optional_items_excludes_uninstalled_agent(tmp_path: Path) -> None
 def test_stale_optional_items_never_flags_default_code_or_lemoncrow_skill(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     _install_agent(ws, "explore")  # also brings the default `code` role along
-    _install_skill(ws, "recall")  # also ships the default `lemon` skill
+    _install_skill(ws, "recall")  # also ships the default `lc` skill
     items = m.stale_optional_items("claude", ws, root=tmp_path, repo_root=REPO_ROOT, now_ms=10 * _DAY_MS)
     names = {(i["kind"], i["name"]) for i in items}
     assert ("agent", "code") not in names
@@ -213,7 +213,7 @@ def test_format_stale_nudge_days_unused_wording() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lemon stale-nudge
+# CLI: lc stale-nudge
 # --------------------------------------------------------------------------- #
 
 

@@ -131,7 +131,7 @@ def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
     const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
     const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
     await hooks['chat.message']({{ sessionID: 's1' }}, {{ parts: [{{ type: 'text', text: 'inspect it' }}] }})
-    await hooks['tool.execute.after']({{ tool: 'lemon_read', sessionID: 's1', args: {{ files: ['a.py'] }} }}, {{ output: 'ok', metadata: {{ exitCode: 0 }} }})
+    await hooks['tool.execute.after']({{ tool: 'lc_read', sessionID: 's1', args: {{ files: ['a.py'] }} }}, {{ output: 'ok', metadata: {{ exitCode: 0 }} }})
     await hooks.event({{ event: {{ type: 'session.idle', properties: {{ sessionID: 's1' }} }} }})
     console.log(JSON.stringify(toasts))
     """

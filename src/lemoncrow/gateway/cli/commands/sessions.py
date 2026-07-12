@@ -925,9 +925,9 @@ def _tool_name_parts(name: str) -> list[str]:
 
 def _is_lemoncrow_tool_name(name: str) -> bool:
     lowered = (name or "").strip().lower()
-    if lowered.startswith(("lemon_", "lemon:", "lemoncrow_")):
+    if lowered.startswith(("lc_", "lc:", "lemoncrow_")):
         return True
-    return any(part == "lemon" or "lemoncrow" in part for part in _tool_name_parts(name))
+    return any(part == "lc" or "lemoncrow" in part for part in _tool_name_parts(name))
 
 
 # Builtin tools with a direct LemonCrow equivalent (read/search, shell, edit
@@ -981,16 +981,15 @@ def _base_tool_name(name: str) -> str:
     """Normalize a host tool name to its base form.
 
     Any LemonCrow-qualified name collapses to the trailing tool segment, so
-    lemon.bash, lemon::bash, lemon_bash, and mcp__...lemon...__bash
-    all account as bash.
+    lc.bash, lc::bash, lc_bash, and mcp__...lc...__bash all account as bash.
     """
     base = (name or "").strip().lower()
-    if base.startswith("lemon_"):
-        return base[len("lemon_") :]
+    if base.startswith("lc_"):
+        return base[len("lc_") :]
     if base.startswith("lemoncrow_"):
         return base[len("lemoncrow_") :]
     parts = _tool_name_parts(base)
-    if any(part == "lemon" or "lemoncrow" in part for part in parts) and len(parts) > 1:
+    if any(part == "lc" or "lemoncrow" in part for part in parts) and len(parts) > 1:
         return parts[-1]
     base = base.split(":")[-1]
     if "__" in base:
@@ -1131,7 +1130,7 @@ def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: 
     if host_name != "claude" and saved_tokens > 0:
         saved_usd = saved_tokens * in_rate
         carry_usd = carry_tokens * cr_rate
-        # Channel caps on the lemon share of observed spend.  Carry allows
+        # Channel caps on LemonCrow's share of observed spend.  Carry allows
         # 2x the call share: measured Claude sessions show avoided carry can
         # match the full cache-read spend at ~50% routing.
         saved_cap = feed_cost * lemoncrow_share

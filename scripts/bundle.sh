@@ -101,7 +101,7 @@ install_lemoncrow_from_wheel() {
     UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
         uv tool uninstall lemoncrow >/dev/null 2>&1 || true
 
-    # Warn before we place the lemon/lc console scripts if a foreign one is on PATH.
+    # Warn before we place the lemoncrow/lc console scripts if a foreign one is on PATH.
     warn_on_foreign_cli_collision
 
     # Install the console script to the configured LemonCrow bin/tool dirs.
@@ -110,7 +110,7 @@ install_lemoncrow_from_wheel() {
         uv tool install --force --python "$LEMONCROW_PYTHON_VERSION" "${wheel}[${extras}]" ${constraints_arg[@]+"${constraints_arg[@]}"} --reinstall-package lemoncrow
 
     # Re-derive LEMONCROW_BIN_DIR to the uv tool install location so that
-    # run_setup() finds the real lemon binary (not the wheel-only staging dir).
+    # run_setup() finds the real lc binary (not the wheel-only staging dir).
     local uv_bin_dir
     uv_bin_dir="$(uv tool dir --bin 2>/dev/null || echo "${LEMONCROW_BIN_DIR}")"
     if [[ -x "${uv_bin_dir}/lemoncrow" ]]; then

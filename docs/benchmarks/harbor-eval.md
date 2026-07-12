@@ -16,22 +16,22 @@ Run LemonCrow on official [Harbor](https://harborframework.com) benchmark datase
 # from benchmarks/harbor/.env (CLAUDE_CODE_OAUTH_TOKEN_1/_2).
 
 # Quick smoke test (3 tasks, 1 attempt):
-lemon benchmark harbor --limit 3 --attempts 1 -y
+lc benchmark harbor --limit 3 --attempts 1 -y
 
 # A/B comparison (LemonCrow augmentation on vs off):
-lemon benchmark harbor -y
-lemon benchmark harbor --baseline -y
+lc benchmark harbor -y
+lc benchmark harbor --baseline -y
 
 # With Bedrock credentials:
 export AWS_BEARER_TOKEN_BEDROCK=...
 export AWS_REGION=us-east-1
-lemon benchmark harbor --agent lemoncrow-bedrock --limit 5 -y
+lc benchmark harbor --agent lemoncrow-bedrock --limit 5 -y
 ```
 
 ## Command reference
 
 ```
-lemon benchmark harbor [OPTIONS]
+lc benchmark harbor [OPTIONS]
 
 Options:
   -d, --dataset TEXT        Harbor dataset (default: terminal-bench/terminal-bench-2-1)
@@ -51,7 +51,7 @@ Options:
 | Arm | Description |
 |-----|-------------|
 | `lemoncrow-claude-code` | Claude Code CLI + LemonCrow plugin (default) |
-| `lemon` | Direct API with LemonCrow augmentation |
+| `lc` | Direct API with LemonCrow augmentation |
 | `lemoncrow-bedrock` | LemonCrow via AWS Bedrock |
 | `--baseline` flag | `bench_mode=off` — baseline without the LemonCrow plugin |
 
@@ -71,20 +71,20 @@ harbor run -d "terminal-bench/terminal-bench-core@0.1.1" \
 
 | Command | Purpose |
 |---------|---------|
-| `lemon benchmark mini --dry-run` | Offline schema validation, no Docker needed |
-| `lemon benchmark mini --limit 5` | Live local repo tasks, cheap, no Docker |
-| `lemon benchmark harbor --limit 5` | Official Harbor datasets in Docker containers |
+| `lc benchmark mini --dry-run` | Offline schema validation, no Docker needed |
+| `lc benchmark mini --limit 5` | Live local repo tasks, cheap, no Docker |
+| `lc benchmark harbor --limit 5` | Official Harbor datasets in Docker containers |
 | `make proof-cost-quality` | Deterministic proof gate (zero live calls) |
 
-Start with `lemon benchmark mini --dry-run` to verify setup, then escalate to
-`lemon benchmark harbor` for credible published results.
+Start with `lc benchmark mini --dry-run` to verify setup, then escalate to
+`lc benchmark harbor` for credible published results.
 
 ## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_OAUTH_TOKEN_1/_2` | For default arm | Claude Code OAuth tokens, in `benchmarks/harbor/.env` |
-| `ANTHROPIC_API_KEY` | For `lemon` arm | Anthropic API key |
+| `ANTHROPIC_API_KEY` | For `lc` arm | Anthropic API key |
 | `AWS_BEARER_TOKEN_BEDROCK` | For `lemoncrow-bedrock` arm | Bedrock bearer token |
 | `AWS_REGION` | For `lemoncrow-bedrock` arm | AWS region |
 | `LEMONCROW_BENCH_VERSION` | No | LemonCrow version to install (default: latest) |
@@ -98,5 +98,5 @@ binary LemonCrow's bash tool soft-detects on PATH (see `external_compactors.py`)
 and uses to compress git/gh/pytest/lint/etc. output before it reaches the
 model, cutting benchmark token cost for free. It is purely additive: a slow or
 failed download never fails the trial, it just leaves the run on the plain
-shell path (same fallback `lemon doctor` reports for a local dev machine
+shell path (same fallback `lc doctor` reports for a local dev machine
 without rtk installed).

@@ -218,15 +218,15 @@ purge_leftovers() {
 }
 
 # ---- stop memory sidecar (before background controller) --------------------
-if command -v lemon &>/dev/null && [[ -n "$LEMONCROW_MEMORY_BACKEND" ]]; then
+if command -v lc &>/dev/null && [[ -n "$LEMONCROW_MEMORY_BACKEND" ]]; then
     case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Stopping Letta memory sidecar..."
-            run "lemon letta down 2>/dev/null || true"
+            run "lc letta down 2>/dev/null || true"
             ;;
         openmemory)
             info "Stopping OpenMemory memory sidecar..."
-            run "lemon openmemory down 2>/dev/null || true"
+            run "lc openmemory down 2>/dev/null || true"
             ;;
         *)
             warn "Unknown memory backend '$LEMONCROW_MEMORY_BACKEND' in $_MEMORY_BACKEND_FILE - skipping sidecar teardown"
@@ -235,20 +235,20 @@ if command -v lemon &>/dev/null && [[ -n "$LEMONCROW_MEMORY_BACKEND" ]]; then
 fi
 
 # ---- stop Zoekt sidecar (before background controller) ---------------------
-if command -v lemon &>/dev/null && [[ "$LEMONCROW_ZOEKT" == "1" ]]; then
+if command -v lc &>/dev/null && [[ "$LEMONCROW_ZOEKT" == "1" ]]; then
     info "Skipping Zoekt CLI teardown; Zoekt management commands are no longer exposed."
 fi
 
 # ---- stop running services --------------------------------------------------
-if command -v lemon &>/dev/null; then
+if command -v lc &>/dev/null; then
     case "$LEMONCROW_MEMORY_BACKEND" in
         letta)
             info "Stopping Letta memory sidecar..."
-            run "lemon letta down 2>/dev/null || true"
+            run "lc letta down 2>/dev/null || true"
             ;;
         openmemory)
             info "Stopping OpenMemory memory sidecar..."
-            run "lemon openmemory down 2>/dev/null || true"
+            run "lc openmemory down 2>/dev/null || true"
             ;;
         "")
             ;;
@@ -258,11 +258,11 @@ if command -v lemon &>/dev/null; then
     esac
 
     info "Stopping LemonCrow background service controller..."
-    run "lemon servicectl stop 2>/dev/null || true"
+    run "lc servicectl stop 2>/dev/null || true"
     info "Stopping LemonCrow visualization stack..."
-    run "lemon stack stop 2>/dev/null || true"
+    run "lc stack stop 2>/dev/null || true"
 else
-    warn "lemon CLI not found on PATH — skipping service shutdown"
+    warn "lc CLI not found on PATH — skipping service shutdown"
 fi
 
 # ---- per-host uninstallers --------------------------------------------------
@@ -288,7 +288,7 @@ fi
 
 # ---- remove main bin commands ------------------------------------------------
 info "Removing LemonCrow bin commands from ${LEMONCROW_BIN_DIR}..."
-for cmd in lemon lc lemond; do
+for cmd in lemoncrow lc lemoncrowd lcd; do
     target="${LEMONCROW_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f $(printf %q "$target")"

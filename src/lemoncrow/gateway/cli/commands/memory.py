@@ -199,7 +199,7 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
 
 
 @memory_group_cli.command("share")
-@click.option("--agent-id", required=True, help="Editable memory agent id, e.g. lemon:code.")
+@click.option("--agent-id", required=True, help="Editable memory agent id, e.g. lc:code.")
 @click.option("--label", required=True, help="Editable memory block label.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
 @click.pass_context

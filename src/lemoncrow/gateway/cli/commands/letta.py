@@ -1,4 +1,4 @@
-"""Thin ``lemon letta`` command group.
+"""Thin ``lc letta`` command group.
 
 The Letta sidecar lifecycle (``docker compose`` orchestration) lives in
 ``gateway/integrations/openmemory_lifecycle.py``. These callbacks are thin Click

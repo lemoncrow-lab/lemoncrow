@@ -600,7 +600,7 @@ class SemanticFileMemoryCapability:
         Runs the real projection cascade (outline → compact whitespace → full)
         without touching the summary cache, mirroring ``smart_read`` plus the
         MCP layer's ``build_compact_projection`` post-pass. Used by
-        ``lemon project`` so CLI savings numbers match the live read
+        ``lc project`` so CLI savings numbers match the live read
         pipeline. Token counts use the same tiktoken accounting (baseline =
         Claude's built-in Read approximation).
         """

@@ -210,7 +210,7 @@ def _spill_hint(full_text: str, kept_chars: int) -> str:
     to recover them without re-running the (often expensive, non-idempotent)
     command. Mirrors ``web_fetch._truncate_with_spill``: persist the untouched
     original to the shared T7 spill store and name the path in the canonical
-    ``[lemon: ...]`` footer (see ``tool_output_spill.spill_notice``).
+    ``[lc: ...]`` footer (see ``tool_output_spill.spill_notice``).
     *kept_chars* is the char count of the body actually shown (post-compaction),
     for the footer's ORIG->KEPT accounting. Returns "" when spill is disabled,
     *full_text* is empty, or the write fails, so the caller falls back to the

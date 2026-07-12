@@ -3,7 +3,7 @@
 Keeps the shared code-context SQLite index warm for every active MCP
 workspace so the per-request MCP path never has to trigger a synchronous
 cold build.  The service daemon owns this; it scans the ``mcp_sessions``
-registry, fires ``lemon code index`` as a detached subprocess per active
+registry, fires ``lc code index`` as a detached subprocess per active
 workspace, and lets the subprocess write the SQLite index and exit —
 releasing all indexing memory (ProcessPool, AST data, CoW pages) after
 each run.  The parent daemon process footprint is unaffected.
@@ -78,7 +78,7 @@ def _registered_mcp_pid_is_live(pid: int) -> bool:
     except OSError:
         return False
     text = " ".join(part.decode("utf-8", errors="ignore") for part in parts)
-    return "lemon" in text and "mcp" in text
+    return ("lc" in text or "lc" in text) and "mcp" in text
 
 
 def discover_workspaces() -> list[Path]:
@@ -123,7 +123,7 @@ def discover_workspaces() -> list[Path]:
 
 
 def _fire_index_subprocess(workspace: Path) -> None:
-    """Launch ``lemon code index`` in a fully detached child process.
+    """Launch ``lc code index`` in a fully detached child process.
 
     Fire-and-forget: the caller does not wait for completion.  The subprocess
     acquires the SQLite write-lock, indexes the workspace, and exits — all
@@ -221,7 +221,7 @@ class _CodeWarmer:
 # stdio MCP server (``mcp_server.serve``) instead owns exactly one workspace
 # and is not warmed by the service daemon, so it pays cold-start on
 # Zoekt/ast-grep subprocesses at the first code-context tool call.
-# ``warm_stdio_workspace`` fires a detached ``lemon code index`` subprocess
+# ``warm_stdio_workspace`` fires a detached ``lc code index`` subprocess
 # for that workspace on startup.  It is idempotent and fail-open.
 
 _stdio_warmed: Path | None = None
@@ -231,7 +231,7 @@ _stdio_lock = threading.Lock()
 def warm_stdio_workspace(workspace: str | Path) -> bool:
     """Warm the code-context index for a single stdio workspace (idempotent).
 
-    Fires ``lemon code index`` as a detached subprocess so the parent MCP
+    Fires ``lc code index`` as a detached subprocess so the parent MCP
     process never takes on the indexing memory cost.  Returns ``True`` when a
     subprocess was launched, ``False`` when warming was skipped (disabled,
     missing dir, already warm) or failed.  Never raises.

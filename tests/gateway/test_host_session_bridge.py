@@ -45,7 +45,7 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_opencode_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Set the same way the real subprocess is launched: `lemon mcp --host
+    # Set the same way the real subprocess is launched: `lc mcp --host
     # opencode` -> LEMONCROW_AGENT=opencode (see cli/commands/mcp.py mcp_group).
     monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
     payload = {"session_id": "ses_abc123", "prompt": "hi", "model": "gpt-5.6-terra"}
@@ -74,7 +74,7 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
             root,
             {
                 **payload,
-                "tool_name": "lemon_read",
+                "tool_name": "lc_read",
                 "tool_input": {"files": ["a.py"]},
                 "tool_response": {"output": "ok"},
             },
@@ -86,7 +86,7 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
 
     assert "LemonCrow session idle." in status["uiMessage"]
     assert "1 prompt turn · 1 tool call" in status["uiMessage"]
-    assert "tools: lemon_read×1" in status["uiMessage"]  # noqa: RUF001
+    assert "tools: lc_read×1" in status["uiMessage"]  # noqa: RUF001
     assert plugin_runtime.build_opencode_stop_output(root, payload).get("no_output") is True
 
 

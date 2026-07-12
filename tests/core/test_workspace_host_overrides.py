@@ -33,8 +33,8 @@ def test_rewrite_agent_model_inserts_and_removes_model_line() -> None:
 
 def test_rewrite_agent_name_replaces_existing_name_line() -> None:
     original = "---\nname: code\ndescription: Main agent\n---\n\nBody\n"
-    renamed = rewrite_agent_name(original, "lemon:code")
-    assert "name: lemon:code" in renamed
+    renamed = rewrite_agent_name(original, "lc:code")
+    assert "name: lc:code" in renamed
     assert "name: code" not in renamed
 
 
@@ -83,7 +83,7 @@ def test_workspace_claude_agent_omits_model_for_auto(tmp_path: Path, monkeypatch
 
     text = workspace_claude_agent_text("code", workspace)
 
-    assert "name: lemon:code" in text
+    assert "name: lc:code" in text
     assert "model:" not in text.split("---", 2)[1]
 
 
@@ -100,7 +100,7 @@ def test_workspace_claude_agent_omits_model_when_runtime_default_only(tmp_path: 
 
     text = workspace_claude_agent_text("code", workspace)
 
-    assert "name: lemon:code" in text
+    assert "name: lc:code" in text
     assert "model:" not in text.split("---", 2)[1]
 
 
@@ -117,7 +117,7 @@ def test_workspace_claude_agent_injects_model_on_explicit_host_override(tmp_path
 
     text = workspace_claude_agent_text("code", workspace)
 
-    assert "name: lemon:code" in text
+    assert "name: lc:code" in text
     assert "model: claude-opus-4-8" in text.split("---", 2)[1]
 
 
@@ -239,11 +239,11 @@ def test_write_workspace_codex_agents_projects_standalone_files(tmp_path: Path, 
     # renderer's substitution map, not just {{CORE_DISCIPLINE}}.
     assert "{{" not in content
     # Parity with sync_agent_context: partials splice in verbatim (no injected
-    # headings) and inline tool names carry the codex `lemon.` prefix — except
+    # headings) and inline tool names carry the codex `lc.` prefix — except
     # the "Shell `grep`" phrase, which is about shell grep and stays bare.
     assert "## Core discipline" not in content
-    assert "`lemon.code_search`" in content
-    assert "`lemon.grep`" not in content
+    assert "`lc.code_search`" in content
+    assert "`lc.grep`" not in content
 
 
 def test_write_workspace_codex_agent_config_removes_legacy_registration(tmp_path: Path, monkeypatch) -> None:

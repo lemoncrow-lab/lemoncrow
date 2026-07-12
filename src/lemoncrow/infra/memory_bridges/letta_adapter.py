@@ -22,7 +22,7 @@ from lemoncrow.infra.storage.sqlite_memory_store import MEMORY_DB_NAME, SqliteMe
 
 logger = logging.getLogger(__name__)
 
-_PINNED_TAG = "lemon:pinned"
+_PINNED_TAG = "lc:pinned"
 _HAS_LETTA = False
 LettaClient: Any = None
 

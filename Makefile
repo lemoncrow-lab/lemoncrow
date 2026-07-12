@@ -3,7 +3,7 @@
 PY_PATHS := src benchmarks tests scripts integrations
 MYPY_PATHS := src/lemoncrow
 LEMONCROW_STORE ?= $(HOME)/.lemoncrow
-LEMONCROW_CMD ?= uv run lemon
+LEMONCROW_CMD ?= uv run lc
 TEST_PRINT_TIME ?= 0
 # Coverage floor for the full slow-inclusive suite (make test-full / nightly-coverage.yml).
 # Conservative provisional floor pending first-CI calibration (see 22-01-SUMMARY.md):
@@ -163,7 +163,7 @@ verify: | _ensure_hooks lint format-check typecheck docs-check test ## Verify co
 
 proof-cost-quality: ## Run cost-quality proof gate tests and write proof-report.json
 	LOCAL=1 uv run pytest tests/core/test_cost_quality_proof_gate.py tests/gateway/test_cli_proof_gate.py -v
-	LOCAL=1 uv run lemon proof run --session-id wp32-proof --context-reduction-pct 60 --json
+	LOCAL=1 uv run lc proof run --session-id wp32-proof --context-reduction-pct 60 --json
 	@test -s $(LEMONCROW_STORE)/proof/proof-report.json
 
 # --------------------------------------------------------------------------- #

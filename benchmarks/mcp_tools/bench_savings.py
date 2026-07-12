@@ -153,10 +153,10 @@ def print_scip_report(scip_results: list[CaseResult]) -> None:
     _print_table(scip_results)
 
 
-def _pct_str(baseline: int, lemon: int) -> str:
+def _pct_str(baseline: int, lc: int) -> str:
     if baseline <= 0:
         return "—"
-    pct = (baseline - lemon) / baseline * 100
+    pct = (baseline - lc) / baseline * 100
     return f"{pct:+.0f}%" if pct < 0 else f"{pct:.0f}%"
 
 

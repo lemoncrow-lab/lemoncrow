@@ -59,7 +59,7 @@ def workspace_claude_agent_text(
         agent_path.read_text(encoding="utf-8"), _integration_resource(repo_root, "agents", "shared")
     )
     model = _claude_explicit_host_model(role_id, workspace_root)
-    return rewrite_agent_name(rewrite_agent_model(text, model), f"lemon:{role_id}")
+    return rewrite_agent_name(rewrite_agent_model(text, model), f"lc:{role_id}")
 
 
 def write_workspace_copilot_agents(
@@ -123,7 +123,7 @@ def write_workspace_claude_overrides(
     target_agents.mkdir(parents=True, exist_ok=True)
     for stale_name in (
         [f"{role_id}.md" for role_id in SURFACED_ROLE_IDS]
-        + [f"lemon:{role_id}.md" for role_id in SURFACED_ROLE_IDS]
+        + [f"lc:{role_id}.md" for role_id in SURFACED_ROLE_IDS]
         + [f"lemoncrow.{role_id}.md" for role_id in SURFACED_ROLE_IDS]
     ):
         stale_path = target_agents / stale_name
@@ -171,7 +171,7 @@ def write_workspace_claude_overrides(
     env = raw_env if isinstance(raw_env, dict) else {}
     current["env"] = env
     env["CLAUDE_WORKSPACE_ROOT"] = str(workspace)
-    current["agent"] = "lemon:code"
+    current["agent"] = "lc:code"
     settings_local.parent.mkdir(parents=True, exist_ok=True)
     settings_local.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     written.append(settings_local)
@@ -322,7 +322,7 @@ def write_codex_agent_config(
 
     Current Codex discovers custom agents directly from ``agents/*.toml``. Keep
     this compatibility entrypoint because older callers invoke it during
-    ``lemon init``, but make it cleanup-only so init cannot reintroduce the
+    ``lc init``, but make it cleanup-only so init cannot reintroduce the
     obsolete ``[agents.lemoncrow_*]`` tables.
     """
     del agents_dir, repo_root
@@ -659,9 +659,9 @@ def _render_codex_mode_body(body: str, repo_root: Path) -> str:
     rendered = apply_reply_register_level(rendered, shared_dir)
     if "{{" in rendered:
         raise ValueError("unexpanded template token in Codex agent instructions")
-    # Codex registers LemonCrow tools under the ``lemon.`` prefix; rewrite bare
+    # Codex registers LemonCrow tools under the ``lc.`` prefix; rewrite bare
     # inline tool names so the instructions cite callable names.
-    return replace_inline_tool_names(rendered, "lemon.")
+    return replace_inline_tool_names(rendered, "lc.")
 
 
 def _toml_basic_escape(value: str) -> str:

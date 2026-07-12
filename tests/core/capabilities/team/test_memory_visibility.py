@@ -21,7 +21,7 @@ def test_viewer_sees_shared_memory_only(tmp_path: Path) -> None:
     store = SqliteMemoryStore(root)
     store.upsert_block(
         MemoryBlock(
-            agent_id="lemon:code",
+            agent_id="lc:code",
             label="private",
             value="private fact",
             metadata={"scope": "private", "workspace_id": workspace.id, "owner_user_id": "admin@example.com"},
@@ -30,7 +30,7 @@ def test_viewer_sees_shared_memory_only(tmp_path: Path) -> None:
     )
     store.upsert_block(
         MemoryBlock(
-            agent_id="lemon:code",
+            agent_id="lc:code",
             label="shared",
             value="shared fact",
             metadata={"scope": "shared", "workspace_id": workspace.id, "owner_user_id": "admin@example.com"},
@@ -40,7 +40,7 @@ def test_viewer_sees_shared_memory_only(tmp_path: Path) -> None:
     invite = manager.invite_members(["viewer@example.com"], role="viewer", actor_user_id="admin@example.com")[0]
     manager.join_workspace(invite.code, user_id="viewer@example.com")
 
-    visible = visible_memory_blocks(store.list_blocks("lemon:code"), manager=manager)
+    visible = visible_memory_blocks(store.list_blocks("lc:code"), manager=manager)
 
     assert [block.label for block in visible] == ["shared"]
     with pytest.raises(TeamPermissionError):

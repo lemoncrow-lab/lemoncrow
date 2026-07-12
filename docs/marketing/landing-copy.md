@@ -1,4 +1,4 @@
-# lemoncrow.ws — Landing Page Copy
+# lemoncrow.com — Landing Page Copy
 
 _Copy blocks for the marketing site, top to bottom. Audience: people paying for Claude Code/Max who are not deep infrastructure buyers. Voice: plain, specific, and skeptical. Every number must link to raw runs or a live endpoint. Live badges support trust; they do not prove the headline by themselves._
 
@@ -49,11 +49,11 @@ _Caption:_ Live badges are not the benchmark. They show real usage adding up. Th
 ### Install once. Keep working normally.
 
 ```bash
-curl -fsSL https://install.lemoncrow.ws | bash
-    curl -fsSL https://install.lemoncrow.ws | bash
+curl -fsSL https://install.lemoncrow.com | bash
+    curl -fsSL https://install.lemoncrow.com | bash
     cd your-project
-    lemon login
-    lemon init
+    lc login
+    lc init
 
 Create a free account to activate the official install. Then open Claude Code like usual. LemonCrow adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).
 ---
@@ -107,7 +107,7 @@ _Caption:_ Shorter does not mean vague. Code, commands, filenames, and errors st
 ### Do not take our 30% claim on faith.
 
 ```bash
-curl -fsSL https://savings.lemoncrow.ws | bash
+curl -fsSL https://savings.lemoncrow.com | bash
 ```
 
 This scans your local Claude/Codex agent history and prints what LemonCrow could have saved. It is read-only, temporary, and does not need an LemonCrow account or provider API keys.
@@ -158,7 +158,7 @@ _Until these are real, run only live badges, raw-run links, and the visitor's ow
 ### Start saving Claude tokens in the next session.
 
 ```bash
-curl -fsSL https://install.lemoncrow.ws | bash
+curl -fsSL https://install.lemoncrow.com | bash
 ```
 
 **[Install in 30 seconds]** · **[Check savings first]** · **[Star on GitHub ⭐]**

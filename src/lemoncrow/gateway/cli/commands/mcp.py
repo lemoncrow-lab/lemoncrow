@@ -1,4 +1,4 @@
-"""``lemon mcp`` — start the stdio MCP server, or run MCP diagnostics."""
+"""``lc mcp`` — start the stdio MCP server, or run MCP diagnostics."""
 
 from __future__ import annotations
 
@@ -175,13 +175,13 @@ def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
     help="LemonCrow data root (default: ~/.lemoncrow)",
 )
 @click.option("--host", envvar="LEMONCROW_AGENT", help="Agent host identifier (e.g. claude-code)")
-@click.version_option(version=lemoncrow.__version__, prog_name="lemon mcp", message="%(prog)s %(version)s")
+@click.version_option(version=lemoncrow.__version__, prog_name="lc mcp", message="%(prog)s %(version)s")
 @click.pass_context
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the LemonCrow MCP server, or inspect MCP diagnostics.
 
     With no subcommand: starts the stdio MCP server.
-    Use ``lemon mcp stats`` to view latency analytics.
+    Use ``lc mcp stats`` to view latency analytics.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -217,7 +217,7 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"  Active LemonCrow MCP servers · {len(sessions)}")
     click.echo("  " + "─" * 70)
     if not sessions:
-        click.echo("  None running. Servers register on startup (lemon mcp) and unregister on exit.")
+        click.echo("  None running. Servers register on startup (lc mcp) and unregister on exit.")
         click.echo("")
         return
     home = str(Path.home())
@@ -269,10 +269,10 @@ def mcp_stats_group(
 
     \b
     Examples:
-      lemon mcp stats                 # 24-hour summary across all tools
-      lemon mcp stats --tool bash     # filter to bash only
-      lemon mcp stats --hours 1       # last-hour window
-      lemon mcp stats show 42         # drill into debug entry #42
+      lc mcp stats                 # 24-hour summary across all tools
+      lc mcp stats --tool bash     # filter to bash only
+      lc mcp stats --hours 1       # last-hour window
+      lc mcp stats show 42         # drill into debug entry #42
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -358,7 +358,7 @@ def mcp_stats_group(
         )
         return
 
-    # ─── human-readable output (matches lemon savings style) ───
+    # ─── human-readable output (matches lc savings style) ───
     if debug_env_on:
         debug_label = "on (env)"
     elif debug_marker_on:
@@ -403,7 +403,7 @@ def mcp_stats_group(
             )
         if debug_on and top5 and top5[0]["id"] is not None:
             first_id = top5[0]["id"]
-            click.echo(f"\n  → lemon mcp stats show {first_id}")
+            click.echo(f"\n  → lc mcp stats show {first_id}")
     click.echo("")
 
 
@@ -414,7 +414,7 @@ def mcp_stats_group(
 def mcp_stats_show(ctx: click.Context, entry_id: int, as_json: bool) -> None:
     """Drill into a specific debug log entry by ID.
 
-    IDs are the line numbers shown in ``lemon mcp stats``. Only available
+    IDs are the line numbers shown in ``lc mcp stats``. Only available
     when debug logging is enabled (make dev, or LEMONCROW_MCP_DEBUG=1).
     """
     root: Path = ctx.obj["root"]
@@ -424,7 +424,7 @@ def mcp_stats_show(ctx: click.Context, entry_id: int, as_json: bool) -> None:
             "Debug log not found. Enable with: make dev  or  LEMONCROW_MCP_DEBUG=1, then run a few MCP tool calls."
         )
 
-    # Resolve the ID over the same multi-file enumeration used by `lemon mcp stats`
+    # Resolve the ID over the same multi-file enumeration used by `lc mcp stats`
     # (global 1-indexed line number across all debug files, in stable order).
     entry: dict[str, Any] | None = None
     global_idx = 0
@@ -512,7 +512,7 @@ def mcp_debug_status(ctx: click.Context) -> None:
     else:
         click.echo(f"  log:    {log}  (not yet created)")
     if not active:
-        click.echo("  → Enable: LEMONCROW_MCP_DEBUG=1  or  make dev  or  lemon mcp debug on")
+        click.echo("  → Enable: LEMONCROW_MCP_DEBUG=1  or  make dev  or  lc mcp debug on")
 
 
 @mcp_debug_group.command("on")

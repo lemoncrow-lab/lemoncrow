@@ -6,7 +6,7 @@
 #
 # The release ships a Python wheel inside lemoncrow-distribution-<os>-<arch>.tar.gz
 # (not a standalone binary), so this installs that wheel into an ephemeral uv
-# venv and runs `lemon session stats`. The venv is cached under /tmp keyed by
+# venv and runs `lc session stats`. The venv is cached under /tmp keyed by
 # release tag + platform, so repeated runs are fast.
 #
 # Per-session realized savings (the "Savings" column) come from
@@ -331,7 +331,7 @@ else
 fi
 
 if [[ ! -x "$LEMONCROW_BIN" ]]; then
-    fail "lemon not found after install: ${LEMONCROW_BIN}"
+    fail "lc not found after install: ${LEMONCROW_BIN}"
 fi
 
 # Scan live host session directories and print an aggregate potential-savings

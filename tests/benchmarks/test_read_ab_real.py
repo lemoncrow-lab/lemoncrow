@@ -1,4 +1,4 @@
-"""Real A/B benchmark: mcp__lemon__read vs native cat/read on real files.
+"""Real A/B benchmark: mcp__lc__read vs native cat/read on real files.
 
 This test is NOT a unit test — it measures actual chars/tokens delivered by both
 branches on real repository files and persists the deltas to

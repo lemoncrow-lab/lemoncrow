@@ -285,4 +285,4 @@ def test_async_fetch_url_carries_summary_param(monkeypatch: pytest.MonkeyPatch, 
         srv.server_close()
     assert "# Heading One" in result["content"]
     assert "## Heading Two" in result["content"]
-    assert "[lemon: summarized:heuristic" in result["content"]
+    assert "[lc: summarized:heuristic" in result["content"]

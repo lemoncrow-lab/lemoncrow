@@ -4,7 +4,7 @@
 # Reuses the installer's reconcile logic in lib/common.sh so the drift rules live
 # in ONE place: a binary is (re)provisioned only when its pin in lib/versions.sh
 # changed from what was last installed (~/.lemoncrow/companion_versions), or when
-# it is missing. Invoked by `lemon update` after a git pull; the full installer
+# it is missing. Invoked by `lc update` after a git pull; the full installer
 # runs these same functions during a normal install.
 set -euo pipefail
 

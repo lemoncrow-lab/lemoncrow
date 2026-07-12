@@ -145,7 +145,7 @@ class LangGraphAdapter(AgentAdapter):
         return (
             "# LangGraph ← LemonCrow integration\n"
             "1. pip install lemoncrow\n"
-            "2. lemon init\n"
+            "2. lc init\n"
             "3. Instantiate LangGraphAdapter in your graph builder:\n"
             "    lemoncrow = LangGraphAdapter(client=LemonCrowClient.local(), mode='suggest')\n"
             "    # In each node function:\n"

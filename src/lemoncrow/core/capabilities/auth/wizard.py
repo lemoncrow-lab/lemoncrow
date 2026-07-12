@@ -166,7 +166,7 @@ def save_credentials(credentials: dict[str, str]) -> None:
     # Merge with existing
     existing = load_saved_credentials()
     existing.update(credentials)
-    lines = ["# LemonCrow provider credentials — managed by `lemon auth`", ""]
+    lines = ["# LemonCrow provider credentials — managed by `lc auth`", ""]
     for k, v in sorted(existing.items()):
         lines.append(f'{k}="{v}"')
     # Create (or truncate) the file with owner-only permissions before writing

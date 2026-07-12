@@ -10,7 +10,7 @@ Usage (import-safe — no server starts on import)::
 
 Run via CLI::
 
-    lemon runtime start
+    lc runtime start
 
 """
 
@@ -2136,7 +2136,7 @@ def _savings_summary_payload(
     sorted_levers = dict(sorted(per_lever.items(), key=lambda kv: kv[1], reverse=True))
     cost_summary = CostTracker(root).total_savings()
     # Headline = the per-session ledger rule (_price_savings_row) — the SAME
-    # figure the statusline, stop hook, and `lemon savings` CLI show, so
+    # figure the statusline, stop hook, and `lc savings` CLI show, so
     # every surface agrees on realized savings. The CostTracker + live-events
     # composite that used to headline here is a different spend domain
     # (internal-LLM ops + routing/compaction analytics); it stays visible as
@@ -2703,12 +2703,12 @@ def _optimization_runtime_coverage() -> list[dict[str, Any]]:
             "advisory_only": False,
             "surfaces": [
                 "Copilot preflight task",
-                "lemon CLI shell task",
+                "lc CLI shell task",
                 "Copilot instructions",
                 "LemonCrow agent",
             ],
             "notes": (
-                "Copilot now has a task-driven preflight that runs lemon CLI checks before chat work begins. "
+                "Copilot now has a task-driven preflight that runs lc CLI checks before chat work begins. "
                 "Native Copilot chat remains instruction-backed if that task path is skipped."
             ),
         },
@@ -2811,7 +2811,7 @@ def _implemented_optimization_catalog(
                 "Injects smallest-plan, bounded-context, and delivery-or-stop guardrails. "
                 "Also powers the trace-based optimization recommendations shown below."
             ),
-            "examples": ["SessionStart guidance", "No-edit 10m nudge", "lemon optimize"],
+            "examples": ["SessionStart guidance", "No-edit 10m nudge", "lc optimize"],
         },
         {
             "id": "search_read",
@@ -6969,7 +6969,7 @@ def main(
 ) -> None:
     """Launch the service with uvicorn.
 
-    Used by ``lemon service start`` CLI command and the ``lemoncrow-service``
+    Used by ``lc service start`` CLI command and the ``lemoncrow-service``
     entrypoint.
 
     Binding a non-loopback interface fails closed: auth is required (requests

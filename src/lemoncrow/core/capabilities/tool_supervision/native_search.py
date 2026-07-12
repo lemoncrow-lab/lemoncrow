@@ -1483,7 +1483,7 @@ def search_workspace(
             "content": [
                 {
                     "type": "text",
-                    "text": f"[lemon: spilled; full: read {spill_path}]",
+                    "text": f"[lc: spilled; full: read {spill_path}]",
                 }
             ],
             "artifact": {

@@ -48,7 +48,7 @@ def _sha256(text: str) -> str:
 
 
 # Tool names (including MCP-provided ones, commonly suffixed like
-# ``lemon_edit`` or prefixed like ``filesystem_write_file``) that actually
+# ``lc_edit`` or prefixed like ``filesystem_write_file``) that actually
 # write to disk. Everything else that merely references a ``filePath`` --
 # read/grep/glob/list/search tools -- is recorded as a plain touched path,
 # not a synthesized edit+diff (see OpenCodeImporter.import_session).
@@ -373,7 +373,7 @@ class OpenCodeImporter:
         trace = Trace(
             id=artifact_id,
             session_id=session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="opencode",
             domain="coding",
             task=redact(str(session_row.get("title") or "untitled opencode session")),

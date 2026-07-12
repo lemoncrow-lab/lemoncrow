@@ -226,8 +226,8 @@ def spill_notice(
     regardless of which mechanism triggered it).
     """
     if path is None:
-        return f"[lemon: truncated {original_chars}→{kept_chars}; narrow the query for full]"
-    return f"[lemon: {verb} {original_chars}→{kept_chars}; full: read {path}]"
+        return f"[lc: truncated {original_chars}→{kept_chars}; narrow the query for full]"
+    return f"[lc: {verb} {original_chars}→{kept_chars}; full: read {path}]"
 
 
 # Clipped-summary marker: spliced in before the footer when max_chars forces

@@ -45,11 +45,11 @@ def enrich_replay(replay: Replay, repo_root: Path, *, allow_network: bool = True
 
     # Episodes: run the ONE real code_search that replaces each grep/read loop.
     for ep in replay.episodes:
-        ep.lemon = _real_code_search(engine, ep.query, endpoint=_episode_endpoint(replay, ep))
+        ep.live_result = _real_code_search(engine, ep.query, endpoint=_episode_endpoint(replay, ep))
 
     # Batches: N adjacent reads/edits -> one LemonCrow read(files=[...])/edit(edits=[...]).
     for batch in replay.batches:
-        batch.lemon = _batch_lemoncrow(replay, batch)
+        batch.live_result = _batch_lemoncrow(replay, batch)
 
     # Standalone tool turns (not collapsed or batched): real/preview/simulated output.
     for idx, turn in enumerate(replay.turns):

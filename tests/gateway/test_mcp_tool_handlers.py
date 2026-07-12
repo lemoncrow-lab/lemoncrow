@@ -191,7 +191,7 @@ def test_initialize_returns_server_info() -> None:
         }
     )
     assert resp is not None
-    assert resp["result"]["serverInfo"]["name"] == "lemon"
+    assert resp["result"]["serverInfo"]["name"] == "lemoncrow"
     assert resp["result"]["protocolVersion"] == "2024-11-05"
     # Server-level steering: injected into the host system prompt by every MCP
     # client automatically — the surface that reaches hosts and subagents that
@@ -237,7 +237,7 @@ def test_memory_tool_call_works_without_dev_mode(store_root: Path, monkeypatch: 
         "memory",
         {
             "op": "store_fact",
-            "agent_id": "lemon:non-dev",
+            "agent_id": "lc:non-dev",
             "subject": "test",
             "fact": "Memory should be active in non-dev mode.",
             "citations": 'Test: "direct"',
@@ -2379,7 +2379,7 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
         _call(
             "trace",
             {
-                "agent": "lemon:code",
+                "agent": "lc:code",
                 "domain": "mcp-server",
                 "task": "Verify compact receipt",
                 "status": "success",
@@ -2587,12 +2587,12 @@ def test_render_bash_text_includes_spill_hint_in_truncation_notice() -> None:
             "exit_code": 0,
             "truncated": True,
             "lines_omitted": 50,
-            "spill_hint": "[lemon: shrunk 5000→123; full: read /tmp/x.txt]",
+            "spill_hint": "[lc: shrunk 5000→123; full: read /tmp/x.txt]",
         }
     )
     # The spill notice subsumes the bare truncation marker -- exactly one
     # truncation footer ships, never both.
-    assert "[lemon: shrunk 5000→123; full: read /tmp/x.txt]" in text
+    assert "[lc: shrunk 5000→123; full: read /tmp/x.txt]" in text
     assert "[output truncated: 50 lines omitted]" not in text
 
 
@@ -2856,7 +2856,7 @@ def test_truncate_result_text_caps_oversized_with_notice() -> None:
     out = mcp_server._truncate_result_text("x" * 5000, 1024)
     assert len(out.encode("utf-8")) <= 1024
     assert "truncated" in out
-    assert "5000" in out  # canonical footer: "[lemon: truncated 5000→1024; narrow the query for full]"
+    assert "5000" in out  # canonical footer: "[lc: truncated 5000→1024; narrow the query for full]"
 
 
 def test_truncate_result_text_keeps_valid_utf8_on_multibyte_boundary() -> None:
@@ -2879,7 +2879,7 @@ def test_truncate_result_text_spills_full_text_when_tool_name_given(
     out = mcp_server._truncate_result_text(text, 1024, "bash")
 
     assert len(out.encode("utf-8")) <= 1024
-    assert "[lemon: truncated" in out
+    assert "[lc: truncated" in out
     match = re.search(r"read (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")

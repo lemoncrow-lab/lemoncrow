@@ -1,4 +1,4 @@
-"""``lemon audit`` command group — inspect configuration for context waste.
+"""``lc audit`` command group — inspect configuration for context waste.
 
 The ``audit context`` command scans MCP server configs, skill definitions
 (AGENTS.md / SKILL.md), and recent session history to flag servers, skills,

@@ -9,8 +9,8 @@
 # schema assertions.
 #
 # Run with:
-#   lemon benchmark mini --dry-run --json       # offline validation, no API keys
-#   lemon benchmark mini --limit 5 --json        # live run, writes a JSON report
+#   lc benchmark mini --dry-run --json       # offline validation, no API keys
+#   lc benchmark mini --limit 5 --json        # live run, writes a JSON report
 
 cases:
   - id: mini-001-eval-mini-schema-doc
@@ -42,13 +42,13 @@ cases:
     tags: [code, cheap]
 
   - id: mini-003-lemoncrow-benchmark-mini-help
-    title: "Verify lemon benchmark mini --help works"
+    title: "Verify lc benchmark mini --help works"
     prompt: |
-      No changes needed. Just confirm lemon benchmark mini --help exits 0.
+      No changes needed. Just confirm lc benchmark mini --help exits 0.
     starting_git_sha: HEAD
     allowed_files: []
-    command_to_verify: "uv run lemon benchmark mini --help"
-    expected_success_condition: "lemon benchmark mini --help exits 0"
+    command_to_verify: "uv run lc benchmark mini --help"
+    expected_success_condition: "lc benchmark mini --help exits 0"
     max_cost_usd: 0.00
     tags: [cli, trivial]
 
@@ -68,13 +68,13 @@ cases:
     tags: [schema, cheap]
 
   - id: mini-005-dry-run-no-network
-    title: "lemon benchmark mini --dry-run --json works offline"
+    title: "lc benchmark mini --dry-run --json works offline"
     prompt: |
       No agent call needed. The dry-run command should load cases and
       produce a dry_run report without network access.
     starting_git_sha: HEAD
     allowed_files: []
-    command_to_verify: "uv run lemon benchmark mini --dry-run --json --output /tmp/mini-dry-run-test.json && python3 -c \"import json; d=json.load(open('/tmp/mini-dry-run-test.json')); assert d['status']=='dry_run'\""
+    command_to_verify: "uv run lc benchmark mini --dry-run --json --output /tmp/mini-dry-run-test.json && python3 -c \"import json; d=json.load(open('/tmp/mini-dry-run-test.json')); assert d['status']=='dry_run'\""
     expected_success_condition: "dry_run report written with status=dry_run"
     max_cost_usd: 0.00
     tags: [cli, dry_run]

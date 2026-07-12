@@ -205,7 +205,7 @@ def _read_host_sidecar_savings(session_id: str, root: Path) -> tuple[int, float,
 
     Each sidecar row is priced through
     :func:`savings_summary._price_savings_row` — the single rule the statusline,
-    stop hook, ``lemon savings`` CLI, dashboard, and web Savings page all use
+    stop hook, ``lc savings`` CLI, dashboard, and web Savings page all use
     — so this session-detail total reconciles exactly with the live figure.
     Synthesises context_savings-shaped rows so downstream renderers can treat
     both sources uniformly.
@@ -267,7 +267,7 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
          host UUID — the source the statusline reads)
       3. Persisted context-carry credit, frozen at the session's last Stop
          event (``read_session_end_carry``) -- the SAME value the statusline
-         and ``lemon session stats``/``report`` fold into their totals
+         and ``lc session stats``/``report`` fold into their totals
          (see that function's docstring). Without this, a session with a
          large carry credit would show materially less savings here than
          in the CLI/statusline for the identical session id. Sessions that
@@ -417,7 +417,7 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
     pay a per-session transcript scan multiplied by session count -- exactly
     the class of regression those callers' own caching comments already
     guard against. Pass ``True`` only for single/few-session detail views
-    (``lemon session report <id>``, the dashboard's small recent-runs list).
+    (``lc session report <id>``, the dashboard's small recent-runs list).
     """
     from lemoncrow.infra.runtime.cost_tracker import CostTracker
 

@@ -590,7 +590,7 @@ def default_benchmark_root(repo_root: Path) -> Path:
     # indexer installs, per-shard artifacts) -- lives inside the repo under
     # benchmarks/mcp_tools/results/, not a sibling directory outside the
     # checkout. Gitignored (see benchmarks/mcp_tools/results/.gitignore); the
-    # committed results.csv/summary.csv for `lemon eval mcp` stay at the
+    # committed results.csv/summary.csv for `lc eval mcp` stay at the
     # shared reports/benchmark/mcp/ location every other suite uses.
     return repo_root / "benchmarks" / "mcp_tools" / "results"
 

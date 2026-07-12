@@ -1,7 +1,7 @@
 """The entitlement contract every Pro gate calls.
 
 Single source of truth for "is this feature unlocked?". The only entitlement
-source is the OAuth session created by ``lemon login``: the auth server
+source is the OAuth session created by ``lc login``: the auth server
 reports the account's plan via ``/api/auth/me``, cached on disk for 6 h.
 Results are cached in-process until the next cache boundary. Fail-closed: no
 session, or no fresh server answer, means Free.

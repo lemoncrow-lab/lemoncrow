@@ -2,14 +2,14 @@
 
 Every gated feature has a stable key and a human description. The open-source
 core *contains* these capabilities; the license check only decides whether the
-paid control surfaces (e.g. ``lemon optimize apply``) are unlocked. Adding a
+paid control surfaces (e.g. ``lc optimize apply``) are unlocked. Adding a
 new gate is a one-line entry here plus an ``entitlements.require()`` call at the
 seam that activates the capability.
 """
 
 from __future__ import annotations
 
-# Stable key -> short human description (shown in `lemon license status` and
+# Stable key -> short human description (shown in `lc license status` and
 # in upgrade prompts). Keys are the contract; descriptions can change freely.
 # Every key here is paid (Free is locked out). ENTERPRISE_FEATURES is the subset
 # that requires the Enterprise plan; everything else is Pro-or-higher.

@@ -125,7 +125,7 @@ def _write_imported_trace(
     trace = Trace(
         id=f"{host}-{session_id}",
         session_id=session_id,
-        agent="lemon:code",
+        agent="lc:code",
         host=host,
         domain="coding",
         task=f"{host} imported session",

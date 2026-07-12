@@ -905,7 +905,7 @@ class CopilotImporter:
         trace = Trace(
             id=f"copilot-{filename_session_id}",
             session_id=actual_session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task=state["task"],
@@ -1218,7 +1218,7 @@ class CopilotImporter:
             trace = Trace(
                 id=day_artifact_id,
                 session_id=session_id,
-                agent="lemon:code",
+                agent="lc:code",
                 host="copilot",
                 domain="coding",
                 task=bucket["task"] or "vscode copilot chat session",
@@ -1271,7 +1271,7 @@ class CopilotImporter:
         trace = Trace(
             id=artifact_id,
             session_id=parent_trace.session_id,
-            agent="lemon:code",
+            agent="lc:code",
             host="copilot",
             domain="coding",
             task=state["task"],

@@ -175,7 +175,7 @@ class ZoektSupervisor:
         the whole repo (deletions handled, no stale shards). This re-runs it when
         HEAD advances. No-op for: zoekt off, non-git repos, docker runtime, a
         missing git-aware indexer, or before the first build (initial build stays
-        an ``lemon code index`` concern). Never call on the search hot path --
+        an ``lc code index`` concern). Never call on the search hot path --
         it spawns the indexer subprocess. Returns True iff a rebuild ran.
         """
         if zoekt_mode() == "off":

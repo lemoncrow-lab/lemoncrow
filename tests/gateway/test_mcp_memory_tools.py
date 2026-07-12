@@ -79,7 +79,7 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "store_fact",
-                agent_id="lemon:code",
+                agent_id="lc:code",
                 subject="workflow preference",
                 fact="Prefer LemonCrow memory over host memory by default.",
                 citations='User input: "prefer LemonCrow"',
@@ -97,7 +97,7 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "vote_fact",
-                agent_id="lemon:code",
+                agent_id="lc:code",
                 fact="Prefer LemonCrow memory over host memory by default.",
                 direction="upvote",
                 reason="Verified and useful across tasks.",
@@ -113,7 +113,7 @@ def test_memory_store_fact_and_vote_fact_round_trip(mcp_root: Path) -> None:
             "memory",
             _memory_args(
                 "store_fact",
-                agent_id="lemon:code",
+                agent_id="lc:code",
                 subject="workflow preference",
                 fact="Prefer LemonCrow memory over host memory by default.",
                 citations='User input: "prefer LemonCrow"',
@@ -172,7 +172,7 @@ def test_memory_sidecar_unavailable_maps_to_503(monkeypatch: pytest.MonkeyPatch,
         "memory",
         _memory_args(
             "store_fact",
-            agent_id="lemon:code",
+            agent_id="lc:code",
             subject="workflow",
             fact="test fact",
             citations='User input: "x"',

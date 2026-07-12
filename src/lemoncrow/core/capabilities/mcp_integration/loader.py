@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # entry to spawn (infinite self-recursion for the TUI; the proxy applies its
 # own additional token-based check on top -- see mcp_proxy._is_self -- but
 # relies on this set as the shared source of truth for name-only matches).
-SELF_SERVER_NAMES = {"lemon", "plugin_lemoncrow_lemon", "lemoncrow_lemon"}
+SELF_SERVER_NAMES = {"lc", "plugin_lemoncrow_lc", "lemoncrow_lc"}
 
 _MCP_CONFIG_PATHS = [
     Path(".mcp.json"),

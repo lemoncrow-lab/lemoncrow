@@ -40,7 +40,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=f"p{i}",
-        agent_id="lemon:code",
+        agent_id="lc:code",
         text=text if text is not None else f"archival document number {i}",
         embedding=embedding if embedding is not None else _vec(i),
         embedding_model=model,
