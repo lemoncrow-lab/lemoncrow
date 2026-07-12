@@ -103,14 +103,14 @@ class ArmSpec:
 ARM_SPECS: dict[str, ArmSpec] = {
     "baseline": ArmSpec({"code": None}),
     "lemoncrow": ArmSpec(
-        {"code": "lc:auto"},
+        {"code": "lemoncrow:auto"},
         plugin=True,
         strip_mcp=False,
         heavy=True,
     ),
-    "execute": ArmSpec({"code": "lc:execute"}, plugin=True, strip_mcp=False, heavy=True),
-    "solve": ArmSpec({"code": "lc:solve"}, plugin=True, strip_mcp=False, heavy=True),
-    "auto": ArmSpec({"code": "lc:auto"}, plugin=True, strip_mcp=False, heavy=True),
+    "execute": ArmSpec({"code": "lemoncrow:execute"}, plugin=True, strip_mcp=False, heavy=True),
+    "solve": ArmSpec({"code": "lemoncrow:solve"}, plugin=True, strip_mcp=False, heavy=True),
+    "auto": ArmSpec({"code": "lemoncrow:auto"}, plugin=True, strip_mcp=False, heavy=True),
 }
 VALID_ARMS = tuple(ARM_SPECS)
 PERSISTENT_WORKSPACE_ROOT = Path(
@@ -285,15 +285,40 @@ def _wait_port(port: int, timeout: float = 15.0) -> bool:
     return False
 
 
-def _make_baseline_config(dest: Path | None = None, *, copy_creds: bool = True) -> Path:
+def _trust_entry(existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {**(existing or {}), "hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True}
+
+
+def _make_baseline_config(
+    dest: Path | None = None, *, copy_creds: bool = True, trust_workspace: Path | None = None
+) -> Path:
     """Isolated CLAUDE_CONFIG_DIR: real auth, no plugins/hooks/MCP.
 
     Idempotent when *dest* is given: an already-populated config dir is reused
     so ``--resume`` can still find the prior session transcript.
+
+    *trust_workspace*, when given, is pre-trusted in the written ``.claude.json``
+    (``hasTrustDialogAccepted``). The agent runs against a scratch copy of the
+    repo, not the host's own checkout that the user already accepted trust
+    for -- Claude Code's trust map is keyed by exact path, so without this the
+    copy is "untrusted": permissions.allow entries from .claude/settings.json
+    are silently ignored (logged as "Ignoring N permissions.allow entries...
+    this workspace has not been trusted") and no interactive prompt can
+    answer the trust dialog headless. Built-in tools still work (baseline
+    arm), but every MCP tool an arm's plugin depends on can't run --
+    0 turns, silent no-op "failure".
     """
     cfg = dest or Path(_mktemp("cfg-"))
     cfg.mkdir(parents=True, exist_ok=True)
-    if (cfg / ".claude.json").exists():
+    config_path = cfg / ".claude.json"
+    if config_path.exists():
+        if trust_workspace is not None:
+            data = json.loads(config_path.read_text())
+            projects = data.setdefault("projects", {})
+            key = str(trust_workspace)
+            if not projects.get(key, {}).get("hasTrustDialogAccepted"):
+                projects[key] = _trust_entry(projects.get(key))
+                config_path.write_text(json.dumps(data))
         return cfg
     src = Path.home() / ".claude.json"
     data = json.loads(src.read_text())
@@ -303,7 +328,10 @@ def _make_baseline_config(dest: Path | None = None, *, copy_creds: bool = True) 
         if isinstance(proj, dict):
             for k in ("mcpServers", "enabledPlugins", "hooks"):
                 proj.pop(k, None)
-    (cfg / ".claude.json").write_text(json.dumps(data))
+    if trust_workspace is not None:
+        projects = data.setdefault("projects", {})
+        projects[str(trust_workspace)] = _trust_entry(projects.get(str(trust_workspace)))
+    config_path.write_text(json.dumps(data))
     # When a long-lived headless token (CLAUDE_CODE_OAUTH_TOKEN) authenticates the
     # subprocess, copying the rotating ~/.claude OAuth creds is harmful: the
     # short-lived refresh token is single-use, so any concurrent session (or a
@@ -1456,6 +1484,7 @@ def run_arm(
             config_dir = _make_baseline_config(
                 Path(str(row_state["workspace"])).parent / f"claude-config-{arm}" if row_state else None,
                 copy_creds=not _benchmark_auth_present(agent_env or {}, env),
+                trust_workspace=ws,
             )
             env["CLAUDE_CONFIG_DIR"] = str(config_dir)
             if row_state:
@@ -1466,10 +1495,10 @@ def run_arm(
                 # Load a bench-lean copy of the plugin: only this arm's persona
                 # (no other agent personas) and zero skills -- see
                 # _lean_plugin_root. Its agents/MCP/hooks still resolve.
-                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lc:auto"))]
+                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lemoncrow:auto"))]
             if persona:
                 # Pin the arm to one agent persona: a built-in twin (e.g. "Explore"
-                # / "Plan") for baseline, or "lc:<x>" for the candidate. None
+                # / "Plan") for baseline, or "lemoncrow:<x>" for the candidate. None
                 # leaves Claude Code's default persona (the vanilla code baseline).
                 cmd += ["--agent", persona]
             if spec.strip_mcp:
@@ -1480,7 +1509,7 @@ def run_arm(
             # Direct owned-session arm: LemonCrow owns prompt assembly, model routing,
             # caching, and the executable tool loop on the caller's API credentials.
             # The retained workspace is validated like every other coding arm.
-            cmd = ["lc", "run", "start", task.prompt(), "--yolo"]
+            cmd = ["lemoncrow", "run", "start", task.prompt(), "--yolo"]
             if model:
                 cmd += ["--model", model]
             cmd += list(cli_extra_args)

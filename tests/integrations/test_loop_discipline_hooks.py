@@ -85,6 +85,24 @@ def test_files_schema_full_reads_blocked_after_edit(tmp_path: Path) -> None:
     assert not denied({"files": ["shop/other.py:full"]})
 
 
+def test_non_read_tool_with_files_array_is_not_denied(tmp_path: Path) -> None:
+    # A non-read tool (e.g. StructuredOutput) may carry a files=[...] array in
+    # its payload. The guard must key off the tool NAME, not the presence of a
+    # 'files' key -- otherwise an enumerated path that is in the edited set
+    # produces a bogus :full-read deny that blocks the tool call entirely.
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+
+    structured = {
+        "tool_name": "StructuredOutput",
+        "tool_input": {"summary": "scope", "files": ["shop/pricing.py", "shop/other.py"]},
+    }
+    assert _run("pre_tool_discipline.py", structured, tmp_path) == ""
+
+
 def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
     # utils.py edited in one package must not block a full read of a different
     # package's utils.py -- comparison is on resolved paths, not basenames.

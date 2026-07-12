@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # _lemoncrow_python.sh — prints the path to a Python interpreter that has
-# `lc` importable. Used by hooks and the statusline so that bundled
+# `lemoncrow` importable. Used by hooks and the statusline so that bundled
 # scripts can `from lemoncrow.core.capabilities... import ...` regardless of
 # the user's system `python3`.
 #
 # Resolution order:
 #   1. $LEMONCROW_PYTHON env override
-#   2. lc wrapper → its sibling venv python
+#   2. lemoncrow (or lc) wrapper → its sibling venv python
 #   3. ~/.local/share/uv/tools/lemoncrow/bin/python (uv tool default)
 #   4. python3 (silent fallback)
 
@@ -18,7 +18,7 @@ resolve_lemoncrow_python() {
     fi
 
     local wrapper real venv_bin py shebang
-    wrapper="$(command -v lc 2>/dev/null || true)"
+    wrapper="$(command -v lemoncrow 2>/dev/null || true)"
     if [[ -n "${wrapper}" ]]; then
         # Modern uv tool wrappers are a python script whose shebang IS the venv
         # interpreter (e.g. "#!/Users/x/.lemoncrow/uv-tools/lemoncrow/bin/python").

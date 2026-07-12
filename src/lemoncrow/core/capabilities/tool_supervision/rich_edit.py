@@ -498,6 +498,33 @@ def _parse_gate_message(
     )
 
 
+def _ledger_forward_shift(events: list[tuple[int, int, int]], pre_line: int) -> int:
+    """Line delta to add to a PRE-BATCH line number so it points at the same
+    content in the current (mid-batch) file, given prior splices to that file.
+    Splices whose region ends above ``pre_line`` shift it by their net delta."""
+    return sum(delta for _pre_start, pre_end, delta in events if pre_end < pre_line)
+
+
+def _ledger_pre_batch_span(events: list[tuple[int, int, int]], cur_start: int, cur_end: int) -> tuple[int, int] | None:
+    """Reverse-translate a CURRENT-frame line span back to pre-batch line numbers
+    so a content splice can be recorded in the pre-batch ledger.
+
+    Returns ``None`` when the span overlaps a region an earlier splice inserted or
+    rewrote (a chained match): such a span has no pre-batch coordinate, so the
+    file must be poisoned for later range edits rather than guessed at.
+    """
+    shift = 0
+    for pre_start, pre_end, delta in sorted(events, key=lambda e: e[0]):
+        new_len = (pre_end - pre_start + 1) + delta
+        region_start = pre_start + shift  # first current line the splice occupies
+        region_end = region_start + new_len - 1  # inclusive; < start when new_len == 0
+        if new_len > 0 and cur_start <= region_end and cur_end >= region_start:
+            return None  # span lands inside earlier-inserted text -- untranslatable
+        if region_end < cur_start:
+            shift += delta
+    return cur_start - shift, cur_end - shift
+
+
 def apply_rich_edits(
     edits: list[dict[str, Any]],
     *,
@@ -519,10 +546,13 @@ def apply_rich_edits(
     # (measured: L2 grows by one line -> a later L5-L5 hits pre-batch L4).
     # Per file: [(pre_start, pre_end, net_line_delta)] for applied range edits.
     range_ledger: dict[Path, list[tuple[int, int, int]]] = {}
-    # Files already touched by a CONTENT-located edit (old_string / symbol /
-    # projection / replace / notebook) this batch: their line numbering is no
-    # longer the pre-batch one AND the shift is not tracked, so a later range
-    # edit would be ambiguous -- reject it loudly instead of guessing.
+    # Files POISONED for range edits this batch: touched by an edit whose line
+    # shift the ledger can't track -- projection / notebook / whole-file replace,
+    # or a content match that reverse-translates into earlier-inserted text
+    # (chained). Their line numbering is no longer the pre-batch one and the
+    # shift is untracked, so a later range edit would be ambiguous -- reject it
+    # loudly instead of guessing. Clean, translatable content edits are NOT here;
+    # they are recorded in range_ledger so later range edits translate across them.
     content_edited: set[Path] = set()
     _current_edit: dict[str, Any] | None = None  # tracks the edit in-flight for error hints
     _current_edit_idx: int = -1
@@ -672,9 +702,10 @@ def apply_rich_edits(
             if scope_spec.start_line is not None and "new_string" in edit and not edit.get("old_string"):
                 if path in content_edited:
                     raise ValueError(
-                        f"range edit {raw_path!r} follows a content-located edit to the same "
-                        "file in this batch, so its pre-batch line numbers no longer resolve "
-                        "-- put range edits first, use old/new, or split into a second call"
+                        f"range edit {raw_path!r} follows an untrackable edit to the same file "
+                        "in this batch (whole-file replace, projection/notebook, or a chained "
+                        "match), so its pre-batch line numbers no longer resolve -- put range "
+                        "edits first, use old/new, or split into a second call"
                     )
                 pre_start = scope_spec.start_line
                 pre_end = scope_spec.end_line or scope_spec.start_line
@@ -704,12 +735,12 @@ def apply_rich_edits(
                 applied.append(
                     {
                         "path": raw_path,
-                        "hunks": [
-                            {
-                                "line_start": scope_spec.start_line,
-                                "line_end": scope_spec.end_line or scope_spec.start_line,
-                            }
-                        ],
+                        # Report where the hunk LANDED (pre-batch line + the
+                        # net shift of earlier same-file splices), not the raw
+                        # :Lx the caller passed -- otherwise a mixed batch echoes
+                        # a line the edit no longer sits on. shift == 0 for a lone
+                        # range edit, so this is byte-identical in the common case.
+                        "hunks": [{"line_start": pre_start + shift, "line_end": pre_end + shift}],
                         "match_mode": "range",
                     }
                 )
@@ -718,12 +749,12 @@ def apply_rich_edits(
             old_string = str(edit.get("old_string", ""))
             if not old_string:
                 raise ValueError("old_string is required unless replace=true or creating a new file")
-            # Same stale-coordinate guard as the pure-range path above: a :Lx-Ly
-            # scope paired with old_string still narrows _replace_in_scope's search
-            # window by raw line number, which is silently wrong once an earlier
-            # content-located edit in this batch has shifted this file's lines. Fail
-            # loudly instead of searching the wrong window and reporting a generic
-            # (and misleading) "old_string not found".
+            # A :Lx-Ly scope paired with old_string narrows _replace_in_scope's
+            # search window by line number. When an earlier edit in this batch
+            # already shifted this file we translate the scope through the ledger
+            # below -- but a file poisoned by an untrackable edit (projection /
+            # notebook / whole-file replace, or a chained match inside inserted
+            # text) has no usable translation, so reject the range scope loudly.
             if scope_spec.start_line is not None and path in content_edited:
                 rng = (
                     f":L{scope_spec.start_line}"
@@ -731,16 +762,39 @@ def apply_rich_edits(
                     else f":L{scope_spec.start_line}-L{scope_spec.end_line}"
                 )
                 raise ValueError(
-                    f"range edit {raw_path!r} ({rng}) follows a content-located edit to the same "
-                    "file in this batch, so its pre-batch line numbers no longer resolve -- drop "
-                    "the line range (old_string is searched over the whole file), put range edits "
-                    "first, or split into a second call"
+                    f"range edit {raw_path!r} ({rng}) follows an untrackable edit to the same file "
+                    "in this batch (whole-file replace, projection/notebook, or a chained match), "
+                    "so its pre-batch line numbers no longer resolve -- drop the line range "
+                    "(old_string is searched over the whole file), put range edits first, or "
+                    "split into a second call"
+                )
+            # Translate a range scope through earlier splices so it points at the
+            # right window in the mid-batch content, not the stale pre-batch one.
+            eff_scope = scope_spec
+            if scope_spec.start_line is not None and range_ledger.get(path):
+                _events = range_ledger[path]
+                _pre_end_line = scope_spec.end_line or scope_spec.start_line
+                eff_scope = TargetSpec(
+                    path=scope_spec.path,
+                    start_line=scope_spec.start_line + _ledger_forward_shift(_events, scope_spec.start_line),
+                    end_line=_pre_end_line + _ledger_forward_shift(_events, _pre_end_line),
                 )
             new_content, line_start, line_end, match_mode = _replace_in_scope(
-                content, scope_spec, old_string, str(edit.get("new_string", ""))
+                content, eff_scope, old_string, str(edit.get("new_string", ""))
             )
             file_state[path] = new_content
-            content_edited.add(path)
+            # Record this content splice in the pre-batch ledger so a later range
+            # edit to the same file translates across it. A noop changed nothing;
+            # a match that reverse-translates into earlier-inserted text has no
+            # pre-batch coordinate, so poison the file for later range edits.
+            if match_mode != "noop" and path not in content_edited:
+                _pre_span = _ledger_pre_batch_span(range_ledger.get(path, []), line_start, line_end)
+                if _pre_span is None:
+                    content_edited.add(path)
+                else:
+                    range_ledger.setdefault(path, []).append(
+                        (_pre_span[0], _pre_span[1], new_content.count("\n") - content.count("\n"))
+                    )
             applied_entry: dict[str, Any] = {
                 "path": raw_path,
                 "hunks": [{"line_start": line_start, "line_end": line_end}],

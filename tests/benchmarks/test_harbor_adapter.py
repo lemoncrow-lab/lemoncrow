@@ -178,7 +178,45 @@ def test_populate_context_without_session_still_fills_totals(
     assert ctx.n_output_tokens == 3
 
 
-def test_supports_atif_and_commit_version(agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_supports_atif_and_commit_version(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert LemonCrowClaudeCodeHarborAgent.SUPPORTS_ATIF is True
     monkeypatch.setenv("LEMONCROW_BENCH_COMMIT", "abc1234")
     assert agent.version() == "abc1234"
+
+
+def test_agent_env_forwards_lemoncrow_auth_token(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lemoncrow init` inside the container needs an activated account or it
+    blocks on an interactive `lc login` -- not viable headless. The host's
+    already-activated token must ride along in _agent_env (used by run())."""
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    assert agent._agent_env["LEMONCROW_AUTH_TOKEN"] == "lc-faketoken"
+
+
+def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "")
+    assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
+
+
+def test_install_forwards_lemoncrow_auth_token_to_init(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `lemoncrow init` exec_as_root call builds its own env= (separate
+    from run()'s _agent_env) -- it must carry the same token or init fails
+    with the same interactive-login error inside the container."""
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    calls: list[tuple[str, dict[str, str] | None]] = []
+
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+        calls.append((command, env))
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    asyncio.run(agent.install(None))  # type: ignore[arg-type]
+    init_calls = [c for c in calls if "lemoncrow init" in c[0]]
+    assert init_calls, "no `lemoncrow init` exec_as_root call captured"
+    assert init_calls[0][1] == {"LEMONCROW_AUTH_TOKEN": "lc-faketoken"}
