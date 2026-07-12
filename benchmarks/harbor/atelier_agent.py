@@ -23,7 +23,13 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
+from harbor.agents.installed.base import (
+    ApiError,
+    ApiRateLimitError,
+    ApiUsageLimitError,
+    BaseInstalledAgent,
+    with_prompt_template,
+)
 from harbor.agents.installed.claude_code import ClaudeCode
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
@@ -46,28 +52,30 @@ _DEFAULT_EFFORT = os.environ.get("ATELIER_BENCH_EFFORT", "high")
 _DEFAULT_MAX_OUTPUT_TOKENS = os.environ.get("ATELIER_BENCH_MAX_OUTPUT_TOKENS", "")
 # Tools disabled for every benchmark run via `claude --disallowedTools` (this
 # REMOVES their schemas from the request, so it also trims tokens). No-ask
-# (AskUserQuestion/ExitPlanMode) stops the headless agent stalling on a prompt;
-# no-web (WebFetch/WebSearch/mcp__atelier__web_fetch) is disabled by default for
-# submission-safety: Terminal-Bench's integrity policy scores reward hacking
-# ("finding solutions on the internet") as 0 per trial, judged retroactively on
-# the trajectory (https://www.tbench.ai/news/leaderboard-integrity-update), and
-# the only hard technical guard we have (the /etc/hosts block in install()
-# below) covers tbench.ai/harborframework.com but NOT github.com/harbor-
-# framework or github.com/laude-institute -- github.com is deliberately left
-# open because tasks need it for pip/npm/git installs, and there is no built-in
-# path-based egress filter for harbor tasks (codebench/egress_guard.py is an
-# allowlist that would break those installs, not a drop-in). Given that gap,
-# no-web is the safe default; Workflow/ScheduleWakeup are the heavy tools
-# `bare` strips for token overhead -- we strip them here so the `auto` agent
-# stays token-light without needing the `bare` variant (whose coding guide
-# says "if confused ask"). Override via ATELIER_BENCH_DISALLOWED_TOOLS for a
-# non-submission comparison run against baseline (which has no default
-# --disallowedTools and so has both available).
+# (AskUserQuestion/EnterPlanMode/ExitPlanMode) stops the headless agent stalling
+# on a prompt; Workflow/ScheduleWakeup are the heavy tools `bare` strips for
+# token overhead -- we strip them here so the `auto` agent stays token-light
+# without needing the `bare` variant (whose coding guide says "if confused ask").
+#
+# Web IS enabled by default -- matching the official Terminal-Bench baseline
+# (web-on) and because some tasks (e.g. mteb-leaderboard) are DESIGNED to be
+# solved by reading a live web resource, not recalled. Integrity is kept by
+# denying only the benchmark's OWN domains, not the whole web: the /etc/hosts
+# block in install() DNS-blackholes tbench.ai/harborframework.com, and
+# _web_access_line() auto-emits the Terminal-Bench integrity instruction (no
+# harbor-framework/laude-institute repos, no terminal-bench leaderboard/dataset
+# page, no solution-search) whenever web is on -- reward hacking ("finding
+# solutions on the internet") is scored 0 retroactively on the trajectory
+# (https://www.tbench.ai/news/leaderboard-integrity-update). Residual gap:
+# github.com stays open (tasks pip/npm/git-install from it) and hosts cannot
+# path-block github.com/laude-institute, so that repo is instruction-only +
+# trajectory-reviewed -- the same guard the official baseline relies on. For a
+# stricter web-off comparison run, add the web tools back via
+# ATELIER_BENCH_DISALLOWED_TOOLS (append: WebFetch WebSearch
+# mcp__atelier__web_fetch mcp__plugin_atelier_atelier__web_fetch).
 _DISALLOWED_TOOLS = os.environ.get(
     "ATELIER_BENCH_DISALLOWED_TOOLS",
-    "AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch"
-    " mcp__atelier__web_fetch mcp__plugin_atelier_atelier__web_fetch"
-    " Workflow ScheduleWakeup",
+    "AskUserQuestion EnterPlanMode ExitPlanMode Workflow ScheduleWakeup",
 )
 
 # Path inside the container where atelier writes its run log
@@ -196,6 +204,42 @@ def _token_queue() -> asyncio.Queue[str] | None:
 
 
 # ── Base adapter ───────────────────────────────────────────────────────────
+
+
+def _claude_result_obj(text: str) -> dict[str, Any] | None:
+    """Last stream-json ``type=="result"`` object in a claude --output-format
+    stream-json blob (scanned from the end; the final result line wins)."""
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{") or '"type":"result"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def _quota_error_class(obj: dict[str, Any] | None) -> type[ApiError] | None:
+    """The harbor ApiError subclass for a provider quota/rate-limit result line,
+    else None.
+
+    Claude Code exits 0 on a 429 -- it writes ``is_error`` / ``api_error_status``
+    into the stream-json result object rather than returning a non-zero code --
+    so harbor's exit-code-gated ``_classify_exec_error`` never sees it and the
+    trial silently scores reward-0, indistinguishable from a genuine capability
+    miss. Detect it from the result object instead.
+    """
+    if not isinstance(obj, dict) or not obj.get("is_error"):
+        return None
+    text = str(obj.get("result") or "").lower()
+    if "weekly limit" in text or "usage limit" in text:
+        return ApiUsageLimitError  # account cap exhausted -> rerun after reset
+    if obj.get("api_error_status") == 429:
+        return ApiRateLimitError  # transient rate-limit -> retryable sooner
+    return None
 
 
 class AtelierHarborAgent(BaseInstalledAgent):
@@ -383,6 +427,10 @@ class AtelierClaudeCodeHarborAgent(AtelierHarborAgent):
             # web_fetch is NOT hidden here (unlike codebench) — kept consistent
             # but moot since WebFetch is in _DISALLOWED_TOOLS above.
             "ATELIER_HIDE_TOOLS": "sql,memory",
+            # Strict: the benchmark must nag on every text/data deliverable, so
+            # pin the verify skip-list empty (the isolated CLAUDE_CONFIG_DIR
+            # already blocks the host's production .md,csv setting from leaking).
+            "ATELIER_VERIFY_SKIP_SUFFIXES": "",
             # Run claude as root. Each task is a throwaway container, so root is
             # safe -- and it matches the verifier's user, so system installs,
             # services, and git ownership land where the grader looks instead of
@@ -582,8 +630,9 @@ class AtelierClaudeCodeHarborAgent(AtelierHarborAgent):
         # bypassPermissions as root). Root matches the verifier, so system
         # installs / services / git ownership land where the grader looks.
         cmd = f"bash -c {shlex.quote(inner)}"
+        exec_result: Any = None
         try:
-            await self.exec_as_root(
+            exec_result = await self.exec_as_root(
                 environment,
                 command=cmd,
                 env=self._agent_env,
@@ -591,6 +640,21 @@ class AtelierClaudeCodeHarborAgent(AtelierHarborAgent):
         finally:
             if token_queue is not None and oauth_token is not None:
                 token_queue.put_nowait(oauth_token)
+        # Claude exits 0 on a provider 429 (it writes is_error into the
+        # stream-json result, not a non-zero code), so the trial silently scores
+        # reward-0 -- indistinguishable from a genuine capability miss. Detect it
+        # and raise the matching harbor ApiError: SingleStepTrial._run_agent
+        # catches NonZeroAgentExitCodeError (its parent), records exception_info
+        # (the error entry a rerun keys on) AND still runs the verifier, so a
+        # partial-but-correct deliverable is still scored. The distinct type also
+        # lets `harbor run --retry-include ApiUsageLimitError` auto-rerun these.
+        result_obj = _claude_result_obj(getattr(exec_result, "stdout", "") or "")
+        quota_cls = _quota_error_class(result_obj)
+        if quota_cls is not None:
+            lines = str((result_obj or {}).get("result") or "").strip().splitlines()
+            detail = lines[0] if lines else "provider quota/rate limit"
+            status = (result_obj or {}).get("api_error_status")
+            raise quota_cls(f"Claude Code stopped on a provider limit (api_error_status={status}): {detail}")
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         """Fill token/cost totals and write the ATIF trajectory.
