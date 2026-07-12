@@ -17,12 +17,13 @@ if TYPE_CHECKING:
 
     from lemoncrow.core.capabilities.savings_summary import TranscriptSavingsBlock
 
+from lemoncrow.core.foundation.history_store import HistoryStore
 from lemoncrow.core.foundation.models import Trace, to_jsonable
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli.commands._shared import _emit, _load_store, _parse_duration
 from lemoncrow.gateway.hosts.session_parsers.registry import (
     SUPPORTED_SESSION_IMPORT_HOSTS,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 @click.group("runs")
@@ -44,7 +45,7 @@ def trace_record(ctx: click.Context, input_path: Path | str) -> None:
     """Record an observable trace."""
     import sys
 
-    store = _load_store(ctx.obj["root"])
+    store = _load_store(ctx.obj["root"]).history
     raw = sys.stdin.read() if str(input_path) == "-" else Path(input_path).read_text("utf-8")
     data = json.loads(raw)
     if "id" not in data:
@@ -70,7 +71,7 @@ def trace_list(
     as_json: bool,
 ) -> None:
     """List recorded traces."""
-    store = _load_store(ctx.obj["root"])
+    store = _load_store(ctx.obj["root"]).history
     traces = store.list_traces(domain=domain, status=status, agent=agent, limit=limit)
     if as_json:
         _emit([to_jsonable(t) for t in traces], as_json=True)
@@ -88,7 +89,7 @@ def trace_list(
 @click.pass_context
 def trace_show(ctx: click.Context, trace_id: str, as_json: bool) -> None:
     """Show a single trace by ID."""
-    store = _load_store(ctx.obj["root"])
+    store = _load_store(ctx.obj["root"]).history
     trace = store.get_trace(trace_id)
     if trace is None:
         raise click.ClickException(f"trace not found: {trace_id}")
@@ -380,7 +381,7 @@ def _subagent_cost_from_trace(trace: Trace) -> float:
     return round(total, 6)
 
 
-def _artifact_subagent_count(store: ContextStore, trace: Trace) -> int:
+def _artifact_subagent_count(store: HistoryStore, trace: Trace) -> int:
     count = 0
     for artifact_id in trace.raw_artifact_ids:
         artifact = store.get_raw_artifact(artifact_id)
@@ -392,7 +393,7 @@ def _artifact_subagent_count(store: ContextStore, trace: Trace) -> int:
     return count
 
 
-def _host_subagent_count(store: ContextStore, host_name: str, session_id: str, trace: Trace) -> int:
+def _host_subagent_count(store: HistoryStore, host_name: str, session_id: str, trace: Trace) -> int:
     count = _subagent_total(trace)
     count = max(count, _artifact_subagent_count(store, trace))
     if host_name == "claude" and session_id:
@@ -1039,7 +1040,7 @@ def _trace_model(trace: Trace) -> str:
     return "-"
 
 
-def _build_session_row(trace: Trace, store: ContextStore, host_name: str, root: Path) -> dict[str, Any]:
+def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: Path) -> dict[str, Any]:
     """Build a display row dict from a single imported trace."""
     sid = (trace.session_id or trace.id or "").strip()
     input_tokens = int(trace.input_tokens or 0)
@@ -1421,13 +1422,13 @@ def _pick_live_sessions(
 
 
 def _imported_trace_matches_filters(
-    store: ContextStore,
+    store: StoreBundle,
     trace_id: str,
     *,
     session_filter: str = "",
     cutoff: datetime | None = None,
 ) -> bool:
-    trace = store.get_trace(trace_id)
+    trace = store.history.get_trace(trace_id)
     if trace is None:
         return False
     if cutoff is not None and (trace.created_at is None or trace.created_at < cutoff):
@@ -1440,7 +1441,7 @@ def _import_live_host_sessions(
     *,
     host_name: str,
     importer_cls: type[Any],
-    store: ContextStore,
+    store: StoreBundle,
     path: Path | None,
     force: bool,
     max_per_host: int,
@@ -1629,7 +1630,7 @@ def _import_live_host_sessions(
         return imported_ids[:limit]
     filtered: list[str] = []
     for tid in imported_ids:
-        trace = store.get_trace(tid)
+        trace = store.history.get_trace(tid)
         if trace is None:
             continue
         if cutoff is not None and trace.created_at < cutoff:
@@ -1652,7 +1653,7 @@ def _scan_hosts_live(
     limit: int,
     session_filter: str = "",
     cutoff: datetime | None = None,
-) -> tuple[dict[str, int], dict[str, list[str]], ContextStore, tempfile.TemporaryDirectory[str]]:
+) -> tuple[dict[str, int], dict[str, list[str]], HistoryStore, tempfile.TemporaryDirectory[str]]:
     """JSON presenter: live-import each selected host via ``_import_live_host_sessions``.
 
     Returns ``(counts, imported_ids_by_host, store, tmp)``. Callers should
@@ -1661,10 +1662,11 @@ def _scan_hosts_live(
     applied the live-scan filters before returning trace ids.
     """
     from lemoncrow.gateway.hosts.session_parsers.registry import iter_importer_classes
+    from lemoncrow.infra.storage.factory import create_store
 
     tmp = tempfile.TemporaryDirectory(prefix="lemoncrow-session-hosts-")
     tmp_root = Path(tmp.name)
-    store = ContextStore(tmp_root)
+    store = create_store(tmp_root)
     store.init()
 
     counts: dict[str, int] = {}
@@ -1691,7 +1693,7 @@ def _scan_hosts_live(
             logging.exception("session hosts live scan failed for host=%s", host_name)
             counts[host_name] = 0
             imported_by_host[host_name] = []
-    return counts, imported_by_host, store, tmp
+    return counts, imported_by_host, store.history, tmp
 
 
 def _stream_hosts_live(
@@ -1713,10 +1715,11 @@ def _stream_hosts_live(
     output can never diverge on which sessions get shown.
     """
     from lemoncrow.gateway.hosts.session_parsers.registry import iter_importer_classes
+    from lemoncrow.infra.storage.factory import create_store
 
     tmp = tempfile.TemporaryDirectory(prefix="lemoncrow-session-hosts-")
     tmp_root = Path(tmp.name)
-    store = ContextStore(tmp_root)
+    store = create_store(tmp_root)
     store.init()
 
     host_set = set(selected_hosts)
@@ -1749,10 +1752,10 @@ def _stream_hosts_live(
         # printed below and with the footer totals.
         _render_host_header_rich(host_name, len(imported_ids))
         for tid in imported_ids:
-            trace = store.get_trace(tid)
+            trace = store.history.get_trace(tid)
             if trace is None:
                 continue
-            row = _build_session_row(trace, store, host_name, root)
+            row = _build_session_row(trace, store.history, host_name, root)
             collected_rows.append(row)
             _print_session_row(row, verbose)
 
@@ -1841,7 +1844,7 @@ def session_list_cmd(
                 cutoff=cutoff,
             )
         else:
-            store = _load_store(root)
+            store = _load_store(root).history
 
         grouped: dict[str, list[dict[str, Any]]] = {}
         try:
@@ -1881,7 +1884,7 @@ def session_list_cmd(
 
     # Text display: stream per-host so each host's sessions appear immediately.
     if source_mode == "store":
-        store = _load_store(root)
+        store = _load_store(root).history
         any_found = False
         store_truncated = False
         all_store_rows: list[dict[str, Any]] = []
@@ -2169,7 +2172,7 @@ def session_stats_cmd(
     truncated = False
 
     if source == "store":
-        store = _load_store(root)
+        store = _load_store(root).history
         for hn in selected_hosts:
             host_traces = list(store.list_traces(host=hn, since=cutoff, limit=scan_cap))
             # Mirror the live branch: a full page at scan_cap means the

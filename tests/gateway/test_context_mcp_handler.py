@@ -357,8 +357,8 @@ def test_bootstrap_failed_job_does_not_block_requeue(ctx_root: Path) -> None:
     from lemoncrow.core.capabilities.code_context import CodeContextEngine
 
     repo_id = CodeContextEngine(mcp._workspace_root().resolve()).repo_id
-    jid = store.enqueue_job(JOB_BOOTSTRAP_CONTEXT, {"repo_root": str(mcp._workspace_root()), "repo_id": repo_id})
-    store.fail_job(jid, "simulated failure")
+    jid = store.jobs.enqueue_job(JOB_BOOTSTRAP_CONTEXT, {"repo_root": str(mcp._workspace_root()), "repo_id": repo_id})
+    store.jobs.fail_job(jid, "simulated failure")
 
     # Now calling _bootstrap_context_status should still enqueue a new job
     status = mcp._bootstrap_context_status(ctx_root)
@@ -387,12 +387,12 @@ def test_worker_run_once_processes_consolidate_job(ctx_root: Path) -> None:
 
     store = create_store(ctx_root)
     store.init()
-    job_id = store.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {"dry_run": True})
+    job_id = store.jobs.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {"dry_run": True})
     worker = Worker(store=store)
     result = worker.run_once()
     assert result == job_id
 
-    jobs = store.list_jobs(job_type=JOB_CONSOLIDATE_BLOCKS, limit=10)
+    jobs = store.jobs.list_jobs(job_type=JOB_CONSOLIDATE_BLOCKS, limit=10)
     done = next((j for j in jobs if j["id"] == job_id), None)
     assert done is not None
     assert done["status"] in {"succeeded", "completed"}
@@ -406,7 +406,7 @@ def test_worker_run_once_unknown_job_type_fails_gracefully(ctx_root: Path) -> No
     store = create_store(ctx_root)
     store.init()
     # max_attempts=1 so the job becomes 'dead' after one failure instead of staying retryable
-    job_id = store.enqueue_job("totally_unknown_type", {}, max_attempts=1)
+    job_id = store.jobs.enqueue_job("totally_unknown_type", {}, max_attempts=1)
     worker = Worker(store=store)
     result = worker.run_once()
     assert result == job_id
@@ -428,7 +428,7 @@ def test_worker_run_once_known_unhandled_job_type_fails(ctx_root: Path) -> None:
     assert unhandled_types, "Expected at least one known-but-unhandled job type"
 
     # max_attempts=1 so the job becomes 'dead' after one failure instead of staying retryable
-    job_id = store.enqueue_job(unhandled_types[0], {}, max_attempts=1)
+    job_id = store.jobs.enqueue_job(unhandled_types[0], {}, max_attempts=1)
     worker = Worker(store=store)
     result = worker.run_once()
     assert result == job_id
@@ -448,7 +448,7 @@ def test_worker_run_once_handler_exception_marks_failed(ctx_root: Path) -> None:
         raise RuntimeError("boom!")
 
     # max_attempts=1 so the job becomes 'dead' after one failure instead of staying retryable
-    job_id = store.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {}, max_attempts=1)
+    job_id = store.jobs.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {}, max_attempts=1)
     worker = Worker(store=store, dispatch={JOB_CONSOLIDATE_BLOCKS: boom})
     result = worker.run_once()
     assert result == job_id

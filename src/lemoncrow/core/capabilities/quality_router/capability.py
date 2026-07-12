@@ -32,8 +32,8 @@ from lemoncrow.core.foundation.routing_models import (
 )
 
 if TYPE_CHECKING:
-    from lemoncrow.core.foundation.store import ContextStore
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 class QualityRouterCapability:
@@ -41,7 +41,7 @@ class QualityRouterCapability:
 
     def __init__(
         self,
-        store: ContextStore,
+        store: StoreBundle,
         repo_root: str | Path,
     ) -> None:
         self.store = store
@@ -281,7 +281,7 @@ class QualityRouterCapability:
     def _latest_input_tokens(self, session_id: str | None) -> int | None:
         if not session_id:
             return None
-        budgets = self.store.list_context_budgets(session_id)
+        budgets = self.store.telemetry.list_context_budgets(session_id)
         if not budgets:
             return None
         latest = budgets[-1]

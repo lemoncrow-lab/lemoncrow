@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from lemoncrow.core.foundation.knowledge_store import KnowledgeStore
 from lemoncrow.core.foundation.models import Playbook, Rubric, to_jsonable
 from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 from lemoncrow.core.foundation.renderer import render_playbook_markdown
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.storage.factory import create_store
 
 
@@ -40,7 +40,7 @@ def test_reasoning_store_writes_lessons_to_project_directory(tmp_path: Path, mon
     monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
 
     store_root = tmp_path / "global" / ".lemoncrow"
-    store = ContextStore(store_root)
+    store = KnowledgeStore(store_root)
     store.init()
 
     block = _sample_block()
@@ -80,8 +80,8 @@ def test_store_init_syncs_project_lessons_into_sqlite(tmp_path: Path, monkeypatc
     store = create_store(store_root)
     store.init()
 
-    stored_block = store.get_block(block.id)
-    stored_rubric = store.get_rubric(rubric.id)
+    stored_block = store.knowledge.get_block(block.id)
+    stored_rubric = store.knowledge.get_rubric(rubric.id)
 
     assert stored_block is not None
     assert stored_block.title == block.title
@@ -119,20 +119,20 @@ def test_sync_lessons_skips_unchanged_files_on_repeat_call(tmp_path: Path, monke
     store.init()
 
     # First call: 1 block synced
-    result1 = store.sync_lessons()
+    result1 = store.knowledge.sync_lessons()
     assert result1["blocks"] == 0  # already imported by init()
 
     # mtime manifest was written
-    manifest_path = store._sync_manifest_path("blocks")
+    manifest_path = store.knowledge._sync_manifest_path("blocks")
     assert manifest_path.exists()
 
     # Second call with no file changes: 0 blocks synced
-    result2 = store.sync_lessons()
+    result2 = store.knowledge.sync_lessons()
     assert result2["blocks"] == 0
 
     # Touch the file to change its mtime
     (blocks_dir / f"{block.id}.md").write_text(render_playbook_markdown(block), encoding="utf-8")
-    result3 = store.sync_lessons()
+    result3 = store.knowledge.sync_lessons()
     assert result3["blocks"] == 1  # re-synced because mtime changed
 
     # New file is synced
@@ -144,9 +144,9 @@ def test_sync_lessons_skips_unchanged_files_on_repeat_call(tmp_path: Path, monke
         procedure=["step 1"],
     )
     (blocks_dir / f"{block2.id}.md").write_text(render_playbook_markdown(block2), encoding="utf-8")
-    result4 = store.sync_lessons()
+    result4 = store.knowledge.sync_lessons()
     assert result4["blocks"] == 1  # only the new one
 
     # Verify both are in SQLite
-    assert store.get_block(block.id) is not None
-    assert store.get_block(block2.id) is not None
+    assert store.knowledge.get_block(block.id) is not None
+    assert store.knowledge.get_block(block2.id) is not None

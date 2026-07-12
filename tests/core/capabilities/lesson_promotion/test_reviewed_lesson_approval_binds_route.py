@@ -3,11 +3,11 @@ from __future__ import annotations
 from lemoncrow.core.capabilities.lesson_promotion.capability import LessonPromoterCapability
 from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def test_reviewed_lesson_approval_binds_route(tmp_path) -> None:
-    store = ContextStore(tmp_path)
+    store = build_sqlite_store_bundle(tmp_path)
     store.init()
     candidate = LessonCandidate(
         domain="routing",
@@ -27,7 +27,7 @@ def test_reviewed_lesson_approval_binds_route(tmp_path) -> None:
             }
         },
     )
-    store.upsert_lesson_candidate(candidate)
+    store.lessons.upsert_lesson_candidate(candidate)
     capability = LessonPromoterCapability(store)
 
     result = capability.decide(

@@ -28,7 +28,7 @@ from lemoncrow.core.capabilities.session_optimizer import build_trace_optimizati
 from lemoncrow.core.foundation.paths import resolve_workspace_root
 from lemoncrow.core.service.telemetry.emit import emit_product_local
 from lemoncrow.core.service.telemetry.schema import hash_identifier
-from lemoncrow.infra.storage.base import StoreProtocol
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.factory import create_store
 
 PROPOSAL_ARTIFACT_PATH = Path("docs/plans/world-class-lemoncrow/results/optimization/latest.json")
@@ -44,12 +44,12 @@ def run_optimization_cycle(
     dry_run: bool = False,
     proposal_tokens_threshold: int | None = None,
     benchmark_evidence: BenchmarkEvidence | None = None,
-    store: StoreProtocol | None = None,
+    store: StoreBundle | None = None,
 ) -> dict[str, Any]:
     resolved_store_root = Path(store_root)
     repo_root = resolve_workspace_root(resolved_store_root)
     active_store = store if store is not None else create_store(resolved_store_root)
-    traces = active_store.list_traces(limit=5000)
+    traces = active_store.history.list_traces(limit=5000)
     current_policy = load_current_policy(resolved_store_root)
     advisor = optimize_from_traces(traces, current_policy=current_policy, days=max(1, days), host=host)
     append_history(resolved_store_root, advisor)

@@ -8,8 +8,8 @@ import pytest
 
 from lemoncrow.core.capabilities.consolidation import consolidate
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.internal_llm import InternalLLMError
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def _block(
@@ -38,12 +38,12 @@ def _block(
 
 
 def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     first = _block("rb-one", "Checkout retry timeout")
     second = _block("rb-two", "Checkout retry webhook timeout")
-    store.upsert_block(first, write_markdown=False)
-    store.upsert_block(second, write_markdown=False)
+    store.knowledge.upsert_block(first, write_markdown=False)
+    store.knowledge.upsert_block(second, write_markdown=False)
     seen_messages: list[dict[str, str]] = []
 
     def unavailable(messages: object, json_schema: object | None = None) -> None:
@@ -56,7 +56,7 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
 
     report = consolidate(store)
 
-    candidates = store.list_consolidation_candidates()
+    candidates = store.lessons.list_consolidation_candidates()
     assert report.duplicates == 1
     assert report.written == 1
     assert len(candidates) == 1
@@ -69,10 +69,10 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
 
 
 def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
-    store.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
-    store.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)
+    store.knowledge.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
+    store.knowledge.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)
     monkeypatch.setattr(
         "lemoncrow.core.capabilities.consolidation.worker.chat",
         lambda messages, json_schema=None: (_ for _ in ()).throw(InternalLLMError("offline")),
@@ -83,21 +83,21 @@ def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.
     assert report.duplicates == 1
     assert report.quarantined == 0
     assert report.written == 0
-    assert store.list_consolidation_candidates() == []
+    assert store.lessons.list_consolidation_candidates() == []
 
 
 def test_consolidate_writes_stale_active_block_candidate(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block("rb-stale", "Ancient checkout retry timeout", created_at=stale_at, updated_at=stale_at),
         write_markdown=False,
     )
 
     report = consolidate(store)
 
-    candidates = store.list_consolidation_candidates()
+    candidates = store.lessons.list_consolidation_candidates()
     assert report.stale == 1
     assert report.quarantined == 0
     assert report.written == 1
@@ -108,10 +108,10 @@ def test_consolidate_writes_stale_active_block_candidate(tmp_path: Path) -> None
 
 
 def test_consolidate_honors_since_for_stale_active_blocks(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     updated_at = datetime.now(UTC) - timedelta(days=30)
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block(
             "rb-recent",
             "Recently used checkout retry",
@@ -129,10 +129,10 @@ def test_consolidate_honors_since_for_stale_active_blocks(tmp_path: Path) -> Non
 
 
 def test_consolidate_auto_quarantines_chronic_failures(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block(
             "rb-bad",
             "Broken checkout retry playbook",
@@ -146,18 +146,18 @@ def test_consolidate_auto_quarantines_chronic_failures(tmp_path: Path) -> None:
 
     report = consolidate(store)
 
-    updated = store.get_block("rb-bad")
+    updated = store.knowledge.get_block("rb-bad")
     assert updated is not None
     assert updated.status == "quarantined"
     assert report.quarantined == 1
     assert report.written == 0
-    assert store.list_consolidation_candidates() == []
+    assert store.lessons.list_consolidation_candidates() == []
 
 
 def test_consolidate_dry_run_does_not_quarantine(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block(
             "rb-bad",
             "Broken checkout retry playbook",
@@ -169,7 +169,7 @@ def test_consolidate_dry_run_does_not_quarantine(tmp_path: Path) -> None:
 
     report = consolidate(store, dry_run=True)
 
-    updated = store.get_block("rb-bad")
+    updated = store.knowledge.get_block("rb-bad")
     assert updated is not None
     assert updated.status == "active"
     assert report.quarantined == 1
@@ -177,10 +177,10 @@ def test_consolidate_dry_run_does_not_quarantine(tmp_path: Path) -> None:
 
 
 def test_quarantined_blocks_do_not_emit_stale_or_duplicate_candidates(tmp_path: Path) -> None:
-    store = ContextStore(tmp_path / "lemoncrow")
+    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
     stale_at = datetime.now(UTC) - timedelta(days=200)
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block(
             "rb-bad",
             "Checkout retry timeout",
@@ -191,7 +191,7 @@ def test_quarantined_blocks_do_not_emit_stale_or_duplicate_candidates(tmp_path: 
         ),
         write_markdown=False,
     )
-    store.upsert_block(
+    store.knowledge.upsert_block(
         _block(
             "rb-good",
             "Checkout retry webhook timeout",
@@ -206,4 +206,4 @@ def test_quarantined_blocks_do_not_emit_stale_or_duplicate_candidates(tmp_path: 
     assert report.quarantined == 1
     assert report.duplicates == 0
     assert report.stale == 0
-    assert store.list_consolidation_candidates() == []
+    assert store.lessons.list_consolidation_candidates() == []
