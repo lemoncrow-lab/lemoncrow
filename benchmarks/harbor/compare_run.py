@@ -33,8 +33,7 @@ from collections import defaultdict
 from pathlib import Path
 
 HARBOR = Path(__file__).resolve().parent
-# TODO(lemoncrow): historical results dir name -- kept as-is
-RESULTS = HARBOR / "results" / "atelier"
+RESULTS = HARBOR / "results" / "lemoncrow"
 BASELINE = HARBOR / "results" / "baseline" / "normalized_cost.csv"
 
 

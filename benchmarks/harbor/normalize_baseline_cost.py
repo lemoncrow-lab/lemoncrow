@@ -29,8 +29,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 BASELINE_DIR = HERE / "results" / "baseline"
-# TODO(lemoncrow): historical results dir name -- kept as-is
-LEMONCROW_RESULTS = HERE / "results" / "atelier"
+LEMONCROW_RESULTS = HERE / "results" / "lemoncrow"
 PER_TRIAL_CSV = BASELINE_DIR / "tbench_opus48_claudecode_2.1.152_tasks.csv"
 COMPARISON_CSV = BASELINE_DIR / "lemoncrow_vs_baseline_per_task.csv"
 NORMALIZED_CSV = BASELINE_DIR / "normalized_cost.csv"

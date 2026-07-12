@@ -39,12 +39,12 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, "src")
-from atelier.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
 
 from benchmarks.codebench import swebench_data
 
 try:
-    from atelier.infra.code_intel.zoekt.adapter import get_zoekt_supervisor
+    from lemoncrow.infra.code_intel.zoekt.adapter import get_zoekt_supervisor
 except Exception:
     get_zoekt_supervisor = None
 
@@ -54,9 +54,9 @@ SWEBENCH_GOLD = DATA / "bench_pairs_swebench_gold.json"
 DEF_GOLD = DATA / "bench_pairs_def_gold.json"
 
 TESTRE = re.compile(r"(^|/)(test_|tests?/|conftest)")
-TID_RE = re.compile(r"^(.*?)_(?:atelier|baseline)_rep\d+\.flow_dump\.txt$")
-GREP_RE = re.compile(r"mcp__plugin_atelier_atelier__grep\] (\{.*?\})", re.S)
-EDIT_RE = re.compile(r"mcp__plugin_atelier_atelier__edit\] (\{.*?\})", re.S)
+TID_RE = re.compile(r"^(.*?)_(?:lemoncrow|baseline)_rep\d+\.flow_dump\.txt$")
+GREP_RE = re.compile(r"mcp__lc__grep\] (\{.*?\})", re.S)
+EDIT_RE = re.compile(r"mcp__lc__edit\] (\{.*?\})", re.S)
 
 DIVERSE6_REPOS = {
     "django__django": "django/django",
@@ -286,7 +286,7 @@ _LINUX_DB = Path("/tmp/idx_linux_core.db")
 _LINUX_CORE_SUBTREES = ["kernel", "mm", "fs", "block", "ipc", "lib", "security", "crypto", "init", "virt", "include"]
 _LINUX_URL = "https://github.com/torvalds/linux.git"
 
-_ATELIER_URL = "https://github.com/atelier-ws/atelier.git"
+_LEMONCROW_URL = "https://github.com/lemoncrowhq/lemoncrow.git"
 _LINUX_MULTI = Path("/tmp/bench_pairs_linux.json")
 _LINUX_GOLD = Path("/tmp/bench_pairs_linux_def_gold.json")
 
@@ -337,7 +337,7 @@ _GENERIC = {
 
 
 def _linux_prepare(commit_ref: str | None = None) -> None:
-    """Clone (shallow), scope to the core subtrees, and Atelier-index the workspace.
+    """Clone (shallow), scope to the core subtrees, and LemonCrow-index the workspace.
 
     The full kernel tree is too large to provision whole (~64k C files, ~30M LOC
     across drivers/ + arch/ that are hardware-specific and repetitive), so we scope
@@ -499,7 +499,7 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
     """Clone + index repos from gold files whose workspaces/indexes are missing.
 
     Idempotent: skips repos whose ws and db already exist.
-    Designed to be called by ``atelier eval retrieval`` before the benchmark
+    Designed to be called by ``lemoncrow eval retrieval`` before the benchmark
     subprocess so the eval never fails with "ws not found" for the standard
     gold-set repos.
     """
@@ -522,7 +522,7 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
     for prefix, repo in MISSING_REPOS.items():
         url_map[prefix] = f"https://github.com/{repo}.git"
     url_map[_LINUX_PREFIX] = _LINUX_URL
-    url_map["atelier__atelier"] = _ATELIER_URL
+    url_map["lemoncrow__lc"] = _LEMONCROW_URL
 
     for prefix, meta in sorted(repos.items()):
         ws = Path(meta["ws"])
@@ -576,7 +576,7 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
                 [
                     sys.executable,
                     "-m",
-                    "atelier.gateway.cli",
+                    "lemoncrow.gateway.cli",
                     "code",
                     "index",
                     "--repo-root",
