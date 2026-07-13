@@ -92,20 +92,6 @@ def render_session_optimizer_guidance(host: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def build_session_start_notice(root: str | None = None, *, host: str | None = None) -> dict[str, Any]:
-    """Build a host hook payload that injects optimizer guidance at session start."""
-    return {
-        "hookSpecificOutput": {"hookEventName": "SessionStart"},
-        "additionalContext": render_session_optimizer_guidance(host),
-        "message": "LemonCrow budget optimizer active",
-        "optimizer": {
-            "host": normalize_optimizer_host(host),
-            "root": root,
-            "rules": session_optimization_rules(),
-        },
-    }
-
-
 def effective_input_tokens(trace: Trace) -> int:
     return (
         int(trace.input_tokens or 0) + int(trace.cached_input_tokens or 0) + int(trace.cache_creation_input_tokens or 0)
