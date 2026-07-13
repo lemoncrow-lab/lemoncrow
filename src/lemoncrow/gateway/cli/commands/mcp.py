@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,64 @@ import click
 
 import lemoncrow
 from lemoncrow.gateway.cli.commands._shared import _emit
+
+_BENCHMARK_REQUIRED_TOOLS = frozenset({"read", "edit", "code_search", "bash"})
+
+
+def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[str, Any]:
+    """Start the configured LemonCrow stdio command and verify its core MCP surface."""
+    executable = shutil.which("lemoncrow")
+    if executable is None:
+        return {"ok": False, "error": "lemoncrow executable not found on PATH", "tools": []}
+    requests = "\n".join(
+        [
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "lemoncrow-benchmark-preflight", "version": lemoncrow.__version__},
+                    },
+                }
+            ),
+            json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}),
+            json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+        ]
+    )
+    try:
+        completed = subprocess.run(
+            [executable, "mcp", "--host", host],
+            input=requests + "\n",
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "error": f"MCP process failed: {exc}", "tools": []}
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
+        return {"ok": False, "error": f"MCP process failed: {detail}", "tools": []}
+    try:
+        responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        by_id = {response.get("id"): response for response in responses if isinstance(response, dict)}
+        server_name = by_id[1]["result"]["serverInfo"]["name"]
+        tools = sorted(tool["name"] for tool in by_id[2]["result"]["tools"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        return {"ok": False, "error": f"invalid MCP handshake response: {exc}", "tools": []}
+    missing = sorted(_BENCHMARK_REQUIRED_TOOLS - set(tools))
+    if server_name != "lemoncrow" or missing:
+        detail = (
+            f"unexpected server {server_name!r}"
+            if server_name != "lemoncrow"
+            else f"missing tools: {', '.join(missing)}"
+        )
+        return {"ok": False, "error": detail, "tools": tools}
+    return {"ok": True, "server": server_name, "tools": tools}
+
 
 # ─── path helpers ────────────────────────────────────────────────────────────────────────────
 
@@ -193,6 +253,23 @@ def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     from lemoncrow.gateway.adapters.mcp_server import main as _mcp_main
 
     _mcp_main()
+
+
+@mcp_group.command("check")
+@click.option("--json", "as_json", is_flag=True)
+@click.option("--timeout", type=float, default=30.0, show_default=True)
+@click.pass_context
+def mcp_check(ctx: click.Context, as_json: bool, timeout: float) -> None:
+    """Fail unless a fresh LemonCrow stdio server initializes with core tools."""
+    parent = ctx.parent
+    host = str(parent.params.get("host") or "claude") if parent is not None else "claude"
+    result = probe_stdio_server(host=host, timeout=timeout)
+    if as_json:
+        _emit(result, as_json=True)
+    elif result["ok"]:
+        click.echo(f"MCP ready: {result['server']} ({len(result['tools'])} tools)")
+    if not result["ok"]:
+        raise click.ClickException(str(result["error"]))
 
 
 # ─── mcp list ─────────────────────────────────────────────────────────────────────────────
