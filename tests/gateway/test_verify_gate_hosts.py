@@ -89,14 +89,13 @@ def test_disabled_env_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
     assert verify_gate.disabled() is True
 
 
-# --- Codex adapter (Claude Stop protocol: hard block, not a nudge) ---------
-def test_codex_verify_blocks_on_unverified_edit(tmp_path: Path) -> None:
+# --- Codex adapter (systemMessage nudge -- Codex Stop rejects unsupported decisions) ---
+def test_codex_verify_nudges_on_unverified_edit(tmp_path: Path) -> None:
     root, ws = tmp_path / ".lc", tmp_path / "proj"
     ws.mkdir()
     payload = _seed_ledger(root, ws, "cx", [_edit(str(ws / "mod.py")), _cmd_mcp("python repro.py")])
     out = pr.build_codex_verify_output(root, {**payload, "hook_event_name": "Stop"})
-    assert out["decision"] == "block"
-    assert out["reason"].startswith("FIXME (verify): edited mod.py")
+    assert out["systemMessage"].startswith("FIXME (verify): edited mod.py")
 
 
 def test_codex_verify_silent_after_pytest(tmp_path: Path) -> None:
