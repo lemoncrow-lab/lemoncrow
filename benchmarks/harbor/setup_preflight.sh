@@ -3,7 +3,7 @@
 # the prebuilt LemonCrow bundle and verifies claude + lc AS ROOT -- the agent
 # now runs as root with IS_SANDBOX=1 (matches the verifier's user). NEVER invokes
 # the agent/LLM -> zero AI credits.
-#   docker run --rm -v <repo>:/lc:ro -v <bundle>:/lemoncrow-bundle.tar.gz:ro <IMAGE> \
+#   docker run --rm -v <repo>:/lemoncrow:ro -v <bundle>:/lemoncrow-bundle.tar.gz:ro <IMAGE> \
 #       bash /lemoncrow/benchmarks/harbor/setup_preflight.sh <LABEL>
 set +e
 LABEL="${1:-image}"
@@ -37,9 +37,10 @@ command -v rtk >/dev/null 2>&1 && RTK_STATUS="ok:$(rtk --version 2>&1 | head -c 
 export LEMONCROW_ROOT=/root/.lemoncrow
 cd /root && /opt/lemoncrow-venv/bin/lemoncrow init >/dev/null 2>&1 || fail lemoncrow_init
 
-# Static plugin/agent check: the bench loads --plugin-dir + --agent lc:auto.
-test -f /lemoncrow/integrations/claude/plugin/agents/auto.md || fail auto_agent_missing
-grep -q 'name: auto' /lemoncrow/integrations/claude/plugin/agents/auto.md || fail auto_agent_name
+# Static plugin/agent check: the bench loads --plugin-dir + --agent lemoncrow:solve
+# (the lean plugin prunes every agents/*.md except solve.md -- see lemoncrow_agent.py install()).
+test -f /lemoncrow/integrations/claude/plugin/agents/solve.md || fail solve_agent_missing
+grep -q 'name: solve' /lemoncrow/integrations/claude/plugin/agents/solve.md || fail solve_agent_name
 
 # Zero-credit command probe: parse the REAL claude flags (model + effort high +
 # stream-json/verbose + bypassPermissions + disallowedTools) AS ROOT with an

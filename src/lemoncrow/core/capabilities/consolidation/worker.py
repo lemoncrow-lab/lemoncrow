@@ -9,8 +9,8 @@ from datetime import UTC, datetime, timedelta
 
 from lemoncrow.core.foundation.curator import MIN_EVIDENCE, REMOVE_MIN_FAILURES, REMOVE_SUCCESS_RATE
 from lemoncrow.core.foundation.models import ConsolidationCandidate, Playbook
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.internal_llm import InternalLLMError, chat
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 _DEFAULT_STALE_AFTER = timedelta(days=180)
 
@@ -83,13 +83,13 @@ def _should_quarantine(block: Playbook) -> bool:
 
 
 def consolidate(
-    store: ContextStore,
+    store: StoreBundle,
     *,
     since: timedelta = _DEFAULT_STALE_AFTER,
     dry_run: bool = False,
 ) -> ConsolidationReport:
     """Find duplicate/stale knowledge rows and write human-reviewed candidates."""
-    blocks = store.list_blocks(include_deprecated=False)
+    blocks = store.knowledge.list_blocks(include_deprecated=False)
     blocks_to_quarantine = [block for block in blocks if _should_quarantine(block)]
     quarantined_ids = {block.id for block in blocks_to_quarantine}
     candidate_blocks = [block for block in blocks if block.id not in quarantined_ids]
@@ -145,7 +145,7 @@ def consolidate(
         )
 
     stale_lessons = [
-        item for item in store.list_lesson_candidates(status="inbox", limit=500) if item.created_at < cutoff
+        item for item in store.lessons.list_lesson_candidates(status="inbox", limit=500) if item.created_at < cutoff
     ]
     for lesson in stale_lessons:
         candidates.append(
@@ -160,9 +160,11 @@ def consolidate(
     if not dry_run:
         quarantined_at = datetime.now(UTC)
         for block in blocks_to_quarantine:
-            store.upsert_block(block.model_copy(update={"status": "quarantined", "updated_at": quarantined_at}))
+            store.knowledge.upsert_block(
+                block.model_copy(update={"status": "quarantined", "updated_at": quarantined_at})
+            )
         for candidate in candidates:
-            store.upsert_consolidation_candidate(candidate)
+            store.lessons.upsert_consolidation_candidate(candidate)
 
     duplicate_count = sum(1 for candidate in candidates if candidate.kind == "duplicate_cluster")
     stale_count = sum(1 for candidate in candidates if candidate.kind == "stale_candidate")

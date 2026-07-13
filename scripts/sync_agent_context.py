@@ -42,14 +42,13 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     swap_tool_discipline_lead_in,
 )
 from lemoncrow.core.environment import skill_installed_by_default
+from lemoncrow.core.persona_partials import markdown_section
 
 CODING_GUIDELINES_PATH = ROOT / "integrations/agents/shared/coding-guidelines.md"
 CORE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/core-discipline.md"
 CHANGE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/change-discipline.md"
 DESTRUCTIVE_GUARD_PATH = ROOT / "integrations/agents/shared/destructive-guard.md"
-RESPONSE_ECONOMY_PATH = ROOT / "integrations/agents/shared/response-economy.md"
 TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
-TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
 AGENT_RULE_PATH = ROOT / "integrations/agents/shared/agent-rule.md"
 AGENTS_GUIDE_PATH = ROOT / "integrations/AGENTS.lemoncrow.md"
@@ -62,11 +61,17 @@ SHARED_SECTIONS: dict[str, Path] = {
     "{{CORE_DISCIPLINE}}": CORE_DISCIPLINE_PATH,
     "{{CHANGE_DISCIPLINE}}": CHANGE_DISCIPLINE_PATH,
     "{{DESTRUCTIVE_GUARD}}": DESTRUCTIVE_GUARD_PATH,
-    "{{RESPONSE_ECONOMY}}": RESPONSE_ECONOMY_PATH,
+    "{{RESPONSE_ECONOMY}}": REPLY_REGISTER_PATH,
     "{{TOOL_DISCIPLINE}}": TOOL_DISCIPLINE_PATH,
-    "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_READ_PATH,
+    "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_PATH,
     "{{REPLY_REGISTER}}": REPLY_REGISTER_PATH,
     "{{AGENT_RULE}}": AGENT_RULE_PATH,
+}
+SHARED_SECTION_NAMES = {
+    "{{RESPONSE_ECONOMY}}": "invariants",
+    "{{TOOL_DISCIPLINE}}": "write",
+    "{{TOOL_DISCIPLINE_READ}}": "read-only",
+    "{{REPLY_REGISTER}}": "ultra",
 }
 HOST_SKILL_DIRS = {
     "claude": ROOT / "integrations" / "claude" / "plugin" / "skills",
@@ -92,10 +97,6 @@ def _markdown_body(path: Path) -> str:
     return _strip_leading_title(path.read_text(encoding="utf-8"))
 
 
-def coding_guidelines_section() -> str:
-    return "\n".join(["## Coding Guidelines", "", _markdown_body(CODING_GUIDELINES_PATH)])
-
-
 # Bare user-scope server name ("lc", registered by install_claude.sh) — the
 # canonical local install. The marketplace plugin shape is
 # "mcp__plugin_lemoncrow_lc__"; runtime consumers (hooks, session parsers)
@@ -111,12 +112,12 @@ _CODEX_TOOL_PREFIX = "lc."
 # Every other surface (codex — openai/codex#6148 closed not-planned — opencode,
 # copilot, cursor, and owned lanes, none of which receive MCP instructions)
 # keeps the full shared block.
-_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use LemonCrow: `bash`, `read`, `edit`, `code_search`."
+_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`."
 _CLAUDE_TOOL_DISCIPLINE_READ = (
     "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Host tools disabled — use LemonCrow: `bash`, `read`, `code_search`."
+    "Host tools disabled — use lc: `bash`, `read`, `code_search`."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
@@ -128,7 +129,7 @@ _CLAUDE_SHARED_OVERRIDES = {
 # no permission-deny for them (see scripts/install_opencode.sh's opencode.json,
 # only "lc_*": "allow" is ever set) -- so "Host tools disabled" is as
 # inaccurate for OpenCode as it is for Codex. Same swap-the-lead-in fix,
-# keeping the "use LemonCrow: ..." clause (same shared helper Codex uses).
+# keeping the "use lc: ..." clause (same shared helper Codex uses).
 #
 # Unlike Codex's apply_patch/exec_command, these names (read/bash/edit) DO
 # collide with INLINE_TOOL_NAMES -- render_agent's replace_inline_tool_names
@@ -138,7 +139,7 @@ _CLAUDE_SHARED_OVERRIDES = {
 # *after* that rewrite pass runs (see profile.native_fallback_names).
 _OPENCODE_NATIVE_FALLBACK_NAMES: tuple[str, ...] = ("read", "grep", "bash", "edit", "patch")
 _OPENCODE_TOOL_DISCIPLINE = swap_tool_discipline_lead_in(
-    _markdown_body(TOOL_DISCIPLINE_PATH),
+    markdown_section(TOOL_DISCIPLINE_PATH, "write"),
     "Native OpenCode {{NATIVE_FALLBACK_NAMES}} are fallback-only "
     "(use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop)",
 )
@@ -152,7 +153,7 @@ _CODEX_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": codex_tool_discipline_body(TOOL_DISCIPLINE_PATH.parent),
     "{{TOOL_DISCIPLINE_READ}}": codex_tool_discipline_body(
         TOOL_DISCIPLINE_PATH.parent,
-        source_name="tool-discipline-read.md",
+        section="read-only",
         native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ,
     ),
 }
@@ -263,9 +264,9 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
                 "  ]",
                 "---",
                 "",
-                f"# lc:{role.role_id}",
+                f"# lemoncrow:{role.role_id}",
                 "",
-                f"You are operating as *lc:{role.role_id}*.",
+                f"You are operating as *lemoncrow:{role.role_id}*.",
                 "",
                 render_mode_body(mode_doc),
             ]
@@ -275,17 +276,39 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
 
 
 def render_cursor_coding_rules() -> str:
+    """Cursor's one guaranteed-always-loaded rule file.
+
+    Cursor has no equivalent of Claude Code's MCP-server-instructions fold-in
+    (see _CLAUDE_TOOL_DISCIPLINE's comment above), so a persona-agnostic
+    baseline only reaches Cursor if something ships with ``alwaysApply: true``.
+    Bundles every shared partial that's persona-agnostic (near-universal across
+    integrations/agents/*.md -- core/change/destructive-guard/coding/reply-
+    register). Tool-discipline is deliberately excluded: it names a specific
+    tool contract (read-only vs write-capable) that only makes sense inside an
+    actual invoked lemoncrow.* mode rule, not as a global default.
+    """
+    sections = [
+        ("Core Discipline", core_discipline_body(CORE_DISCIPLINE_PATH.parent)),
+        ("Change Discipline", _markdown_body(CHANGE_DISCIPLINE_PATH)),
+        (
+            "Safety & Delegation",
+            _markdown_body(DESTRUCTIVE_GUARD_PATH) + "\n" + _markdown_body(AGENT_RULE_PATH),
+        ),
+        ("Coding Guidelines", _markdown_body(CODING_GUIDELINES_PATH)),
+        ("Reply Register", markdown_section(REPLY_REGISTER_PATH, "ultra")),
+    ]
+    body = "\n\n".join(f"## {title}\n\n{text.strip()}" for title, text in sections)
     return (
         "\n".join(
             [
                 "---",
-                "description: Behavioral guidelines to reduce common LLM coding mistakes."
-                " Use when writing, reviewing, or refactoring code to avoid overcomplication,"
-                " make surgical changes, surface assumptions, and define verifiable success criteria.",
+                "description: Always-on LemonCrow baseline for Cursor -- core/change/"
+                "destructive-guard/coding/reply-register discipline that applies"
+                " regardless of which (if any) lemoncrow mode rule is also active.",
                 "alwaysApply: true",
                 "---",
                 "",
-                coding_guidelines_section().strip(),
+                body,
             ]
         ).rstrip()
         + "\n"
@@ -309,7 +332,7 @@ def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
 
 def _already_active_guard(skill_name: str) -> str:
     """One-line blockquote that tells the model the skill is already loaded."""
-    return f'> **Active** — do not call `Skill("lc:{skill_name}")` again.'
+    return f'> **Active** — do not call `Skill("lemoncrow:{skill_name}")` again.'
 
 
 def _inject_active_guard(content: str, skill_name: str) -> str:
@@ -364,10 +387,12 @@ def render_mode_body(mode_doc: ModeDoc, overrides: dict[str, str] | None = None)
 
 
 def _shared_section_body(token: str, source_path: Path) -> str:
-    """Expand one shared partial. ``{{CORE_DISCIPLINE}}`` also carries the
-    response-economy directive (byte-exact technical content + expand-for-safety)."""
+    """Expand one standalone or consolidated shared partial section."""
     if token == "{{CORE_DISCIPLINE}}":
         return core_discipline_body(source_path.parent)
+    section_name = SHARED_SECTION_NAMES.get(token)
+    if section_name:
+        return markdown_section(source_path, section_name)
     return _markdown_body(source_path)
 
 
@@ -401,7 +426,7 @@ def render_claude_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostPr
 
 
 def render_simple_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostProjection) -> str:
-    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemoncrow:code*.", ""] if role.role_id == "code" else []
     return (
         "\n".join(
             [
@@ -429,7 +454,7 @@ def render_agent(
     host's prefix so agents know the exact tool names to call.
     """
     p = profile.tool_prefix
-    identity_block = ["You are operating as *lc:code*.", ""] if role.role_id == "code" else []
+    identity_block = ["You are operating as *lemoncrow:code*.", ""] if role.role_id == "code" else []
     body = replace_inline_tool_names(render_mode_body(mode_doc, profile.overrides), p)
     if profile.native_fallback_names:
         names, _verb = format_native_names_and_verb(profile.native_fallback_names)
@@ -561,7 +586,7 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
         agents_path: render_managed_context(existing_agents),
         copilot_path: render_managed_context(existing_copilot),
         ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
-        ROOT / "integrations/cursor/rules/coding-guidelines.mdc": render_cursor_coding_rules(),
+        ROOT / "integrations/cursor/rules/lemoncrow.mdc": render_cursor_coding_rules(),
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):
         projection = registry.projection(role_id, "copilot_agent")

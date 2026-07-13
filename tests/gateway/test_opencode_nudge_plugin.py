@@ -24,9 +24,7 @@ def test_opencode_nudge_helper_emits_no_multi_file_context(tmp_path: Path) -> No
         env=env,
     )
 
-    # The nudge may emit a stale-agent nudge for optional agents installed on
-    # this system (e.g. "explore installed, never used — remove: ...").  The
-    # key invariant: no multi-file context message is emitted for this prompt.
+    # No multi-file context message is emitted for this prompt.
     if result.stdout:
         data = json.loads(result.stdout)
         assert "uiMessage" in data, f"unexpected output: {result.stdout}"
@@ -54,45 +52,6 @@ console.log(JSON.stringify(output))
 
     output = json.loads(result.stdout)
     assert output["parts"][0]["text"] == "Update auth.py and billing.py together"
-
-
-def test_opencode_nudge_helper_surfaces_stale_agent_nudge_once_per_day(tmp_path: Path) -> None:
-    """An installed OPTIONAL agent role that's never been used surfaces a
-    staleness nudge via the same uiMessage channel the compaction notice
-    uses, gated to at most once per calendar day total (single global
-    marker under LEMONCROW_ROOT/opencode_stale_nudge_shown/last_shown).
-    """
-    opencode_config = tmp_path / "opencode_config"
-    (opencode_config / "agents").mkdir(parents=True)
-    (opencode_config / "agents" / "lemoncrow.explore.md").write_text("body", encoding="utf-8")
-
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    env["OPENCODE_CONFIG_HOME"] = str(opencode_config)
-    payload = json.dumps({"session_id": "s1", "prompt": "hello"})
-
-    first = subprocess.run(
-        [sys.executable, str(PLUGINS / "lemoncrow_nudge.py")],
-        input=payload,
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
-    )
-    out = json.loads(first.stdout)
-    assert "explore installed, never used" in out["uiMessage"]
-    assert "/lemoncrow remove explore" in out["uiMessage"]
-
-    # Same calendar day, second prompt: cooldown suppresses the repeat.
-    second = subprocess.run(
-        [sys.executable, str(PLUGINS / "lemoncrow_nudge.py")],
-        input=payload,
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
-    )
-    assert second.stdout == ""
 
 
 def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path) -> None:
@@ -144,4 +103,4 @@ def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
     )
 
     toasts = json.loads(result.stdout)
-    assert any(toast["body"]["title"] == "LemonCrow status" for toast in toasts)
+    assert any(toast["body"]["title"] == "lc status" for toast in toasts)

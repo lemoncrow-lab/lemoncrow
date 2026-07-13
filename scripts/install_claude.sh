@@ -99,8 +99,8 @@ fi
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:claude] $*" || true; }
-warn()  { echo "[lc:claude] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:claude] $*" || true; }
+warn()  { echo "[lemoncrow:claude] WARN: $*" >&2; }
 run()   { if $DRY_RUN; then echo "  [dry-run] $*"; else "$@"; fi; }
 
 # --print-only must not mutate anything (no staging rm/copy, no config writes),
@@ -128,7 +128,7 @@ if $PRINT_ONLY; then
         echo "  claude mcp add --scope user lc -- lc mcp --host claude"
     fi
     echo ""
-    echo "After install, in Claude Code: /lc:explore"
+    echo "After install, in Claude Code: /lemoncrow:explore"
     # With --dry-run, fall through to the traced (no-op) staging so callers
     # like install_hosts.sh can preview exactly what would be staged.
     if ! $DRY_RUN; then
@@ -154,7 +154,7 @@ fi
 # dead entries that mask typos.
 LEMONCROW_MCP_TOOLS_JSON='["mcp__lc__codemod", "mcp__lc__code_search", "mcp__lc__compact", "mcp__lc__context", "mcp__lc__edit", "mcp__lc__grep", "mcp__lc__memory", "mcp__lc__read", "mcp__lc__rescue", "mcp__lc__search", "mcp__lc__bash", "mcp__lc__sql", "mcp__lc__trace", "mcp__lc__verify"]'
 # git: read/commit subset only -- push/reset/rebase still prompt.
-LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lc *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
+LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemoncrow *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
 
 # --------------------------------------------------------------------------- #
 # apply_enforcement_to_settings <path>
@@ -207,7 +207,7 @@ for t in LEMONCROW_MCP_TOOLS + BASH_ALLOWS:
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(
-    f"[lc:claude] enforcement merged → {path} "
+    f"[lemoncrow:claude] enforcement merged → {path} "
     f"(deny +{len(added_deny)}, allow +{len(added_allow)})"
 )
 PYEOF
@@ -258,7 +258,13 @@ if [[ -n "$INCLUDE_SKILLS" ]]; then
 fi
 run bash "$SKILL_BUILDER" "${SKILL_BUILDER_ARGS[@]}"
 run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"
-run cp "${SOURCE_PLUGIN_DIR}/.mcp.json" "$STAGING_DIR/"
+# .mcp.json is deliberately NOT staged into the plugin (neither mode). Any
+# server Claude Code discovers inside an installed plugin package gets
+# namespaced plugin:<plugin-name>:<server-key> -> mcp__plugin_lemoncrow_lc__*,
+# doubling tool-name length/token cost. MCP registration happens below via a
+# plain, non-plugin-owned path instead (project-root .mcp.json for workspace
+# installs, `claude mcp add --scope user` for global), which Claude Code
+# registers under the short "lc" name.
 lemoncrow_apply_reply_register_level "$STAGING_DIR" "$DRY_RUN"
 # Ensure runnable bits on hook + script entrypoints, even if source perms got
 # stripped (e.g. via `git stash`, fresh clone on some FS, or restore from tar).
@@ -307,7 +313,7 @@ fi
 
 if ! command -v claude &>/dev/null; then
     if $STRICT; then
-        echo "[lc:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
+        echo "[lemoncrow:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
         exit 1
     fi
     warn "'claude' CLI not found on PATH - SKIPPING Claude install."
@@ -325,7 +331,7 @@ info "Running structural validation on plugin package at ${SOURCE_PLUGIN_DIR}"
 
 STRUCT_FAIL=0
 struct_pass() { info "PASS: $*"; }
-struct_fail() { echo "[lc:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
+struct_fail() { echo "[lemoncrow:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
 
 if [ -d "${SOURCE_PLUGIN_DIR}" ]; then
     struct_pass "plugin directory exists: integrations/claude/plugin/"
@@ -376,19 +382,20 @@ else
     struct_fail "hooks/hooks.json missing: ${HOOKS_JSON}"
 fi
 
+# The plugin must NOT bundle its own .mcp.json. A server bundled inside an
+# installed plugin gets namespaced plugin:lemoncrow:lc by Claude Code
+# (mcp__plugin_lemoncrow_lc__* tool names) IN ADDITION TO the "lc" server
+# registered directly below (claude mcp add / a project-root .mcp.json),
+# doubling every tool under two names and twice the token cost.
 PLUGIN_MCP_JSON="${SOURCE_PLUGIN_DIR}/.mcp.json"
 if [ -f "${PLUGIN_MCP_JSON}" ]; then
-    if grep -q 'CLAUDE_PLUGIN_ROOT' "${PLUGIN_MCP_JSON}"; then
-        struct_pass ".mcp.json uses \${CLAUDE_PLUGIN_ROOT}"
-    else
-        struct_fail ".mcp.json does not use \${CLAUDE_PLUGIN_ROOT} - absolute paths will break marketplace install"
-    fi
+    struct_fail ".mcp.json must not exist: ${PLUGIN_MCP_JSON} -- bundling it reintroduces the plugin:lemoncrow:lc duplicate-namespace regression; MCP registers via a non-plugin-owned path instead (see \"MCP config\" below)"
 else
-    struct_fail ".mcp.json missing: ${PLUGIN_MCP_JSON}"
+    struct_pass "plugin does not bundle its own .mcp.json (avoids plugin:lemoncrow:lc duplicate namespace)"
 fi
 
 if [ "$STRUCT_FAIL" -ne 0 ]; then
-    echo "[lc:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
+    echo "[lemoncrow:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
     exit 1
 fi
 info "Structural validation passed"
@@ -401,7 +408,7 @@ if $DRY_RUN; then
 else
     info "Validating plugin package with Claude CLI at ${PLUGIN_DIR}"
     if ! claude plugin validate "${PLUGIN_DIR}" 2>&1 | grep -q "Validation passed"; then
-        echo "[lc:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
+        echo "[lemoncrow:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
         exit 1
     fi
     info "Plugin package valid (Claude CLI)"
@@ -413,7 +420,7 @@ else
     elif echo "$INSTALL_SOURCE_OUT" | grep -q "Successfully added"; then
         info "Claude plugin source 'lemoncrow' registered"
     else
-        echo "[lc:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
+        echo "[lemoncrow:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
         exit 1
     fi
 
@@ -423,16 +430,39 @@ else
     if echo "$INSTALL_OUT" | grep -qiE "Successfully installed|Installed"; then
         info "Plugin ${PLUGIN_REF} installed"
     else
-        echo "[lc:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
+        echo "[lemoncrow:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
         exit 1
     fi
 fi
 
 # ---- MCP config -------------------------------------------------------------
-# NOTE: Project-level .mcp.json is not needed when using the Claude plugin.
-# This installer only deals with Claude-specific global/user MCP and settings.
+# Global mode registers "lc" directly in Claude's user scope. Workspace mode
+# has no such step, so write a plain project-root .mcp.json instead (merged,
+# so any pre-existing unrelated servers survive) -- a project-root .mcp.json
+# is not plugin-owned, so Claude Code registers it under the short "lc" name
+# rather than plugin:lemoncrow:lc.
 if $WORKSPACE_SET; then
-    info "Project-level .mcp.json is not needed with the Claude plugin — skipping"
+    if $DRY_RUN; then
+        echo "  [dry-run] merge lc MCP server into ${MCP_JSON}"
+    else
+        run mkdir -p "$(dirname "${MCP_JSON}")"
+        [[ -f "${MCP_JSON}" ]] || echo "{}" > "${MCP_JSON}"
+        LEMONCROW_MCP_JSON_PATH="${MCP_JSON}" python3 - <<'PYEOF'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["LEMONCROW_MCP_JSON_PATH"])
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+data.setdefault("mcpServers", {})["lc"] = {
+    "type": "stdio",
+    "command": "lemoncrow",
+    "args": ["mcp", "--host", "claude"],
+}
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"[lemoncrow:claude] lc MCP server merged → {path}")
+PYEOF
+    fi
 else
     if $DRY_RUN; then
         echo "  [dry-run] claude mcp add --scope user lc -- lc mcp --host claude"
@@ -462,7 +492,7 @@ path = Path(os.environ['LEMONCROW_CLAUDE_LOCAL_SETTINGS'])
 data = json.loads(path.read_text(encoding='utf-8') or '{}')
 data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = os.environ['LEMONCROW_WORKSPACE']
 path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
-print(f"[lc:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
+print(f"[lemoncrow:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
 PYEOF
     fi
 
@@ -479,7 +509,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_claude_overrides
 
 written = write_workspace_claude_overrides(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
+print(f"[lemoncrow:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
 PYEOF
     fi
 fi
@@ -517,7 +547,7 @@ def lemoncrow_owned(value):
     if value is None:
         return True
     if isinstance(value, str):
-        return value.startswith(("lc:", "lemoncrow:"))
+        return value.startswith("lemoncrow:")
     if isinstance(value, dict):
         return "lc" in str(value.get("command", ""))
     return False
@@ -533,15 +563,15 @@ if changed:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = path.with_name(path.name + ".bak." + stamp)
     shutil.copy2(path, backup)
-    print(f"[lc:claude] backed up settings → {backup}")
+    print(f"[lemoncrow:claude] backed up settings → {backup}")
     data.update(changed)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 for key in desired:
     if key not in skipped:
-        print(f"[lc:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
+        print(f"[lemoncrow:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
 if skipped:
-    print("[lc:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
-    print("[lc:claude] To switch them to LemonCrow, merge this into ${CLAUDE_SETTINGS}:")
+    print("[lemoncrow:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
+    print("[lemoncrow:claude] To switch them to LemonCrow, merge this into ${CLAUDE_SETTINGS}:")
     print(json.dumps({k: desired[k] for k in skipped}, indent=2))
 PYEOF2
 else
@@ -566,6 +596,6 @@ elif $WORKSPACE_SET; then
     lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
-info "Done. Start Claude Code in your workspace. The lc:code agent is available."
-info "  Agent: lc:code (other roles are installable on demand)"
+info "Done. Start Claude Code in your workspace. The lemoncrow:code agent is available."
+info "  Agent: lemoncrow:code (other roles are installable on demand)"
 info "  Project enforcement: bash scripts/install_claude.sh --project [DIR]"

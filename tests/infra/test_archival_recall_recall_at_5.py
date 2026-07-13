@@ -27,7 +27,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
         store.insert_passage(
             ArchivalPassage(
                 id=expected_id,
-                agent_id="lc:code",
+                agent_id="lemoncrow:code",
                 text=f"{query}. Durable memory fact number {idx}.",
                 tags=["eval"],
                 source="user",
@@ -37,7 +37,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
         store.insert_passage(
             ArchivalPassage(
                 id=f"pas-distractor-{idx:03d}",
-                agent_id="lc:code",
+                agent_id="lemoncrow:code",
                 text=f"Unrelated operational note {idx} about invoices and dashboards.",
                 tags=["eval"],
                 source="user",
@@ -49,7 +49,7 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
     hits = 0
     for item in questions:
         passages, _ = capability.recall(
-            agent_id="lc:code",
+            agent_id="lemoncrow:code",
             query=item["query"],
             top_k=5,
             tags=["eval"],
@@ -59,4 +59,4 @@ def test_archival_recall_recall_at_5_with_fts_floor(tmp_path: Path) -> None:
 
     recall_at_5 = hits / len(questions)
     assert recall_at_5 >= 0.6
-    assert len(store.list_recalls("lc:code", limit=100)) == len(questions)
+    assert len(store.list_recalls("lemoncrow:code", limit=100)) == len(questions)

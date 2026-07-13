@@ -28,6 +28,7 @@ from harbor.agents.installed.base import (
     ApiRateLimitError,
     ApiUsageLimitError,
     BaseInstalledAgent,
+    NonZeroAgentExitCodeError,
     with_prompt_template,
 )
 from harbor.agents.installed.claude_code import ClaudeCode
@@ -37,7 +38,23 @@ from harbor.models.agent.context import AgentContext
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _LEMONCROW_VERSION = os.environ.get("LEMONCROW_BENCH_VERSION", "latest")
-_DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-sonnet-4-5")
+_DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-opus-4-8")
+
+
+def _host_lemoncrow_auth_token() -> str:
+    """Host's activated LemonCrow account token (env wins, then ~/.lemoncrow/auth_token).
+
+    `lemoncrow init` inside the container needs an activated free
+    account or it exits nonzero asking for an interactive `lemoncrow login` -- not
+    viable in a headless container. Forwarding the host's already-activated
+    token lets init succeed non-interactively, mirroring how
+    CLAUDE_CODE_OAUTH_TOKEN is forwarded for Claude auth.
+    """
+    from lemoncrow.core.capabilities.licensing.store import load_auth_token
+
+    return load_auth_token() or ""
+
+
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
 # Terminal-Bench 2.1 runs use "high" effort (Opus 4.8 System Card, sec 8.3);
 # overridable via LEMONCROW_BENCH_EFFORT.
@@ -222,6 +239,18 @@ def _claude_result_obj(text: str) -> dict[str, Any] | None:
     return None
 
 
+class TruncatedAgentOutputError(NonZeroAgentExitCodeError):
+    """Raised when Claude Code's stream-json log never reaches a terminal
+    ``type=="result"`` line -- the session was killed/crashed mid-run (OOM,
+    container death, etc). Without this, harbor treats the exec as a clean
+    exit and the trial silently scores reward-0, indistinguishable from a
+    genuine capability miss (found via the rstan-to-pystan investigation:
+    background sampling died mid-run, all logging stopped, no error surfaced).
+    """
+
+    pass
+
+
 def _quota_error_class(obj: dict[str, Any] | None) -> type[ApiError] | None:
     """The harbor ApiError subclass for a provider quota/rate-limit result line,
     else None.
@@ -294,9 +323,14 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
+        # Forward the host's activated LemonCrow account token so `lemoncrow init`
+        # doesn't need an interactive `lemoncrow login` inside the container.
+        lemoncrow_token = _host_lemoncrow_auth_token()
+        if lemoncrow_token:
+            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
         return env
 
-    # ── Lifecycle ───────────────────────────────────────────────────────────
+    # ── Lifecycle ────────────────────────────────────────────────────────────────────────
 
     async def install(self, environment: BaseEnvironment) -> None:
         """Install lemoncrow and initialise the runtime store in the container."""
@@ -320,7 +354,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         # Initialise the runtime store (creates ~/.lemoncrow/ layout)
         await self.exec_as_agent(
             environment,
-            command="lc init",
+            command="lemoncrow init",
             env=self._agent_env,
         )
         await _install_rtk(self, environment)
@@ -335,7 +369,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         """Run LemonCrow on the task instruction and stream results to the log."""
         escaped = shlex.quote(instruction)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
-        cmd = f"lc run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
+        cmd = f"lemoncrow run start {escaped} {model_flag} --output-format stream-json 2>&1 | tee {shlex.quote(_CONTAINER_LOG)}"
         await self.exec_as_agent(
             environment,
             command=cmd,
@@ -343,7 +377,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         )
 
     def populate_context_post_run(self, context: AgentContext) -> None:
-        """Parse the lc run start --output-format stream-json log for token/cost.
+        """Parse the lemoncrow run start --output-format stream-json log for token/cost.
 
         The CLI emits one JSON object per run with a top-level ``receipt`` key
         whose ``totals`` sub-object carries the aggregated token counts and cost.
@@ -421,6 +455,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             "LEMONCROW_ROOT": "/root/.lemoncrow",
             "LEMONCROW_PYTHON": "/opt/lemoncrow-venv/bin/python",
             "PYTHONUNBUFFERED": "1",
+            # A 60s foreground response budget leaves enough time for ordinary
+            # installs/builds while returning control well before Harbor's
+            # task-level agent deadline. Normal interactive sessions keep 120s.
+            "LEMONCROW_BASH_SOFT_TIMEOUT": "60",
             # Isolated config dir: no pre-installed plugins/hooks/MCP.
             "CLAUDE_CONFIG_DIR": "/root/.claude-bench",
             # Hide sql + memory tools (same as codebench/incontainer.py).
@@ -444,6 +482,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+        # Forward the host's activated LemonCrow account token so `lemoncrow init`
+        # doesn't need an interactive `lemoncrow login` inside the container.
+        lemoncrow_token = _host_lemoncrow_auth_token()
+        if lemoncrow_token:
+            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
         return env
 
     async def install(self, environment: BaseEnvironment) -> None:
@@ -513,6 +556,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "cd /root && LEMONCROW_ROOT=/root/.lemoncrow LEMONCROW_WORKSPACE_ROOT=/root "
                 "/opt/lemoncrow-venv/bin/lemoncrow init"
             ),
+            env={"LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token()},
         )
         # Bench-lean copy of the plugin: keep only the persona this arm runs
         # (solve) and drop skills/ entirely -- mounting/reading the raw plugin
@@ -567,11 +611,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # making the plugin the ONLY variable vs the "on" arm. Select the
         # baseline at run time with `--ak bench_mode=off`.
         plugin_flags = (
-            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lc:solve "
+            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lemoncrow:solve "
         )
         # LemonCrow arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental
-        # build (the empty-first-grep bug). `lc code index` is fully
+        # build (the empty-first-grep bug). `lemoncrow code index` is fully
         # synchronous for the FTS symbol/file store grep reads, and the CLI engine
         # runs with autosync disabled (no background worker). Both `code index`
         # and the MCP server key the db as sha256(resolved repo-root)[:12]; the
@@ -595,7 +639,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             else (
                 'export LEMONCROW_WORKSPACE_ROOT="$PWD" CLAUDE_WORKSPACE_ROOT="$PWD" '
                 'LEMONCROW_INDEX_LOCK_TIMEOUT_S="${LEMONCROW_INDEX_LOCK_TIMEOUT_S:-300}"; '
-                "lc code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
+                "lemoncrow code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
                 '|| echo "LEMONCROW_PREWARM_INDEX_FAILED rc=$? (see agent/lemoncrow-index.log)"; '
             )
         )
@@ -655,6 +699,12 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             detail = lines[0] if lines else "provider quota/rate limit"
             status = (result_obj or {}).get("api_error_status")
             raise quota_cls(f"Claude Code stopped on a provider limit (api_error_status={status}): {detail}")
+        if result_obj is None:
+            raise TruncatedAgentOutputError(
+                "Claude Code exited without a terminal stream-json result line -- "
+                "the session was truncated (killed process, OOM, container death, etc). "
+                "Treating as a retryable agent-execution error instead of a silent reward-0."
+            )
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         """Fill token/cost totals and write the ATIF trajectory.

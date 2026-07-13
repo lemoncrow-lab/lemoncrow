@@ -147,11 +147,13 @@ main() {
     _capture_install_previous_version
 
     step_start "Installing LemonCrow"
+    warn_on_foreign_cli_collision
     if [[ "${LEMONCROW_DRY_RUN:-0}" == "1" ]]; then
         install_console_scripts
     else
         spin_tail "Installing packages" install_console_scripts
     fi
+    ensure_lc_alias
     persist_install_record
     # Mark as a dev install so the MCP server enables debug logging automatically.
     # Production installs (bundle.sh / install.sh) never create this file.

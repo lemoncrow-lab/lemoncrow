@@ -452,7 +452,7 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
         p95 = lat.get("p95")
         p95_s = f"{p95:.0f}ms" if p95 is not None else "---"
         overall_hit1 = r.get("supported_overall", {}).get("hit1")
-        hit1_s = f"{overall_hit1:.4f}" if overall_hit1 else "---"
+        hit1_s = f"{overall_hit1:.4f}" if overall_hit1 is not None else "---"
 
         p100_s = f"{int(p)}ms" if p is not None else "---"
         print(
@@ -964,7 +964,7 @@ def eval_fitness(
             )
             active_channels.remove("lexical+zoekt+semantic")
 
-    eval_cmd = ["lc", "eval", "retrieval"]
+    eval_cmd = ["lemoncrow", "eval", "retrieval"]
     for pair_path in split_pairs:
         eval_cmd += ["--pairs", str(pair_path)]
     for ch in active_channels:

@@ -30,7 +30,7 @@ def test_failed_traces_populate_lesson_inbox(tmp_path: Path, monkeypatch: pytest
 
     for i in range(3):
         client.record_trace(
-            agent="lc:code",
+            agent="lemoncrow:code",
             domain="coding",
             task=f"write fails on locked path {i}",
             status="failed",
@@ -53,7 +53,7 @@ def test_recurring_failures_dedup_to_single_candidate(tmp_path: Path, monkeypatc
     client = LocalClient(root=tmp_path / ".lemoncrow")
     for i in range(5):
         client.record_trace(
-            agent="lc:code",
+            agent="lemoncrow:code",
             domain="coding",
             task=f"write fails on locked path {i}",
             status="failed",
@@ -69,7 +69,7 @@ def test_failed_traces_without_errors_do_not_populate_inbox(tmp_path: Path, monk
     client = LocalClient(root=tmp_path / ".lemoncrow")
     for i in range(3):
         client.record_trace(
-            agent="lc:code",
+            agent="lemoncrow:code",
             domain="coding",
             task=f"task {i}",
             status="failed",

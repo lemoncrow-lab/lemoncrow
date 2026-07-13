@@ -330,7 +330,7 @@ def test_antigravity_mcp_template_exists() -> None:
     assert template.exists(), "integrations/antigravity/mcp.lemoncrow.template.json must exist"
     data = json.loads(template.read_text())
     assert "lc" in data.get("servers", {}), "Antigravity template must have 'servers.lemoncrow'"
-    assert data["servers"]["lc"]["command"] == "lc"
+    assert data["servers"]["lc"]["command"] == "lemoncrow"
     assert data["servers"]["lc"]["args"] == ["mcp", "--host", "antigravity"]
 
 
@@ -364,7 +364,7 @@ def test_codex_plugin_mcp_template_exists() -> None:
     assert mcp_json.exists(), "integrations/codex/plugin/.mcp.json must exist"
     data = json.loads(mcp_json.read_text())
     lemoncrow = data.get("lc", {})
-    assert lemoncrow.get("command") == "lc", "Codex plugin template must call lc directly"
+    assert lemoncrow.get("command") == "lemoncrow", "Codex plugin template must call the lemoncrow binary directly"
 
 
 def test_codex_hooks_bundle_exists() -> None:
@@ -568,13 +568,15 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     assert "LemonCrow: Session Summary" in labels
     assert "LemonCrow: Copilot Preflight" in (SCRIPTS / "install_copilot.sh").read_text()
 
-    preflight_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight")
+    preflight_task = next(
+        task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Copilot Preflight"
+    )
     assert preflight_task.get("command") == "bash"
     args = preflight_task.get("args", [])
-    assert any("lc tools call context" in arg for arg in args)
+    assert any("lemoncrow tools call context" in arg for arg in args)
 
     summary_task = next(task for task in tasks.get("tasks", []) if task.get("label") == "LemonCrow: Session Summary")
-    assert summary_task.get("command") == "lc"
+    assert summary_task.get("command") == "lemoncrow"
     assert summary_task.get("args") == ["session", "report", "--no-color"]
 
 
@@ -637,7 +639,7 @@ def test_new_claude_plugin_json_has_no_commands_key() -> None:
     data = json.loads(plugin_json.read_text())
     assert (
         "commands" not in data
-    ), "plugin.json must not have 'commands' key — use 'skills' for /lc:name namespacing"
+    ), "plugin.json must not have 'commands' key — use 'skills' for /lemoncrow:name namespacing"
 
 
 def test_new_claude_plugin_json_author_is_object() -> None:
@@ -715,13 +717,12 @@ def test_new_claude_plugin_workflow_readme_documents_discovery_contract() -> Non
     assert "gate-benchmark.js" in content
 
 
-def test_new_claude_plugin_mcp_is_valid() -> None:
+def test_new_claude_plugin_does_not_bundle_mcp() -> None:
+    """The plugin must NOT ship .mcp.json -- see install_claude.sh's matching
+    structural-validation guard for why (duplicate plugin:lemoncrow:lc
+    namespace / doubled token cost)."""
     mcp_json = CLAUDE_PLUGIN_NEW / ".mcp.json"
-    assert mcp_json.exists(), "integrations/claude/plugin/.mcp.json must exist"
-    data = json.loads(mcp_json.read_text())
-    assert "mcpServers" in data
-    assert "lc" in data["mcpServers"]
-    assert data["mcpServers"]["lc"]["command"] == "lc"
+    assert not mcp_json.exists(), "integrations/claude/plugin/.mcp.json must not exist"
 
 
 def test_new_claude_plugin_hooks_enabled() -> None:
@@ -898,7 +899,7 @@ def test_install_claude_stages_workflow_assets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 19. Docs use correct /lc:skill namespacing (not /lemoncrow-skill)
+# 19. Docs use correct /lemoncrow:skill namespacing (not /lemoncrow-skill)
 # ---------------------------------------------------------------------------
 
 
@@ -950,14 +951,14 @@ def test_agents_lemoncrow_md_has_persona() -> None:
     f = INTEGRATIONS / "AGENTS.lemoncrow.md"
     assert f.exists(), "Missing: integrations/AGENTS.lemoncrow.md"
     content = f.read_text()
-    assert "lc:code" in content, "AGENTS.lemoncrow.md must declare lc:code persona"
+    assert "lemoncrow:code" in content, "AGENTS.lemoncrow.md must declare lemoncrow:code persona"
 
 
 def test_opencode_lemoncrow_agent_exists() -> None:
     f = INTEGRATIONS / "opencode" / "agents" / "code.md"
     assert f.exists(), "Missing: integrations/opencode/agents/code.md"
     text = f.read_text()
-    assert "lc:code" in text
+    assert "lemoncrow:code" in text
     assert "---" in text, "opencode agent must have frontmatter"
 
 
@@ -967,7 +968,7 @@ def test_copilot_lemoncrow_agents_exist() -> None:
     assert code_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.code.agent.md"
     assert execute_agent.exists(), "Missing: integrations/copilot/agents/lemoncrow.execute.agent.md"
     text = code_agent.read_text()
-    assert "lc:code" in text
+    assert "lemoncrow:code" in text
     assert "description:" in text, "agent must have description: frontmatter"
     assert "model: gpt-5.4" in text, "Copilot agent must pin the model in frontmatter"
 

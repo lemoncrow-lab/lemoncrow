@@ -20,9 +20,9 @@ from typing import Any, ClassVar
 import pytest
 
 from lemoncrow.core.foundation.models import Trace
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli.commands import sessions as sessions_cmd
 from lemoncrow.gateway.hosts.session_parsers import registry as registry_module
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 _NOW = datetime.now(UTC)
 
@@ -40,7 +40,7 @@ class _FakeGenericImporter:
     # 5 sessions, newest first: s0 is today, s4 is 4 days old.
     _SESSIONS: ClassVar[list[tuple[str, datetime]]] = [(f"s{i}", _NOW - timedelta(days=i)) for i in range(5)]
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -57,7 +57,7 @@ class _FakeGenericImporter:
                 host="fakehost",
                 created_at=created_at,
             )
-            self.store.record_trace(trace, write_json=False)
+            self.store.history.record_trace(trace, write_json=False)
             ids.append(sid)
         return ids
 

@@ -117,20 +117,22 @@ if $WORKSPACE_SET; then
 import json
 d = json.load(open('$MCP_JSON'))
 servers = d.get('mcpServers', {})
-print('yes' if 'lemoncrow' in servers else 'no')
+print('yes' if 'lc' in servers else 'no')
 " 2>/dev/null || echo "error")
         if [ "$HAS" = "yes" ]; then
-            pass ".mcp.json contains lemoncrow server entry"
+            pass ".mcp.json contains lc server entry"
         else
-            fail ".mcp.json missing lemoncrow entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
+            fail ".mcp.json missing lc entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
         fi
     else
         fail ".mcp.json missing at $MCP_JSON - run: scripts/install_claude.sh --workspace $WORKSPACE"
     fi
-elif claude mcp list 2>&1 | grep -q "lemoncrow"; then
-    pass "Claude user MCP list contains lemoncrow"
+# The registered server key is "lc" (not "lemoncrow" -- that's the plugin
+# name); match the actual `claude mcp list` line, e.g. "lc: lc mcp ...".
+elif claude mcp list 2>&1 | grep -qE "^lc:"; then
+    pass "Claude user MCP list contains lc"
 else
-    fail "Claude user MCP missing lemoncrow - run: make install-claude"
+    fail "Claude user MCP missing lc - run: make install-claude"
 fi
 
 if command -v lc &>/dev/null; then

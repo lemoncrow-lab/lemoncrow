@@ -175,7 +175,19 @@ _parser = argparse.ArgumentParser(description="External provider MRR benchmark")
 _parser.add_argument(
     "--provider",
     required=True,
-    choices=["lemoncrow", "ctags", "ast-grep", "serena", "code-index-mcp", "jcodemunch", "cg", "rg", "cmm", "fff", "ccc"],
+    choices=[
+        "lemoncrow",
+        "ctags",
+        "ast-grep",
+        "serena",
+        "code-index-mcp",
+        "jcodemunch",
+        "cg",
+        "rg",
+        "cmm",
+        "fff",
+        "ccc",
+    ],
 )
 _parser.add_argument("--full", action="store_true")
 _parser.add_argument("--sample", type=int, default=None)
@@ -1502,8 +1514,28 @@ class CccProvider(Provider):
     name = "ccc"
     _RESULT_FILE = re.compile(r"^File: (\S+):\d+-\d+", re.MULTILINE)
 
+    def _check_ollama(self) -> None:
+        """Fail fast and loud if the Ollama daemon backing ccc's embedder is
+        unreachable, instead of silently running the whole suite through
+        _search()'s "non-zero rc -> []" fallback. Confirmed root cause of a
+        full 6016-query run scoring MRR 0.0000 / hit@1 0.0000 while `ccc init`
+        and `ccc index` still succeeded (index already built from a prior run,
+        so start() never needed the embedder) -- Ollama was down for the
+        query-time embedding calls `ccc search` makes on every invocation.
+        """
+        base = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        url = base if "://" in base else f"http://{base}"
+        try:
+            urllib.request.urlopen(f"{url}/api/tags", timeout=5)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ccc requires a reachable ollama daemon at {url} for nomic-embed-text "
+                f"(query-time embedding) -- got: {exc}"
+            ) from exc
+
     def start(self, ws: Path) -> None:
         self._ws = ws
+        self._check_ollama()
         init = subprocess.run(["ccc", "init"], cwd=ws, capture_output=True, text=True, timeout=60)
         if init.returncode != 0:
             raise RuntimeError(f"ccc init failed: {(init.stderr or init.stdout)[:400]}")
@@ -1715,9 +1747,89 @@ class LemonCrowProvider(Provider):
             finally:
                 conn.close()
 
+    def _backfill_semantic_vectors(self, ws: Path) -> None:
+        """Explicitly build semantic vectors for a frozen bench snapshot.
+
+        When ``--channel lexical+zoekt+semantic`` is used the embedder env is
+        set, but the routed snapshot's ``symbol_vectors`` table may be empty
+        (captured before embeddings existed, or never refreshed).  The engine's
+        ``_ensure_indexed()`` returns early (FTS index present) and autosync is
+        off, so no background worker ever populates the missing vectors —
+        queries silently score against an empty semantic channel, tanking MRR.
+
+        Running ``lc code index`` triggers the "nothing to extract" fast path
+        that still checks ``embedded < total`` and calls
+        ``_build_symbol_embeddings`` for the delta.  This is the explicit
+        backfill the engine comments recommend for /tmp snapshots.
+        """
+        import subprocess as _sp
+
+        bench_python = os.environ.get("LEMONCROW_BENCH_PYTHON", "").strip()
+        cmd = [
+            bench_python or sys.executable,
+            "-m",
+            "lemoncrow.gateway.cli",
+            "code",
+            "index",
+            "--repo-root",
+            str(ws),
+        ]
+        env = {
+            **os.environ,
+            "LEMONCROW_ROOT": str(self._STORE_ROOT),
+            "LEMONCROW_CODE_AUTOSYNC": "0",
+            "LEMONCROW_CODE_FILE_WATCHER": "0",
+        }
+        # No-op when no embedder is configured — only pays the FTS-check cost.
+        try:
+            t0 = time.perf_counter()
+            result = _sp.run(
+                cmd,
+                cwd=Path.cwd(),
+                env=env,
+                capture_output=True,
+                timeout=600,
+                check=False,
+            )
+            elapsed = time.perf_counter() - t0
+            if result.returncode != 0:
+                stderr_tail = (result.stderr or b"")[-300:].decode("utf-8", errors="replace")
+                print(
+                    f"[route] semantic backfill failed for {ws.name} (rc={result.returncode}, "
+                    f"{elapsed:.1f}s): {stderr_tail}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[route] semantic backfill done for {ws.name} ({elapsed:.1f}s)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        except _sp.TimeoutExpired:
+            print(
+                f"[route] semantic backfill timed out for {ws.name} (600s)",
+                file=sys.stderr,
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"[route] semantic backfill error for {ws.name}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
     def start(self, ws: Path) -> None:
         self._memo = {}
         self._route_db(ws)
+        # When semantic search is enabled, frozen bench snapshots may have the
+        # FTS index but no symbol vectors.  Without an explicit backfill the
+        # engine's _ensure_indexed() returns early (index "ready"), autosync is
+        # off, and every semantic query silently scores zero — confirmed via a
+        # real sweep where MRR slipped to 0.5.  Build the missing vectors here
+        # (untimed) so timed queries see a fully-populated vector store.
+        if os.environ.get("LEMONCROW_CODE_EMBEDDER"):
+            self._backfill_semantic_vectors(ws)
         # LEMONCROW_BENCH_PYTHON: absolute path to an alternate interpreter whose
         # site-packages carries the lemoncrow wheel to measure -- e.g. a venv with
         # the mypyc-compiled production build (scripts/build.sh). When set, the

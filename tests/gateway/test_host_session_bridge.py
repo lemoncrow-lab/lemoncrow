@@ -84,7 +84,7 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
 
     status = plugin_runtime.build_opencode_stop_output(root, payload)
 
-    assert "LemonCrow session idle." in status["uiMessage"]
+    assert "lc session idle." in status["uiMessage"]
     assert "1 prompt turn · 1 tool call" in status["uiMessage"]
     assert "tools: lc_read×1" in status["uiMessage"]  # noqa: RUF001
     assert plugin_runtime.build_opencode_stop_output(root, payload).get("no_output") is True

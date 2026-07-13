@@ -51,17 +51,37 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LemonCrowClaudeCod
     return LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path, model_name="anthropic/claude-opus-4-8")
 
 
+class _ExecResult:
+    """Stand-in for exec_as_root's return value: a completed run always ends
+    its stream-json log with a terminal type="result" line (see
+    TruncatedAgentOutputError) -- the fake must supply one or run() raises."""
+
+    stdout = json.dumps({"type": "result", "total_cost_usd": 0.01, "usage": {}}, separators=(",", ":"))
+
+
 def _run_and_capture(agent: LemonCrowClaudeCodeHarborAgent) -> tuple[str, dict[str, str]]:
     captured: dict[str, Any] = {}
 
-    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> _ExecResult:
         captured["command"] = command
         captured["env"] = env
+        return _ExecResult()
 
     agent.exec_as_root = fake_exec  # type: ignore[method-assign]
     # __wrapped__ bypasses the prompt-template decorator (needs no template file).
     asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
     return captured["command"], captured["env"]
+
+
+def test_harbor_uses_shorter_bash_soft_timeout(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    assert agent._agent_env["LEMONCROW_BASH_SOFT_TIMEOUT"] == "60"
+
+
+def test_solve_persona_protects_mechanical_deliverable_gates() -> None:
+    solve_prompt = (REPO_ROOT / "integrations/claude/plugin/agents/solve.md").read_text(encoding="utf-8")
+    assert "keep the hard gates green from the first checkpoint" in solve_prompt
+    assert "One slow proxy exceeds its time box" in solve_prompt
+    assert "reserve the final budget for literal path/size/format/build checks" in solve_prompt
 
 
 def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborAgent) -> None:
@@ -71,6 +91,24 @@ def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborA
     assert FAKE_TOKEN not in command
     assert "sk-ant" not in command
     assert env is not None and env["CLAUDE_CODE_OAUTH_TOKEN"] == FAKE_TOKEN
+
+
+def test_run_raises_on_truncated_output(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    """No terminal type="result" line in the stream-json log (process killed
+    mid-run, e.g. OOM) must surface as a retryable error, not a silent
+    reward-0 -- see TruncatedAgentOutputError."""
+
+    class _TruncatedResult:
+        stdout = '{"type":"assistant","message":{"content":[]}}\n'  # no result line
+
+    async def fake_exec(
+        environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any
+    ) -> _TruncatedResult:
+        return _TruncatedResult()
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    with pytest.raises(lemoncrow_agent.TruncatedAgentOutputError):
+        asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
 
 
 def test_run_uses_harbor_model_and_stages_sessions(agent: LemonCrowClaudeCodeHarborAgent) -> None:
@@ -178,7 +216,45 @@ def test_populate_context_without_session_still_fills_totals(
     assert ctx.n_output_tokens == 3
 
 
-def test_supports_atif_and_commit_version(agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_supports_atif_and_commit_version(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert LemonCrowClaudeCodeHarborAgent.SUPPORTS_ATIF is True
     monkeypatch.setenv("LEMONCROW_BENCH_COMMIT", "abc1234")
     assert agent.version() == "abc1234"
+
+
+def test_agent_env_forwards_lemoncrow_auth_token(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lemoncrow init` inside the container needs an activated account or it
+    blocks on an interactive `lc login` -- not viable headless. The host's
+    already-activated token must ride along in _agent_env (used by run())."""
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    assert agent._agent_env["LEMONCROW_AUTH_TOKEN"] == "lc-faketoken"
+
+
+def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "")
+    assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
+
+
+def test_install_forwards_lemoncrow_auth_token_to_init(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `lemoncrow init` exec_as_root call builds its own env= (separate
+    from run()'s _agent_env) -- it must carry the same token or init fails
+    with the same interactive-login error inside the container."""
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    calls: list[tuple[str, dict[str, str] | None]] = []
+
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+        calls.append((command, env))
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    asyncio.run(agent.install(None))  # type: ignore[arg-type]
+    init_calls = [c for c in calls if "lemoncrow init" in c[0]]
+    assert init_calls, "no `lemoncrow init` exec_as_root call captured"
+    assert init_calls[0][1] == {"LEMONCROW_AUTH_TOKEN": "lc-faketoken"}

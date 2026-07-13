@@ -863,17 +863,17 @@ def _hermes_entries(session_id: str | None, last: int) -> list[_ReplayEntry]:
 
 def _store_entries(host: str, session_id: str | None, last: int, store_root: Path | None) -> list[_ReplayEntry]:
     """Enumerate normalized sessions (cursor / antigravity) imported into the
-    LemonCrow ContextStore: their importers persist the normalized JSONL as a
+    LemonCrow history store: their importers persist the normalized JSONL as a
     ``session.jsonl`` RawArtifact (see ``record_normalized_session``)."""
     try:
         from lemoncrow.core.foundation.paths import default_store_root
-        from lemoncrow.core.foundation.store import ContextStore
+        from lemoncrow.infra.storage.factory import create_store
 
         root = Path(store_root) if store_root is not None else default_store_root()
-        if not (root / "lemoncrow.db").is_file():
+        store = create_store(root)
+        if not store.history.db_path.is_file():
             return []
-        store = ContextStore(root)
-        artifacts = store.list_raw_artifacts(source=host, limit=max(1, last) * 5 + 50)
+        artifacts = store.history.list_raw_artifacts(source=host, limit=max(1, last) * 5 + 50)
     except Exception:  # noqa: BLE001 - a missing/foreign store means "no sessions", never a crash
         return []
     artifacts = [a for a in artifacts if a.kind == "session.jsonl"]
@@ -885,7 +885,7 @@ def _store_entries(host: str, session_id: str | None, last: int, store_root: Pat
     entries: list[_ReplayEntry] = []
     for artifact in artifacts:
         try:
-            content = store.read_raw_artifact_content(artifact)
+            content = store.history.read_raw_artifact_content(artifact)
         except (OSError, ValueError):
             continue
         if content.strip():

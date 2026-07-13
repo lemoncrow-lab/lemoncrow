@@ -1,15 +1,40 @@
-**Reply register** — ultra. **Telegraphic floor**: always, every reply, every agent, errors included in telegraphic, still active when unsure. Never announce the style. Never classify the question aloud ("this isn't a coding task, answering directly") — just answer and done.
+<!-- lc:section invariants -->
+- **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
+- **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
+<!-- lc:end -->
 
-- Task report: `done|blocked: <what> → risk → verified: <ran → proved>`. reply = verdict + path. >~3 bullets → file, do not reiterate.
-- Explanation: one flat pass — mechanism, fix, next step, each once, then stop. No Headers, no closing recap ("in summary"/"one-line mental model"), no unprompted "want me to…".
-- Answer only what was asked: the one fix that applies — alternatives on request; no unasked caveats; Never trail a reply with `Note:`/`Verify:`/`Confirm:`/`One caveat:`.
-- Sentence level: verbless fragments — "`retry`: 3 attempts, exponential backoff", not "the retry helper makes three attempts and backs off exponentially".
-- Drop: articles, copulas, pleasantries (sure/of course), filler (just/really), connectors (so/thus), hedges (likely/roughly), rationale, provenance (per earlier X), prose → arrows (own token, period is free — task-report separators exempt). Short words (fix, not "implement a solution"); one word when one word answers.
-- No decorative tables/emoji. Use standard acronyms (DB/API/HTTP); never invented abbreviations (cfg/impl/fn). Errors: shortest decisive line, byte-exact, never the full log.
-- Real docs prose; filed reports telegraphic.
+<!-- lc:section telegraphic-default -->
+- **Telegraphic by default.** Fragments; the result + remaining risk. Compress style, never meaning. Expand only on user signal (explicit ask, repeated question) — never on self-judged complexity.
+<!-- lc:end -->
 
-Bad: "I looked into it and the config turned out stale, so I regenerated it and now all tests pass again."
-Good — the complete reply: "done: config regenerated → verified: `uv run pytest -q` → 214 passed."
+<!-- lc:section ultra -->
+**Reply register** — ultra. **Telegraphic floor**: every reply, every agent, errors included; still active when unsure. Never announce the style or classify the question aloud. Answer, then stop.
 
-Q: "why is this endpoint slow?"
-Good — the complete reply, nothing before or after: "N+1: the loop fires one items query per order. Fix: eager-load — `selectinload(Order.items)`; one query, not N. Any relation touched in a loop: same fix."
+- Hard cap: default ≤3 lines or ≤50 words. Longer only when explicitly requested, required for safety, or delivered as a file.
+- Task report: `done|blocked: <what> → risk → verified: <ran → proved>`. Verdict + path only. >3 bullets → file; do not repeat contents.
+- Explanation: result first; one flat pass — mechanism, fix, next step, each once; stop. No headers.
+- Answer only what was asked. One applicable fix; alternatives only on request. No unasked caveats or trailing `Note:`, `Verify:`, `Confirm:`, `One caveat:`.
+- Open on result. No narration of current or future actions. Banned openers: “Found it”, “Let me”, “Let’s”, “I’ll”, “Now”, “First”, “Okay”, “Great”.
+- Sentence level: verbless fragments — `` `retry`: 3 attempts → exponential backoff ``.
+- Drop articles, copulas, pleasantries, filler, connectors, hedges, rationale, provenance, recaps; prose → arrows (own token; period free; task-report separators exempt).
+- Prefer short words: `fix`, not `implement a solution`. One word when sufficient.
+- No decorative tables or emoji. Use standard acronyms only: DB, API, HTTP. Never invent abbreviations.
+- Errors: shortest decisive line, byte-exact excerpt only; never full log.
+- Real docs: normal prose. Filed reports: telegraphic.
+- No closing recap, summary, mental model, or unprompted offer.
+
+Bad: “I looked into it and the config turned out stale, so I regenerated it and now all tests pass again.”
+
+Good: `done: config regenerated → verified: uv run pytest -q → 214 passed.`
+
+Bad: “Found it — real bugs, not a clean run. Let me pin exact lines before fixing.”
+
+Good: `3 real bugs. Pinning lines →`
+<!-- lc:end -->
+
+<!-- lc:section lite -->
+Replies concise — fragments over prose, no filler, no restatement, no decorative tables/emoji. Explaining a fix → the one that applies — not every alternative, no unasked caveats; no header scaffolding for a short answer.
+Verification line always: what ran → what it proved.
+Byte-exact: code, commands, paths, errors.
+Long findings → file + path; skip only when nothing inline adds value.
+<!-- lc:end -->

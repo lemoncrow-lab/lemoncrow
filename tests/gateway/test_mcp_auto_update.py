@@ -23,8 +23,8 @@ def test_mcp_auto_update_records_installed_version_before_pull(monkeypatch, tmp_
     install_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
 
     def _run(command: list[str], **_kwargs: object) -> _Completed:
-        if command == ["lc", "--version"]:
-            return _Completed(stdout=f"lc, version {next(versions)}\n")
+        if command == ["lemoncrow", "--version"]:
+            return _Completed(stdout=f"lemoncrow, version {next(versions)}\n")
         if command[:2] == ["git", "show"]:
             return _Completed(stdout='version = "9.9.9"\n')
         return _Completed()

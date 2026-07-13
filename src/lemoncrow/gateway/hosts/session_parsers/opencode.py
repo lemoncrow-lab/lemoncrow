@@ -22,12 +22,12 @@ from lemoncrow.core.foundation.models import (
     Trace,
 )
 from lemoncrow.core.foundation.redaction import redact
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     make_llm_usage_entry,
     snapshot_edited_files,
     summarize_usage_entries,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def serialize_opencode_session(session_id: str, db_path: Path) -> str:
     """Serialize an OpenCode session's messages+parts into normalized JSONL.
 
     Module-level so recall indexing can reuse it without constructing an importer
-    (which needs a ContextStore).
+    (which needs a StoreBundle).
     """
     lines: list[str] = []
     try:
@@ -142,7 +142,7 @@ def serialize_opencode_session(session_id: str, db_path: Path) -> str:
 class OpenCodeImporter:
     """OpenCode session importer."""
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, db_path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -177,7 +177,7 @@ class OpenCodeImporter:
     def import_session(self, session_row: dict[str, Any], db_path: Path, *, force: bool = False) -> str | None:
         session_id: str = session_row["id"]
         artifact_id = f"opencode-{session_id}"
-        existing = self.store.get_raw_artifact(artifact_id)
+        existing = self.store.history.get_raw_artifact(artifact_id)
         # time_created is immutable; an active session keeps landing new
         # turns under the same id with a bumped time_updated. Keying the
         # dedup mtime on time_created alone means it never advances, so new
@@ -206,7 +206,7 @@ class OpenCodeImporter:
             source_file_mtime=session_mtime,
             source_path=str(db_path),
         )
-        self.store.record_raw_artifact(artifact, redacted)
+        self.store.history.record_raw_artifact(artifact, redacted)
 
         tools_called: dict[str, int] = {}
         tool_in_tokens: dict[str, int] = {}
@@ -373,7 +373,7 @@ class OpenCodeImporter:
         trace = Trace(
             id=artifact_id,
             session_id=session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="opencode",
             domain="coding",
             task=redact(str(session_row.get("title") or "untitled opencode session")),
@@ -406,7 +406,7 @@ class OpenCodeImporter:
             created_at=session_mtime,
             workspace_path=str(session_row.get("directory") or "") or None,
         )
-        self.store.record_trace(trace, write_json=False)
+        self.store.history.record_trace(trace, write_json=False)
 
         # Best-effort: snapshot current on-disk state of every edited file
         file_records = [r for r in files_touched.values() if isinstance(r, FileEditRecord)]

@@ -33,7 +33,7 @@ graded(){ find "$1" -name reward.txt 2>/dev/null | wc -l; }
 rebuild_bundle(){
   say "Rebuilding LemonCrow bundle from current source..."
   docker run --rm \
-    -v "$PWD:/lc:ro" \
+    -v "$PWD:/lemoncrow:ro" \
     -v "/tmp/avbuild:/out" \
     debian:bullseye-slim \
     bash /lemoncrow/benchmarks/harbor/rebuild_bundle.sh 2>&1 | tee -a "$LOG"
