@@ -9612,15 +9612,23 @@ def _run_bash_tool(
             if timeout <= 0:
                 raise ValueError("timeout must be positive")
             return update_managed_command(session_id, timeout)
-        # Block until the managed command finishes, is cancelled, or reaches
-        # its one-hour safety cap / action="update" deadline.
+        # Block until the managed command finishes, is cancelled, or the
+        # caller's optional poll timeout expires. With no timeout, wait
+        # indefinitely (subject to the managed command's own deadline).
         delay = 0.02
+        poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
         while True:
             poll_result = poll_managed_command(session_id)
             if poll_result.get("status") != "running":
                 _forget_mcp_managed_bash(session_id)
                 return poll_result
-            time.sleep(delay)
+            if poll_deadline is not None:
+                remaining = poll_deadline - time.monotonic()
+                if remaining <= 0:
+                    return poll_result
+                time.sleep(min(delay, remaining))
+            else:
+                time.sleep(delay)
             delay = min(delay * 2, 0.5)
     if not command.strip():
         raise ValueError("command is required for shell action=run")
