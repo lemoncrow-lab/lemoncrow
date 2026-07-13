@@ -198,7 +198,7 @@ def test_uninstall_codex_cleans_workspace_marketplace_and_agents(tmp_path: Path)
     (plugin_dir / "plugin.json").write_text("{}\n", encoding="utf-8")
     (tasks_dir / "preflight.md").write_text("task\n", encoding="utf-8")
     (workspace / "AGENTS.md").write_text(
-        "before\n<!-- LEMONCROW START -->\nlc:code\n<!-- LEMONCROW END -->\nafter\n", encoding="utf-8"
+        "before\n<!-- LEMONCROW START -->\nlemoncrow:code\n<!-- LEMONCROW END -->\nafter\n", encoding="utf-8"
     )
 
     result = _run_host_uninstall(repo_root, "uninstall_codex.sh", home, workspace)
@@ -209,7 +209,7 @@ def test_uninstall_codex_cleans_workspace_marketplace_and_agents(tmp_path: Path)
     assert (agents_dir / "custom.toml").exists()
     assert not plugin_dir.exists()
     assert not tasks_dir.exists()
-    assert "lc:code" not in (workspace / "AGENTS.md").read_text(encoding="utf-8")
+    assert "lemoncrow:code" not in (workspace / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_uninstall_opencode_cleans_provider_permissions_plugins_and_agents(tmp_path: Path) -> None:
@@ -268,7 +268,7 @@ def test_uninstall_claude_cleans_workspace_settings_agents_and_skills(tmp_path: 
     (agents_dir / "custom.md").write_text("agent\n", encoding="utf-8")
     (skills_dir / "SKILL.md").write_text("skill\n", encoding="utf-8")
     (claude_dir / "settings.local.json").write_text(
-        json.dumps({"env": {"CLAUDE_WORKSPACE_ROOT": str(workspace), "KEEP": "1"}, "agent": "lc:code"}) + "\n",
+        json.dumps({"env": {"CLAUDE_WORKSPACE_ROOT": str(workspace), "KEEP": "1"}, "agent": "lemoncrow:code"}) + "\n",
         encoding="utf-8",
     )
     (claude_dir / "settings.json").write_text(
@@ -280,7 +280,7 @@ def test_uninstall_claude_cleans_workspace_settings_agents_and_skills(tmp_path: 
                 },
                 "statusLine": {"command": "lc status"},
                 "subagentStatusLine": {"command": "lc status"},
-                "agent": "lc:code",
+                "agent": "lemoncrow:code",
             }
         )
         + "\n",

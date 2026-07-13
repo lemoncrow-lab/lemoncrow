@@ -1343,12 +1343,63 @@ def _workspace_savings_path() -> Path:
     return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
 
 
+_MCP_SESSION_FILE_LOCK = threading.Lock()
+
+
 def _mcp_session_file() -> Path:
     """Path to this MCP process's registration file.
 
     Written at startup; SessionStart hook writes claude_session_id + model into it.
     """
     return _lemoncrow_root() / "mcp_sessions" / f"{_MCP_ID}.json"
+
+
+def _mutate_mcp_managed_bash(*, record: dict[str, Any] | None = None, remove_id: str = "") -> None:
+    """Atomically update live Bash ownership in this MCP registration."""
+    path = _mcp_session_file()
+    with _MCP_SESSION_FILE_LOCK:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            commands = [row for row in data.get("managed_bash", []) if isinstance(row, dict)]
+            target_id = remove_id or str((record or {}).get("session_id") or "")
+            if target_id:
+                commands = [row for row in commands if str(row.get("session_id") or "") != target_id]
+            if record is not None:
+                commands.append(record)
+            data["managed_bash"] = commands
+            tmp = path.with_name(f".{path.name}.{_uuid_mod.uuid4().hex}.tmp")
+            try:
+                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                tmp.replace(path)
+            finally:
+                tmp.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError):
+            logger.debug("MCP managed Bash registration update failed", exc_info=True)
+
+
+def _record_mcp_managed_bash(started: dict[str, Any]) -> None:
+    session_id = str(started.get("session_id") or "")
+    pid = started.get("pid")
+    if not session_id or not isinstance(pid, int):
+        return
+    record: dict[str, Any] = {
+        "session_id": session_id,
+        "pid": pid,
+        "explicit_background": bool(started.get("explicit_background")),
+        "started_at": time.time(),
+    }
+    for key in ("log_file", "log_file_stderr"):
+        value = started.get(key)
+        if isinstance(value, str) and value:
+            record[key] = value
+    _mutate_mcp_managed_bash(record=record)
+
+
+def _forget_mcp_managed_bash(session_id: str) -> None:
+    if session_id:
+        _mutate_mcp_managed_bash(remove_id=session_id)
 
 
 def _workspace_bridge_file() -> Path:
@@ -2655,6 +2706,7 @@ def _register_mcp_session() -> None:
             "started_at": datetime.utcnow().isoformat(),
             "claude_session_id": "",
             "model": "",
+            "managed_bash": [],
         }
         f.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError:
@@ -3745,10 +3797,10 @@ def _archival_recall() -> ArchivalRecallCapability:
 
 def _symbol_recall() -> Any:
     from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
-    from lemoncrow.core.foundation.store import ContextStore
+    from lemoncrow.core.foundation.history_store import HistoryStore
 
     workspace_root = _workspace_root()
-    trace_store = ContextStore(_lemoncrow_root())
+    trace_store = HistoryStore(_lemoncrow_root())
     trace_store.init()
     return SymbolRecallCapability(
         repo_root=workspace_root,
@@ -3966,7 +4018,7 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
     store.init()
     jobs = [
         job
-        for job in store.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=200)
+        for job in store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=200)
         if isinstance(job.get("payload"), dict) and job["payload"].get("repo_id") == repo_id
     ]
     queued = False
@@ -3975,7 +4027,7 @@ def _bootstrap_context_status(root: Path) -> dict[str, Any]:
     active_job = next((job for job in jobs if job["status"] in {"pending", "running"}), None)
     job_id: str | None = None
     if state != "warm" and active_job is None:
-        job_id = store.enqueue_job(
+        job_id = store.jobs.enqueue_job(
             JOB_BOOTSTRAP_CONTEXT,
             {"repo_root": str(repo_root), "repo_id": repo_id},
         )
@@ -4543,7 +4595,7 @@ def tool_record_trace(
             return "claude"
 
         # Default to the agent name if no known host environment is detected
-        return "lemoncrow" if al.startswith("lc:") else al
+        return "lemoncrow" if al.startswith("lemoncrow:") else al
 
     normalized_capture_sources = [redact(str(source)) for source in capture_sources]
     normalized_trace_confidence = _normalize_trace_confidence(trace_confidence)
@@ -4636,7 +4688,7 @@ def tool_record_trace(
     trace = Trace.model_validate(payload)
 
     for _artifact, _redacted_content in pending_artifacts:
-        rt.store.record_raw_artifact(_artifact, _redacted_content)
+        rt.store.history.record_raw_artifact(_artifact, _redacted_content)
 
     if event_type:
         normalized_event_payload = _normalize_workflow_trace_payload(event_type, event_payload)
@@ -4645,7 +4697,7 @@ def tool_record_trace(
         else:
             led.record("note", f"event:{redact(event_type)}", _redact_json_strings(event_payload))
 
-    rt.store.record_trace(trace)
+    rt.store.history.record_trace(trace)
     from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
 
     ingest_failed_trace(rt.store, trace)
@@ -4700,7 +4752,7 @@ def tool_run_rubric_gate(rubric_id: str, checks: dict[str, Any]) -> Any:
     led = _get_ledger()
     led.record_tool_call("run_rubric_gate", {"rubric_id": rubric_id, "checks": checks})
 
-    rubric = rt.store.get_rubric(rubric_id)
+    rubric = rt.store.knowledge.get_rubric(rubric_id)
     if rubric is None:
         raise ValueError(f"rubric not found: {rubric_id}")
 
@@ -5629,6 +5681,81 @@ _READ_SUGGEST_PRUNE_DIRS = frozenset(
         "target",
     }
 )
+
+
+# Same "not a literal path" shape test as the code-context engine's
+# _query_is_pathy_literal: whitespace or a regex/FTS metacharacter means the
+# query can't be a literal filesystem path, so skip the stat/walk below.
+_QUERY_PATH_HINT_RE = re.compile(r"[\s|*()\[\]^$+?\\=<>{}]")
+
+
+def _candidate_relpaths_for_query(query: str) -> list[str]:
+    """Path forms worth an existence check for a path-shaped query: as given
+    (leading slash stripped), and with one leading segment dropped -- a
+    phantom repo-name prefix (e.g. "/lemoncrow/benchmarks/x.sh" when the real
+    relpath is "benchmarks/x.sh") is a common way an agent mistypes a path.
+    """
+    stripped = query.strip().lstrip("/")
+    candidates = [stripped] if stripped else []
+    parts = stripped.split("/")
+    if len(parts) > 1:
+        trimmed = "/".join(parts[1:])
+        if trimmed and trimmed not in candidates:
+            candidates.append(trimmed)
+    return candidates
+
+
+def _lookup_unique_basename_in_index(engine: Any, basename: str) -> str | None:
+    """Unique indexed file whose basename is `basename`, via the code index's
+    `files` table -- a couple ms and deterministic, unlike a live filesystem
+    walk over a large repo (the `read`-tool suggestion helper below hits its
+    250ms/20k-file budget on this repo before finishing the walk, so which
+    file it lands on -- if any -- depends on OS directory-iteration order).
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"file:{engine.db_path}?mode=ro", uri=True, timeout=2.0)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT file_path FROM files WHERE repo_id = ? AND (file_path = ? OR file_path LIKE '%/' || ?) LIMIT 2",
+            (engine.repo_id, basename, basename),
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    return rows[0][0] if len(rows) == 1 else None
+
+
+def _resolve_query_as_existing_file(workspace_root: Path, query: str, engine: Any = None) -> str | None:
+    """When `query` names an existing repo file, return its workspace-relative
+    path so code_search can pin straight to it instead of ranking.
+
+    Tries the query verbatim as a relpath (and with one bogus leading segment
+    stripped), then -- when `engine` is given -- falls back to a unique
+    basename lookup against the code index. None when the query isn't
+    path-shaped or doesn't resolve to exactly one file.
+    """
+    q = query.strip()
+    if not q or _QUERY_PATH_HINT_RE.search(q) or ("/" not in q and "." not in q):
+        return None
+    root = workspace_root.resolve()
+    for candidate in _candidate_relpaths_for_query(q):
+        target = (root / candidate).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            continue  # escapes the workspace, e.g. "../../etc/passwd"
+        if target.is_file():
+            return str(target.relative_to(root))
+    if engine is not None:
+        basename = Path(q).name
+        if basename:
+            return _lookup_unique_basename_in_index(engine, basename)
+    return None
 
 
 def _suggest_paths_for_missing(workspace_root: Path, missing: str, *, limit: int = 3) -> list[str]:
@@ -6712,18 +6839,9 @@ def _normalize_edit_aliases(edit: dict[str, Any]) -> dict[str, Any]:
     return edit
 
 
-def _edit_descriptor_family(edit: dict[str, Any]) -> str:
-    is_legacy = "op" in edit and "file_path" not in edit and "cell_action" not in edit
-    return "legacy" if is_legacy else "rich"
-
-
-def _validate_edit_descriptor_families(edits: list[dict[str, Any]]) -> str:
+def _require_edits(edits: list[dict[str, Any]]) -> None:
     if not edits:
         raise _ToolArgumentError("edits must include at least one descriptor")
-    families = {_edit_descriptor_family(edit) for edit in edits}
-    if len(families) > 1:
-        raise _ToolArgumentError("cannot mix legacy op/path descriptors with rich edit descriptors in one call")
-    return families.pop()
 
 
 def _edit_verify_enabled(verify_flag: bool) -> bool:
@@ -6998,7 +7116,7 @@ def _applied_entry_path(entry: str | dict[str, Any]) -> str | None:
     """Extract the file path from a raw applied entry, tolerating both shapes.
 
     Entries can be dicts (``{"path": ...}`` / ``{"file": ...}`` / ``{"file_path": ...}``,
-    as emitted by ``apply_rich_edits`` and ``apply_batch_edit``) or already-compacted
+    as emitted by ``apply_rich_edits``) or already-compacted
     strings of the form ``"path:line,start-end"`` (as emitted by
     ``_compact_applied_entries``). A ``#10-20`` line suffix on the path is stripped so
     line-scoped edits to the same file collapse onto one path. Returns ``None`` when no
@@ -7226,9 +7344,8 @@ def tool_smart_edit(
     ranges resolve against the original snapshot. Use old_string/new_string only
     when no fresh range is available.
 
-    Descriptor families cannot be mixed:
+    Descriptor shapes:
       - Rich: {path|file_path, new|new_string, old|old_string?, replace?}
-      - Legacy: {path, op: replace|insert_after|replace_range, ...}
       - Structured: notebook cell, symbol, or projection edits
 
     Returns ordinary successful hunks as {applied: ["path:line,start-end", ...]};
@@ -7239,7 +7356,7 @@ def tool_smart_edit(
     # matches the active workspace.
     repo_root = _workspace_root()
     edits = [_normalize_edit_aliases(e) for e in edits]
-    family = _validate_edit_descriptor_families(edits)
+    _require_edits(edits)
 
     paths = _collect_touched_paths(edits, repo_root=repo_root)
     # Confine writes to the workspace root plus any additional directories from
@@ -7286,9 +7403,7 @@ def tool_smart_edit(
             if not _raw:
                 continue
             _spec = _parse_target(_raw)
-            _is_range = (_spec.start_line is not None and "new_string" in _ed) or str(
-                _ed.get("op") or ""
-            ) == "replace_range"
+            _is_range = _spec.start_line is not None and "new_string" in _ed
             if not _is_range:
                 continue
             try:
@@ -7331,14 +7446,9 @@ def tool_smart_edit(
             _edit_locks.enter_context(_lock)
         snapshots = _snapshot_paths(paths)
 
-        if family == "rich":
-            from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+        from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
-            result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
-        else:
-            from lemoncrow.core.capabilities.tool_supervision.batch_edit import apply_batch_edit
-
-            result = apply_batch_edit(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
+        result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
 
         # Sync the long-lived engine's index-version cache so the next explore
         # call gets a cache miss and re-queries the FTS5 index (which the
@@ -9421,6 +9531,16 @@ def _deferred_completion_executor() -> ThreadPoolExecutor:
     return _DEFERRED_COMPLETION_EXECUTOR
 
 
+def _default_bash_soft_timeout() -> int:
+    try:
+        return max(1, int(os.environ.get("LEMONCROW_BASH_SOFT_TIMEOUT", "120")))
+    except ValueError:
+        return 120
+
+
+_DEFAULT_BASH_SOFT_TIMEOUT = _default_bash_soft_timeout()
+
+
 def _run_bash_tool(
     command: str = "",
     timeout: int | None = None,
@@ -9476,31 +9596,50 @@ def _run_bash_tool(
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
         if action == "cancel":
-            return poll_managed_command(session_id, cancel=True)
+            result = poll_managed_command(session_id, cancel=True)
+            _forget_mcp_managed_bash(session_id)
+            return result
         if action == "status":
             # Single non-blocking check -- unlike `poll`, never waits for the
             # command to finish and never reaps the session.
-            return peek_managed_command(session_id)
+            result = peek_managed_command(session_id)
+            if result.get("status") != "running":
+                _forget_mcp_managed_bash(session_id)
+            return result
         if action == "update":
             if timeout is None:
                 raise ValueError("timeout is required for shell action=update")
             if timeout <= 0:
                 raise ValueError("timeout must be positive")
             return update_managed_command(session_id, timeout)
-        # Block until the backgrounded command finishes (or its own timeout
-        # kills it). No artificial window -- the command's timeout is the bound.
+        # Block until the managed command finishes, is cancelled, or the
+        # caller's optional poll timeout expires. With no timeout, wait
+        # indefinitely (subject to the managed command's own deadline).
         delay = 0.02
+        poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
         while True:
             poll_result = poll_managed_command(session_id)
             if poll_result.get("status") != "running":
+                _forget_mcp_managed_bash(session_id)
                 return poll_result
-            time.sleep(delay)
+            if poll_deadline is not None:
+                remaining = poll_deadline - time.monotonic()
+                if remaining <= 0:
+                    return poll_result
+                time.sleep(min(delay, remaining))
+            else:
+                time.sleep(delay)
             delay = min(delay * 2, 0.5)
     if not command.strip():
         raise ValueError("command is required for shell action=run")
-    timeout_explicit = timeout is not None
     if timeout is None:
-        timeout = 120
+        timeout = _DEFAULT_BASH_SOFT_TIMEOUT
+
+    # Only the API's explicit bg=true flag grants permission to survive MCP
+    # shutdown. A trailing ampersand still gets the fast managed-command path,
+    # but remains owned by this MCP session and is cleaned up with foreground
+    # work when the session exits.
+    explicit_background = background
 
     # A trailing `&` (but not `&&`) means "run in background": strip it and
     # force background mode so the command runs as a managed LemonCrow session
@@ -9760,14 +9899,15 @@ def _run_bash_tool(
         command,
         cwd=effective_cwd,
         timeout=timeout,
-        timeout_explicit=timeout_explicit,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
         note=_pipeline_note,
+        explicit_background=explicit_background,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
         return started  # blocked by policy
+    _record_mcp_managed_bash(started)
 
     # Phase 2: foreground deferral. For the block-until-done case (a foreground
     # run, where inline_wait covers the full timeout), hand the pool worker back
@@ -9796,6 +9936,7 @@ def _run_bash_tool(
             # result and apply the identical terminal transforms the inline path
             # does, so the deferred result dict matches the synchronous one.
             polled = poll_managed_command(managed_id)
+            _forget_mcp_managed_bash(managed_id)
             polled.pop("session_id", None)
             polled.pop("status", None)
             chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
@@ -9866,6 +10007,7 @@ def _run_bash_tool(
     # Finished inline: present as a plain synchronous result. The managed
     # session is already reaped, so status/session_id would only invite a
     # useless poll turn; exit_code/stderr carry the terminal state.
+    _forget_mcp_managed_bash(managed_id)
     polled.pop("session_id", None)
     polled.pop("status", None)
     chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
@@ -9891,6 +10033,7 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     lines_omitted = result.get("lines_omitted")
     status = str(result.get("status") or "")
     session_id = str(result.get("session_id") or "")
+    explicit_background = bool(result.get("explicit_background"))
 
     parts: list[str] = []
     if "updated" in result:
@@ -9904,23 +10047,13 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             parts.append(f"update failed: session already {status} id={session_id}")
         return "\n".join(parts).strip()
     if status == "running":
-        # Just the handle: pid/elapsed/timeout/log paths are dead weight the
-        # model never acts on -- poll/status/cancel need only the id
-        # (and action=status ships a live output tail on demand). No "status="
-        # key either: the state word is self-evident; id= stays because it
-        # names the exact argument to echo back (bash(id=x)). "overrunning"
-        # instead of "running" once the command has burned through its
-        # requested timeout budget -- distinct from a plain mid-flight peek
-        # that's still well inside its window.
         over_budget = bool(result.get("over_budget"))
-        word = "overrunning" if over_budget else "running"
-        # Nothing kills this automatically at this point (the real kill is the
-        # much larger hard cap) -- "act now" pushes the model to actually
-        # decide (cancel, or have a reason to keep going) instead of
-        # reflexively polling again. Kept to 2 words: this line is read on
-        # every single overrunning poll, not just the first.
-        suffix = " -- act now" if over_budget else ""
-        parts.append(f"{word} id={session_id}{suffix}")
+        if explicit_background:
+            parts.append(f"background running id={session_id}")
+        elif over_budget:
+            parts.append(f"still running id={session_id}")
+        else:
+            parts.append(f"running id={session_id}")
     elif status and status != "completed":
         # Terminal states (cancelled/timed_out): the session is reaped, its id
         # can never be polled again -- don't ship a dead handle. A clean
@@ -9947,7 +10080,9 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             log_paths = f"{log_file} {log_file_stderr}"
     else:
         log_paths = log_file or log_file_stderr
-    log_ptr = f"; full: read {log_paths}" if log_paths and not spill_hint else ""
+    log_ptr = f"; full: {log_paths}" if log_paths and not spill_hint else ""
+    if status == "running" and log_paths:
+        parts.append(f"[logs: {log_paths}]")
     if isinstance(tail_lines, int) and tail_lines > 0:
         parts.append(f"[tail: last {tail_lines} lines{log_ptr}]")
     if blocked:
@@ -9984,12 +10119,6 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             parts.append(spill_hint)
         else:
             parts.append(f"[output truncated: {lines_omitted} lines omitted{log_ptr}]")
-    # No exit-code guard: pipelines (e.g. `... 2>&1 | tail`) mask failures.
-    if "No module named pip" in stdout or "No module named pip" in stderr:
-        parts.append(
-            "[hint] This venv has no pip (uv-managed). Install with: "
-            "uv pip install --python <venv>/bin/python <pkg>  (or python -m ensurepip first)"
-        )
     rendered = "\n".join(parts).strip()
     if rendered:
         return rendered
@@ -10182,6 +10311,41 @@ def _lean_section(sec: dict[str, Any]) -> dict[str, Any]:
         "line": sec.get("line"),
         "end_line": sec.get("end_line"),
         "content": sec.get("content", ""),
+    }
+
+
+# Guards the whole-file fallback below against reading a pathological huge
+# file into memory -- downstream _outline_lean_view already caps rendered
+# size (_CODESEARCH_TOP2_MAX_CHARS), this only bounds the raw read.
+_CODESEARCH_FALLBACK_MAX_BYTES = 2_000_000
+
+
+def _whole_file_fallback_section(workspace_root: Path, relpath: str) -> dict[str, Any] | None:
+    """Whole-file source entry for a resolved-path code_search hit whose file
+    type carries no symbol index (shell scripts, markdown, config, ...), so
+    the engine's normal symbol pipeline returns zero source_sections for it.
+    Without this, a fast-path pin to a non-code file would resolve exact_match
+    correctly but ship no content -- the caller would still have to `read` it
+    themselves. Downstream outline/top2 shaping still bounds the size.
+    """
+    target = workspace_root / relpath
+    try:
+        if target.stat().st_size > _CODESEARCH_FALLBACK_MAX_BYTES:
+            return None
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return {
+        "path": relpath,
+        "sections": [
+            {
+                "path": relpath,
+                "qualified_name": None,
+                "line": 1,
+                "end_line": text.count("\n") + 1,
+                "content": text,
+            }
+        ],
     }
 
 
@@ -10475,11 +10639,29 @@ def tool_code_search(
         seed_list = []
     seed_files = seed_list or None
     engine = _code_context_engine(str(workspace_root))
-    result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=seed_files))
+    # Fast path: a query that's itself an existing repo file (verbatim path, a
+    # mistyped path with a bogus leading segment, or a unique basename) is
+    # pinned straight to that file instead of ranked -- only when the caller
+    # didn't already supply an explicit paths= scope, which takes precedence.
+    resolved_path = None if seed_files else _resolve_query_as_existing_file(workspace_root, query, engine)
+    explore_seeds = [resolved_path] if resolved_path else seed_files
+    result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=explore_seeds))
+    if resolved_path:
+        result["exact_match"] = True
     # Project the engine's rich candidate set to a lean, exact view so the agent
     # can go code_search -> edit without grep/read round-trips (seed files are
     # boosted to the top inside the view).
-    lean = _lean_code_search_view(result, max_files=max_files, seed_files=seed_files)
+    lean = _lean_code_search_view(result, max_files=max_files, seed_files=explore_seeds)
+    if resolved_path and not any(
+        isinstance(e, dict) and e.get("path") == resolved_path and e.get("sections") for e in (lean.get("files") or [])
+    ):
+        # Fast-path hit on a file type with no symbol index (e.g. a shell
+        # script) -- the engine surfaced it in candidate_files but rendered no
+        # source. Inject the whole file directly rather than making the agent
+        # follow up with a plain `read`.
+        fallback = _whole_file_fallback_section(workspace_root, resolved_path)
+        if fallback:
+            lean.setdefault("files", []).insert(0, fallback)
     # Outline shaping happens HERE (dict level, before any rendering) so the
     # compact text renderer and the JSON fallback stay in lockstep -- and BEFORE
     # savings, so an outlined section is never credited as a replaced read.
@@ -10961,13 +11143,13 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "timeout": {
             "type": "integer",
-            "default": 120,
-            "description": "Soft response budget (s) -- past it, returns a handle instead of blocking. Explicit timeout also installs a hard kill at max(timeout, 60s); omitted, hard kill after 1hr. action=cancel kills now; action=update + id + timeout kills at exact new timeout.",
+            "default": _DEFAULT_BASH_SOFT_TIMEOUT,
+            "description": "Soft response budget (s) -- past it, returns a warned live handle while the command continues until cancelled or the MCP session exits. Only bg=true survives MCP shutdown. Every command has a fixed 1hr safety cap; action=update + id + timeout installs an exact deadline.",
         },
         "bg": {
             "type": "boolean",
             "default": False,
-            "description": "Run in background, return id immediately.",
+            "description": "Run in background, return id immediately, and preserve the command when the MCP session exits.",
         },
         "id": {
             "type": "string",
@@ -11009,8 +11191,9 @@ def tool_bash(
     Prefer LemonCrow read/grep/search tools directly — they are faster and cheaper.
     Use bash only for commands that have no LemonCrow equivalent (git, make, uv, npm, etc.).
 
-    bg=True starts the command in the background and returns its `id`.
-    bash(id=x) alone waits for that run to finish (poll); action="status"
+    bg=True starts the command in the background, returns its `id`, and is
+    the only mode preserved across MCP shutdown. bash(id=x) alone waits for
+    that run to finish (poll); action="status"
     peeks without waiting (state + last 10 output lines); action="cancel"
     kills it now. `timeout` at start is only ever a soft response budget --
     it does not kill by itself (eventual internal ~1hr backstop still
@@ -11021,8 +11204,6 @@ def tool_bash(
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
         action = "poll"
-    if action == "run" and timeout is None:
-        timeout = 120
     result = _run_bash_tool(
         command,
         timeout=timeout,
@@ -13435,7 +13616,7 @@ def _auto_init_workspace() -> None:
                 except (KeyError, ValueError):
                     continue
             try:
-                store.upsert_block(Playbook.model_validate(data))
+                store.knowledge.upsert_block(Playbook.model_validate(data))
             except (KeyError, ValueError):
                 continue
 
@@ -13444,7 +13625,7 @@ def _auto_init_workspace() -> None:
             if not isinstance(data, dict):
                 continue
             try:
-                store.upsert_rubric(Rubric.model_validate(data))
+                store.knowledge.upsert_rubric(Rubric.model_validate(data))
             except (KeyError, ValueError):
                 continue
 
@@ -13559,6 +13740,26 @@ def _warm_stdio_zoekt_webserver() -> None:
         _log.debug("zoekt pre-warm failed", exc_info=True)
 
 
+def _shutdown_managed_bash_commands() -> None:
+    from lemoncrow.core.capabilities.tool_supervision.bash_exec import cleanup_managed_commands
+
+    summary = cleanup_managed_commands()
+    terminated = summary["terminated"]
+    preserved = summary["preserved"]
+    if terminated:
+        logger.warning(
+            "MCP shutdown terminated %d foreground Bash command(s): %s",
+            len(terminated),
+            ", ".join(str(row["session_id"]) for row in terminated),
+        )
+    if preserved:
+        logger.info(
+            "MCP shutdown preserved %d explicit bg=true Bash command(s): %s",
+            len(preserved),
+            ", ".join(str(row["session_id"]) for row in preserved),
+        )
+
+
 def main() -> None:
     # Phase 1: Absorb wrapper logic into `lc mcp` (zero-config)
     os.environ.setdefault("LEMONCROW_SERVICE_URL", "http://127.0.0.1:8787")
@@ -13621,9 +13822,24 @@ def main() -> None:
 
     _update_thread = threading.Thread(target=_check_auto_update, daemon=True)
     _update_thread.start()
+    # Convert process-termination signals into normal Python unwinding so the
+    # finally block can terminate every MCP-owned process group. SIGKILL remains
+    # uncatchable by definition.
+    import signal as _signal
+
+    previous_handlers: list[tuple[_signal.Signals, Any]] = []
+    if threading.current_thread() is threading.main_thread():
+
+        def _exit_on_signal(signum: int, _frame: Any) -> None:
+            raise SystemExit(128 + signum)
+
+        for signum in (_signal.SIGTERM, _signal.SIGHUP):
+            previous_handlers.append((_signal.Signals(signum), _signal.getsignal(signum)))
+            _signal.signal(signum, _exit_on_signal)
     try:
         serve()
     finally:
+        _shutdown_managed_bash_commands()
         _unregister_mcp_session()
         # If an opt-in auto-update reinstall (git pull + install.sh) is mid-flight
         # when the host disconnects, let it finish rather than killing the daemon
@@ -13631,7 +13847,5 @@ def main() -> None:
         # immediately in the common no-update case (the thread already exited);
         # only blocks when an install is genuinely running (its own cap is ~300s).
         _update_thread.join(timeout=310.0)
-
-
-if __name__ == "__main__":
-    main()
+        for signum, handler in previous_handlers:
+            _signal.signal(signum, handler)

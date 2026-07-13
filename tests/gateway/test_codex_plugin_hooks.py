@@ -145,33 +145,45 @@ def test_codex_user_prompt_emits_high_context_nudge_once(tmp_path: Path, monkeyp
     assert second.get("no_output") is True
 
 
-def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> None:
+def _seed_reread_case(tmp_path: Path, *, lines: int) -> tuple[Path, dict]:
+    """Seed a run ledger marking src/a.py edited + write src/a.py with `lines`."""
     root = tmp_path / ".lemoncrow"
     session_id = "c1"
-    runs = root / "runs"
-    runs.mkdir(parents=True)
-    (runs / f"{session_id}.json").write_text(
+    run_file = plugin_runtime._codex_run_file(root, session_id)
+    run_file.parent.mkdir(parents=True, exist_ok=True)
+    run_file.write_text(
         json.dumps({"session_id": session_id, "events": [], "files_touched": ["src/a.py"]}),
         encoding="utf-8",
     )
+    src = tmp_path / "src" / "a.py"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text("".join(f"x = {i}\n" for i in range(lines)), encoding="utf-8")
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": session_id,
+        "tool_name": "mcp__lc__read",
+        "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
+        "cwd": str(tmp_path),
+    }
+    return root, payload
 
-    result = _run_hook(
-        "pre_tool_use.py",
-        root,
-        {
-            "hook_event_name": "PreToolUse",
-            "session_id": session_id,
-            "tool_name": "mcp__lc__read",
-            "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
-            "cwd": str(tmp_path),
-        },
-    )
 
-    output = json.loads(result.stdout)
+def test_codex_pre_tool_use_blocks_full_reread_of_large_edited_file(tmp_path: Path) -> None:
+    root, payload = _seed_reread_case(tmp_path, lines=600)
+    output = json.loads(_run_hook("pre_tool_use.py", root, payload).stdout)
     hook = output["hookSpecificOutput"]
     assert hook["hookEventName"] == "PreToolUse"
     assert hook["permissionDecision"] == "deny"
     assert "range" in hook["permissionDecisionReason"]
+
+
+def test_codex_pre_tool_use_stays_silent_for_small_edited_file(tmp_path: Path) -> None:
+    # Small file: a full re-read isn't real waste. Codex PreToolUse honours only
+    # "deny", so the happy path emits nothing -- an "allow" decision errors the
+    # hook ("unsupported permissionDecision:allow").
+    root, payload = _seed_reread_case(tmp_path, lines=8)
+    result = _run_hook("pre_tool_use.py", root, payload)
+    assert result.stdout.strip() == ""
 
 
 def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
@@ -267,13 +279,13 @@ def test_codex_subagent_hook_tracks_start_and_stop(tmp_path: Path) -> None:
         "hook_event_name": "SubagentStart",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lc:explore",
+        "agent_type": "lemoncrow:explore",
     }
     stop_payload = {
         "hook_event_name": "SubagentStop",
         "session_id": "c1",
         "agent_id": "agent-1",
-        "agent_type": "lc:explore",
+        "agent_type": "lemoncrow:explore",
     }
 
     start = _run_hook("subagent.py", root, start_payload)
@@ -334,7 +346,7 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     output = json.loads(result.stdout)
     assert set(output) == {"systemMessage"}
     message = output["systemMessage"]
-    assert "LemonCrow session complete." in message
+    assert "lc session complete." in message
     assert "0 LLM turns · 1 prompt turn · 1 tool call (hooks)" in message
     assert "est. cost: ~$" in message
     # Routing/carry/output are all 0 in this fixture -- suppressed like

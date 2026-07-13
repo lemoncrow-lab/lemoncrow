@@ -41,8 +41,8 @@ CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 CLAUDE_STAGING_DIR="${HOME}/.lemoncrow/claude-plugin"
 
-info()  { echo "[lc:uninstall:claude] $*"; }
-warn()  { echo "[lc:uninstall:claude] WARN: $*" >&2; }
+info()  { echo "[lemoncrow:uninstall:claude] $*"; }
+warn()  { echo "[lemoncrow:uninstall:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- workspace MCP entry ----------------------------------------------------
@@ -59,7 +59,7 @@ path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
         info "Removed LemonCrow MCP entry from $MCP_JSON"
     fi
 
-    if [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -qE "CLAUDE_WORKSPACE_ROOT|lc:code|lemoncrow:code" "$CLAUDE_LOCAL_SETTINGS" 2>/dev/null; then
+    if [ -f "$CLAUDE_LOCAL_SETTINGS" ] && grep -qE "CLAUDE_WORKSPACE_ROOT|lemoncrow:code" "$CLAUDE_LOCAL_SETTINGS" 2>/dev/null; then
         run "python3 -c '
 import json, sys
 from pathlib import Path
@@ -70,7 +70,7 @@ if isinstance(env, dict):
     env.pop(\"CLAUDE_WORKSPACE_ROOT\", None)
     if not env:
         data.pop(\"env\", None)
-if data.get(\"agent\") in (\"lc:code\", \"lemoncrow:code\"):
+if data.get(\"agent\") == \"lemoncrow:code\":
     data.pop(\"agent\", None)
 if data:
     path.write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")
@@ -116,7 +116,7 @@ else:
 if not hooks:
     data.pop("hooks", None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[lc:uninstall:claude] Removed LemonCrow PreToolUse hook from $CLAUDE_SETTINGS")
+print("[lemoncrow:uninstall:claude] Removed LemonCrow PreToolUse hook from $CLAUDE_SETTINGS")
 PYEOF
     fi
 fi
@@ -137,7 +137,7 @@ allow = perms.get("allow", [])
 deny = perms.get("deny", [])
 lc_bash_allows = {
     "Bash(git *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)",
-    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lc *)",
+    "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemoncrow *)",
     "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)",
     "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)",
     "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)",
@@ -158,7 +158,7 @@ if removed:
     if not perms:
         data.pop("permissions", None)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print(f"[lc:uninstall:claude] Removed {removed} LemonCrow permission entries")
+    print(f"[lemoncrow:uninstall:claude] Removed {removed} LemonCrow permission entries")
 PYEOF
     fi
 fi
@@ -201,10 +201,10 @@ for key in ("statusLine", "subagentStatusLine"):
     first = cmd.split()[0] if cmd else ""
     if isinstance(sl, dict) and (first in ("lc", "lemoncrow") or "lemoncrow" in cmd):
         data.pop(key, None)
-        print(f"[lc:uninstall:claude] Removed LemonCrow {key} from ${CLAUDE_SETTINGS}")
-if data.get("agent") in ("lc:code", "lemoncrow:code"):
+        print(f"[lemoncrow:uninstall:claude] Removed LemonCrow {key} from ${CLAUDE_SETTINGS}")
+if data.get("agent") == "lemoncrow:code":
     data.pop("agent", None)
-    print("[lc:uninstall:claude] Removed lemoncrow-code default agent from ${CLAUDE_SETTINGS}")
+    print("[lemoncrow:uninstall:claude] Removed lemoncrow-code default agent from ${CLAUDE_SETTINGS}")
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF2
     fi

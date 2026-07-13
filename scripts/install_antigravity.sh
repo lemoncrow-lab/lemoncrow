@@ -59,8 +59,8 @@ else
     MCP_JSON="${ANTIGRAVITY_USER_DIR}/mcp.json"
 fi
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:antigravity] $*" || true; }
-warn()  { echo "[lc:antigravity] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:antigravity] $*" || true; }
+warn()  { echo "[lemoncrow:antigravity] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -78,7 +78,7 @@ ANTIGRAVITY_BIN="$(command -v antigravity || true)"
 AGY_BIN="$(command -v agy || true)"
 if [[ -z "$ANTIGRAVITY_BIN" && -z "$AGY_BIN" ]]; then
     if $STRICT; then
-        echo "[lc:antigravity] ERROR: neither 'antigravity' nor 'agy' is on PATH." >&2
+        echo "[lemoncrow:antigravity] ERROR: neither 'antigravity' nor 'agy' is on PATH." >&2
         exit 1
     fi
     warn "Neither 'antigravity' nor 'agy' is on PATH - SKIPPING."
@@ -100,7 +100,7 @@ if $WORKSPACE_SET; then
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "antigravity"],
       "env": {
         "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
@@ -116,7 +116,7 @@ else
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "antigravity"]
     }
   }
@@ -126,7 +126,7 @@ JSON
 fi
 
 ADD_MCP_JSON=$(cat <<'JSON'
-{"name":"lemoncrow","command":"lc","args":["mcp","--host","antigravity"]}
+{"name":"lemoncrow","command":"lemoncrow","args":["mcp","--host","antigravity"]}
 JSON
 )
 
@@ -168,7 +168,7 @@ new_entry = json.loads(os.environ["NEW_ENTRY"])
 server_key = "servers" if "servers" in existing or "mcpServers" not in existing else "mcpServers"
 existing.setdefault(server_key, {}).update(new_entry["servers"])
 path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-print(f"[lc:antigravity] merged LemonCrow into {path}")
+print(f"[lemoncrow:antigravity] merged LemonCrow into {path}")
 PYEOF
     fi
 else
@@ -183,7 +183,7 @@ fi
 if ! $WORKSPACE_SET && [[ -n "$ANTIGRAVITY_BIN" ]] && ! $DRY_RUN; then
     if ! ADD_MCP_OUTPUT=$(antigravity --add-mcp "$ADD_MCP_JSON" 2>&1); then
         if $STRICT; then
-            echo "[lc:antigravity] ERROR: antigravity --add-mcp failed: $ADD_MCP_OUTPUT" >&2
+            echo "[lemoncrow:antigravity] ERROR: antigravity --add-mcp failed: $ADD_MCP_OUTPUT" >&2
             exit 1
         fi
         warn "antigravity --add-mcp failed: $ADD_MCP_OUTPUT (user mcp.json was still written)"
@@ -193,7 +193,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:antigravity] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:antigravity] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$MCP_JSON" ] && grep -q '"lemoncrow"' "$MCP_JSON" 2>/dev/null; then
     vpass "MCP config present: $MCP_JSON"
@@ -262,7 +262,7 @@ else
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:antigravity] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:antigravity] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"

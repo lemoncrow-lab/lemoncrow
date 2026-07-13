@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     build_normalized_jsonl,
     make_assistant_message,
@@ -18,6 +17,7 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     parse_datetime,
     record_normalized_session,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 def _cache_path(root: Path | None = None) -> Path:
@@ -29,7 +29,7 @@ def _cache_path(root: Path | None = None) -> Path:
 
 
 class AntigravityImporter:
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:

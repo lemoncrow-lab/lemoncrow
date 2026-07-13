@@ -57,7 +57,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 

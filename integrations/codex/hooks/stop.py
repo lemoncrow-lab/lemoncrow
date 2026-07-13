@@ -18,12 +18,26 @@ def _lemoncrow_root() -> Path:
 
 def main() -> int:
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import build_codex_stop_output
+        from lemoncrow.core.capabilities.plugin_runtime import (
+            build_codex_stop_output,
+            build_codex_verify_output,
+        )
 
         payload = json.loads(sys.stdin.read() or "{}")
-        output = build_codex_stop_output(_lemoncrow_root(), payload)
+        root = _lemoncrow_root()
+        # Verify-before-done leads the savings summary, both as one systemMessage
+        # -- the only Codex Stop output proven safe. Codex rejects unsupported
+        # hook decisions, so a Claude-style {"decision":"block"} is not emitted
+        # here until confirmed supported (it would error the hook).
+        messages: list[str] = []
+        verify = build_codex_verify_output(root, payload)
+        if not verify.get("no_output"):
+            messages.append(str(verify["systemMessage"]))
+        output = build_codex_stop_output(root, payload)
         if not output.get("no_output"):
-            sys.stdout.write(json.dumps({"systemMessage": output["systemMessage"]}) + "\n")
+            messages.append(str(output["systemMessage"]))
+        if messages:
+            sys.stdout.write(json.dumps({"systemMessage": "\n\n".join(messages)}) + "\n")
     except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         pass
     return 0

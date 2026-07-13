@@ -16,7 +16,7 @@ def _passage(
 ) -> ArchivalPassage:
     return ArchivalPassage(
         id=pid,
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         text=text,
         embedding=embedding,
         embedding_provenance="unit_test" if embedding is not None else "none",

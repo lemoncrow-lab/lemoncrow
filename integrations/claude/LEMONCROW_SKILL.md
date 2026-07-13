@@ -18,9 +18,9 @@ LemonCrow provides:
 
 | Command             | What it does                      |
 | ------------------- | --------------------------------- |
-| `/lc:status`   | Show current run state            |
-| `/lc:context`  | Show loaded Playbooks + rubric |
-| `/lc:settings` | Show LemonCrow configuration        |
+| `/lemoncrow:status`   | Show current run state            |
+| `/lemoncrow:context`  | Show loaded Playbooks + rubric |
+| `/lemoncrow:settings` | Show LemonCrow configuration        |
 
 ## MCP Tools
 
@@ -44,12 +44,12 @@ verify(rubric_id="rubric_shopify_publish", checks={...})
 
 ```python
 # Store/retrieve named memory block
-memory(agent_id="lc:code", label="last_gid", value="gid://shopify/Product/12345")
-memory(agent_id="lc:code", label="last_gid")
+memory(agent_id="lemoncrow:code", label="last_gid", value="gid://shopify/Product/12345")
+memory(agent_id="lemoncrow:code", label="last_gid")
 
 # Archival memory — persist and recall
-memory(agent_id="lc:code", text="...", source="run_123")
-memory(agent_id="lc:code", query="Shopify GID pattern", top_k=5)
+memory(agent_id="lemoncrow:code", text="...", source="run_123")
+memory(agent_id="lemoncrow:code", query="Shopify GID pattern", top_k=5)
 
 # Compact sleeptime memory to reduce context window
 memory(session_id="run_123")
@@ -81,7 +81,7 @@ compact(session_id="run_123")
 lc lesson inbox(domain="beseam.shopify.publish", limit=10)
 
 # Approve or reject a candidate (approved → Playbook)
-lc lesson decide(lesson_id="les_001", decision="approve", reviewer="lc:code", reason="...")
+lc lesson decide(lesson_id="les_001", decision="approve", reviewer="lemoncrow:code", reason="...")
 ```
 
 ## Domains

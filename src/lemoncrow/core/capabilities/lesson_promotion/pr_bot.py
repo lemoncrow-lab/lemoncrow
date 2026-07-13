@@ -12,7 +12,7 @@ from typing import Any
 from lemoncrow.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.core.foundation.renderer import render_playbook_markdown
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 _BOT_ENV_FLAG = "LEMONCROW_LESSON_PR_BOT_ENABLED"
 _BOT_TOKEN = "GITHUB_TOKEN"
@@ -33,7 +33,7 @@ class LessonPrBot:
     def __init__(
         self,
         *,
-        store: ContextStore,
+        store: StoreBundle,
         root: Path,
         env: Mapping[str, str] | None = None,
         run_cmd: Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]] = _run_subprocess,
@@ -47,7 +47,7 @@ class LessonPrBot:
         if not _is_enabled(self.env) or not self.env.get(_BOT_TOKEN, "").strip():
             return {"skipped": True, "reason": "disabled"}
 
-        candidate = self.store.get_lesson_candidate(lesson_id)
+        candidate = self.store.lessons.get_lesson_candidate(lesson_id)
         if candidate is None:
             raise ValueError(f"lesson not found: {lesson_id}")
         if candidate.status != "approved":
@@ -57,7 +57,7 @@ class LessonPrBot:
         if block is None:
             return {"skipped": True, "reason": "no_playbook_patch"}
 
-        block_path = self.store.blocks_dir / f"{block.id}.md"
+        block_path = self.store.knowledge.blocks_dir / f"{block.id}.md"
         new_content = render_playbook_markdown(block)
         old_content = block_path.read_text(encoding="utf-8") if block_path.exists() else ""
 
@@ -121,13 +121,13 @@ class LessonPrBot:
     def _resolve_block(self, candidate: LessonCandidate) -> Playbook | None:
         if candidate.proposed_block is not None:
             return candidate.proposed_block
-        promotions = self.store.list_lesson_promotions(limit=200)
+        promotions = self.store.lessons.list_lesson_promotions(limit=200)
         for promotion in promotions:
             if promotion.lesson_id != candidate.id:
                 continue
             block_id = promotion.published_block_id or promotion.edited_block_id
             if block_id:
-                return self.store.get_block(block_id)
+                return self.store.knowledge.get_block(block_id)
         return None
 
     def _checkout_branch(self, branch: str) -> None:
@@ -159,7 +159,7 @@ class LessonPrBot:
         )
 
     def _upsert_promotion_url(self, *, lesson_id: str, pr_url: str) -> None:
-        for promotion in self.store.list_lesson_promotions(limit=200):
+        for promotion in self.store.lessons.list_lesson_promotions(limit=200):
             if promotion.lesson_id != lesson_id:
                 continue
             updated = LessonPromotion(
@@ -170,5 +170,5 @@ class LessonPrBot:
                 pr_url=pr_url,
                 created_at=promotion.created_at,
             )
-            self.store.upsert_lesson_promotion(updated)
+            self.store.lessons.upsert_lesson_promotion(updated)
             return

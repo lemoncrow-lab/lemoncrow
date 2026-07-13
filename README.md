@@ -53,6 +53,7 @@ Then create or sign in to a free LemonCrow account and activate it inside the pr
     lc init
 
 LemonCrow wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `lc telemetry remote off`.
+
 ```bash
 lc update
 ```
@@ -107,7 +108,7 @@ Under the coding runtime is a domain-neutral context engine with one contract: *
 
 ### Agents
 
-Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `lc:<mode>`), not a persona:
+Packaged in [integrations/agents/](integrations/agents/) — each a distinct capability grant (subagent name `lemoncrow:<mode>`), not a persona:
 
 | Agent      | Writes? | Use                                              |
 | ---------- | :-----: | ------------------------------------------------ |
@@ -246,6 +247,7 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 - **Better inputs:** exact file ranges, not whole files.
 - **Better outputs:** compact command output and replies, exact technical facts intact.
 - **Better memory:** context reused, not rediscovered.
+
 ## What you get
 
 - Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.

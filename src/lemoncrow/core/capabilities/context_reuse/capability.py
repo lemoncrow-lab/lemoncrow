@@ -24,8 +24,8 @@ from lemoncrow.core.foundation.retriever import (
     retrieve,
     score_block,
 )
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.infra.embeddings.factory import get_embedder
+from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.vector import (
     cosine_similarity,
     get_cached_embedding,
@@ -285,7 +285,7 @@ class ContextReuseCapability:
     Signature: __init__(store, root) — matches engine.py constructor call.
     """
 
-    def __init__(self, store: ContextStore, root: Path) -> None:
+    def __init__(self, store: StoreBundle, root: Path) -> None:
         self._store = store
         self._root = Path(root)
         self._dead_ends = DeadEndTracker()
@@ -317,7 +317,7 @@ class ContextReuseCapability:
         return blocks
 
     def _all_active_blocks(self) -> list[Playbook]:
-        learned = self._store.list_blocks()
+        learned = self._store.knowledge.list_blocks()
         active = [b for b in learned if b.status not in ("quarantined", "deprecated")]
         domain_seen = {b.id for b in active}
         for b in self._domain_blocks():
@@ -450,7 +450,7 @@ class ContextReuseCapability:
         base_probe_candidate_ids: set[str] = set()
 
         if trace_enabled:
-            for block in self._store.list_blocks():
+            for block in self._store.knowledge.list_blocks():
                 trace_blocks.setdefault(block.id, block)
             for block in self._domain_blocks():
                 trace_blocks.setdefault(block.id, block)
@@ -463,9 +463,9 @@ class ContextReuseCapability:
             base_query = query_text
             base_candidates: list[Playbook] = []
             if base_query:
-                base_candidates.extend(self._store.search_blocks(base_query, limit=50))
+                base_candidates.extend(self._store.knowledge.search_blocks(base_query, limit=50))
             if ctx.domain:
-                base_candidates.extend(self._store.list_blocks(domain=ctx.domain))
+                base_candidates.extend(self._store.knowledge.list_blocks(domain=ctx.domain))
 
             seen_probe: set[str] = set()
             unique_probe: list[Playbook] = []
@@ -501,7 +501,7 @@ class ContextReuseCapability:
         bm25_rank_trace: dict[str, int] = {bid: rank for rank, (bid, _) in enumerate(bm25_scored, start=1)}
 
         # FTS scoring (reciprocal rank from store)
-        fts_blocks = self._store.search_blocks(
+        fts_blocks = self._store.knowledge.search_blocks(
             _fts_query_text(task=task, errors=errors, domain=domain, files=files, tools=tools),
             limit=max(limit * 5, 30),
         )

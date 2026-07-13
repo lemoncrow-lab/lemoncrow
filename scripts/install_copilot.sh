@@ -68,8 +68,8 @@ else
     TASKS_DEST="${VSCODE_USER_DIR}/tasks.json"
 fi
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:copilot] $*" || true; }
-warn()  { echo "[lc:copilot] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:copilot] $*" || true; }
+warn()  { echo "[lemoncrow:copilot] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -86,7 +86,7 @@ backup_file() {
 # ---- check VS Code ----------------------------------------------------------
 if ! command -v code &>/dev/null; then
     if $STRICT; then
-        echo "[lc:copilot] ERROR: 'code' (VS Code) not found on PATH." >&2
+        echo "[lemoncrow:copilot] ERROR: 'code' (VS Code) not found on PATH." >&2
         exit 1
     fi
     warn "'code' (VS Code) not found — SKIPPING."
@@ -103,7 +103,7 @@ if $WORKSPACE_SET; then
   "servers": {
       "lemoncrow": {
         "type": "stdio",
-        "command": "lc",
+        "command": "lemoncrow",
         "args": ["mcp", "--host", "copilot"],
         "env": {
           "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
@@ -119,7 +119,7 @@ else
   "servers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "lemoncrow",
       "args": ["mcp", "--host", "copilot"]
     }
   }
@@ -169,7 +169,7 @@ new_entry = json.loads('''$NEW_ENTRY''')
 server_key = 'servers' if 'servers' in existing or 'mcpServers' not in existing else 'mcpServers'
 existing.setdefault(server_key, {}).update(new_entry['servers'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print("[lc:copilot] merged LemonCrow into $MCP_JSON")
+print("[lemoncrow:copilot] merged LemonCrow into $MCP_JSON")
 PYEOF
     fi
 else
@@ -231,7 +231,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_copilot_agents
 
 written = write_workspace_copilot_agents(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"))
-print(f"[lc:copilot] projected {len(written)} Copilot role agents into ${AGENTS_DEST_DIR}")
+print(f"[lemoncrow:copilot] projected {len(written)} Copilot role agents into ${AGENTS_DEST_DIR}")
 PYEOF
     fi
 else
@@ -271,7 +271,7 @@ for item in incoming.get('inputs', []):
         existing_inputs.append(item)
 
 dest.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print('[lc:copilot] merged LemonCrow task presets into ' + str(dest))
+print('[lemoncrow:copilot] merged LemonCrow task presets into ' + str(dest))
 PYEOF
         fi
     else
@@ -297,7 +297,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:copilot] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:copilot] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$MCP_JSON" ]; then
     HAS=$(python3 -c "
@@ -343,17 +343,17 @@ else
     vfail "$TASKS_DEST missing LemonCrow task presets"
 fi
 
-if command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1; then
-    vpass "lc status command is available"
+if command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1; then
+    vpass "lemoncrow status command is available"
 else
-    vfail "lc status command unavailable"
+    vfail "lemoncrow status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:copilot] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:copilot] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"
 
 info "Done. Reload VS Code window - LemonCrow MCP and tasks are available."
-info "Tip: run 'lc status' in any shell to see the runs dashboard."
+info "Tip: run 'lemoncrow status' in any shell to see the runs dashboard."

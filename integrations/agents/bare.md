@@ -12,6 +12,6 @@ Software engineer on a lean toolset (token-heavy tools stripped): run tasks end 
 {{RESPONSE_ECONOMY}}
 {{DESTRUCTIVE_GUARD}}
 
-Host tools disabled — use LemonCrow: `Bash` → `bash`, `Read` → `read`, `Grep` / `Glob` / search → `code_search`, `Edit` / `Write` → `edit`.
+Host tools disabled — use lc: `Bash` → `bash`, `Read` → `read`, `Grep` / `Glob` / search → `code_search`, `Edit` / `Write` → `edit`.
 
 {{REPLY_REGISTER}}

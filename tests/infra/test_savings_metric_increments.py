@@ -11,10 +11,10 @@ from __future__ import annotations
 import pytest
 
 from lemoncrow.core.capabilities.telemetry.context_budget import ContextBudgetRecorder
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
-def test_context_budget_dispatch_loop(store: ContextStore) -> None:
+def test_context_budget_dispatch_loop(store: StoreBundle) -> None:
     """Test recording metrics through a simulated dispatch loop."""
     recorder = ContextBudgetRecorder(store)
 
@@ -49,7 +49,7 @@ def test_context_budget_dispatch_loop(store: ContextStore) -> None:
         )
 
     # Verify all records were persisted
-    records = store.list_context_budgets(session_id)
+    records = store.telemetry.list_context_budgets(session_id)
     assert len(records) == 3
 
     # Verify ordering by turn_index
@@ -67,16 +67,16 @@ def test_context_budget_dispatch_loop(store: ContextStore) -> None:
     }
 
 
-def test_context_budget_database_schema_migration(store: ContextStore) -> None:
+def test_context_budget_database_schema_migration(store: StoreBundle) -> None:
     """Test that the database schema includes the context_budget table."""
     # Verify the table exists by attempting to query it
-    with store._connect() as conn:
+    with store.telemetry._connect() as conn:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='context_budget';")
         result = cursor.fetchone()
         assert result is not None, "context_budget table should exist after init()"
 
 
-def test_context_budget_unique_constraint(store: ContextStore) -> None:
+def test_context_budget_unique_constraint(store: StoreBundle) -> None:
     """Test that the unique constraint on (session_id, turn_index) is enforced."""
     recorder = ContextBudgetRecorder(store)
 
@@ -111,14 +111,14 @@ def test_context_budget_unique_constraint(store: ContextStore) -> None:
     )
 
     # Verify only one record exists
-    records = store.list_context_budgets(session_id)
+    records = store.telemetry.list_context_budgets(session_id)
     assert len(records) == 1
     # Verify it has the latest values
     assert records[0].input_tokens == 1100
     assert records[0].lever_savings == {"test": 200}
 
 
-def test_context_budget_large_run(store: ContextStore) -> None:
+def test_context_budget_large_run(store: StoreBundle) -> None:
     """Test recording metrics for a large run with many turns."""
     recorder = ContextBudgetRecorder(store)
 
@@ -141,7 +141,7 @@ def test_context_budget_large_run(store: ContextStore) -> None:
         )
 
     # Verify all records were persisted
-    records = store.list_context_budgets(session_id)
+    records = store.telemetry.list_context_budgets(session_id)
     assert len(records) == turn_count
 
     # Verify aggregation
@@ -153,7 +153,7 @@ def test_context_budget_large_run(store: ContextStore) -> None:
     assert savings.total_tokens_saved == expected_total
 
 
-def test_context_budget_lever_savings_json_serialization(store: ContextStore) -> None:
+def test_context_budget_lever_savings_json_serialization(store: StoreBundle) -> None:
     """Test that lever_savings dict is properly serialized/deserialized."""
     recorder = ContextBudgetRecorder(store)
 
@@ -178,14 +178,14 @@ def test_context_budget_lever_savings_json_serialization(store: ContextStore) ->
     )
 
     # Retrieve and verify
-    records = store.list_context_budgets("json-test")
+    records = store.telemetry.list_context_budgets("json-test")
     assert records[0].lever_savings == complex_savings
 
 
-def test_context_budget_index_performance(store: ContextStore) -> None:
+def test_context_budget_index_performance(store: StoreBundle) -> None:
     """Test that the database index on (session_id) is present for query performance."""
     # Verify the index exists
-    with store._connect() as conn:
+    with store.telemetry._connect() as conn:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='ix_context_budget_run';")
         result = cursor.fetchone()
         assert result is not None, "Index on session_id should exist"

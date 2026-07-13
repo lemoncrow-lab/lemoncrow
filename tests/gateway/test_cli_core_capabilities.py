@@ -106,7 +106,6 @@ def test_read_smart_and_edit_smart(tmp_path: Path, monkeypatch: pytest.MonkeyPat
                 "edits": [
                     {
                         "path": str(target),
-                        "op": "replace",
                         "old_string": "return 1",
                         "new_string": "return 2",
                     }

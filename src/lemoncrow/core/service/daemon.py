@@ -150,9 +150,9 @@ def install(enable: bool) -> None:
         click.echo("systemctl not available. On macOS use 'lcd install --launchd'.", err=True)
         sys.exit(1)
 
-    # Note: when running via 'lc background service install', sys.argv[0] is 'lc'
-    # but we want the service to point to 'lc background service start'
-    lemoncrow_bin = shutil.which("lc") or sys.argv[0]
+    # Note: when running via 'lemoncrow background service install', sys.argv[0] is 'lemoncrow'
+    # but we want the service to point to 'lemoncrow background service start'
+    lemoncrow_bin = shutil.which("lemoncrow") or sys.argv[0]
     service_start_cmd = f"{lemoncrow_bin} background service start"
 
     project_root = os.getcwd()
@@ -263,8 +263,8 @@ def frontend_install(enable: bool) -> None:
         click.echo(f"Frontend directory not found: {fdir}", err=True)
         sys.exit(1)
 
-    # We use 'lc background service' as the proxy for the daemon logic
-    lemoncrow_bin = shutil.which("lc") or sys.argv[0]
+    # We use 'lemoncrow background service' as the proxy for the daemon logic
+    lemoncrow_bin = shutil.which("lemoncrow") or sys.argv[0]
     service_start_cmd = f"{lemoncrow_bin} background service"
 
     unit_dir = SYSTEMD_USER_DIR

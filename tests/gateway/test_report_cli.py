@@ -8,8 +8,8 @@ import pytest
 from click.testing import CliRunner
 
 from lemoncrow.core.foundation.models import Trace, ValidationResult
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.cli import cli
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 
 def test_report_cli_outputs_json_and_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,8 +23,8 @@ def test_report_cli_outputs_json_and_markdown(tmp_path: Path, monkeypatch: pytes
     runner = CliRunner()
     init = runner.invoke(cli, ["--root", str(root), "init"])
     assert init.exit_code == 0, init.output
-    store = ContextStore(root)
-    store.record_trace(
+    store = build_sqlite_store_bundle(root)
+    store.history.record_trace(
         Trace(
             id="trace-report",
             agent="codex",

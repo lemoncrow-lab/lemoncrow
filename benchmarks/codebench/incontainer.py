@@ -8,7 +8,7 @@ existing savings / report / CSV path applies unchanged.
 
 The two arms differ only in the overlay contents + the claude flags:
   baseline -> vanilla Claude Code (default persona, empty MCP)
-  lemoncrow -> Claude Code + the LemonCrow plugin (--plugin-dir, --agent lc:auto)
+  lemoncrow -> Claude Code + the LemonCrow plugin (--plugin-dir, --agent lemoncrow:auto)
 That is the vanilla-vs-LemonCrow isolation, same model, same task.
 """
 
@@ -55,7 +55,7 @@ _DIFF_BEGIN = "<<<CODEBENCH_DIFF_BEGIN>>>"
 _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 
 # Persona per arm for the "code" capability (mirrors run.ARM_SPECS).
-_ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lc:auto"}
+_ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lemoncrow:auto"}
 
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
@@ -73,7 +73,7 @@ rm -rf /var/lib/apt/lists/*
 
 # LemonCrow arm only: install the LemonCrow CLI from the mounted repo (skip mypyc
 # for a fast pure-Python build) onto PATH so the plugin's MCP server
-# (`lc mcp --host claude`) resolves exactly as it does on the host.
+# (`lemoncrow mcp --host claude`) resolves exactly as it does on the host.
 # Extras go on the path requirement; UV_TOOL_BIN_DIR puts the entrypoints on PATH.
 _LEMONCROW_INSTALL = r"""
 set -e
@@ -258,7 +258,7 @@ def ensure_overlay(base_image: str, *, lc: bool, build_timeout: float = 3600) ->
     if lc:
         parent = ensure_overlay(base_image, lc=False)
         install = _LEMONCROW_INSTALL
-        mounts = ["-v", f"{REPO_ROOT}:/opt/lc:ro"]
+        mounts = ["-v", f"{REPO_ROOT}:/opt/lemoncrow:ro"]
     else:
         ensure_base_image(base_image)
         parent = base_image
@@ -381,13 +381,13 @@ def _docker_run_cmd(
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
     if arm == "lemoncrow":
-        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lc:auto')}:/mnt/plugin:ro"]
+        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:auto')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
         # Overlay the live repo source onto the baked-in (pure-Python) install so
         # tool-behavior changes take effect without rebuilding 12 overlay images.
         cmd += [
             "-v",
-            f"{REPO_ROOT}/src/lc:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lc:ro",
+            f"{REPO_ROOT}/src/lemoncrow:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemoncrow:ro",
         ]
         # Semantic bash-output compaction: bind-mount an rtk binary so
         # external_compactors routes pytest/git/linter output through it inside
@@ -429,8 +429,8 @@ def _docker_run_cmd(
         env["CODEBENCH_BEFORE_REPO_SET_CMD"] = str(before_repo_set_cmd)
     agent = _ARM_AGENT.get(arm)
     if arm == "lemoncrow":
-        # Per-run persona override (default lc:auto). Lets a diagnostic run
-        # use e.g. lc:bare without disturbing a concurrent auto run -- the
+        # Per-run persona override (default lemoncrow:auto). Lets a diagnostic run
+        # use e.g. lemoncrow:bare without disturbing a concurrent auto run -- the
         # other process doesn't set this env var, so it keeps the default.
         agent = os.environ.get("CODEBENCH_LEMONCROW_AGENT") or agent
     if agent:
@@ -444,7 +444,7 @@ def _docker_run_cmd(
         # reasons over. callers/callees/usages are already hidden by default
         # (folded into `explore`), so they need not be repeated here. Visible
         # surface after this: read, edit, code_search, bash (verified via
-        # `lc tools list` under this env) -- ~1k tokens of schema total.
+        # `lemoncrow tools list` under this env) -- ~1k tokens of schema total.
         env["LEMONCROW_HIDE_TOOLS"] = "sql,memory,web_fetch"
         # Point at the pre-installed binary so discover_astgrep_binary() finds it
         # immediately via the env-var path (no runtime download attempt through proxy).

@@ -25,7 +25,7 @@ def test_make_uuid7_has_uuid_text_shape() -> None:
 def test_memory_block_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         MemoryBlock(
-            agent_id="lc:code",
+            agent_id="lemoncrow:code",
             label="persona",
             value="text",
             unexpected=True,  # type: ignore[call-arg]
@@ -35,7 +35,7 @@ def test_memory_block_rejects_extra_fields() -> None:
 def test_archival_passage_dedup_hash_is_non_empty() -> None:
     with pytest.raises(ValidationError):
         ArchivalPassage(
-            agent_id="lc:code",
+            agent_id="lemoncrow:code",
             text="text",
             source="trace",
             dedup_hash="",
@@ -44,24 +44,24 @@ def test_archival_passage_dedup_hash_is_non_empty() -> None:
 
 def test_memory_block_value_length_respects_limit_chars() -> None:
     with pytest.raises(ValidationError):
-        MemoryBlock(agent_id="lc:code", label="persona", value="abcdef", limit_chars=3)
+        MemoryBlock(agent_id="lemoncrow:code", label="persona", value="abcdef", limit_chars=3)
 
 
 def test_memory_model_defaults_use_uuid7_prefixes() -> None:
-    block = MemoryBlock(agent_id="lc:code", label="persona", value="text")
+    block = MemoryBlock(agent_id="lemoncrow:code", label="persona", value="text")
     history = MemoryBlockHistory(
         block_id=block.id,
         prev_value="old",
         new_value="new",
-        actor="agent:lc:code",
+        actor="agent:lemoncrow:code",
     )
     passage = ArchivalPassage(
-        agent_id="lc:code",
+        agent_id="lemoncrow:code",
         text="text",
         source="trace",
         dedup_hash="hash",
     )
-    recall = MemoryRecall(agent_id="lc:code", query="q", top_passages=[passage.id])
+    recall = MemoryRecall(agent_id="lemoncrow:code", query="q", top_passages=[passage.id])
 
     assert block.id.startswith("mem-")
     assert history.id.startswith("memh-")

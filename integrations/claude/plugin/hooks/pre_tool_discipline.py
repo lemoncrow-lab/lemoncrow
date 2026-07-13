@@ -49,10 +49,26 @@ def _workspace_key(path: str) -> str:
     return label or sha256(str(resolved).encode()).hexdigest()[:12]
 
 
-def _edited_paths() -> set[str]:
+def _agent_key(payload: dict[str, Any]) -> str:
+    """Per-agent state key so a read-only sub-agent never inherits another
+    agent's edits.
+
+    Every hook payload carries a unique ``agent_id`` for sub-agents (Task /
+    workflow fan-out) and omits it for the top-level agent, which falls back to
+    its ``session_id``. Sub-agents SHARE the parent's session_id, so session_id
+    alone cannot separate them; ``transcript_path`` is useless too -- the host
+    reports the top-level session transcript for every agent. ``agent_id`` is
+    the only per-agent discriminator, and it rides in both Pre and Post payloads
+    so the recorder and this guard resolve the same key.
+    """
+    raw = payload.get("agent_id") or payload.get("session_id") or "main"
+    return re.sub(r"[^A-Za-z0-9._-]", "-", str(raw)) or "main"
+
+
+def _edited_paths(agent_key: str) -> set[str]:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    sp = _root() / "workspaces" / h / "loop_discipline.json"
+    sp = _root() / "workspaces" / h / "loop_discipline" / f"{agent_key}.json"
     with contextlib.suppress(OSError, json.JSONDecodeError):
         data = json.loads(sp.read_text("utf-8"))
         if isinstance(data, dict):
@@ -61,9 +77,15 @@ def _edited_paths() -> set[str]:
 
 
 def _is_read(name: str, ti: dict[str, Any]) -> bool:
-    if name.endswith("__read") or name == "read":
-        return True
-    return ("path" in ti or "files" in ti) and "edits" not in ti and "command" not in ti
+    """True only for an actual read tool call.
+
+    Gate on the tool NAME, never on the mere presence of a 'files'/'path' key:
+    other tools carry those fields for unrelated reasons -- e.g. a
+    StructuredOutput call whose payload enumerates a files=[...] array -- and
+    inferring 'read' from shape wrongly denied them (an enumerated path that
+    happened to be in the edited set produced a bogus :full-read deny).
+    """
+    return name in ("read", "Read") or name.endswith("__read")
 
 
 # ':Lx-Ly' / ':full' / ':head=N' / ':tail=N' / ':summary' / ':outline' suffixes
@@ -161,7 +183,7 @@ def main() -> int:
         return 0
     if not _is_read(name, ti):
         return 0
-    edited = _edited_paths()
+    edited = _edited_paths(_agent_key(payload))
     if not edited:
         return 0
     # Entries are resolved absolute paths; a bare basename is the recorder's

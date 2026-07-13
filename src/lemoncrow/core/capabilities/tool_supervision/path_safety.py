@@ -1,7 +1,6 @@
-"""Shared path-safety constants and helpers for edit modules.
+"""Shared path-safety constants and helpers for the edit module.
 
-Centralises the protected-directory set so rich_edit and batch_edit cannot
-drift out of sync with each other.
+Centralises the protected-directory set that rich_edit enforces on every write.
 """
 
 from __future__ import annotations

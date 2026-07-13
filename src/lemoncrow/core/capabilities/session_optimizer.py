@@ -20,92 +20,6 @@ from lemoncrow.gateway.hosts.session_parsers.registry import SUPPORTED_SESSION_I
 SUPPORTED_OPTIMIZER_HOSTS = SUPPORTED_SESSION_IMPORT_HOSTS
 
 
-@dataclass(frozen=True)
-class SessionOptimizationRule:
-    id: str
-    title: str
-    severity: str
-    trigger: str
-    action: str
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "severity": self.severity,
-            "trigger": self.trigger,
-            "action": self.action,
-        }
-
-
-SESSION_OPTIMIZATION_RULES: tuple[SessionOptimizationRule, ...] = (
-    SessionOptimizationRule(
-        id="smallest-reviewable-plan",
-        title="Start with the smallest viable plan",
-        severity="high",
-        trigger="A task can expand into broad searches, high-cost context loading, or long-running exploration.",
-        action=(
-            "Before changing files, name the deliverable and summarize the smallest viable plan. "
-            "Keep context narrow, default to the smallest sufficient response, and skip long walkthroughs unless asked. "
-            "Stop after the first working patch for review when the scope is uncertain."
-        ),
-    ),
-    SessionOptimizationRule(
-        id="fresh-bounded-context",
-        title="Bound context before editing",
-        severity="high",
-        trigger="Effective input and cache tokens are likely to swamp useful output.",
-        action=(
-            "Use only the current goal, relevant files, failing command/output, and known constraints. "
-            "Restate working context in under 10 bullets before editing or after compaction."
-        ),
-    ),
-    SessionOptimizationRule(
-        id="delivery-or-stop",
-        title="Stop low-delivery expensive loops",
-        severity="medium",
-        trigger="A session spends meaningful time or retries without edits, validation, or a clear deliverable.",
-        action=(
-            "If more than 10 minutes pass without an edit, name the expected deliverable or check with the user. "
-            "If the same approach fails twice, call rescue or change approach; do not retry a third time."
-        ),
-    ),
-)
-
-
-def session_optimization_rules() -> list[dict[str, str]]:
-    """Return the optimizer rules as JSON-serialisable dictionaries."""
-    return [rule.to_dict() for rule in SESSION_OPTIMIZATION_RULES]
-
-
-def normalize_optimizer_host(host: str | None) -> str:
-    normalized = (host or "").strip().lower()
-    return normalized if normalized in SUPPORTED_OPTIMIZER_HOSTS else "generic"
-
-
-def render_session_optimizer_guidance(host: str | None = None) -> str:
-    """Render concise guidance suitable for host instructions or hook context."""
-    normalized = normalize_optimizer_host(host)
-    host_suffix = "" if normalized == "generic" else f" for {normalized}"
-    lines = [f"LemonCrow budget optimizer is active{host_suffix}."]
-    lines.extend(f"- {rule.action}" for rule in SESSION_OPTIMIZATION_RULES)
-    return "\n".join(lines)
-
-
-def build_session_start_notice(root: str | None = None, *, host: str | None = None) -> dict[str, Any]:
-    """Build a host hook payload that injects optimizer guidance at session start."""
-    return {
-        "hookSpecificOutput": {"hookEventName": "SessionStart"},
-        "additionalContext": render_session_optimizer_guidance(host),
-        "message": "LemonCrow budget optimizer active",
-        "optimizer": {
-            "host": normalize_optimizer_host(host),
-            "root": root,
-            "rules": session_optimization_rules(),
-        },
-    }
-
-
 def effective_input_tokens(trace: Trace) -> int:
     return (
         int(trace.input_tokens or 0) + int(trace.cached_input_tokens or 0) + int(trace.cache_creation_input_tokens or 0)
@@ -187,10 +101,9 @@ def build_trace_optimization_report(
     """Build CodeBurn-style optimization recommendations from LemonCrow traces."""
     cutoff = datetime.now(UTC) - timedelta(days=max(1, days))
     # Trace.host is an open-ended field (SDK-recorded traces can carry any
-    # provider/host string), so filtering must use the literal value given --
-    # normalize_optimizer_host() collapses anything outside the built-in
-    # registry to "generic", which would silently turn an explicit-but-unknown
-    # --host filter into a match-everything wildcard instead of zero matches.
+    # provider/host string), so filter on the literal value given (empty -> no
+    # filter). Bucketing an explicit-but-unknown --host would silently turn it
+    # into a match-everything wildcard instead of zero matches.
     host_filter = (host or "").strip().lower() or None
     filtered = [
         trace
@@ -283,7 +196,7 @@ def build_trace_optimization_report(
                 title="High-cost session outliers",
                 severity="high",
                 sessions=sorted(outliers, key=lambda item: item["cost_usd"], reverse=True)[:limit],
-                action=SESSION_OPTIMIZATION_RULES[0].action,
+                action="Investigate the cost driver and narrow scope; keep loaded context minimal.",
                 estimated_tokens_saved=outlier_tokens,
                 estimated_usd_saved=outlier_usd,
             )
@@ -295,7 +208,7 @@ def build_trace_optimization_report(
                 title="Context-heavy sessions",
                 severity="high",
                 sessions=sorted(context_heavy, key=lambda item: item["effective_input_tokens"], reverse=True)[:limit],
-                action=SESSION_OPTIMIZATION_RULES[1].action,
+                action="Bound context before editing: load only the current goal, relevant files, and failing output.",
                 estimated_tokens_saved=context_tokens,
                 estimated_usd_saved=context_usd,
             )
@@ -307,7 +220,7 @@ def build_trace_optimization_report(
                 title="Possibly low-worth expensive sessions",
                 severity="medium",
                 sessions=sorted(low_worth, key=lambda item: item["cost_usd"], reverse=True)[:limit],
-                action=SESSION_OPTIMIZATION_RULES[2].action,
+                action="Name the deliverable; after two failed attempts, change approach or stop.",
                 estimated_tokens_saved=low_tokens,
                 estimated_usd_saved=low_usd,
             )
@@ -333,7 +246,6 @@ def build_trace_optimization_report(
                 "unknown model pricing can understate dollar estimates",
             ],
         },
-        "guidance": render_session_optimizer_guidance(host),
     }
 
 

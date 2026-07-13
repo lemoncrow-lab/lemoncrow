@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -46,24 +47,54 @@ def _workspace_key(path: str) -> str:
     return label or sha256(str(resolved).encode()).hexdigest()[:12]
 
 
-def _state_path() -> Path:
+def _agent_key(payload: dict[str, Any]) -> str:
+    """Per-agent state key so a read-only sub-agent never inherits another
+    agent's edits, and its edits never falsely block the parent.
+
+    Sub-agents (Task / workflow fan-out) carry a unique ``agent_id`` in every
+    hook payload; the top-level agent omits it and falls back to ``session_id``
+    (sub-agents share the parent's session_id, so that alone cannot separate
+    them). Read identically by the PreToolUse guard so record and check align.
+    """
+    raw = payload.get("agent_id") or payload.get("session_id") or "main"
+    return re.sub(r"[^A-Za-z0-9._-]", "-", str(raw)) or "main"
+
+
+def _state_dir() -> Path:
     # Key by workspace so concurrent/sequential tasks never share state.
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    return _root() / "workspaces" / h / "loop_discipline.json"
+    return _root() / "workspaces" / h / "loop_discipline"
 
 
-def _load() -> dict[str, Any]:
+def _state_path(agent_key: str) -> Path:
+    return _state_dir() / f"{agent_key}.json"
+
+
+def _prune(ttl_seconds: float = 86_400.0) -> None:
+    """Delete per-agent state files untouched within ttl. Sub-agent files are
+    ephemeral -- one per sub-agent -- so without this they accumulate forever.
+    The current agent's file was just written (mtime=now) so is never pruned.
+    """
+    with contextlib.suppress(OSError):
+        now = time.time()
+        for f in _state_dir().glob("*.json"):
+            with contextlib.suppress(OSError):
+                if now - f.stat().st_mtime > ttl_seconds:
+                    f.unlink()
+
+
+def _load(agent_key: str) -> dict[str, Any]:
     with contextlib.suppress(OSError, json.JSONDecodeError):
-        data = json.loads(_state_path().read_text("utf-8"))
+        data = json.loads(_state_path(agent_key).read_text("utf-8"))
         if isinstance(data, dict):
             return data
     return {}
 
 
-def _save(state: dict[str, Any]) -> None:
+def _save(agent_key: str, state: dict[str, Any]) -> None:
     with contextlib.suppress(OSError):
-        p = _state_path()
+        p = _state_path(agent_key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(state), encoding="utf-8")
 
@@ -117,12 +148,14 @@ def main() -> int:
     if not isinstance(ti, dict) or not _is_edit(name, ti):
         return 0
     try:
-        state = _load()
+        agent_key = _agent_key(payload)
+        state = _load(agent_key)
         edited = set(state.get("edited_paths") or [])
         for target in _edit_targets(ti):
             edited.add(_record_key(target))
         state["edited_paths"] = sorted(edited)[-80:]
-        _save(state)
+        _save(agent_key, state)
+        _prune()
     except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
         pass
     return 0

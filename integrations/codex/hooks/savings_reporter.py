@@ -25,15 +25,28 @@ def main() -> int:
 
         payload = json.loads(sys.stdin.read() or "{}")
         root = _lemoncrow_root()
-        # Savings + native-tool telemetry stay silent (state only). The run
-        # ledger + tool-supervision capture also happen here. The only surfaced
-        # output is the repeat-failure nudge -- Codex has no separate
-        # PostToolUseFailure event, so it is folded into PostToolUse.
-        build_codex_post_tool_use_savings_output(root, payload)
+        # Savings telemetry stays silent (state only), except for the native-
+        # tool nudge it returns the first time a given native tool call is seen
+        # (Codex has no permission-deny like Claude, so this is the only
+        # correction back to lc.*). The run ledger + tool-supervision capture
+        # also happen here; its only surfaced output is the repeat-failure
+        # nudge -- Codex has no separate PostToolUseFailure event, so it is
+        # folded into PostToolUse. Both messages can fire on the same call.
+        savings = build_codex_post_tool_use_savings_output(root, payload)
         ledger = build_codex_post_tool_use_ledger_output(root, payload)
-        message = ledger.get("systemMessage")
-        if isinstance(message, str) and message.strip():
-            sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
+        messages = []
+        nudge_message = savings.get("message")
+        if isinstance(nudge_message, str) and nudge_message.strip():
+            parts = [nudge_message.strip()]
+            context = savings.get("additionalContext")
+            if isinstance(context, str) and context.strip():
+                parts.append(context.strip())
+            messages.append("\n".join(parts))
+        ledger_message = ledger.get("systemMessage")
+        if isinstance(ledger_message, str) and ledger_message.strip():
+            messages.append(ledger_message.strip())
+        if messages:
+            sys.stdout.write(json.dumps({"systemMessage": "\n\n".join(messages)}) + "\n")
     except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
         pass
     return 0

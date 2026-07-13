@@ -16,7 +16,7 @@ Hermes config format (YAML)::
 
     mcp_servers:
       lc:
-        command: lc mcp
+        command: lemoncrow mcp
         args: []
         timeout: 120
         connect_timeout: 60
@@ -128,11 +128,11 @@ class HermesAdapter(AgentAdapter):
         return (
             "# Hermes Agent ← LemonCrow integration\n"
             "1. pip install lemoncrow\n"
-            "2. lc init && lc mcp    # verify MCP server starts\n"
+            "2. lemoncrow init && lemoncrow mcp    # verify MCP server starts\n"
             "3. Add to $HERMES_HOME/config.yaml or ~/.hermes/config.yaml:\n"
             "   mcp_servers:\n"
             "     lc:\n"
-            "       command: lc mcp\n"
+            "       command: lemoncrow mcp\n"
             "       args: []\n"
             "       timeout: 120\n"
             "       connect_timeout: 60\n"

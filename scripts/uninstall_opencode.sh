@@ -43,7 +43,7 @@ else
 fi
 STAGING_DIR="${HOME}/.lemoncrow/opencode"
 
-info()  { echo "[lc:uninstall:opencode] $*"; }
+info()  { echo "[lemoncrow:uninstall:opencode] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 clean_config() {

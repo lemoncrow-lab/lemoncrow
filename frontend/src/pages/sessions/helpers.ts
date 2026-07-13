@@ -29,7 +29,7 @@ export function extractHost(trace: Trace | string): string {
   if (i.startsWith("codex-") || a === "codex") return "codex";
   if (i.startsWith("copilot-") || a === "copilot") return "copilot";
   if (i.startsWith("opencode-") || a === "opencode") return "opencode";
-  if (a.startsWith("lc:")) return "lc";
+  if (a.startsWith("lemoncrow:")) return "lc";
   return "unknown";
 }
 

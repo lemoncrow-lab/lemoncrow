@@ -27,9 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _seed_run_file(root: Path, session_id: str) -> Path:
-    runs = root / "runs"
-    runs.mkdir(parents=True, exist_ok=True)
-    run_file = runs / f"{session_id}.json"
+    # Canonical per-session ledger location (plugin_runtime._codex_run_file); the
+    # old flat root/runs/<id>.json path was retired.
+    run_file = plugin_runtime._codex_run_file(root, session_id)
+    run_file.parent.mkdir(parents=True, exist_ok=True)
     run_file.write_text(
         json.dumps({"session_id": session_id, "events": [], "files_touched": []}),
         encoding="utf-8",
@@ -44,7 +45,7 @@ def _write_session_state(root: Path, payload: dict, state: dict) -> None:
 
 
 def _events(root: Path, session_id: str) -> list[dict]:
-    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
+    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
     return data["events"]
 
 
@@ -66,13 +67,14 @@ def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
 
 
 def test_codex_native_tool_replacement_maps_apply_patch_to_lc_edit() -> None:
-    # apply_patch is Codex's native patch tool -- must nudge to mcp__lc__edit
-    # exactly like edit/write/multiedit, not fall through unmapped (regression for
+    # apply_patch is Codex's native patch tool -- must nudge to lc.edit (the
+    # name Codex actually calls, not Claude Code's mcp__lc__ form) exactly
+    # like edit/write/multiedit, not fall through unmapped (regression for
     # the gap where apply_patch calls went unnudged and landed as native patches).
     for tool_name in ("apply_patch", "patch", "replace", "edit", "write", "multiedit"):
         replacement = plugin_runtime._codex_native_tool_replacement({"tool_name": tool_name})
         assert replacement is not None
-        assert replacement[0] == "mcp__lc__edit"
+        assert replacement[0] == "lc.edit"
 
 
 def test_session_tool_normalizers_use_generic_lemoncrow_namespace() -> None:
@@ -97,6 +99,10 @@ def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     session_id = "run1"
     _seed_run_file(root, session_id)
+    # The guard is size-gated: only a large edited file is hard-blocked.
+    src = tmp_path / "src" / "a.py"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text("".join(f"x = {i}\n" for i in range(600)), encoding="utf-8")
     plugin_runtime.build_codex_post_tool_use_ledger_output(
         root,
         {
@@ -185,7 +191,7 @@ def test_post_tool_use_records_file_edit(tmp_path: Path) -> None:
     assert len(file_edits) == 1
     assert file_edits[0]["payload"]["path"] == "a.py"
     assert "x = 2" in file_edits[0]["payload"]["diff"]
-    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
+    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
     assert "a.py" in data["files_touched"]
 
 
@@ -462,7 +468,9 @@ def test_permission_request_allows_safe_commands(tmp_path: Path, command: str) -
         "tool_name": "shell",
         "tool_input": {"command": command},
     }
-    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    assert (
+        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    )
 
 
 def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
@@ -471,7 +479,9 @@ def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
         "tool_name": "apply_patch",
         "tool_input": {"file_path": "a.py"},
     }
-    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    assert (
+        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    )
 
 
 # --------------------------------------------------------------------------
@@ -501,7 +511,7 @@ def test_ingest_codex_exec_events_records_command_and_file(tmp_path: Path) -> No
     cmd = next(e for e in events if e["kind"] == "command_result")
     assert cmd["payload"]["ok"] is False
     assert cmd["payload"]["command"] == "pytest -q"
-    data = json.loads((root / "runs" / f"{session_id}.json").read_text(encoding="utf-8"))
+    data = json.loads(plugin_runtime._codex_run_file(root, session_id).read_text(encoding="utf-8"))
     assert "a.py" in data["files_touched"]
 
 

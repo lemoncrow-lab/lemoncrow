@@ -33,7 +33,7 @@ the lemoncrow arm for one run (a controlled, single-variable experiment).
 ## Wiring it into a swarm run
 
 ```bash
-uv run lc swarm start \
+uv run lemoncrow swarm start \
     --fitness-cmd "uv run python benchmarks/self_optimization/eval.py --objective health" \
     --metric-parse "regex:^score: (-?[\d.]+)"
 ```

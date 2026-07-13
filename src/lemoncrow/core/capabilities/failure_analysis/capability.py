@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lemoncrow.core.foundation.models import CommandRecord, Trace
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 @dataclass
@@ -87,7 +87,7 @@ def _trace_command_text(item: str | CommandRecord) -> str:
 class FailureAnalysisCapability:
     """Analyzes failures across traces and proposes actionable remediations."""
 
-    def __init__(self, store: ContextStore, context_reuse: Any) -> None:
+    def __init__(self, store: StoreBundle, context_reuse: Any) -> None:
         self._store = store
         self._context_reuse = context_reuse
 
@@ -164,8 +164,8 @@ class FailureAnalysisCapability:
         }
 
     def _failed_traces(self, *, domain: str | None, lookback: int) -> list[Trace]:
-        failed = self._store.list_traces(domain=domain, status="failed", limit=lookback)
-        partial = self._store.list_traces(domain=domain, status="partial", limit=lookback)
+        failed = self._store.history.list_traces(domain=domain, status="failed", limit=lookback)
+        partial = self._store.history.list_traces(domain=domain, status="partial", limit=lookback)
         out: list[Trace] = list(failed)
         for trace in partial:
             if trace.errors_seen and trace.id not in {t.id for t in out}:

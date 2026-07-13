@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.infra.storage.sqlite_store import SQLiteStore
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -108,10 +108,10 @@ def test_opencode_agent_has_host_specific_tool_policy() -> None:
     assert "OpenCode host" not in content
     assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
     # Regression: native OpenCode tool names must stay bare (they name OpenCode's
-    # own tools, not LemonCrow's) while the "use LemonCrow: ..." clause right after
+    # own tools, not LemonCrow's) while the "use lc: ..." clause right after
     # them must be prefixed -- both directions have broken before.
     assert "`lc_read`, `grep`, `lc_bash`" not in content
-    assert "— use LemonCrow: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
+    assert "— use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
 
 
 def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
@@ -121,7 +121,7 @@ def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
     # mechanism exists; see plugin_runtime._codex_native_tool_replacement).
     code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
     assert (
-        "Native Codex `apply_patch` and `exec_command` are disallowed — use LemonCrow: "
+        "Native Codex `apply_patch` and `exec_command` are disallowed — use lc: "
         "`lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`."
     ) in code_skill
     # Read-only roles have no edit tool to name apply_patch as a fallback from --
@@ -269,17 +269,17 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
             {"agent": "codex", "domain": "coding", "task": "wt2-trace", "status": "success"},
         )
 
-        store1 = SQLiteStore(root1)
-        store2 = SQLiteStore(root2)
-        stored1 = store1.get_trace(trace1["id"])
-        stored2 = store2.get_trace(trace2["id"])
+        store1 = build_sqlite_store_bundle(root1)
+        store2 = build_sqlite_store_bundle(root2)
+        stored1 = store1.history.get_trace(trace1["id"])
+        stored2 = store2.history.get_trace(trace2["id"])
 
         assert stored1 is not None
         assert stored2 is not None
         assert stored1.task == "wt1-trace"
         assert stored2.task == "wt2-trace"
-        assert store1.get_trace(trace2["id"]) is None
-        assert store2.get_trace(trace1["id"]) is None
+        assert store1.history.get_trace(trace2["id"]) is None
+        assert store2.history.get_trace(trace1["id"]) is None
     finally:
         for process in (process1, process2):
             if process.poll() is None:

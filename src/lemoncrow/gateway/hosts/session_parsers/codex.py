@@ -54,12 +54,12 @@ from lemoncrow.core.foundation.models import (
     Trace,
 )
 from lemoncrow.core.foundation.redaction import redact
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,7 @@ class CodexImporter:
     Nothing is thrown away beyond what LemonCrow's redactor strips.
     """
 
-    def __init__(self, store: ContextStore) -> None:
+    def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
     def import_all(self, root: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
@@ -384,7 +384,7 @@ class CodexImporter:
     def _is_unchanged(self, jsonl_path: Path) -> bool:
         artifact_id = f"codex-{self._session_id(jsonl_path)}"
         file_mtime = datetime.fromtimestamp(jsonl_path.stat().st_mtime, tz=UTC)
-        existing = self.store.get_raw_artifact(artifact_id)
+        existing = self.store.history.get_raw_artifact(artifact_id)
         return bool(existing and existing.source_file_mtime and file_mtime <= existing.source_file_mtime)
 
     def _import_session_content(self, jsonl_path: Path) -> str:
@@ -428,10 +428,10 @@ class CodexImporter:
         else:
             trace = self._parse_event_msg(session_id, raw_content, artifact.id)
 
-        self.store.record_raw_artifact(artifact, redacted)
+        self.store.history.record_raw_artifact(artifact, redacted)
         # write_json=False: the raw JSONL is already stored as a RawArtifact;
         # there is no need to mirror the compact Trace JSON to disk too.
-        self.store.record_trace(trace, write_json=False)
+        self.store.history.record_trace(trace, write_json=False)
         return trace.id
 
     @staticmethod
@@ -752,7 +752,7 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             session_id=session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="codex",
             domain="coding",
             task=task,
@@ -940,7 +940,7 @@ class CodexImporter:
         return Trace(
             id=f"codex-{session_id}",
             session_id=session_id,
-            agent="lc:code",
+            agent="lemoncrow:code",
             host="codex",
             domain="coding",
             task=task,

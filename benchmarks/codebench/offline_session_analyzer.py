@@ -818,7 +818,26 @@ def generate_pairs(
 def generate_savings_report(savings: list[dict]) -> dict:
     """Generate a comprehensive savings report."""
     if not savings:
-        return {"message": "No search tool calls found in session data."}
+        # Same shape as the non-empty path below -- main() unconditionally reads
+        # every one of these keys to print the summary, regardless of which
+        # branch ran. A message-only dict here crashes on the first read
+        # (e.g. a session with only code_search/ToolSearch calls and zero
+        # plain greps: `savings` stays empty since grep_calls is falsy for
+        # every episode, even though real search activity happened).
+        return {
+            "message": "No search tool calls found in session data.",
+            "total_episodes": 0,
+            "total_grep_calls": 0,
+            "total_code_search_calls": 0,
+            "total_toolsearch_calls": 0,
+            "total_search_calls": 0,
+            "episodes_with_code_search": 0,
+            "episodes_without_code_search": 0,
+            "avg_greps_per_episode": 0.0,
+            "estimated_grep_turns_saved": 0,
+            "estimated_cost_saved_usd": 0.0,
+            "per_episode": [],
+        }
 
     total_greps = sum(s["episode_greps"] for s in savings)
     total_code_searches = sum(s["episode_code_searches"] for s in savings)

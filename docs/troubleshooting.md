@@ -99,7 +99,7 @@ cd lemoncrow
 uv sync --all-extras
 ```
 
-## `lc tools call context`, `rescue`, or `verify` Returns `noop`
+## `lemoncrow tools call context`, `rescue`, or `verify` Returns `noop`
 
 Those tools are developer-mode surfaces.
 
@@ -108,7 +108,7 @@ Those tools are developer-mode surfaces.
 **Fix:**
 
 ```bash
-lc tools call context --dev --args '{"task":"Describe the task","domain":"coding"}' --json
+lemoncrow tools call context --dev --args '{"task":"Describe the task","domain":"coding"}' --json
 ```
 
 For host integrations, set `LEMONCROW_DEV_MODE=1` in the MCP server environment if

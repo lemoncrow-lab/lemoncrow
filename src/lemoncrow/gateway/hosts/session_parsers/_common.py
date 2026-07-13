@@ -23,7 +23,7 @@ from lemoncrow.core.foundation.models import (
     UsageEntry,
 )
 from lemoncrow.core.foundation.redaction import redact
-from lemoncrow.core.foundation.store import ContextStore
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +425,7 @@ def infer_time_bounds(
 
 
 def persist_imported_run_snapshot(
-    store: ContextStore,
+    store: StoreBundle,
     trace: Trace,
     *,
     started_at: datetime,
@@ -433,7 +433,7 @@ def persist_imported_run_snapshot(
 ) -> Path:
     from lemoncrow.core.foundation.paths import session_dir
 
-    run_dir = session_dir(store.root, trace.host or "claude", trace.session_id or trace.id)
+    run_dir = session_dir(store.history.root, trace.host or "claude", trace.session_id or trace.id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     calls: list[dict[str, Any]] = []
@@ -734,7 +734,7 @@ def _build_trace_from_normalized_content(
     trace = Trace(
         id=artifact.id,
         session_id=session_id,
-        agent="lc:code",
+        agent="lemoncrow:code",
         host=source,
         domain="coding",
         task=task_text,
@@ -815,7 +815,7 @@ _SNAPSHOT_MAX_BYTES = 256 * 1024  # 256 KB — skip large / generated files
 
 
 def snapshot_edited_files(
-    store: ContextStore,
+    store: StoreBundle,
     files_touched: list[FileEditRecord],
     *,
     session_id: str,
@@ -859,7 +859,7 @@ def snapshot_edited_files(
         snap_id = f"snap-{sanitize_id(session_id)}-{sha256_text(fpath)[:12]}"
 
         # Skip if already stored (idempotent re-imports)
-        if store.get_raw_artifact(snap_id) is not None:
+        if store.history.get_raw_artifact(snap_id) is not None:
             saved += 1
             continue
 
@@ -878,7 +878,7 @@ def snapshot_edited_files(
             source_file_mtime=None,
         )
         try:
-            store.record_raw_artifact(artifact, file_content)
+            store.history.record_raw_artifact(artifact, file_content)
             saved += 1
         except Exception:  # noqa: BLE001
             logger.warning("snapshot_edited_files: failed to save %s", fpath, exc_info=True)
@@ -887,7 +887,7 @@ def snapshot_edited_files(
 
 
 def record_normalized_session(
-    store: ContextStore,
+    store: StoreBundle,
     *,
     source: str,
     session_id: str,
@@ -900,7 +900,7 @@ def record_normalized_session(
 ) -> str | None:
     artifact_id = f"{source}-{sanitize_id(session_id)}"
     if not force and source_mtime is not None:
-        existing = store.get_raw_artifact(artifact_id)
+        existing = store.history.get_raw_artifact(artifact_id)
         if existing and existing.source_file_mtime and source_mtime <= existing.source_file_mtime:
             return None
 
@@ -919,7 +919,7 @@ def record_normalized_session(
         created_at=utcnow(),
         source_file_mtime=source_mtime,
     )
-    store.record_raw_artifact(artifact, redacted)
+    store.history.record_raw_artifact(artifact, redacted)
 
     trace = _build_trace_from_normalized_content(
         source=source,
@@ -929,7 +929,7 @@ def record_normalized_session(
         task=task,
         source_mtime=source_mtime,
     )
-    store.record_trace(trace, write_json=False)
+    store.history.record_trace(trace, write_json=False)
     started_at, ended_at = infer_time_bounds(raw_content, default=source_mtime)
     persist_imported_run_snapshot(store, trace, started_at=started_at, ended_at=ended_at)
 

@@ -48,7 +48,7 @@ _GREEN = "\033[38;2;80;200;120m"
 _RED = "\033[38;2;255;80;80m"
 _YELLOW = "\033[38;2;255;200;60m"
 _BRAND = "\033[1;38;2;155;117;217m"
-_BADGE = "\033[1;48;2;155;117;217;38;2;255;255;255m lc:code \033[0m"
+_BADGE = "\033[1;48;2;155;117;217;38;2;255;255;255m lemoncrow:code \033[0m"
 _SEP = "\033[2;38;2;180;180;180m │\033[0m"
 _W = 72
 
@@ -310,17 +310,17 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
     tokens_map: dict[str, int] = {}
     db_runs: list[dict[str, Any]] = []
     total_runs_in_db = 0
-    db_path = root / "lemoncrow.db"
-    if db_path.exists():
+    from lemoncrow.infra.storage.factory import create_store
+
+    cstore = create_store(root)
+    if cstore.history.db_path.exists():
         try:
             import sqlite3
 
             from lemoncrow.core.capabilities.pricing import usage_cost_usd
             from lemoncrow.core.capabilities.savings_summary import resolve_model_id
-            from lemoncrow.core.foundation.store import ContextStore
 
-            cstore = ContextStore(root)
-            token_rows = cstore.token_rows()
+            token_rows = cstore.history.token_rows()
             for trow in token_rows:
                 sid = trow["session_id"]
                 inp, out, cr, th = (
@@ -338,14 +338,15 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
                 )
                 tokens_map[sid] = tokens_map.get(sid, 0) + (inp or 0) + (out or 0) + (cr or 0) + (th or 0)
             total_runs_in_db = len(token_rows)
-            db_runs = cstore.list_trace_payloads(limit=1000)
+            db_runs = cstore.history.list_trace_payloads(limit=1000)
 
-            # context_budget remains in lemoncrow.db (separate table, not traces).
-            # Group by model so each row is priced with its own rate, then
-            # overwrite the trace-derived totals (one session can span models).
+            # context_budget lives in the telemetry store's own SQLite file
+            # (separate from traces). Group by model so each row is priced
+            # with its own rate, then overwrite the trace-derived totals (one
+            # session can span models).
             budget_cost: dict[str, float] = {}
             budget_tokens: dict[str, int] = {}
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(cstore.telemetry.db_path)) as conn:
                 for row in conn.execute(
                     "SELECT session_id, model, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens) "
                     "FROM context_budget GROUP BY session_id, model"

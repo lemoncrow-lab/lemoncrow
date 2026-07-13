@@ -12,11 +12,11 @@ from click.testing import CliRunner, Result
 # Must set dev mode before importing cli for @_dev_command registration
 from lemoncrow.core.capabilities.plugin_runtime import update_session_stats
 from lemoncrow.core.foundation.models import Playbook, Rubric
-from lemoncrow.core.foundation.store import ContextStore
 from lemoncrow.core.service.jobs import JOB_CONSOLIDATE_BLOCKS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.internal_llm import OllamaUnavailable
+from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 from tests.helpers import init_store_at
 
 
@@ -27,7 +27,7 @@ def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
 
 
 def _seed_state_change_rubric(root: Path) -> None:
-    ContextStore(root).upsert_rubric(
+    build_sqlite_store_bundle(root).knowledge.upsert_rubric(
         Rubric(
             id="rubric_state_change_safety",
             domain="state.change",
@@ -52,7 +52,7 @@ def _seed_state_change_rubric(root: Path) -> None:
 
 
 def _seed_rescue_block(root: Path) -> None:
-    ContextStore(root).upsert_block(
+    build_sqlite_store_bundle(root).knowledge.upsert_block(
         Playbook(
             id="state-change-rescue",
             title="Recover from wrong target update",
@@ -284,8 +284,8 @@ def test_worker_runs_consolidation_job_on_sqlite(
     root = tmp_path / "a"
     init_store_at(str(root))
 
-    store = ContextStore(root)
-    store.upsert_block(
+    store = build_sqlite_store_bundle(root)
+    store.knowledge.upsert_block(
         Playbook(
             id="rb-one",
             title="Checkout retry timeout",
@@ -297,7 +297,7 @@ def test_worker_runs_consolidation_job_on_sqlite(
         ),
         write_markdown=False,
     )
-    store.upsert_block(
+    store.knowledge.upsert_block(
         Playbook(
             id="rb-two",
             title="Checkout retry webhook timeout",
@@ -325,9 +325,9 @@ def test_worker_runs_consolidation_job_on_sqlite(
     assert run.exit_code == 0, run.output
     assert "processed job:" in run.output
 
-    jobs = store.list_jobs(limit=10)
+    jobs = store.jobs.list_jobs(limit=10)
     assert jobs[0]["status"] == "succeeded"
-    assert len(store.list_consolidation_candidates()) == 1
+    assert len(store.lessons.list_consolidation_candidates()) == 1
 
 
 def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -428,7 +428,7 @@ def test_background_install_writes_openmemory_unit(tmp_path: Path, monkeypatch: 
     def _which(name: str) -> str | None:
         mapping = {
             "systemctl": "/bin/systemctl",
-            "lc": "/usr/bin/lc",
+            "lemoncrow": "/usr/bin/lemoncrow",
             "git": "/usr/bin/git",
             "docker": "/usr/bin/docker",
             "make": "/usr/bin/make",
@@ -500,8 +500,8 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
     root = tmp_path / "a"
     init_store_at(str(root))
 
-    store = ContextStore(root)
-    store.upsert_block(
+    store = build_sqlite_store_bundle(root)
+    store.knowledge.upsert_block(
         Playbook(
             id="rb-one",
             title="Checkout retry timeout",
@@ -513,7 +513,7 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
         ),
         write_markdown=False,
     )
-    store.upsert_block(
+    store.knowledge.upsert_block(
         Playbook(
             id="rb-two",
             title="Checkout retry webhook timeout",
@@ -547,7 +547,7 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
     payload = json.loads(res.output)
     assert len(payload["enqueued_jobs"]) == 1
     assert len(payload["processed_jobs"]) == 1
-    assert len(store.list_consolidation_candidates()) == 1
+    assert len(store.lessons.list_consolidation_candidates()) == 1
 
 
 def test_servicectl_start_writes_pidfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -693,21 +693,21 @@ def test_servicectl_surfaces_job_queue_health(
     root = tmp_path / "a"
     init_store_at(str(root))
 
-    store = ContextStore(root)
-    running_job_id = store.enqueue_job("consolidate", {"n": 1}, max_attempts=2)
-    dead_job_id = store.enqueue_job("retry", {"n": 2}, max_attempts=1)
+    store = build_sqlite_store_bundle(root)
+    running_job_id = store.jobs.enqueue_job("consolidate", {"n": 1}, max_attempts=2)
+    dead_job_id = store.jobs.enqueue_job("retry", {"n": 2}, max_attempts=1)
 
-    running_job = store.claim_job()
-    dead_job = store.claim_job()
+    running_job = store.jobs.claim_job()
+    dead_job = store.jobs.claim_job()
 
     assert running_job is not None
     assert dead_job is not None
     assert running_job["id"] == running_job_id
     assert dead_job["id"] == dead_job_id
-    assert store.fail_job(dead_job_id, "boom") is True
+    assert store.jobs.fail_job(dead_job_id, "boom") is True
 
     stale_locked_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    with store._connect() as conn:
+    with store.jobs._connect() as conn:
         conn.execute(
             "UPDATE jobs SET locked_at = ?, updated_at = ? WHERE id = ?",
             (stale_locked_at, stale_locked_at, running_job_id),

@@ -109,8 +109,8 @@ def _high_match_block(block_id: str, title: str, trigger: str) -> Playbook:
 def test_context_reuse_filters_to_strong_top_two(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     for idx, trigger in enumerate(["deploy", "rollback", "configuration"], start=1):
-        rt.store.upsert_block(_high_match_block(f"strong-{idx}", f"Strong {idx}", trigger), write_markdown=False)
-    rt.store.upsert_block(
+        rt.store.knowledge.upsert_block(_high_match_block(f"strong-{idx}", f"Strong {idx}", trigger), write_markdown=False)
+    rt.store.knowledge.upsert_block(
         Playbook(
             id="weak-context",
             title="Weak context",
@@ -137,7 +137,7 @@ def test_context_reuse_filters_to_strong_top_two(tmp_path: Path) -> None:
 
 def test_context_reuse_returns_empty_when_no_strong_match(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
-    rt.store.upsert_block(
+    rt.store.knowledge.upsert_block(
         Playbook(
             id="weak-only",
             title="Weak only",

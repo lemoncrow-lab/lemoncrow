@@ -77,8 +77,8 @@ PYEOF
 )"
     fi
 
-    if [[ -z "$version" ]] && command -v lc >/dev/null 2>&1; then
-        version="$(lc --version 2>/dev/null | sed -n 's/^lc, version //p' | head -n 1)"
+    if [[ -z "$version" ]] && command -v lemoncrow >/dev/null 2>&1; then
+        version="$(lemoncrow --version 2>/dev/null | sed -n 's/^lemoncrow, version //p' | head -n 1)"
     fi
 
     if [[ -z "$version" ]]; then
@@ -160,14 +160,27 @@ if level not in ("lite", "off"):
     raise SystemExit(0)  # ultra/unset/unknown -> keep files as shipped
 
 shared = Path(os.environ["LEMONCROW_RR_SHARED"])
-default_body = (shared / "reply-register.md").read_text(encoding="utf-8").strip()
-repl = "" if level == "off" else (shared / "reply-register-lite.md").read_text(encoding="utf-8").strip()
+register_source = (shared / "reply-register.md").read_text(encoding="utf-8")
+
+
+def section(name):
+    start = f"<!-- lc:section {name} -->"
+    end = "<!-- lc:end -->"
+    count = register_source.count(start)
+    if count != 1:
+        raise ValueError(f"reply-register.md: expected one {start!r}, found {count}")
+    body, found, _ = register_source.partition(start)[2].partition(end)
+    if not found:
+        raise ValueError(f"reply-register.md: section {name!r} has no {end!r}")
+    return body.strip()
+
+
+default_body = section("ultra")
+repl = "" if level == "off" else section("lite")
 pairs = [(default_body, repl)]
-bullet_path = shared / "telegraphic-default.md"
-if bullet_path.exists():
-    bullet = bullet_path.read_text(encoding="utf-8").strip()
-    if bullet:
-        pairs += [(bullet + "\n", ""), (bullet, "")]
+bullet = section("telegraphic-default")
+if bullet:
+    pairs += [(bullet + "\n", ""), (bullet, "")]
 
 
 def toml_escape(s):
