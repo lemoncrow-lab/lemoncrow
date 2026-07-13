@@ -117,12 +117,13 @@ if $WORKSPACE_SET; then
 import json
 d = json.load(open('$MCP_JSON'))
 servers = d.get('mcpServers', {})
-print('yes' if 'lc' in servers else 'no')
+lc = servers.get('lc', {})
+print('yes' if isinstance(lc, dict) and lc.get('alwaysLoad') is True else 'no')
 " 2>/dev/null || echo "error")
         if [ "$HAS" = "yes" ]; then
-            pass ".mcp.json contains lc server entry"
+            pass ".mcp.json contains always-loaded lc server entry"
         else
-            fail ".mcp.json missing lc entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
+            fail ".mcp.json missing always-loaded lc entry - run: scripts/install_claude.sh --workspace $WORKSPACE"
         fi
     else
         fail ".mcp.json missing at $MCP_JSON - run: scripts/install_claude.sh --workspace $WORKSPACE"
