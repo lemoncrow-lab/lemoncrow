@@ -37,6 +37,71 @@ _SYSTEM = textwrap.dedent("""\
 
 _OLLAMA_MODEL = os.environ.get("HAIKU_OLLAMA_MODEL", "qwen2.5-coder:7b")
 
+# Reject queries that leak enough literal vocabulary from the source snippet to
+# be solvable by keyword/FTS5 search alone -- defeats the point of a semantic
+# (intent -> code) gold set. Measured on the 2026-07-13 mine: 64% of generated
+# queries shared >=60% of their content words with the target file verbatim
+# (mean overlap 0.64), so the resulting gold barely separated semantic search
+# from lexical search. Threshold matches the "hard" bucket that DID show a real
+# lexical (0.330) < semantic (0.389) < combined (0.463) MRR gap.
+_OVERLAP_STOP = {
+    "a",
+    "an",
+    "the",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "with",
+    "and",
+    "or",
+    "how",
+    "do",
+    "does",
+    "is",
+    "are",
+    "what",
+    "which",
+    "that",
+    "this",
+    "be",
+    "handle",
+    "proper",
+    "properly",
+    "correctly",
+    "used",
+    "using",
+    "use",
+    "returns",
+    "return",
+    "value",
+    "function",
+    "method",
+    "class",
+    "if",
+    "not",
+    "can",
+    "it",
+    "its",
+    "as",
+    "by",
+    "from",
+    "into",
+}
+_OVERLAP_MAX = 0.3
+
+
+def _content_tokens(s: str) -> set:
+    return {w for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", s.lower()) if w not in _OVERLAP_STOP}
+
+
+def _lexical_overlap(query: str, code: str) -> float:
+    qt = _content_tokens(query)
+    if not qt:
+        return 1.0  # no scorable content -> treat as leaky, reject
+    return len(qt & _content_tokens(code)) / len(qt)
+
 
 def haiku_query(code: str, name: str, kind: str) -> str:
     prompt = f"{_SYSTEM}\n\nCode ({kind}):\n```\n{code[:2000]}\n```\n\nOne search query:"
@@ -93,6 +158,8 @@ def mine_repo(db, ws, cap):
             continue
         q = haiku_query(code, name, kind)
         if len(q.split()) < 5 or name.lower() in q.lower().replace("_", " "):
+            continue
+        if _lexical_overlap(q, code) >= _OVERLAP_MAX:
             continue
         out.append((q, fp))
         seen.add(key)
