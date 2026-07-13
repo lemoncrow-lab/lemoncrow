@@ -1339,6 +1339,11 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     normalized["hook_event_name"] = "PostToolUse"
     _write_opencode_session_state(root, normalized)
     update_session_stats(root, normalized)
+    # Record edits/commands into the canonical run ledger so verify-before-done
+    # has live data at idle time. Runs for lc AND native tools (before the
+    # lc-tool nudge short-circuit) -- the MCP server only persists its own
+    # ledger at session close, too late for the idle hook.
+    _record_tool_for_verify(root, normalized)
     if _is_lemoncrow_tool(str(normalized.get("tool_name") or "")):
         return {"no_output": True}
     nudge = _codex_native_tool_nudge(root, normalized)
@@ -1346,11 +1351,30 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     return {"uiMessage": message} if message else {"no_output": True}
 
 
-# NOTE: verify-before-done on OpenCode reads the run ledger the MCP server
-# populates from lc-tool (mcp__lc__edit / mcp__lc__bash) usage -- OpenCode's
-# primary edit surface. A session that edits ONLY through OpenCode's built-in
-# tools (never an lc tool) leaves no ledger and is not gated, matching the bound
-# that the ledger only exists once a session has made an lc-MCP call.
+def _record_tool_for_verify(root: str | Path, payload: dict[str, Any]) -> None:
+    """Append an edit/command to the canonical run ledger (fail-open).
+
+    The (mechanically host-neutral) codex recorders write file_edit /
+    command_result events keyed to the host session id; ``_codex_append_ledger_events``
+    creates run.json on first write. Used by OpenCode's PostToolUse (Codex has
+    its own ledger hook in savings_reporter).
+    """
+    session_id = _codex_ledger_session_id(root, payload)
+    if not session_id:
+        return
+    norm = _normalize_codex_tool(str(payload.get("tool_name") or ""))
+    raw_input = payload.get("tool_input")
+    tool_input = raw_input if isinstance(raw_input, dict) else {}
+    raw_response = payload.get("tool_response")
+    tool_response = raw_response if isinstance(raw_response, dict) else {}
+    if norm == "edit":
+        _codex_record_file_edits(root, payload, session_id, tool_input)
+    elif norm == "bash":
+        # Side-effect only: OpenCode's JS plugin owns the repeated-failure rescue
+        # nudge, so drop any systemMessage this returns.
+        _codex_record_command(root, payload, session_id, tool_input, tool_response)
+
+
 def _opencode_record_prompt(root: str | Path, payload: dict[str, Any]) -> None:
     """Persist the first user prompt into OpenCode session state (feeds detector B)."""
     prompt = str(payload.get("prompt") or "")
@@ -2425,17 +2449,23 @@ def _codex_run_file(root: str | Path, session_id: str) -> Path:
 
 
 def _codex_ledger_session_id(root: str | Path, payload: dict[str, Any]) -> str:
-    """Resolve the run-ledger id whose ``runs/<id>.json`` exists.
+    """Resolve the host session id whose canonical run-ledger directory exists.
 
-    Priority: session_state ``active_session_id`` / ``session_id`` (the internal
-    LemonCrow id the MCP server keys the ledger to), then the host ``session_id``
-    on the payload. Returns "" when no run file exists yet -- callers then skip
-    rather than create a spurious ledger from a hook.
+    Prefers the ``session_id`` on the payload -- authoritative for THIS hook
+    event -- over the workspace-shared session_state values, which a concurrent
+    same-workspace session on another host can clobber (host/id flip). A real
+    session is one whose canonical ``sessions/.../<host>/<id>/`` directory
+    already exists (find_session_dir) or that already has a run.json; the hook
+    then creates/appends run.json there. (The old check required run.json to
+    pre-exist, but the MCP server persists it only at session close -- which the
+    per-turn Stop hook races -- so it was effectively never satisfied.)
     """
+    from lemoncrow.core.foundation.paths import find_session_dir
+
     state = _read_codex_session_state(root, payload)
-    for candidate in (state.get("active_session_id"), state.get("session_id"), payload.get("session_id")):
+    for candidate in (payload.get("session_id"), state.get("active_session_id"), state.get("session_id")):
         sid = str(candidate or "").strip()
-        if sid and _codex_run_file(root, sid).exists():
+        if sid and (find_session_dir(root, sid) is not None or _codex_run_file(root, sid).exists()):
             return sid
     return ""
 
@@ -2463,14 +2493,24 @@ def _codex_append_ledger_events(root: str | Path, session_id: str, events_to_add
     if not session_id or not events_to_add:
         return False
     run_file = _codex_run_file(root, session_id)
-    if not run_file.exists():
-        return False
-    try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    if not isinstance(data, dict):
-        return False
+    if run_file.exists():
+        try:
+            data = json.loads(run_file.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(data, dict):
+            return False
+    else:
+        # The MCP server persists run.json only at session close, which the
+        # per-turn Stop hook races (and a killed MCP subprocess never reaches),
+        # so create it here in the canonical session dir. This makes the hook
+        # the ledger writer verify-before-done reads -- the MCP-owns-creation
+        # assumption never held for codex/opencode.
+        data = {"session_id": session_id, "events": [], "files_touched": []}
+        try:
+            run_file.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
     events = data.setdefault("events", [])
     if not isinstance(events, list):
         return False
