@@ -75,3 +75,26 @@ def test_cap_exhausted_reads_persisted_meter(monkeypatch: pytest.MonkeyPatch, tm
 
 def test_cap_exhausted_fail_open_on_missing(tmp_path: Path) -> None:
     assert pr.cap_exhausted(tmp_path) is False
+
+
+def test_server_meter_trusted_verbatim(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # server says over cap; local estimate is $0 -> must still be over (server wins)
+    _patch_window(monkeypatch, saved=0.0)
+    sub = {"plan": "pro", "savingsMeterSource": "server", "savingsOverCap": True, "monthlySavingsInUsd": 250.0}
+    m = pr.compute_usage_meter(tmp_path, subscription=sub)
+    assert m["savingsOverCap"] is True
+    assert m["monthlySavingsInUsd"] == 250.0  # server figure preserved
+
+
+def test_server_meter_not_over_local_cannot_raise(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # server says NOT over; local estimate is huge -> stays not-over (server authoritative)
+    _patch_window(monkeypatch, saved=9999.0)
+    sub = {"plan": "free", "savingsMeterSource": "server", "savingsOverCap": False}
+    m = pr.compute_usage_meter(tmp_path, subscription=sub)
+    assert m["savingsOverCap"] is False
+
+
+def test_local_meter_used_when_no_server_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch_window(monkeypatch, saved=25.0)
+    m = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})  # no savingsMeterSource
+    assert m["savingsOverCap"] is True  # local computation applies
