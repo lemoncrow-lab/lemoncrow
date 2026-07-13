@@ -25,17 +25,19 @@ def main() -> int:
 
         payload = json.loads(sys.stdin.read() or "{}")
         root = _lemoncrow_root()
-        # Verify-before-done first. A block re-prompts the turn (Claude Stop
-        # protocol, which Codex honours), so emit it ALONE and skip the savings
-        # summary -- the turn isn't ending, and mixing a block decision with a
-        # systemMessage would muddy the signal.
+        # Verify-before-done leads the savings summary, both as one systemMessage
+        # -- the only Codex Stop output proven safe. Codex rejects unsupported
+        # hook decisions, so a Claude-style {"decision":"block"} is not emitted
+        # here until confirmed supported (it would error the hook).
+        messages: list[str] = []
         verify = build_codex_verify_output(root, payload)
-        if verify.get("decision") == "block":
-            sys.stdout.write(json.dumps({"decision": "block", "reason": verify["reason"]}) + "\n")
-            return 0
+        if not verify.get("no_output"):
+            messages.append(str(verify["systemMessage"]))
         output = build_codex_stop_output(root, payload)
         if not output.get("no_output"):
-            sys.stdout.write(json.dumps({"systemMessage": output["systemMessage"]}) + "\n")
+            messages.append(str(output["systemMessage"]))
+        if messages:
+            sys.stdout.write(json.dumps({"systemMessage": "\n\n".join(messages)}) + "\n")
     except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         pass
     return 0
