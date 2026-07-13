@@ -73,6 +73,14 @@ def git_ok(*args: str) -> str | None:
 
 
 def load_public_prefixes() -> list[str]:
+    """Load the allowlist, plus any ``!``-prefixed private denies.
+
+    A line beginning with ``!`` marks a path (or subtree) that must stay OUT of
+    the public mirror even though a broader allow (e.g. ``src/``) would include
+    it — used to keep compiled-only IP (shipped as ``.so`` in the wheel) out of
+    the public source. The ``!`` marker is preserved so :func:`is_public` can
+    evaluate denies; a deny always beats an allow, regardless of order.
+    """
     prefixes = []
     for line in PUBLIC_PATHS_FILE.read_text().splitlines():
         line = line.strip()
@@ -82,10 +90,15 @@ def load_public_prefixes() -> list[str]:
 
 
 def is_public(path: str, prefixes: list[str]) -> bool:
+    matched = False
     for prefix in prefixes:
-        if path == prefix or path.startswith(prefix + "/"):
-            return True
-    return False
+        if prefix.startswith("!"):
+            deny = prefix[1:].rstrip("/")
+            if deny and (path == deny or path.startswith(deny + "/")):
+                return False  # explicit private deny beats any allow
+        elif path == prefix or path.startswith(prefix + "/"):
+            matched = True
+    return matched
 
 
 # ---------------------------------------------------------------------------
