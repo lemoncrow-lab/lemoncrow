@@ -28,6 +28,7 @@ from harbor.agents.installed.base import (
     ApiRateLimitError,
     ApiUsageLimitError,
     BaseInstalledAgent,
+    NonZeroAgentExitCodeError,
     with_prompt_template,
 )
 from harbor.agents.installed.claude_code import ClaudeCode
@@ -238,6 +239,18 @@ def _claude_result_obj(text: str) -> dict[str, Any] | None:
     return None
 
 
+class TruncatedAgentOutputError(NonZeroAgentExitCodeError):
+    """Raised when Claude Code's stream-json log never reaches a terminal
+    ``type=="result"`` line -- the session was killed/crashed mid-run (OOM,
+    container death, etc). Without this, harbor treats the exec as a clean
+    exit and the trial silently scores reward-0, indistinguishable from a
+    genuine capability miss (found via the rstan-to-pystan investigation:
+    background sampling died mid-run, all logging stopped, no error surfaced).
+    """
+
+    pass
+
+
 def _quota_error_class(obj: dict[str, Any] | None) -> type[ApiError] | None:
     """The harbor ApiError subclass for a provider quota/rate-limit result line,
     else None.
@@ -442,6 +455,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             "LEMONCROW_ROOT": "/root/.lemoncrow",
             "LEMONCROW_PYTHON": "/opt/lemoncrow-venv/bin/python",
             "PYTHONUNBUFFERED": "1",
+            # A 60s foreground response budget leaves enough time for ordinary
+            # installs/builds while returning control well before Harbor's
+            # task-level agent deadline. Normal interactive sessions keep 120s.
+            "LEMONCROW_BASH_SOFT_TIMEOUT": "60",
             # Isolated config dir: no pre-installed plugins/hooks/MCP.
             "CLAUDE_CONFIG_DIR": "/root/.claude-bench",
             # Hide sql + memory tools (same as codebench/incontainer.py).
@@ -682,6 +699,12 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             detail = lines[0] if lines else "provider quota/rate limit"
             status = (result_obj or {}).get("api_error_status")
             raise quota_cls(f"Claude Code stopped on a provider limit (api_error_status={status}): {detail}")
+        if result_obj is None:
+            raise TruncatedAgentOutputError(
+                "Claude Code exited without a terminal stream-json result line -- "
+                "the session was truncated (killed process, OOM, container death, etc). "
+                "Treating as a retryable agent-execution error instead of a silent reward-0."
+            )
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         """Fill token/cost totals and write the ATIF trajectory.

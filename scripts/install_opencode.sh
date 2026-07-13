@@ -104,7 +104,15 @@ if $WORKSPACE_SET; then
 {
   "default_agent": "code",
   "permission": {
-    "lc_*": "allow"
+    "lc_*": "allow",
+    "read": "deny",
+    "edit": "deny",
+    "grep": "deny",
+    "glob": "deny",
+    "list": "deny",
+    "bash": "deny",
+    "webfetch": "deny",
+    "lsp": "deny"
   },
   "provider": {
     "lc": {
@@ -133,7 +141,15 @@ else
 {
   "default_agent": "code",
   "permission": {
-    "lc_*": "allow"
+    "lc_*": "allow",
+    "read": "deny",
+    "edit": "deny",
+    "grep": "deny",
+    "glob": "deny",
+    "list": "deny",
+    "bash": "deny",
+    "webfetch": "deny",
+    "lsp": "deny"
   },
   "provider": {
     "lc": {

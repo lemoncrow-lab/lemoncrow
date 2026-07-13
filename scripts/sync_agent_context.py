@@ -92,10 +92,6 @@ def _markdown_body(path: Path) -> str:
     return _strip_leading_title(path.read_text(encoding="utf-8"))
 
 
-def coding_guidelines_section() -> str:
-    return "\n".join(["## Coding Guidelines", "", _markdown_body(CODING_GUIDELINES_PATH)])
-
-
 # Bare user-scope server name ("lc", registered by install_claude.sh) — the
 # canonical local install. The marketplace plugin shape is
 # "mcp__plugin_lemoncrow_lc__"; runtime consumers (hooks, session parsers)
@@ -275,17 +271,39 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
 
 
 def render_cursor_coding_rules() -> str:
+    """Cursor's one guaranteed-always-loaded rule file.
+
+    Cursor has no equivalent of Claude Code's MCP-server-instructions fold-in
+    (see _CLAUDE_TOOL_DISCIPLINE's comment above), so a persona-agnostic
+    baseline only reaches Cursor if something ships with ``alwaysApply: true``.
+    Bundles every shared partial that's persona-agnostic (near-universal across
+    integrations/agents/*.md -- core/change/destructive-guard/coding/reply-
+    register). Tool-discipline is deliberately excluded: it names a specific
+    tool contract (read-only vs write-capable) that only makes sense inside an
+    actual invoked lemoncrow.* mode rule, not as a global default.
+    """
+    sections = [
+        ("Core Discipline", core_discipline_body(CORE_DISCIPLINE_PATH.parent)),
+        ("Change Discipline", _markdown_body(CHANGE_DISCIPLINE_PATH)),
+        (
+            "Safety & Delegation",
+            _markdown_body(DESTRUCTIVE_GUARD_PATH) + "\n" + _markdown_body(AGENT_RULE_PATH),
+        ),
+        ("Coding Guidelines", _markdown_body(CODING_GUIDELINES_PATH)),
+        ("Reply Register", _markdown_body(REPLY_REGISTER_PATH)),
+    ]
+    body = "\n\n".join(f"## {title}\n\n{text.strip()}" for title, text in sections)
     return (
         "\n".join(
             [
                 "---",
-                "description: Behavioral guidelines to reduce common LLM coding mistakes."
-                " Use when writing, reviewing, or refactoring code to avoid overcomplication,"
-                " make surgical changes, surface assumptions, and define verifiable success criteria.",
+                "description: Always-on LemonCrow baseline for Cursor -- core/change/"
+                "destructive-guard/coding/reply-register discipline that applies"
+                " regardless of which (if any) lemoncrow mode rule is also active.",
                 "alwaysApply: true",
                 "---",
                 "",
-                coding_guidelines_section().strip(),
+                body,
             ]
         ).rstrip()
         + "\n"
@@ -561,7 +579,7 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
         agents_path: render_managed_context(existing_agents),
         copilot_path: render_managed_context(existing_copilot),
         ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
-        ROOT / "integrations/cursor/rules/coding-guidelines.mdc": render_cursor_coding_rules(),
+        ROOT / "integrations/cursor/rules/lemoncrow.mdc": render_cursor_coding_rules(),
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):
         projection = registry.projection(role_id, "copilot_agent")

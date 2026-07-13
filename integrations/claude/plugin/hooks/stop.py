@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,190 @@ def _load_state() -> dict[str, Any]:
     except Exception:
         logger.exception("Failed to load session state")
         return {}
+
+
+_BASH_STOP_ACK_WINDOW_S = 30.0
+
+
+def _proc_stat_fields(pid: int) -> list[str] | None:
+    """Fields of /proc/<pid>/stat from the state field on (index 0 == state).
+
+    The comm field (2nd) may contain spaces and parentheses, so split on the
+    text after the final ')' rather than the whole line -- a plain .split()
+    misaligns every field for such a process.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    rparen = raw.rfind(")")
+    if rparen == -1:
+        return None
+    return raw[rparen + 2 :].split()
+
+
+def _system_btime() -> float | None:
+    try:
+        for line in Path("/proc/stat").read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("btime "):
+                return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _pid_alive(pid: object, started_at: object = None) -> bool:
+    try:
+        value = int(pid)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    if value <= 0:
+        return False
+    try:
+        fields = _proc_stat_fields(value)
+        if fields:
+            # fields[0] == process state; a 'Z' (zombie: exited, not yet
+            # reaped) still answers os.kill(pid, 0), so reject it explicitly.
+            if fields[0] == "Z":
+                return False
+            # Reused-PID guard: a leaked registration whose pid the OS later
+            # handed to an unrelated process. field 22 (index 19 here) is the
+            # start time in clock ticks since boot; a process that started
+            # after the command was registered cannot be that command.
+            if started_at is not None and len(fields) > 19:
+                clk_tck = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 0
+                btime = _system_btime()
+                try:
+                    recorded = float(started_at)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    recorded = 0.0
+                if clk_tck and clk_tck > 0 and btime is not None and recorded > 0.0:
+                    try:
+                        proc_start = btime + int(fields[19]) / clk_tck
+                    except ValueError:
+                        proc_start = 0.0
+                    # 2s slack absorbs integer-btime rounding + launch/record skew.
+                    if proc_start > recorded + 2.0:
+                        return False
+        os.kill(value, 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _bash_stop_warning_path(session_id: str) -> Path:
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    key = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in session_id).strip("-")
+    if not key:
+        key = _workspace_key(workspace)
+    return _lemoncrow_root() / "stop_warnings" / f"{key}.bash.json"
+
+
+def _running_managed_bash(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    workspace_raw = str(payload.get("cwd") or os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd())
+    workspace = str(Path(workspace_raw).expanduser().resolve())
+    session_id = str(payload.get("session_id") or "")
+    found: dict[str, dict[str, Any]] = {}
+    sessions_dir = _lemoncrow_root() / "mcp_sessions"
+    with contextlib.suppress(OSError):
+        for registration in sessions_dir.glob("*.json"):
+            try:
+                data = json.loads(registration.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            # Skip registrations whose owning MCP server process is gone: a
+            # hard-killed MCP leaves its file behind with orphaned managed_bash
+            # rows that would otherwise block Stop forever.
+            if not _pid_alive(data.get("pid")):
+                continue
+            registered_workspace = str(data.get("workspace") or "")
+            if registered_workspace:
+                with contextlib.suppress(OSError):
+                    registered_workspace = str(Path(registered_workspace).expanduser().resolve())
+                if registered_workspace != workspace:
+                    continue
+            registered_session = str(data.get("claude_session_id") or "")
+            if session_id and registered_session and registered_session != session_id:
+                continue
+            for row in data.get("managed_bash", []):
+                if not isinstance(row, dict) or not _pid_alive(row.get("pid"), row.get("started_at")):
+                    continue
+                command_id = str(row.get("session_id") or "")
+                if command_id:
+                    found[command_id] = row
+    return list(found.values())
+
+
+def _format_bash_jobs(jobs: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for row in jobs[:8]:
+        command_id = str(row.get("session_id") or "")
+        logs = [str(row.get(key) or "") for key in ("log_file", "log_file_stderr")]
+        logs = [path for path in logs if path]
+        suffix = f"; logs: {', '.join(logs)}" if logs else ""
+        lines.append(f"id={command_id}{suffix}")
+    if len(jobs) > 8:
+        lines.append(f"... {len(jobs) - 8} more")
+    return "\n".join(lines)
+
+
+def _bash_stop_guard(payload: dict[str, Any]) -> tuple[dict[str, str] | None, str]:
+    """Warn once for foreground Bash, then acknowledge Stop for 30 seconds."""
+    jobs = _running_managed_bash(payload)
+    foreground = [row for row in jobs if not bool(row.get("explicit_background"))]
+    background = [row for row in jobs if bool(row.get("explicit_background"))]
+    session_id = str(payload.get("session_id") or "")
+    warning_path = _bash_stop_warning_path(session_id)
+    background_info = ""
+    if background:
+        background_info = (
+            f"Background Bash still running ({len(background)}, preserved after MCP exit):\n"
+            f"{_format_bash_jobs(background)}"
+        )
+    if not foreground:
+        with contextlib.suppress(OSError):
+            warning_path.unlink(missing_ok=True)
+        return None, background_info
+
+    now = time.time()
+    foreground_ids = sorted(str(row.get("session_id") or "") for row in foreground)
+    previous: dict[str, Any] = {}
+    with contextlib.suppress(OSError, json.JSONDecodeError):
+        loaded = json.loads(warning_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            previous = loaded
+    warned_at = float(previous.get("warned_at") or 0.0)
+    warned_ids = sorted(str(value) for value in previous.get("command_ids", []))
+    if warned_ids == foreground_ids and 0.0 <= now - warned_at <= _BASH_STOP_ACK_WINDOW_S:
+        with contextlib.suppress(OSError):
+            warning_path.unlink(missing_ok=True)
+        info = (
+            f"Foreground Bash stopping with MCP ({len(foreground)}; process groups will be killed):\n"
+            f"{_format_bash_jobs(foreground)}"
+        )
+        if background_info:
+            info = f"{info}\n{background_info}"
+        return None, info
+
+    with contextlib.suppress(OSError):
+        warning_path.parent.mkdir(parents=True, exist_ok=True)
+        warning_path.write_text(
+            json.dumps({"warned_at": now, "command_ids": foreground_ids}),
+            encoding="utf-8",
+        )
+    reason = (
+        f"WARNING: {len(foreground)} foreground Bash command(s) still running. "
+        "Stop again within 30 seconds to exit and kill their process groups; "
+        "after 30 seconds this warning resets.\n"
+        f"{_format_bash_jobs(foreground)}"
+    )
+    if background_info:
+        reason = f"{reason}\n{background_info}"
+    return {"decision": "block", "reason": reason}, background_info
 
 
 # ---------------------------------------------------------------------------
@@ -1354,6 +1539,14 @@ def main() -> int:
 
     session_id: str = payload.get("session_id", "") or ""
     transcript_path: str = payload.get("transcript_path", "") or ""
+    try:
+        bash_decision, bash_suffix = _bash_stop_guard(payload)
+    except Exception:
+        logger.exception("bash stop guard failed")
+        bash_decision, bash_suffix = None, ""
+    if bash_decision is not None:
+        print(json.dumps(bash_decision))
+        return 0
     # Deferred-format pass: when LEMONCROW_DEFER_EDIT_HOOKS moved format off the
     # per-edit path, format the session's edited files once now (fail-open).
     with contextlib.suppress(Exception):
@@ -1423,6 +1616,8 @@ def main() -> int:
     review_suffix = ""
     with contextlib.suppress(Exception):
         review_suffix = _format_review_findings(session_id)
+    if bash_suffix:
+        review_suffix = f"{review_suffix}\n\n{bash_suffix}" if review_suffix else f"\n\n{bash_suffix}"
 
     # Transcript JSONL stays as the source of truth even after stop —
     # cost, tokens, and savings are all derivable from it. No snapshot needed.
@@ -1433,6 +1628,8 @@ def main() -> int:
         if stats and stats["total_tokens"] > 0:
             summary = _format_stats(stats, savings, real_cost=real_cost)
             print(json.dumps({"systemMessage": f"Session stats:\n{summary}{review_suffix}"}))
+        elif bash_suffix:
+            print(json.dumps({"systemMessage": bash_suffix}))
         return 0
 
     # ── Code work happened: show the session-complete summary ────────────────
@@ -1441,6 +1638,8 @@ def main() -> int:
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
         print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{review_suffix}"}))
+    elif bash_suffix:
+        print(json.dumps({"systemMessage": bash_suffix}))
     return 0
 
 

@@ -440,7 +440,7 @@ def detector_b(prompt: str, edited: list[str]) -> tuple[str, list[str]] | None:
     return None
 
 
-_REASON = "FIXME (verify): edited {sample} but ran no test/verification -- run the authoritative check that proves the result (the task's stated validation, the project test suite, or a byte/behavior check) before finishing."
+_REASON = "FIXME (verify): edited {sample}, run test/verification."
 
 
 def _bench_mode_on() -> bool:
@@ -466,10 +466,8 @@ def decide(payload: dict[str, Any]) -> dict[str, str] | None:
             return {
                 "decision": "block",
                 "reason": (
-                    f"FIXME (completeness): you converted `{sym}` to a classmethod, but these "
-                    f"bare `{sym}(...)` call sites were not updated to `self.`/`cls.` and still "
-                    f"hard-bind the original class: {shown}. Update each (or confirm it is "
-                    f"intentional) so the change reaches every site before finishing."
+                    f"FIXME (completeness): `{sym}` became a classmethod but these call sites "
+                    f"still hard-bind the old class: {shown} -- fix or confirm intentional."
                 ),
             }
         b = detector_b(prompt, edited)
@@ -479,11 +477,8 @@ def decide(payload: dict[str, Any]) -> dict[str, str] | None:
             return {
                 "decision": "block",
                 "reason": (
-                    f"FIXME (completeness): the issue says the bug also reproduces via `{tok}`, "
-                    f"but your change touches only one source module ({where}). KEEP the path you "
-                    f"already fixed passing, AND additionally fix + test the parallel path (it "
-                    f"almost certainly lives in a different module and is unexercised by your "
-                    f"current test) -- do not regress the working path. Verify both before finishing."
+                    f"FIXME (completeness): `{tok}` also reproduces the bug but fix touches only "
+                    f"{where} -- fix + test the parallel path too, without regressing this one; verify both."
                 ),
             }
 

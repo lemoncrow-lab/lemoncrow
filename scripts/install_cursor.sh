@@ -101,7 +101,6 @@ if $PRINT_ONLY; then
     if $WORKSPACE_SET; then
         echo ""
         echo "Copy workspace rules into ${RULES_DIR}:"
-        echo "  - ${CURSOR_RULES_SRC_DIR}/coding-guidelines.mdc"
         echo "  - ${CURSOR_RULES_SRC_DIR}/lemoncrow*.mdc"
     fi
     exit 0
@@ -269,4 +268,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Restart Cursor for MCP changes to take effect."
-info "Tip: run 'lc status' in any shell to see the runs dashboard."
+info "Tip: run 'lemoncrow status' in any shell to see the runs dashboard."

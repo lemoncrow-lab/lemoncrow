@@ -2387,9 +2387,9 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
         )
     )
     assert payload.get("event_recorded") is True, f"'event_recorded' missing or False in trace receipt: {payload}"
-    assert isinstance(payload.get("trace_id"), str) and payload["trace_id"], (
-        f"'trace_id' missing or empty in trace receipt: {payload}"
-    )
+    assert (
+        isinstance(payload.get("trace_id"), str) and payload["trace_id"]
+    ), f"'trace_id' missing or empty in trace receipt: {payload}"
 
 
 def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2519,10 +2519,9 @@ def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monke
         _run_bash_tool(session_id=started["session_id"], action="cancel")
 
 
-def test_render_shell_text_running_ships_only_the_handle() -> None:
-    # pid/elapsed/timeout/log paths are dead weight the model never acts on;
-    # poll/status/cancel need only the session_id (action=status ships a live
-    # output tail on demand). The structured payload keeps the fields.
+def test_render_shell_text_running_ships_handle_and_logs() -> None:
+    # pid/elapsed/timeout values are noise, but a running command's logs are
+    # actionable while the process remains live.
     from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
@@ -2535,18 +2534,14 @@ def test_render_shell_text_running_ships_only_the_handle() -> None:
             "log_file": "/tmp/x.stdout.txt",
         }
     )
-    assert text == "running id=abc123"
+    assert text == "running id=abc123\n[logs: /tmp/x.stdout.txt]"
     assert "pid=" not in text
     assert "elapsed=" not in text
     assert "timeout_in=" not in text
     assert "log_file=" not in text
 
 
-def test_render_shell_text_overrunning_once_past_its_soft_budget() -> None:
-    # Same handle-only shape as the plain "running" case, but a distinct word
-    # once the command has burned through its requested timeout -- lets the
-    # model tell "still well inside its window" apart from "already over", plus
-    # a nudge to actually decide (cancel/justify) instead of reflex-polling.
+def test_render_shell_text_warns_once_past_its_soft_budget() -> None:
     from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
 
     text = _render_bash_text(
@@ -2557,7 +2552,21 @@ def test_render_shell_text_overrunning_once_past_its_soft_budget() -> None:
             "over_budget": True,
         }
     )
-    assert text == "overrunning id=abc123 -- act now"
+    assert text == "still running id=abc123"
+
+
+def test_render_shell_text_identifies_explicit_background_job() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "explicit_background": True,
+            "log_file": "/tmp/x.stdout.txt",
+        }
+    )
+    assert text == "background running id=abc123\n[logs: /tmp/x.stdout.txt]"
 
 
 def test_render_shell_text_running_before_budget_has_no_nudge() -> None:

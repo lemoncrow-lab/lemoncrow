@@ -1529,33 +1529,10 @@ stop_existing_lemoncrow_processes() {
 # wins. Idempotent — our own previously-installed lemoncrow/lc resolve to our
 # bin dirs and are treated as ours, so re-runs stay quiet.
 warn_on_foreign_cli_collision() {
-    local our_dirs=()
-    [[ -n "${LEMONCROW_BIN_DIR:-}" ]] && our_dirs+=("$LEMONCROW_BIN_DIR")
-    local uv_bin
-    uv_bin="$(uv tool dir --bin 2>/dev/null || true)"
-    [[ -n "$uv_bin" ]] && our_dirs+=("$uv_bin")
-
-    local cli found resolved d dabs ours
-    for cli in lemoncrow lc; do
-        found="$(command -v "$cli" 2>/dev/null || true)"
-        [[ -n "$found" ]] || continue
-        resolved="$(cd "$(dirname "$found")" 2>/dev/null && pwd -P)/$(basename "$found")" 2>/dev/null || resolved="$found"
-        ours=0
-        for d in ${our_dirs[@]+"${our_dirs[@]}"}; do
-            [[ -n "$d" ]] || continue
-            dabs="$(cd "$d" 2>/dev/null && pwd -P || echo "$d")"
-            case "$resolved" in "$dabs"/*) ours=1; break;; esac
-            case "$found" in "$d"/*) ours=1; break;; esac
-        done
-        [[ "$ours" == "1" ]] && continue
-        if [[ "$cli" == "lemoncrow" ]]; then
-            warn "A different 'lemoncrow' is already on your PATH: ${found}"
-            warn "LemonCrow installs its CLI 'lemoncrow' to ${LEMONCROW_BIN_DIR}; whichever comes first on PATH wins. Adjust PATH order if you want the LemonCrow 'lemoncrow' to take precedence."
-        else
-            warn "A different 'lc' is already on your PATH: ${found}"
-            warn "LemonCrow also installs the short alias 'lc'; it may shadow or be shadowed by the existing one. Reorder PATH, or skip the LemonCrow 'lc' alias, to avoid confusion."
-        fi
-    done
+    # Intentionally silent.  ensure_lc_alias() already skips creating
+    # the 'lc' symlink when a foreign binary occupies that name on PATH;
+    # no need to warn the user about it.
+    return 0
 }
 
 # Create the short `lc` alias as a symlink to the just-installed `lemoncrow`
@@ -1570,6 +1547,7 @@ warn_on_foreign_cli_collision() {
 # warn_on_foreign_cli_collision() already surfaced that case to the user;
 # this is the enforcement half.
 ensure_lc_alias() {
+    LC_ALIAS_AVAILABLE=0
     local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
     [[ -x "${lemoncrow_bin}" ]] || return 0
 
@@ -1588,6 +1566,7 @@ ensure_lc_alias() {
     fi
 
     ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/lc"
+    LC_ALIAS_AVAILABLE=1
 }
 
 # Install uv (Python package/tool manager) via the official installer.
@@ -2122,11 +2101,11 @@ _ensure_path_persistence() {
 
 # _capture_install_previous_version — preserve the executable version before
 # the installer replaces it. The shared writer runs after replacement, when
-# `lc --version` can only report the new version.
+# `lemoncrow --version` can only report the new version.
 _capture_install_previous_version() {
     [[ -n "${LEMONCROW_PREVIOUS_VERSION:-}" ]] && return 0
-    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lc"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lc"
+    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
+    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
     command -v "$lemoncrow_bin" >/dev/null 2>&1 || return 0
 
     local previous_version
@@ -2144,8 +2123,8 @@ _capture_install_previous_version() {
 # reinstalls do not notify. Fail-open: errors are silently swallowed.
 _write_install_update_state() {
     [[ "${LEMONCROW_DRY_RUN:-0}" == "1" ]] && return 0
-    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lc"
-    command -v "$lemoncrow_bin" >/dev/null 2>&1 || lemoncrow_bin="lc"
+    local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
+    command -v "$lemoncrow_bin" >/dev/null 2>&1 || lemoncrow_bin="lemoncrow"
     command -v "$lemoncrow_bin" >/dev/null 2>&1 || return 0
 
     local new_ver
@@ -2205,7 +2184,7 @@ pathlib.Path(sys.argv[4]).write_text(json.dumps(data, indent=2), encoding='utf-8
 }
 
 # run_setup — shared post-install steps invoked by BOTH installers after the
-# LemonCrow CLI is available at "$LEMONCROW_BIN_DIR/lc": code tools, memory /
+# LemonCrow CLI is available at "$LEMONCROW_BIN_DIR/lemoncrow": code tools, memory /
 # zoekt selection, host integrations, init, indexing, optimize automation,
 # background services, PATH persistence, and the final report.
 prompt_knowledge_extraction() {
@@ -2281,8 +2260,9 @@ prompt_knowledge_extraction() {
 
 run_knowledge_extraction_if_selected() {
     [[ "$LEMONCROW_KB_EXTRACT" == "1" ]] || return 0
-    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lc"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lc"
+    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lemoncrow"
+    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
+    command -v "$lemoncrow_bin" >/dev/null 2>&1 || { degrade "knowledge extraction skipped (lemoncrow binary not found)"; return 0; }
     step_start "Extracting knowledge from .lessons (host=$LEMONCROW_KB_HOST)"
     if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
         info "[dry-run] $lemoncrow_bin knowledge extract --host $LEMONCROW_KB_HOST --max-spend $LEMONCROW_KB_MAX_SPEND"
@@ -2301,8 +2281,9 @@ configure_recall_if_selected() {
     # resets a prior recall config. Without a preset, Recall stays on by default
     # (local embedder) via the runtime — no install-time prompt, no persistence.
     [[ "$LEMONCROW_RECALL_PRESET" == "1" ]] || return 0
-    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lc"
-    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lc"
+    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lemoncrow"
+    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
+    command -v "$lemoncrow_bin" >/dev/null 2>&1 || { degrade "recall config skipped (lemoncrow binary not found)"; return 0; }
     local auto_flag="--no-auto-index"
     [[ "$LEMONCROW_RECALL_INDEX" == "1" ]] && auto_flag="--auto-index"
     local rc_args=(recall config "$auto_flag" --embedder "$LEMONCROW_RECALL_EMBEDDER")
@@ -2460,7 +2441,7 @@ run_setup() {
         export PATH="${node_user_bin}:${PATH}"
     fi
 
-    local lemoncrow_cli="$LEMONCROW_BIN_DIR/lc"
+    local lemoncrow_cli="$LEMONCROW_BIN_DIR/lemoncrow"
 
     if [[ "$INSTALL_ZOEKT_LOCAL" == "1" ]]; then
         install_local_zoekt_if_selected
@@ -2648,25 +2629,9 @@ run_setup() {
     fi
 
     step_start "Initializing"
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        if [[ "$LEMONCROW_AUTO_OPTIMIZE" == "1" ]]; then
-            echo "[dry-run] $lemoncrow_cli optimize auto enable"
-        else
-            echo "[dry-run] $lemoncrow_cli optimize auto disable"
-        fi
-    else
-        if [[ "$LEMONCROW_AUTO_OPTIMIZE" == "1" ]]; then
-            "$lemoncrow_cli" optimize auto enable >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
-                || degrade "Failed to persist auto optimize settings"
-        else
-            "$lemoncrow_cli" optimize auto disable >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
-                || degrade "Failed to persist auto optimize settings"
-        fi
-    fi
-    step_done
+
     if [[ "$LEMONCROW_NO_SERVICECTL" != "1" ]]; then
         if command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; then
-            verbose "Registering LemonCrow services with background manager..."
             local background_args=()
             if [[ "$stack_available" == "1" ]]; then
                 background_args+=("--with-stack")
@@ -2680,36 +2645,55 @@ run_setup() {
             fi
 
             if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lc background install ${background_args[*]}"
+                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow background install ${background_args[*]}"
             else
-                "$LEMONCROW_BIN_DIR/lc" background install "${background_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
+                "$LEMONCROW_BIN_DIR/lemoncrow" background install "${background_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
+            fi
+            printf "%b│%b  ✓  Background service controller registered (systemd)\n" "$C_FRAME" "$C_RESET"
+            if [[ "$stack_available" == "1" ]]; then
+                printf "%b│%b  ✓  HTTP visualization service registered (systemd)\n" "$C_FRAME" "$C_RESET"
+            fi
+            case "$selected_memory" in
+                letta) printf "%b│%b  ✓  Letta memory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
+                openmemory) printf "%b│%b  ✓  OpenMemory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
+            esac
+            if [[ "$selected_zoekt" == "1" ]]; then
+                printf "%b│%b  ✓  Zoekt code search service registered (systemd)\n" "$C_FRAME" "$C_RESET"
             fi
         else
-            verbose "Starting LemonCrow background service controller (loose process)..."
             if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lc servicectl start --interval-seconds $LEMONCROW_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
+                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow servicectl start --interval-seconds $LEMONCROW_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
             else
-                "$LEMONCROW_BIN_DIR/lc" servicectl start \
+                "$LEMONCROW_BIN_DIR/lemoncrow" servicectl start \
                     --interval-seconds "$LEMONCROW_SERVICECTL_INTERVAL_SECONDS" \
                     --maintenance-interval-seconds "$LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
             fi
+            printf "%b│%b  ✓  Background service controller started\n" "$C_FRAME" "$C_RESET"
 
             if [[ "$stack_available" == "1" ]]; then
-                verbose "Starting LemonCrow HTTP service..."
                 if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
                     echo "[dry-run] $LEMONCROW_BIN_DIR/lcd start"
                 else
                     "$LEMONCROW_BIN_DIR/lcd" start &
                     STACK_STARTED=1
                 fi
+                printf "%b│%b  ✓  HTTP visualization service started\n" "$C_FRAME" "$C_RESET"
             fi
         fi
     else
-        verbose "Skipping background services because LEMONCROW_NO_SERVICECTL=1"
+        printf "%b│%b  ○  Background services skipped (LEMONCROW_NO_SERVICECTL=1)\n" "$C_FRAME" "$C_RESET"
     fi
 
+    if [[ "$LEMONCROW_RECALL_PRESET" == "1" ]]; then
+        configure_recall_if_selected
+        printf "%b│%b  ✓  Recall configured\n" "$C_FRAME" "$C_RESET"
+    fi
+    step_done
+
+    # Knowledge extraction from .lessons prints its own named step box (only
+    # when selected) -- kept outside "Initializing" rather than folded in, so
+    # it stays a separately-titled, independently-ticked step.
     run_knowledge_extraction_if_selected
-    configure_recall_if_selected
     _write_install_update_state
 
     print_final_report
@@ -2736,24 +2720,7 @@ run_setup() {
         printf "  frontend: %bhttp://localhost:3125%b\n" "$C_PURPLE" "$C_RESET"
         printf "  service:  %bhttp://localhost:8787%b\n\n" "$C_PURPLE" "$C_RESET"
     fi
-    local code_display="${LEMONCROW_BIN_DIR}/lc"
-    code_display="${code_display/#$HOME/~}"
-    printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "   LemonCrow dir:   %s\n" "~/.lemoncrow"
-    printf "   Binary:        %s\n\n" "$code_display"    
-    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blc%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blc%b status              View active runs\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blc%b import              Import past agent sessions\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blc%b memory recall       Search memory\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blc%b code index          Index current repository\n" "$C_PURPLE" "$C_RESET"
-    printf "   %blcd%b status             Check service status\n\n" "$C_PURPLE" "$C_RESET"
-    if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
-        printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"
-    fi
-    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
-
+    
     # Deferred, un-spun on purpose: `lemoncrow init` requires a LemonCrow account and
     # opens an interactive browser login when none is found. Running it earlier
     # under `spin` (which captures stdout via command substitution) breaks TTY
@@ -2768,6 +2735,8 @@ run_setup() {
     # pipe even when the script itself is fully interactive. Without this,
     # `lc init` would deterministically hit the non-interactive error path on
     # every fresh install and never actually offer the login flow.
+    local cli="lemoncrow"
+    [[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
     if [[ -n "$index_target" ]]; then
         printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
@@ -2775,10 +2744,29 @@ run_setup() {
         elif [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && "$LEMONCROW_NON_INTERACTIVE" != "1" ]]; then
             "$lemoncrow_cli" init >&7 2>&7 || true
         else
-            printf "   Run 'lc login' then 'lc init' to activate this project.\n"
+            printf "   Run '%s login' then '%s init' to activate this project.\n" "$cli" "$cli"
         fi
         printf "\n"
     fi
+
+    local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
+    code_display="${code_display/#$HOME/~}"
+    printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
+    printf "   LemonCrow dir:   %s\n" "~/.lemoncrow"
+    printf "   Binary:        %s\n\n" "$code_display"    
+    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
+    printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
+    printf "   %b%s%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b status              View active runs\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
+    if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
+        printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"
+    fi
+    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
+
 
     return "$FINAL_EXIT_CODE"
 }
