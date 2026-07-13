@@ -43,9 +43,14 @@ DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 
 # Files injected into the public repo that don't exist in the dev repo's public paths.
 # Each entry is (source_path_in_dev_repo, dest_path_in_public_tree).
-INJECTED_FILES: list[tuple[str, str]] = [
-    ("release/lemoncrow-release.yml", ".github/workflows/release.yml"),
-]
+#
+# NOTE: the release build is NO LONGER injected into the public repo. Building the
+# wheel requires the full source, including the compiled-only IP modules that are
+# excluded from the public mirror (see the PRIVATE section of public-paths.txt).
+# The release now builds from this private repo (.github/workflows/release.yml)
+# and cross-publishes the prebuilt tarball to the public repo's Releases, so IP
+# source never lands on public and the public repo never runs a source build.
+INJECTED_FILES: list[tuple[str, str]] = []
 
 
 # ---------------------------------------------------------------------------
