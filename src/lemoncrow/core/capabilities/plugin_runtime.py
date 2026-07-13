@@ -1038,12 +1038,23 @@ def session_start_bootstrap(
     dormant = cap_exhausted(root)
     actions.append("dormant" if dormant else "active")
 
-    # When dormant, stop force-loading the lc tools so the default agent runs on
+    # When dormant, stop force-loading the lc tools so the fallback agent runs on
     # host-native tools (Layer 2). When active, honor the configured flag.
     always_load = False if dormant else settings["alwaysLoadTools"]
     mcp_result = rewrite_mcp_always_load(mcp_json, always_load)
     if mcp_result["changed"]:
         actions.append("always_load_updated")
+
+    # Layer 2: swap the default agent via the HOST settings `agent` key (host
+    # wins over the plugin's own settings.json). Dormant -> lemoncrow:free, a
+    # static fallback agent that disallows the lc MCP tools and runs on Claude's
+    # built-ins. Active -> clear only OUR override so the plugin default
+    # (lemoncrow:code) applies again; never clobber a user's custom agent.
+    if dormant:
+        updated_host["agent"] = PLUGIN_DORMANT_AGENT
+    elif updated_host.get("agent") == PLUGIN_DORMANT_AGENT:
+        updated_host.pop("agent", None)
+
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
     if payload:
         update_session_stats(root, {"hook_event_name": "SessionStart", **payload})
@@ -1061,33 +1072,9 @@ def session_start_bootstrap(
 
 
 PLUGIN_ACTIVE_AGENT = "lemoncrow:code"
-
-
-def reconcile_dormant_agent(plugin_root: str | Path, *, dormant: bool) -> bool:
-    """Toggle the plugin's default ``agent`` directive for Layer-2 dormancy.
-
-    Dormant -> drop the ``agent`` key from the plugin's ``settings.json`` so the
-    host falls back to its built-in default agent (as if ``lemoncrow:code`` did
-    not exist — degrade, not block). Active -> ensure it points back at
-    ``lemoncrow:code``. Idempotent; returns True only when the file changed.
-    Best-effort — never raises into the SessionStart hook.
-    """
-    settings_path = Path(plugin_root) / "settings.json"
-    data = _read_json(settings_path, None)
-    if not isinstance(data, dict):
-        return False
-    if dormant:
-        if "agent" not in data:
-            return False
-        data.pop("agent", None)
-    else:
-        if data.get("agent") == PLUGIN_ACTIVE_AGENT:
-            return False
-        data["agent"] = PLUGIN_ACTIVE_AGENT
-    with suppress(OSError, ValueError):
-        _write_json(settings_path, data)
-        return True
-    return False
+# Static fallback agent shipped in the plugin (agents/free.md): built-ins only,
+# lc MCP tools disallowed. Selected via the host `agent` key while dormant.
+PLUGIN_DORMANT_AGENT = "lemoncrow:free"
 
 
 def apply_session_start_files(
@@ -1120,14 +1107,13 @@ def apply_session_start_files(
         payload=payload,
         current_version=current_version,
     )
+    # host_settings already carries the Layer-2 agent swap (lemoncrow:free when
+    # dormant, cleared when active) computed in session_start_bootstrap. Effect
+    # is next-session by design (the host reads `agent` at session start); the
+    # current session's tools already degraded via Layer 1.
     _write_json(settings_path, result["host_settings"])
     if mcp_path.exists():
         _write_json(mcp_path, result["mcp_json"])
-    # Layer 2: swap the plugin's default agent based on the dormant decision so
-    # the next session starts on lemoncrow:code (active) or the host default
-    # (dormant). Effect is next-session by design (host reads the agent at
-    # session start) — the current session's tools already degraded via Layer 1.
-    reconcile_dormant_agent(plugin_root_path, dormant=bool(result.get("dormant")))
     return result
 
 
