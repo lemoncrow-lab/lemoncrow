@@ -57,7 +57,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -126,13 +128,20 @@ def _apply_session_bootstrap(payload: dict[str, Any]) -> bool:
     except (ImportError, AttributeError):
         return False
     with suppress(Exception):
-        apply_session_start_files(
+        result = apply_session_start_files(
             _lemoncrow_root(),
             plugin_root,
             config_dir=_claude_settings_path().parent,
             payload=payload,
             current_version=os.environ.get("LEMONCROW_VERSION", "0.0.0"),
         )
+        # Emit the SessionStart context the bootstrap built (update notice +
+        # session-optimizer notice) so Claude actually injects it. It was
+        # silently discarded before -- the Codex SessionStart hook writes its
+        # equivalent, so Claude was the odd one out. Empty -> nothing printed.
+        stdout = result.get("stdout") if isinstance(result, dict) else None
+        if stdout:
+            sys.stdout.write(json.dumps(stdout) + "\n")
         return True
     return False
 
