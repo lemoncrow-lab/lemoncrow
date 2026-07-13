@@ -513,23 +513,46 @@ def refresh_subscription_meter(root: str | Path) -> dict[str, Any]:
     return metered
 
 
+def _cap_verdict_token(root: str | Path) -> str | None:
+    """The server's signed cap verdict token, if the account has one."""
+    auth = _read_json(auth_state_path(root), {})
+    sub = auth.get("subscriptionStatus") if isinstance(auth, dict) else None
+    if not isinstance(sub, dict):
+        sub = _read_json(subscription_state_path(root), {})
+    tok = sub.get("capVerdictToken") if isinstance(sub, dict) else None
+    return tok if isinstance(tok, str) and tok else None
+
+
 def cap_exhausted(root: str | Path) -> bool:
     """Whether the plan's savings cap is exhausted (savings engine goes dormant).
 
-    The single shared cap-state check for every dormant seam (Layer 1 tool
-    passthrough, Layer 2 agent-swap, the user nudge). Reads the persisted meter
-    (``subscription.json`` written by :func:`refresh_subscription_meter`); if
-    absent or stale-shaped, recomputes once.
+    The single shared cap-state check for every dormant seam (tool exposure,
+    agent unset, the user nudge).
 
-    Fail-OPEN: any error, an uncapped (Pro+) plan, or a missing meter returns
-    ``False`` — the product is never made dormant by accident.
+    Trust order:
+    1. **Signed server verdict** (``capVerdictToken``) — the authoritative,
+       tamper-resistant path. When a hosted account has a token AND a public key
+       is pinned, its Ed25519-verified value wins. A present-but-untrusted token
+       (invalid / expired / spoofed) fails **CLOSED** (dormant), so blocking or
+       editing local state can't yield "free forever."
+    2. **Local meter** (``subscription.json`` / recompute) — offline fallback for
+       accounts with no server verdict; fails **OPEN** (never dormant by accident).
     """
     try:
+        from lemoncrow.core.capabilities.licensing import cap_verdict
+
+        token = _cap_verdict_token(root)
+        if token and cap_verdict.is_configured():
+            import time as _time
+
+            verdict = cap_verdict.cap_over_from_token(token, now=int(_time.time()))
+            # Token present -> authoritative. None (untrusted/expired) = fail-closed.
+            return True if verdict is None else verdict
         sub = _read_json(subscription_state_path(root), None)
         if not isinstance(sub, dict) or "savingsOverCap" not in sub:
             sub = compute_usage_meter(root)
         return bool(sub.get("savingsOverCap"))
-    except Exception:  # noqa: BLE001 — fail-open: dormancy must never crash a hook
+    except Exception:  # noqa: BLE001 — fail-open (local path): dormancy must never crash a hook
         return False
 
 
