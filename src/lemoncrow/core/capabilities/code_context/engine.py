@@ -75,6 +75,11 @@ from lemoncrow.core.capabilities.code_context.output_policy import (
     hard_cap_chars,
     resolve_output_policy,
 )
+from lemoncrow.core.capabilities.code_context.ranking import (
+    SymbolScoringContext,
+    idf_weight,
+    score_symbol_row,
+)
 from lemoncrow.core.capabilities.code_context.rerank import SearchReranker
 from lemoncrow.core.capabilities.repo_map import build_repo_map
 from lemoncrow.core.capabilities.repo_map.budget import count_tokens, estimate_tokens
@@ -494,19 +499,13 @@ _TEST_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _TEST_SCORE_PENALTY = 0.75  # multiply test-file scores by this when query doesn't mention tests
-# IDF-weighted lexical coverage (see CodeContextEngine._search_symbols_local).
-# A query term found in a symbol's name / qualified name / signature / doc
-# summary contributes to that symbol's score in proportion to how *rare* the
-# term is in the corpus, and this coverage is treated as a first-class ranking
-# signal rather than a minor tie-break.  Together these let the one file that
-# matches the discriminative identifier (or describes it in its docstring) beat
-# a shallow rival that merely echoes several common query words -- the dominant
-# precision failure on natural-language / SWE-bench / session queries.  The
-# retrieval-MRR effect plateaus well before these magnitudes, so the constants
-# are deliberately off the knife-edge rather than tuned to a peak.
-_COVERAGE_MULT = 20.0  # score per fully-weighted (rare, on-topic) covered term
-_COVERAGE_IDF_CAP = 8.0  # upper bound on a single term's IDF weight
-_COVERAGE_IDF_SLOPE = 4.0  # weight = clamp(SLOPE * normalized_idf, 0.3, CAP)
+# The IDF-weighted lexical coverage constants + the multi-signal symbol scorer
+# (score_symbol_row) live in the compiled-only ranking module
+# (code_context/ranking.py, shipped as .so, denied from the public mirror).
+# NOTE: a full bench A/B (2026-07-13) measured that scorer at only +0.003 overall
+# MRR -- the ~0.67 retrieval quality comes from THIS method's channel/FTS
+# architecture (exact-name channels, IDF-pruned discriminative FTS, candidate
+# generation), not the re-rank. See ranking.py for the numbers.
 # Definitional kinds outrank trivial variables/constants when explore decides which
 # files survive the file/budget caps -- a class/function is higher signal than a const.
 _DEFINITION_KINDS = frozenset(
@@ -7743,81 +7742,28 @@ class CodeContextEngine:
         # behaviour is unchanged when the vocab lookup is unavailable.
         term_idf: dict[str, float] = {}
 
-        def adjustment(row: Mapping[str, Any]) -> float:
-            # Operates on the raw DB row: identical inputs to the former
-            # SymbolRecord-based version (all fields are TEXT -> str), without
-            # paying a pydantic validation per candidate row.
-            symbol_name = str(row["symbol_name"])
-            qualified_name = str(row["qualified_name"])
-            file_path = str(row["file_path"])
-            score = kind_boosts.get(str(row["kind"]), 0.0)
-            symbol_name_lower = symbol_name.lower()
-            qualified_name_lower = qualified_name.lower()
-            # Fold the doc summary into the matched text so a natural-language
-            # query can reach a symbol through its own prose description
-            # ("create and configure a Flask app" -> create_app) -- the lexical
-            # bridge across the query/identifier paraphrase gap.  IDF weighting
-            # (below) keeps the many common docstring words from inflating the
-            # score; only the rare, on-topic terms carry real weight.
-            lexical_text = f"{symbol_name} {qualified_name} {row['signature']} {row['doc_summary'] or ''}".lower()
-            file_path_lower = file_path.lower()
-            # Basename-without-extension via string slicing: Path(...).stem builds a
-            # pathlib object per candidate row (tens of thousands per query in the
-            # profile), which dominated the Python time -- this is identical output
-            # for the normalized '/'-separated stored paths.
-            _basename = file_path_lower[file_path_lower.rfind("/") + 1 :]
-            _dot = _basename.rfind(".")
-            file_name_stem = _basename[:_dot] if _dot > 0 else _basename
-            coverage = sum(term_idf.get(term, 1.0) for term in terms[:8] if term and term in lexical_text)
-            score += coverage * _COVERAGE_MULT
-            if symbol_name_lower.startswith(normalized_query_lower):
-                score += 24.0
-            if qualified_name_lower.startswith(normalized_query_lower):
-                score += 20.0
-            if normalized_query_lower in file_name_stem:
-                score += 22.0
-            elif file_name_stem.startswith(normalized_query_lower[: max(1, min(len(normalized_query_lower), 8))]):
-                score += 10.0
-            for term in terms[:6]:
-                if term and term in file_path_lower:
-                    score += 6.0 * term_idf.get(term, 1.0)
-            # Per-token name match (the missing name-match bonus): reward a query
-            # TOKEN that matches the symbol's OWN name tokens, so multi-term/regex
-            # queries (e.g. "select_format|CAST") still surface the exactly-named
-            # symbol instead of losing to body-coverage / kind-boost noise.
-            name_tokens = _identifier_terms(symbol_name)
-            if name_tokens:
-                matched = sum(1 for token in name_tokens if token in term_set)
-                if matched == len(name_tokens):
-                    # IDF boost: symbols with longer, multi-token names that fully match
-                    # query terms are more discriminative (e.g., "RewriteContext" vs "get").
-                    # Amplify the bonus for complete multi-token matches.
-                    base_bonus = 28.0 + 6.0 * len(name_tokens)
-                    if len(name_tokens) >= 2:
-                        # Extra boost for multi-token discriminative names
-                        base_bonus += 12.0 * (len(name_tokens) - 1)
-                    score += base_bonus
-                elif matched:
-                    score += 9.0 * matched
-            # Structural importance (call-graph eigenvector centrality / PageRank):
-            # the signal LemonCrow computes but never fed into ranking. Central core
-            # symbols outrank peripheral textual matches. Normalized 0..1.
-            cscore = centrality_map.get(symbol_name_lower)
-            if cscore is None:
-                cscore = centrality_map.get(qualified_name_lower, 0.0)
-            score += cscore * 30.0
-            # Idea D: boost symbols whose file imports a seed file.
-            # Files that explicitly import the seed are closely related.
-            if file_path in importing_files_for_boost:
-                score += 50.0
-            if _is_test_file_path(file_path) and not query_mentions_tests:
-                score -= 90.0
-            return score
+        # Per-query scoring context for the compiled-only symbol scorer
+        # (ranking.score_symbol_row). term_idf and importing_files_for_boost are
+        # passed by reference: both are still being populated below, and the
+        # scorer only runs (via consider_rows) after that completes, so it sees
+        # the finished dict/set.
+        scoring_ctx = SymbolScoringContext(
+            kind_boosts=kind_boosts,
+            term_idf=term_idf,
+            terms=terms,
+            term_set=term_set,
+            normalized_query_lower=normalized_query_lower,
+            centrality_map=centrality_map,
+            importing_files_for_boost=importing_files_for_boost,
+            query_mentions_tests=query_mentions_tests,
+            tokenize=_identifier_terms,
+            is_test_path=_is_test_file_path,
+        )
 
         # Rows for one symbol_id recur across channels (exact/CI-exact overlap, FTS
         # AND/OR/prefix hit the same symbols) but always carry the same symbols-table
         # columns; only the computed `score` column differs. The first-seen row is
-        # kept per symbol and `adjustment` (a pure function of the row once
+        # kept per symbol and `score_symbol_row` (a pure function of the row once
         # importing_files_for_boost is populated above) is computed once per symbol
         # per query. SymbolRecord construction is deferred to the final top-`limit`
         # slice below: candidate rows (1-2k/query) never pay pydantic validation.
@@ -7832,7 +7778,7 @@ class CodeContextEngine:
                 adj = adjustment_cache.get(symbol_id)
                 if adj is None:
                     row_cache[symbol_id] = row
-                    adj = adjustment_cache[symbol_id] = adjustment(row)
+                    adj = adjustment_cache[symbol_id] = score_symbol_row(row, scoring_ctx)
                 channel_score = float(row["score"]) * 100.0 if use_row_score and row["score"] is not None else 0.0
                 score = base + channel_score + adj
                 existing = scored.get(symbol_id)
@@ -7888,7 +7834,7 @@ class CodeContextEngine:
                     _max_idf = math.log(_idf_total + 1.0)
                     for _t in _idf_terms:
                         _nidf = math.log((_idf_total + 1.0) / (_df_by.get(_t, 0) + 1.0)) / _max_idf
-                        term_idf[_t] = min(_COVERAGE_IDF_CAP, max(0.3, _COVERAGE_IDF_SLOPE * _nidf))
+                        term_idf[_t] = idf_weight(_nidf)
                 except sqlite3.OperationalError:
                     pass
             fts_query = _fts_or_query_from_terms(or_fts_terms)
@@ -10084,7 +10030,9 @@ class CodeContextEngine:
             merged_message = (
                 "routed call edge data is unavailable"
                 if merged_status == "unavailable"
-                else "no related call edges were found" if merged_status == "empty" else None
+                else "no related call edges were found"
+                if merged_status == "empty"
+                else None
             )
             merged_snapshot = None
             if snapshot:

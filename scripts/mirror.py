@@ -63,6 +63,8 @@ INJECTED_FILES: list[tuple[str, str]] = [
         "code_context/rerank.py",
         "code_context/search_verdict.py",
         "code_context/renderer.py",
+        "code_context/ranking.py",
+        "code_context/embedding.py",
     )
 ]
 
