@@ -9,7 +9,7 @@
 
 set -u
 input=$(cat)
-PLUGIN_LABEL="❯ lc"
+PLUGIN_LABEL="lc(free)"
 
 if command -v jq >/dev/null 2>&1; then
   # Use a non-whitespace delimiter so Bash preserves empty fields.
@@ -87,11 +87,7 @@ except Exception:
   fi
   case "${_LEMONCROW_PLAN:-}" in
     pro|enterprise)
-      # Wall-clock rotation (5s per icon), same cadence as the dynamic segment
-      # below -- deterministic within a render, no flicker.
-      _LEMONCROW_PRO_ICONS=("🎨" "⚡" "🏆" "💰" "🍋", "✨")
-      _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_PRO_ICONS[@]} ))
-      PLUGIN_LABEL="${_LEMONCROW_PRO_ICONS[$_LEMONCROW_ICON_IDX]} lc"
+      PLUGIN_LABEL="lc"
       ;;
   esac
 fi
@@ -148,6 +144,11 @@ else
   C_PIPE=$'\033[2;38;2;200;200;200m'
   C_DIM=$'\033[2;38;2;200;200;200m'
   C_RESET=$'\033[0m'
+fi
+
+# Free users get grey branding; pro/enterprise get purple (C_BRAND default).
+if [ "${_LEMONCROW_PLAN:-}" != "pro" ] && [ "${_LEMONCROW_PLAN:-}" != "enterprise" ]; then
+  C_BRAND="${C_DIM}"
 fi
 PIPE="${C_PIPE}|${C_RESET}"
 SEP="${C_DIM}/${C_RESET}"
