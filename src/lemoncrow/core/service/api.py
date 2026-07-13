@@ -2202,7 +2202,7 @@ def _savings_summary_payload(
         from lemoncrow.core.foundation.paths import find_session_dir
 
         # Ledgers live in the canonical sessions/YYYY/MM/DD/<host>/<id>/run.json
-        # tree (see session_dir/find_session_dir) -- there is no flat runs/<id>.json.
+        # tree (see session_dir/find_session_dir).
         session_path = find_session_dir(root, session_id)
         if session_path is None:
             return None
@@ -4968,11 +4968,15 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         carries the same session_id so that sessions imported from Claude / Codex /
         OpenCode / Copilot are still surfaced here.
         """
+        from lemoncrow.core.foundation.paths import find_session_dir
         from lemoncrow.infra.runtime.run_ledger import RunLedger
 
-        ledger_path = Path(cfg.lemoncrow_root) / "runs" / f"{session_id}.json"
+        # Canonical per-session ledger: sessions/YYYY/MM/DD/<host>/<id>/run.json
+        # (the old flat runs/<id>.json location was retired).
+        _session_root = find_session_dir(Path(cfg.lemoncrow_root), session_id)
+        ledger_path = _session_root / "run.json" if _session_root else None
         snap = None
-        if ledger_path.exists():
+        if ledger_path is not None and ledger_path.exists():
             try:
                 ledger = RunLedger.load(ledger_path)
                 snap = ledger.snapshot()
@@ -5844,9 +5848,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                     or (
                         "assistant"
                         if turn.get("kind") == "agent_message"
-                        else "shell"
-                        if turn.get("kind") == "shell_command"
-                        else turn.get("kind") or "session"
+                        else "shell" if turn.get("kind") == "shell_command" else turn.get("kind") or "session"
                     )
                 )
                 bucket = tool_costs.setdefault(tool_name, {"calls": 0.0, "cost_usd": 0.0})
@@ -5994,9 +5996,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         total_turns = (
             authoritative_total_turns
             if authoritative_total_turns > 0
-            else trace_total_turns
-            if trace_total_turns > 0
-            else reconstructed_total_turns
+            else trace_total_turns if trace_total_turns > 0 else reconstructed_total_turns
         )
 
         input_token_cost_usd = (
@@ -6517,8 +6517,10 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         high_extra_reads: list[str] = []
 
         for f in files:
-            session_id = f.stem
-            state_path = root / "runs" / f"{session_id}.outcomes.json"
+            # files are canonical sessions/.../<id>/run.json paths; the session
+            # id is the parent dir name and outcomes sit beside run.json.
+            session_id = f.parent.name
+            state_path = f.parent / "outcomes.json"
             if not state_path.exists():
                 continue
             try:
@@ -6562,10 +6564,14 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         error — return [] so the dashboard doesn't log a 404 for every
         session opened.
         """
+        from lemoncrow.core.foundation.paths import find_session_dir
         from lemoncrow.infra.runtime.outcome_capture import load_outcomes_from_state
 
         root = Path(cfg.lemoncrow_root)
-        state_path = root / "runs" / f"{session_id}.outcomes.json"
+        _session_root = find_session_dir(root, session_id)
+        state_path = (
+            _session_root / "outcomes.json" if _session_root else root / "sessions" / session_id / "outcomes.json"
+        )
         if not state_path.exists():
             return []
         try:
