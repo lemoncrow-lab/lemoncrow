@@ -288,7 +288,9 @@ def test_session_start_bootstrap_applies_settings_auth_and_always_load(tmp_path:
     assert result["host_settings"]["includeCoAuthoredBy"] is False
     assert result["mcp_json"]["mcpServers"]["lemoncrow"]["alwaysLoad"] is False
     assert result["auth"]["isAnonymous"] is True
-    assert "LemonCrow budget optimizer" in result["stdout"]["additionalContext"]
+    # The obsolete session-optimizer guidance notice was removed from the
+    # SessionStart bootstrap (optimization discipline lives in the agent files).
+    assert "budget optimizer" not in str(result.get("stdout") or "")
     assert (session_dir(root, "claude", "s1") / "stats.json").exists()
 
 
@@ -318,28 +320,6 @@ def test_attribution_suppresses_coauthor_with_guard() -> None:
     out_off = apply_attribution_setting({"includeCoAuthoredBy": False}, False)
     assert out_off["includeCoAuthoredBy"] is False
     assert "lemoncrow" not in out_off
-
-
-def test_claude_session_start_hook_prints_optimizer_context(tmp_path: Path) -> None:
-    root = tmp_path / ".lemoncrow"
-    plugin_root = tmp_path / "plugin"
-    config_dir = tmp_path / "claude"
-    plugin_root.mkdir()
-    (plugin_root / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
-
-    result = _run_hook(
-        "session_start.py",
-        {"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
-        env={
-            "LEMONCROW_ROOT": str(root),
-            "CLAUDE_PLUGIN_ROOT": str(plugin_root),
-            "CLAUDE_CONFIG_DIR": str(config_dir),
-        },
-    )
-
-    output = json.loads(result.stdout)
-    assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    assert "smallest viable plan" in output["additionalContext"]
 
 
 def test_claude_stop_hook_shows_cache_and_estimated_session_savings(tmp_path: Path) -> None:
