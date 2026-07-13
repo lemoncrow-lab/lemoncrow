@@ -44,26 +44,32 @@ def _run_hook(
     )
 
 
-def test_tool_redirect_outputs_pretooluse_nudge_for_shell_reads() -> None:
+def test_pre_tool_discipline_does_not_redirect_shell_reads() -> None:
+    # The old tool_redirect.py hook rewrote a shell read (cat/rg) into an
+    # lc.search PreToolUse nudge. It was removed -- pre_tool_discipline.py's
+    # docstring records that the hard shell-read redirect "mis-fired on
+    # legitimate searches" -- so a shell read must NOT be blocked or rewritten
+    # now.
     result = _run_hook(
-        "tool_redirect.py",
-        {"tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
+        "pre_tool_discipline.py",
+        {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
     )
-
-    output = json.loads(result.stdout)
-    hook_output = output["hookSpecificOutput"]
-    assert hook_output["hookEventName"] == "PreToolUse"
-    assert hook_output["permissionDecision"] == "allow"
-    assert "search" in hook_output["additionalContext"]
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+    assert "permissionDecision" not in result.stdout
 
 
-def test_tool_redirect_is_quiet_without_pythonpath() -> None:
-    payload = {"tool_name": "Bash", "tool_input": {"command": "rg -n foo ."}}
+def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "rg -n foo ."},
+    }
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
 
     result = subprocess.run(
-        [sys.executable, str(HOOKS / "tool_redirect.py")],
+        [sys.executable, str(HOOKS / "pre_tool_discipline.py")],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -231,24 +237,33 @@ def test_savings_report_uses_live_events_only(tmp_path: Path) -> None:
     assert report["tokens_saved"] == 0
     assert report["saved_usd"] == 0.0
 
-    # Now write a real live event: 50k tokens saved, priced at $0.50 against
-    # the model that was active when the event was emitted.
-    (root / "live_savings_events.jsonl").write_text(
+    # A real per-session savings row: 50k tokens saved, priced at $0.50. The
+    # all-sessions aggregate sources realized savings from sessions/*/savings.jsonl
+    # (the per-session ledger the statusline / stop hook / web Savings page all
+    # use), not the raw live-events log. Fresh root: the zero-call above cached
+    # this root's empty window aggregate in-process, and that cache only refreshes
+    # against other processes' writes on a throttle -- not sub-second here (a
+    # test-timing artifact, not how the CLI reads it, one fresh process per call).
+    from datetime import UTC, datetime
+
+    root_b = tmp_path / ".lemoncrow_b"
+    sdir = root_b / "sessions" / "s1sess"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "savings.jsonl").write_text(
         json.dumps(
             {
-                "session_id": "s1",
-                "tool_name": "Read",
-                "lever": "structure_map",
-                "tokens_saved": 50_000,
+                "tool": "read",
+                "tokens": 50_000,
+                "calls": 0,
                 "cost_saved_usd": 0.5,
                 "model": "claude-opus-4-7",
+                "ts": datetime.now(UTC).isoformat(),
             }
         )
         + "\n",
         encoding="utf-8",
     )
-    # Global aggregate (no session_id) reads from live_savings_events.jsonl.
-    report = build_savings_report(root)
+    report = build_savings_report(root_b)
     assert report["tokens_saved"] == 50_000
     assert report["saved_usd"] == 0.5
     assert report["cost"]["saved_usd"] == 0.5
@@ -588,9 +603,27 @@ def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) ->
         encoding="utf-8",
     )
 
+    # load_live_savings_summary still reads live_savings_events.jsonl (the raw
+    # per-event log). The all-sessions report, however, sources realized savings
+    # from sessions/*/savings.jsonl (c06ffd6d) with routing folded into saved_usd,
+    # so mirror the same context + routing savings there for the report asserts.
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    sdir = root / "sessions" / "s1sess"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "savings.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"tool": "read", "tokens": 42_000, "calls": 0, "cost_saved_usd": 0.64, "ts": now}),
+                json.dumps({"kind": "routing", "usd": 0.23, "tool": "edit", "model": "claude-sonnet-4-5", "ts": now}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
     summary = load_live_savings_summary(root, session_id="s1")
-    # build_savings_report with session_id reads from transcript (no live events).
-    # Use the global aggregate (no session_id) to validate live_savings_events routing.
     report = build_savings_report(root)
 
     assert summary == {
@@ -599,6 +632,8 @@ def test_live_savings_summary_counts_cost_only_routing_events(tmp_path: Path) ->
         "saved_usd": 0.87,
         "routing_saved_usd": 0.23,
     }
+    # Report sources realized savings from the per-session ledger: read $0.64 +
+    # routing $0.23 (folded) = $0.87.
     assert report["cost"]["saved_usd"] == 0.87
     assert report["cost"]["live_saved_usd"] == 0.87
     assert report["cost"]["routing_saved_usd"] == 0.23
