@@ -11916,6 +11916,9 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
     params = request.get("params") or {}
 
     if method == "initialize":
+        # Freeze the cap decision for this connection's lifetime (grandfather
+        # while alive; a new process re-snapshots and hard-blocks if over cap).
+        _DORMANT_SNAPSHOT["value"] = _snapshot_dormant()
         _emit_mcp_session_start()
         return _ok(
             rid,
@@ -11955,6 +11958,16 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
         name = params.get("name") or ""
         if name == "run":
             name = "bash"
+        if _savings_dormant() and name in TOOLS:
+            # Frozen-dormant: the lc tools are absent for this connection. A call
+            # (e.g. from a stale client cache or model memory) fails hard as
+            # unavailable — not silently degraded. Grandfathered connections are
+            # never dormant, so this only fires on a capped new process.
+            return _err(
+                rid,
+                -32601,
+                "tool unavailable: LemonCrow savings cap reached — upgrade or wait for the monthly reset",
+            )
         _tool_call_images.value = []
         args = params.get("arguments") or {}
         # Some MCP clients deliver the whole `arguments` payload as a JSON string
@@ -12938,39 +12951,42 @@ def _auto_compact_output_enabled() -> bool:
     return os.environ.get("LEMONCROW_AUTO_COMPACT_OUTPUT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
-_DORMANT_CACHE: dict[str, float | bool] = {"at": 0.0, "value": False}
-_DORMANT_TTL_SECONDS = 60.0
+# Frozen per-process dormant state. Snapshotted ONCE at `initialize` (connection
+# start) and held for the server's lifetime, so a running server never flips
+# mid-session (grandfather — the client already has its tool list and we can't
+# cleanly yank it). A new server process (resume / restart / new window)
+# re-snapshots at its own `initialize` and hard-blocks if over cap. None = not
+# yet snapshotted (lazy fallback for tests / direct calls).
+_DORMANT_SNAPSHOT: dict[str, bool | None] = {"value": None}
 
 
-def _savings_dormant() -> bool:
-    """Cap gate for tool EXPOSURE: when the plan's savings cap is exhausted, the
-    server advertises no tools (``tools/list`` -> []). Tool *behavior* is never
-    changed — a listed tool always runs identically; enforcement is purely
-    whether the model sees it.
-
-    Reads the persisted meter via ``plugin_runtime.cap_exhausted``, which is only
-    refreshed at session start/stop, so a read returns the session-start value:
-    a session that connected under the cap keeps its tools for its lifetime
-    (grandfathered); dormancy takes hold from the next connection. Cached for
-    ``_DORMANT_TTL_SECONDS``.
-
-    Fail-open: any error returns ``False`` (tools stay visible).
-    """
-    import time as _time
-
-    now = _time.monotonic()
-    if now - float(_DORMANT_CACHE["at"]) < _DORMANT_TTL_SECONDS:
-        return bool(_DORMANT_CACHE["value"])
-    value = False
+def _snapshot_dormant() -> bool:
+    """Read the cap state once. Fail-open: any error -> not dormant."""
     try:
         from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
 
-        value = cap_exhausted(_lemoncrow_root())
-    except Exception:  # noqa: BLE001 — fail-open: dormancy must never break a tool call
-        value = False
-    _DORMANT_CACHE["at"] = now
-    _DORMANT_CACHE["value"] = value
-    return value
+        return cap_exhausted(_lemoncrow_root())
+    except Exception:  # noqa: BLE001 — fail-open: dormancy must never break the server
+        return False
+
+
+def _savings_dormant() -> bool:
+    """Frozen cap gate for this server process.
+
+    When dormant the server advertises no tools (``tools/list`` -> []) and
+    rejects any lc ``tools/call`` as unavailable. Tool *behavior* is never
+    changed — a tool is either present (and runs identically) or absent. The
+    value is frozen at `initialize`, so the decision is stable for the whole
+    connection: grandfather while alive, hard block on the next process start.
+
+    Fail-open: unset/lazy path returns whatever ``_snapshot_dormant`` yields
+    (False on error), so tools stay visible if the meter can't be read.
+    """
+    v = _DORMANT_SNAPSHOT["value"]
+    if v is None:
+        v = _snapshot_dormant()
+        _DORMANT_SNAPSHOT["value"] = v
+    return bool(v)
 
 
 def _read_path_arg(args: dict[str, Any]) -> str:

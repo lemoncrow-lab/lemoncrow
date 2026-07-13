@@ -1045,14 +1045,15 @@ def session_start_bootstrap(
     if mcp_result["changed"]:
         actions.append("always_load_updated")
 
-    # Layer 2: swap the default agent via the HOST settings `agent` key (host
-    # wins over the plugin's own settings.json). Dormant -> lemoncrow:free, a
-    # static fallback agent that disallows the lc MCP tools and runs on Claude's
-    # built-ins. Active -> clear only OUR override so the plugin default
-    # (lemoncrow:code) applies again; never clobber a user's custom agent.
+    # Layer 2 is enforced server-side (the MCP server hides all lc tools when
+    # dormant), so no special fallback agent is needed: with no lc tools
+    # visible, the model runs on the host built-ins on its own. When dormant we
+    # simply unset any host `agent` override so the default persona applies;
+    # never clobber a user's custom agent. (Also clears the stale lemoncrow:free
+    # override written by an earlier build.)
     if dormant:
-        updated_host["agent"] = PLUGIN_DORMANT_AGENT
-    elif updated_host.get("agent") == PLUGIN_DORMANT_AGENT:
+        updated_host.pop("agent", None)
+    elif updated_host.get("agent") == "lemoncrow:free":
         updated_host.pop("agent", None)
 
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
@@ -1069,12 +1070,6 @@ def session_start_bootstrap(
         "stdout": stdout,
         "update": update,
     }
-
-
-PLUGIN_ACTIVE_AGENT = "lemoncrow:code"
-# Static fallback agent shipped in the plugin (agents/free.md): built-ins only,
-# lc MCP tools disallowed. Selected via the host `agent` key while dormant.
-PLUGIN_DORMANT_AGENT = "lemoncrow:free"
 
 
 def apply_session_start_files(
