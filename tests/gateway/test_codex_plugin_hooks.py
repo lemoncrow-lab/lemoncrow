@@ -177,13 +177,13 @@ def test_codex_pre_tool_use_blocks_full_reread_of_large_edited_file(tmp_path: Pa
     assert "range" in hook["permissionDecisionReason"]
 
 
-def test_codex_pre_tool_use_allows_full_reread_of_small_edited_file(tmp_path: Path) -> None:
-    # Small file: no hard block -- allow, with a nudge toward a ranged read.
+def test_codex_pre_tool_use_stays_silent_for_small_edited_file(tmp_path: Path) -> None:
+    # Small file: a full re-read isn't real waste. Codex PreToolUse honours only
+    # "deny", so the happy path emits nothing -- an "allow" decision errors the
+    # hook ("unsupported permissionDecision:allow").
     root, payload = _seed_reread_case(tmp_path, lines=8)
-    output = json.loads(_run_hook("pre_tool_use.py", root, payload).stdout)
-    hook = output["hookSpecificOutput"]
-    assert hook["permissionDecision"] == "allow"
-    assert "ranged read" in hook["permissionDecisionReason"]
+    result = _run_hook("pre_tool_use.py", root, payload)
+    assert result.stdout.strip() == ""
 
 
 def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:

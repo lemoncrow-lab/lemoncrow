@@ -2346,12 +2346,11 @@ def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: s
 def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     """Verify-before-done gate for Codex, off the run ledger.
 
-    Codex speaks the Claude-Code hook protocol (its PreToolUse hook already
-    returns ``hookSpecificOutput.permissionDecision``), so its Stop hook honours
-    Claude's ``{"decision": "block", "reason": ...}`` -- a still-unverified edit
-    hard-blocks the turn exactly as on Claude, not merely nudges. Returns the
-    raw gate decision (``{"decision": "block", "reason": ...}``) or
-    ``{"no_output": True}``.
+    Surfaced as a ``systemMessage`` -- the Codex Stop output proven safe. Codex
+    rejects unsupported hook decisions (its PreToolUse honours only ``deny``, not
+    Claude's full allow/deny/ask set), so a Claude-style ``{"decision":
+    "block"}`` is NOT emitted here until confirmed supported: it would error the
+    Stop hook. Returns ``{"systemMessage": ...}`` or ``{"no_output": True}``.
     """
     from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
     from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
@@ -2369,7 +2368,7 @@ def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict
     result = verify_decide(signals, dedup_key=f"codex:{session_id}", root=_codex_workspace_root(payload))
     if not result:
         return {"no_output": True}
-    return result
+    return {"systemMessage": result["reason"]}
 
 
 # ===========================================================================
@@ -2668,14 +2667,13 @@ def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -
     edited = _codex_edited_path_keys(root, payload)
     workspace = _codex_workspace_root(payload)
     cap = _codex_read_after_edit_line_cap()
-    small_hit: str | None = None
     for path in full_reads:
         keys = _codex_path_keys(path)
         if keys.isdisjoint(edited):
             continue
-        base = Path(next(iter(keys))).name or path
         if _codex_file_line_count(path, workspace) >= cap:
             # Large edited file -> the whole-file re-ingest is real waste: hard block.
+            base = Path(next(iter(keys))).name or path
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -2686,20 +2684,9 @@ def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -
                     ),
                 }
             }
-        if small_hit is None:
-            small_hit = base
-    if small_hit is not None:
-        # Small edited file -> allow, but nudge toward a ranged read next time.
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": (
-                    f"Edited {small_hit} already -- a ranged read around your change is usually "
-                    "enough; allowing the full read since the file is small."
-                ),
-            }
-        }
+        # Small edited file: a full re-read isn't real waste, and Codex PreToolUse
+        # honours only a "deny" decision -- an "allow" (soft-nudge) errors the hook,
+        # so the happy path stays silent.
     return {"no_output": True}
 
 
