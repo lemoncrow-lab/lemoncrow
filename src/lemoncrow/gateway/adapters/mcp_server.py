@@ -11918,6 +11918,9 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
     if method == "initialize":
         # Freeze the cap decision for this connection's lifetime (grandfather
         # while alive; a new process re-snapshots and hard-blocks if over cap).
+        # Residual: /clear reuses this process, so tools stay exposed across it
+        # (only the agent side can act on /clear) -- see
+        # docs-internal/dormant-clear-residual.md for the revisit plan.
         _DORMANT_SNAPSHOT["value"] = _snapshot_dormant()
         _emit_mcp_session_start()
         return _ok(
