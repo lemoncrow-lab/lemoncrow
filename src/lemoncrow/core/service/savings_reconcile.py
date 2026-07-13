@@ -118,6 +118,15 @@ class _SavingsReconciler:
                 _prune_aggregate_days(self._root, agg, retention_days=_retention_days())
             except Exception:
                 logger.exception("savings reconciler: pass failed")
+            try:
+                # Feed the server-side meter (throttled to 30 min, only on new
+                # data, signed-in accounts only). Best-effort; the cap tolerates
+                # a missed report (client fails closed only past the grace TTL).
+                from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
+
+                maybe_report_usage(self._root)
+            except Exception:
+                logger.exception("savings reconciler: usage report failed")
             if self._stop.wait(self._poll_seconds):
                 return
 
