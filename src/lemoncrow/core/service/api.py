@@ -3028,11 +3028,7 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
         load_history,
         optimize_from_traces,
     )
-    from lemoncrow.core.capabilities.session_optimizer import (
-        build_trace_optimization_report,
-        render_session_optimizer_guidance,
-        session_optimization_rules,
-    )
+    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
 
     savings = _savings_summary_payload(root, window_days=window_days)
     traces = store.history.list_traces(limit=5000)
@@ -3092,8 +3088,6 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
         "advisory_only_hosts": advisory_only_hosts,
         "observed_levers": observed_levers,
         "runtime_coverage": runtime_coverage,
-        "budget_guidance": render_session_optimizer_guidance(),
-        "budget_rules": session_optimization_rules(),
         "implemented_levers": implemented_levers,
         "implementation_gaps": _optimization_implementation_gaps(),
         "advisor": advisor_dict,
