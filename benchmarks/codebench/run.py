@@ -85,6 +85,7 @@ LEMONCROW_MCP: dict[str, dict[str, object]] = {
             "type": "stdio",
             "command": "lemoncrow",
             "args": ["mcp", "--host", "claude"],
+            "alwaysLoad": True,
         }
     }
 }
@@ -355,8 +356,8 @@ def _make_baseline_config(
 def _enable_lemoncrow_mcp(config_dir: Path) -> None:
     """Enable only LemonCrow's server in the isolated Claude user config.
 
-    User-config servers are loaded before headless turn 1; ``--mcp-config``
-    servers can still be connecting when the first paid prompt is sent.
+    ``alwaysLoad`` makes Claude wait for the server and include its tool schemas
+    before headless turn 1, while preserving the short ``mcp__lc__*`` namespace.
     """
     config_path = config_dir / ".claude.json"
     data = json.loads(config_path.read_text())

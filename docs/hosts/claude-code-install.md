@@ -21,9 +21,10 @@ make install
 ```
 
 This registers the local Claude plugin source (`lc`), installs
-`lemoncrow@lemoncrow`, and registers the MCP server in Claude's user scope.
-Pass `--workspace /path/to/workspace` to write a project-local `.mcp.json`
-instead.
+`lemoncrow@lemoncrow`, and registers an always-loaded `lc` MCP server in Claude's
+user scope. Its tools use the short `mcp__lc__*` namespace and are available
+before turn 1. Pass `--workspace /path/to/workspace` to write the same setting in
+a project-local `.mcp.json` instead.
 
 The script is idempotent — safe to run again after updates.
 

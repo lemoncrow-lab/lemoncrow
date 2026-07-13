@@ -125,7 +125,7 @@ if $PRINT_ONLY; then
         echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
     else
         echo "Step 3 - Register MCP in Claude user scope:"
-        echo "  claude mcp add --scope user lc -- lc mcp --host claude"
+        echo "  claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"alwaysLoad\":true}'"
     fi
     echo ""
     echo "After install, in Claude Code: /lemoncrow:explore"
@@ -438,9 +438,9 @@ fi
 # ---- MCP config -------------------------------------------------------------
 # Global mode registers "lc" directly in Claude's user scope. Workspace mode
 # has no such step, so write a plain project-root .mcp.json instead (merged,
-# so any pre-existing unrelated servers survive) -- a project-root .mcp.json
-# is not plugin-owned, so Claude Code registers it under the short "lc" name
-# rather than plugin:lemoncrow:lc.
+# so any pre-existing unrelated servers survive). Both set alwaysLoad only on
+# lc, making Claude wait for its schemas before turn 1 while preserving the
+# short mcp__lc__* namespace; the plugin remains MCP-free.
 if $WORKSPACE_SET; then
     if $DRY_RUN; then
         echo "  [dry-run] merge lc MCP server into ${MCP_JSON}"
@@ -458,6 +458,7 @@ data.setdefault("mcpServers", {})["lc"] = {
     "type": "stdio",
     "command": "lemoncrow",
     "args": ["mcp", "--host", "claude"],
+    "alwaysLoad": True,
 }
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(f"[lemoncrow:claude] lc MCP server merged → {path}")
@@ -465,11 +466,11 @@ PYEOF
     fi
 else
     if $DRY_RUN; then
-        echo "  [dry-run] claude mcp add --scope user lc -- lc mcp --host claude"
+        echo "  [dry-run] claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"alwaysLoad\":true}'"
     else
-        info "Registering lc MCP server in Claude user scope"
+        info "Registering always-loaded lc MCP server in Claude user scope"
         claude mcp remove --scope user lc 2>/dev/null || true
-        claude mcp add --scope user lc -- lc mcp --host claude
+        claude mcp add-json --scope user lc '{"type":"stdio","command":"lc","args":["mcp","--host","claude"],"alwaysLoad":true}'
     fi
 fi
 

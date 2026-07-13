@@ -439,7 +439,7 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert "${HOME}/.opencode" not in opencode
 
     claude = (SCRIPTS / "install_claude.sh").read_text()
-    assert "claude mcp add --scope user lc" in claude
+    assert "claude mcp add-json --scope user lc" in claude
     assert '.mcp.json"' in claude
     assert '"lc mcp"' in claude or "lc" in claude
 
@@ -890,6 +890,14 @@ def test_install_claude_stages_statusline_assets() -> None:
     assert 'run cp -r "${SOURCE_PLUGIN_DIR}/scripts" "$STAGING_DIR/"' in content
     assert 'run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"' in content
     assert '"subagentStatusLine": {"type": "command", "command": "${STATUSLINE_SCRIPT}", "padding": 1},' in content
+
+
+def test_install_claude_always_loads_only_short_lc_server() -> None:
+    content = (SCRIPTS / "install_claude.sh").read_text()
+    assert "claude mcp add-json --scope user lc" in content
+    assert '"alwaysLoad":true' in content
+    assert '"alwaysLoad": True' in content
+    assert 'data.setdefault("mcpServers", {})["lc"]' in content
 
 
 def test_install_claude_stages_workflow_assets() -> None:
