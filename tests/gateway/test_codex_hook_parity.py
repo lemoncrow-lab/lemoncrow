@@ -99,6 +99,10 @@ def test_pre_tool_use_denies_full_reread_after_edit(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     session_id = "run1"
     _seed_run_file(root, session_id)
+    # The guard is size-gated: only a large edited file is hard-blocked.
+    src = tmp_path / "src" / "a.py"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text("".join(f"x = {i}\n" for i in range(600)), encoding="utf-8")
     plugin_runtime.build_codex_post_tool_use_ledger_output(
         root,
         {

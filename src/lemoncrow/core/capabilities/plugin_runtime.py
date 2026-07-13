@@ -2622,13 +2622,42 @@ def _codex_full_read_paths(tool_input: dict[str, Any]) -> list[str]:
     return paths
 
 
-def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
-    """Block wasteful full rereads of files already edited in this Codex run.
+def _codex_read_after_edit_line_cap() -> int:
+    """Line count at/above which a full reread of an already-edited file is hard
+    blocked; below it the reread is allowed with a nudge.
 
-    This intentionally ports only the narrow Claude read-after-edit guard. The
-    older Codex grounding gate was removed because it blocked from-scratch file
-    creation too broadly; this guard only fires on explicit full-file reads of
-    paths already observed in the run ledger as edited.
+    A whole-file re-ingest only wastes meaningful tokens on a large file; on a
+    small one a hard block starves the agent for near-zero saving. Override with
+    LEMONCROW_READ_AFTER_EDIT_MAX_LINES.
+    """
+    raw = os.environ.get("LEMONCROW_READ_AFTER_EDIT_MAX_LINES", "").strip()
+    return int(raw) if raw.isdigit() else 400
+
+
+def _codex_file_line_count(path: str, workspace: str) -> int:
+    """Line count of the on-disk file, or 0 when it can't be read.
+
+    0 (unknown) is treated as small by the caller -- fail toward the softer
+    action, never hard-block a file whose size we cannot confirm.
+    """
+    clean = re.sub(r":(?:full|outline|summary|head=\d+|tail=\d+|L\d+(?:-L?\d+)?)$", "", path.split("#", 1)[0])
+    p = Path(clean).expanduser()
+    if not p.is_absolute():
+        p = Path(workspace) / p
+    try:
+        with p.open("rb") as fh:
+            return sum(1 for _ in fh)
+    except OSError:
+        return 0
+
+
+def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Guard wasteful full rereads of files already edited in this Codex run.
+
+    Size-gated: a large edited file being full-read is hard-blocked (deny) so the
+    agent ranges it; a small one is allowed with a nudge (the wrong-block cost of
+    starving the agent exceeds the tokens saved). Only fires on explicit
+    full-file reads of paths the run ledger shows as edited.
     """
     if os.environ.get("LEMONCROW_READ_AFTER_EDIT_GUARD", "1") == "0":
         return {"no_output": True}
@@ -2643,18 +2672,37 @@ def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -
     if not full_reads:
         return {"no_output": True}
     edited = _codex_edited_path_keys(root, payload)
+    workspace = _codex_workspace_root(payload)
+    cap = _codex_read_after_edit_line_cap()
+    small_hit: str | None = None
     for path in full_reads:
         keys = _codex_path_keys(path)
         if keys.isdisjoint(edited):
             continue
         base = Path(next(iter(keys))).name or path
+        if _codex_file_line_count(path, workspace) >= cap:
+            # Large edited file -> the whole-file re-ingest is real waste: hard block.
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Edited {base} already and it is large -- read an exact range "
+                        '(for example, range="L1-L120") instead of expanding the whole file again.'
+                    ),
+                }
+            }
+        if small_hit is None:
+            small_hit = base
+    if small_hit is not None:
+        # Small edited file -> allow, but nudge toward a ranged read next time.
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
+                "permissionDecision": "allow",
                 "permissionDecisionReason": (
-                    f'Edited {base} already -- read an exact range (for example, range="L1-L120") '
-                    "instead of expanding the whole file again."
+                    f"Edited {small_hit} already -- a ranged read around your change is usually "
+                    "enough; allowing the full read since the file is small."
                 ),
             }
         }

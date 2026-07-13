@@ -145,7 +145,8 @@ def test_codex_user_prompt_emits_high_context_nudge_once(tmp_path: Path, monkeyp
     assert second.get("no_output") is True
 
 
-def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> None:
+def _seed_reread_case(tmp_path: Path, *, lines: int) -> tuple[Path, dict]:
+    """Seed a run ledger marking src/a.py edited + write src/a.py with `lines`."""
     root = tmp_path / ".lemoncrow"
     session_id = "c1"
     run_file = plugin_runtime._codex_run_file(root, session_id)
@@ -154,24 +155,35 @@ def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> Non
         json.dumps({"session_id": session_id, "events": [], "files_touched": ["src/a.py"]}),
         encoding="utf-8",
     )
+    src = tmp_path / "src" / "a.py"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text("".join(f"x = {i}\n" for i in range(lines)), encoding="utf-8")
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": session_id,
+        "tool_name": "mcp__lc__read",
+        "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
+        "cwd": str(tmp_path),
+    }
+    return root, payload
 
-    result = _run_hook(
-        "pre_tool_use.py",
-        root,
-        {
-            "hook_event_name": "PreToolUse",
-            "session_id": session_id,
-            "tool_name": "mcp__lc__read",
-            "tool_input": {"files": [{"path": "src/a.py", "full": True}]},
-            "cwd": str(tmp_path),
-        },
-    )
 
-    output = json.loads(result.stdout)
+def test_codex_pre_tool_use_blocks_full_reread_of_large_edited_file(tmp_path: Path) -> None:
+    root, payload = _seed_reread_case(tmp_path, lines=600)
+    output = json.loads(_run_hook("pre_tool_use.py", root, payload).stdout)
     hook = output["hookSpecificOutput"]
     assert hook["hookEventName"] == "PreToolUse"
     assert hook["permissionDecision"] == "deny"
     assert "range" in hook["permissionDecisionReason"]
+
+
+def test_codex_pre_tool_use_allows_full_reread_of_small_edited_file(tmp_path: Path) -> None:
+    # Small file: no hard block -- allow, with a nudge toward a ranged read.
+    root, payload = _seed_reread_case(tmp_path, lines=8)
+    output = json.loads(_run_hook("pre_tool_use.py", root, payload).stdout)
+    hook = output["hookSpecificOutput"]
+    assert hook["permissionDecision"] == "allow"
+    assert "ranged read" in hook["permissionDecisionReason"]
 
 
 def test_codex_savings_reporter_updates_session_stats(tmp_path: Path) -> None:
