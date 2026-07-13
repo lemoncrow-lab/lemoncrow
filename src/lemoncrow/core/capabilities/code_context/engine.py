@@ -1184,7 +1184,9 @@ _SQLITE_CACHE_CEILING_KB = int(os.environ.get("LEMONCROW_SQLITE_CACHE_CEILING_KB
 _SQLITE_RAM_RESERVE_FLOOR_BYTES = int(
     os.environ.get("LEMONCROW_SQLITE_RAM_RESERVE_FLOOR_BYTES", str(4 * 1024 * 1024 * 1024))
 )  # 4 GB
-_SQLITE_RAM_RESERVE_FRACTION = float(os.environ.get("LEMONCROW_SQLITE_RAM_RESERVE_FRACTION", "0.10"))  # 10% of total RAM
+_SQLITE_RAM_RESERVE_FRACTION = float(
+    os.environ.get("LEMONCROW_SQLITE_RAM_RESERVE_FRACTION", "0.10")
+)  # 10% of total RAM
 
 
 def _total_ram_bytes() -> int:
@@ -7472,12 +7474,27 @@ class CodeContextEngine:
                     )
                     try:
                         semantic_hits = _sem_fut.result(timeout=_SEMANTIC_SYMBOL_DEADLINE_S)
-                    except (KeyError, TypeError, ValueError):
-                        pass
                     except (TimeoutError, concurrent.futures.CancelledError):
                         # Don't block on a cold ANN-matrix load (see
                         # _SEMANTIC_SYMBOL_DEADLINE_S) -- fall back to lexical_hits
                         # alone; the abandoned future keeps warming the cache.
+                        pass
+                    except Exception as exc:  # noqa: BLE001 -- must degrade gracefully, see below
+                        # ANY embedder/ANN failure (missing dependency, OOM, backend
+                        # error, bad response shape, ...) must degrade to
+                        # lexical_hits alone -- exactly like _semantic_candidate_files'
+                        # contextlib.suppress(Exception) a few hundred lines down.
+                        # Without this, one bad embedder call propagates out of
+                        # search_symbols and kills the WHOLE multi-channel query (and
+                        # the tool_explore call built on it), not just the semantic
+                        # signal. Confirmed via a real run: EVERY natural-language
+                        # query enters this branch (_query_is_natural_language), so an
+                        # embedder fault here silently zeroed MRR for the entire
+                        # semantic gold kind (1688/1688 queries) while lexical-only
+                        # golds (short, non-NL queries that skip this branch) were
+                        # unaffected -- previously only KeyError/TypeError/ValueError
+                        # were caught here.
+                        logger.warning("semantic symbol search failed, falling back to lexical-only: %s", exc)
                         pass
                 # Merge commit chunks as a third candidate source (LINEAGE-03)
                 commit_hits: list[SymbolRecord] = []

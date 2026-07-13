@@ -9,6 +9,7 @@ touch real stdout.
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -228,7 +229,9 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     assert result["status"] == "running"
     assert result["over_budget"] is True  # timeout=0 -- immediately past its soft budget
     # peek-sourced result also carries a tail marker line -- just check the handle line.
-    assert mcp_server._render_bash_text(result).startswith(f"overrunning id={result['session_id']} -- act now\n")
+    rendered = mcp_server._render_bash_text(result)
+    assert rendered.startswith(f"still running id={result['session_id']}\n")
+    assert "[logs:" in rendered
     sid = result["session_id"]
     with bx._MANAGED_COMMANDS_LOCK:
         managed = bx._MANAGED_COMMANDS.get(sid)
@@ -326,6 +329,36 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
     assert "mailman-style-ok" in str(result.get("stdout"))
 
 
+@pytest.mark.parametrize(
+    ("command", "background", "expected_explicit"),
+    [
+        ("sleep 30", True, True),
+        ("sleep 30 &", False, False),
+    ],
+)
+def test_mcp_registration_tracks_only_bg_true_as_shutdown_persistent(
+    bash_env: Path,
+    command: str,
+    background: bool,
+    expected_explicit: bool,
+) -> None:
+    mcp_server._register_mcp_session()
+    result: dict[str, Any] | None = None
+    try:
+        started = mcp_server._run_bash_tool(command, timeout=30, background=background)
+        assert isinstance(started, dict)
+        result = started
+        registration = json.loads(mcp_server._mcp_session_file().read_text(encoding="utf-8"))
+        records = registration["managed_bash"]
+        assert len(records) == 1
+        assert records[0]["session_id"] == started["session_id"]
+        assert records[0]["explicit_background"] is expected_explicit
+    finally:
+        if result is not None:
+            mcp_server._run_bash_tool(session_id=result["session_id"], action="cancel")
+        mcp_server._unregister_mcp_session()
+
+
 def test_bare_trailing_ampersand_uses_fast_background_path(bash_env: Path, tmp_path: Path) -> None:
     """A command that ends in a bare `&` is auto-detected as background=True by
     _run_bash_tool and returns near-instantly via the explicit background path
@@ -343,6 +376,36 @@ def test_bare_trailing_ampersand_uses_fast_background_path(bash_env: Path, tmp_p
 
     # Cleanup: cancel the managed wrapper (kills its process group).
     mcp_server._run_bash_tool(session_id=result["session_id"], action="cancel")
+
+
+def test_overrunning_foreground_command_does_not_block_another_run(bash_env: Path) -> None:
+    mcp_server._deferral_context.active = True
+    first_id = ""
+    try:
+        first_deferred = mcp_server._run_bash_tool("sleep 30", timeout=0)
+        assert isinstance(first_deferred, mcp_server._DeferredResult)
+        first_ready = threading.Event()
+        assert first_deferred.register(first_ready.set) is True
+        assert first_ready.wait(3.0)
+        first = first_deferred.collect()
+        first_id = str(first["session_id"])
+
+        second_deferred = mcp_server._run_bash_tool("printf second", timeout=30)
+        assert isinstance(second_deferred, mcp_server._DeferredResult)
+        second_ready = threading.Event()
+        if second_deferred.register(second_ready.set):
+            assert second_ready.wait(3.0)
+        second = second_deferred.collect()
+        assert second["stdout"] == "second"
+        with bx._MANAGED_COMMANDS_LOCK:
+            assert bx._MANAGED_COMMANDS[first_id].proc.poll() is None
+    finally:
+        mcp_server._deferral_context.active = False
+        if first_id:
+            try:
+                mcp_server._run_bash_tool(session_id=first_id, action="cancel")
+            except KeyError:
+                pass
 
 
 def test_soft_deadline_running_session_can_be_explicitly_cancelled(bash_env: Path) -> None:

@@ -1077,15 +1077,18 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
     command = str(tool_input.get("command") or "")
     normalized = " ".join(command.strip().split()).lower()
 
+    # Codex invokes LemonCrow's MCP tools as "lc.<tool>" (see _CODEX_TOOL_PREFIX
+    # in scripts/sync_agent_context.py) -- NOT Claude Code's "mcp__lc__<tool>"
+    # form -- so the nudge must recommend a name Codex can actually call.
     if lowered == "read":
-        return ("mcp__lc__read", "Use LemonCrow read for file reads and ranges.")
+        return ("lc.read", "Use LemonCrow read for file reads and ranges.")
     if lowered in {"edit", "write", "multiedit", "patch", "apply_patch", "replace"}:
         return (
-            "mcp__lc__edit",
+            "lc.edit",
             "Use LemonCrow edit for deterministic grouped writes and rollback.",
         )
     if lowered in {"grep", "glob"}:
-        return ("mcp__lc__grep", "Use LemonCrow grep/search for text and path discovery.")
+        return ("lc.grep", "Use LemonCrow grep/search for text and path discovery.")
     if lowered in {"bash", "shell", "exec_command", "run_command"}:
         if (
             normalized.startswith(("rg ", "grep ", "find "))
@@ -1093,13 +1096,13 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
             or " grep " in f" {normalized} "
         ):
             return (
-                "mcp__lc__grep",
+                "lc.grep",
                 "Use LemonCrow grep/search instead of shell rg/grep/find loops.",
             )
         if normalized.startswith(("cat ", "sed ", "head ", "tail ")):
-            return ("mcp__lc__read", "Use LemonCrow read instead of shell file-print commands.")
+            return ("lc.read", "Use LemonCrow read instead of shell file-print commands.")
         return (
-            "mcp__lc__bash",
+            "lc.bash",
             "Use LemonCrow bash so command execution stays compact and supervised.",
         )
     return None
@@ -1135,7 +1138,7 @@ def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[
         "additionalContext": "\n".join(
             [
                 rationale,
-                "For coding tasks, call mcp__lc__context first if you have not already.",
+                "For coding tasks, call lc.context first if you have not already.",
                 "Keep native Codex tools as fallback only when the LemonCrow equivalent is hidden, unavailable, or returned noop.",
             ]
         ),

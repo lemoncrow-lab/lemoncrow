@@ -214,4 +214,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Start a new Hermes session for MCP changes to take effect."
-info "Tip: run 'lc status' in any shell to see the runs dashboard."
+info "Tip: run 'lemoncrow status' in any shell to see the runs dashboard."

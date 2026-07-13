@@ -66,13 +66,14 @@ def test_normalize_codex_tool_maps_native_and_mcp_tools() -> None:
 
 
 def test_codex_native_tool_replacement_maps_apply_patch_to_lc_edit() -> None:
-    # apply_patch is Codex's native patch tool -- must nudge to mcp__lc__edit
-    # exactly like edit/write/multiedit, not fall through unmapped (regression for
+    # apply_patch is Codex's native patch tool -- must nudge to lc.edit (the
+    # name Codex actually calls, not Claude Code's mcp__lc__ form) exactly
+    # like edit/write/multiedit, not fall through unmapped (regression for
     # the gap where apply_patch calls went unnudged and landed as native patches).
     for tool_name in ("apply_patch", "patch", "replace", "edit", "write", "multiedit"):
         replacement = plugin_runtime._codex_native_tool_replacement({"tool_name": tool_name})
         assert replacement is not None
-        assert replacement[0] == "mcp__lc__edit"
+        assert replacement[0] == "lc.edit"
 
 
 def test_session_tool_normalizers_use_generic_lemoncrow_namespace() -> None:
@@ -462,7 +463,9 @@ def test_permission_request_allows_safe_commands(tmp_path: Path, command: str) -
         "tool_name": "shell",
         "tool_input": {"command": command},
     }
-    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    assert (
+        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    )
 
 
 def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
@@ -471,7 +474,9 @@ def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
         "tool_name": "apply_patch",
         "tool_input": {"file_path": "a.py"},
     }
-    assert plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    assert (
+        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    )
 
 
 # --------------------------------------------------------------------------

@@ -1,4 +1,4 @@
 - **Efficient by default.** Name N before a loop; no re-implementing what a library provides; no quadratic where linear exists; memoize/cache repeated work; long build/compute, use all cores.
 - **Least code that works.** No excess — but never drop error handling, validation, or edge cases.
-- **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code.
-- **Call a library/API's documented functions, not its internal helpers.** 
+- **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code. Use the project's own declared toolchain (lockfile/manifest: `uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
+- **Call a library/API's documented functions.** not its internal helpers.

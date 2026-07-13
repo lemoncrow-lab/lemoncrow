@@ -101,6 +101,7 @@ else
 fi
 
 PLUGIN_MCP_JSON="${PLUGIN_DIR}/.mcp.json"
+MCP_SERVER_KEY="lc"  # single source of truth: server key registered in ${PLUGIN_MCP_JSON}
 CODEX_MARKETPLACE="${MARKETPLACE_ROOT}/.agents/plugins/marketplace.json"
 USER_CODEX_CONFIG="${USER_CODEX_HOME}/config.toml"
 
@@ -339,14 +340,15 @@ patch_plugin_mcp() {
         echo "  [dry-run] patch $PLUGIN_MCP_JSON to run lemoncrow mcp --host codex"
         return
     fi
-    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
+    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 path = Path(os.environ["PLUGIN_MCP_JSON_PATH"])
 data = json.loads(path.read_text(encoding="utf-8"))
-server = data.setdefault("lemoncrow", {})
-server["command"] = "lc"
+server = data.setdefault(os.environ["MCP_SERVER_KEY"], {})
+data.pop("lemoncrow", None)
+server["command"] = "lemoncrow"
 server["args"] = ["mcp", "--host", "codex"]
 env = dict(server.get("env") or {})
 if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1":
@@ -589,11 +591,11 @@ vwarn() { warn "$*"; }
 [ -f "${PLUGIN_DIR}/agents/openai.yaml" ] && vpass "Codex plugin agent surface installed: ${PLUGIN_DIR}/agents/openai.yaml" || vfail "Codex plugin agent surface missing: ${PLUGIN_DIR}/agents/openai.yaml"
 
 if [ -f "$PLUGIN_MCP_JSON" ]; then
-    MCP_STATUS="$(PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" python3 - <<'PYEOF'
+    MCP_STATUS="$(PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" python3 - <<'PYEOF'
 import json, os
 from pathlib import Path
 data = json.loads(Path(os.environ["PLUGIN_MCP_JSON_PATH"]).read_text(encoding="utf-8"))
-server = data.get("lemoncrow", {})
+server = data.get(os.environ["MCP_SERVER_KEY"], {})
 print(server.get("command", ""))
 print(" ".join(server.get("args") or []))
 print((server.get("env") or {}).get("LEMONCROW_WORKSPACE_ROOT", ""))
@@ -602,7 +604,7 @@ PYEOF
     MCP_COMMAND="$(printf '%s\n' "$MCP_STATUS" | sed -n '1p')"
     MCP_ARGS="$(printf '%s\n' "$MCP_STATUS" | sed -n '2p')"
     MCP_WORKSPACE_ROOT="$(printf '%s\n' "$MCP_STATUS" | sed -n '3p')"
-    [ "$MCP_COMMAND" = "lc" ] && [ "$MCP_ARGS" = "mcp --host codex" ] && vpass "plugin MCP config points at lc mcp --host codex" || vfail "plugin MCP config is invalid"
+    [ "$MCP_COMMAND" = "lemoncrow" ] && [ "$MCP_ARGS" = "mcp --host codex" ] && vpass "plugin MCP config points at lemoncrow mcp --host codex" || vfail "plugin MCP config is invalid"
     if $WORKSPACE_SET && [ "$MCP_WORKSPACE_ROOT" != "$WORKSPACE" ]; then vfail "plugin MCP config expected LEMONCROW_WORKSPACE_ROOT=$WORKSPACE"; fi
 else
     vfail "plugin MCP config missing: $PLUGIN_MCP_JSON"
@@ -643,7 +645,7 @@ done
 
 if grep -q '^\[agents\.lemoncrow_' "$CODEX_CONFIG" 2>/dev/null; then vfail "obsolete per-agent registration blocks remain in $CODEX_CONFIG"; else vpass "Codex agents use the current standalone-file discovery format"; fi
 if $WORKSPACE_SET; then [ -d "$TASKS_DEST_DIR" ] && [ -f "$TASKS_DEST_DIR/preflight.md" ] && vpass "Codex task templates installed" || vfail "Codex task templates missing"; fi
-command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1 && vpass "lc status command is available" || vfail "lc status command unavailable"
+command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1 && vpass "lemoncrow status command is available" || vfail "lemoncrow status command unavailable"
 
 if [ "$VFAIL" -ne 0 ]; then
     echo "[lemoncrow:codex] ERROR: post-install verification failed." >&2

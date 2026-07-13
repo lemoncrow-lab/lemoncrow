@@ -343,10 +343,10 @@ else
     vfail "$TASKS_DEST missing LemonCrow task presets"
 fi
 
-if command -v lc >/dev/null 2>&1 && lc status --help >/dev/null 2>&1; then
-    vpass "lc status command is available"
+if command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1; then
+    vpass "lemoncrow status command is available"
 else
-    vfail "lc status command unavailable"
+    vfail "lemoncrow status command unavailable"
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
@@ -356,4 +356,4 @@ fi
 info "All post-install checks passed"
 
 info "Done. Reload VS Code window - LemonCrow MCP and tasks are available."
-info "Tip: run 'lc status' in any shell to see the runs dashboard."
+info "Tip: run 'lemoncrow status' in any shell to see the runs dashboard."

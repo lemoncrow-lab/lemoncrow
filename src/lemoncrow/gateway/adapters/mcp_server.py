@@ -1343,12 +1343,63 @@ def _workspace_savings_path() -> Path:
     return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
 
 
+_MCP_SESSION_FILE_LOCK = threading.Lock()
+
+
 def _mcp_session_file() -> Path:
     """Path to this MCP process's registration file.
 
     Written at startup; SessionStart hook writes claude_session_id + model into it.
     """
     return _lemoncrow_root() / "mcp_sessions" / f"{_MCP_ID}.json"
+
+
+def _mutate_mcp_managed_bash(*, record: dict[str, Any] | None = None, remove_id: str = "") -> None:
+    """Atomically update live Bash ownership in this MCP registration."""
+    path = _mcp_session_file()
+    with _MCP_SESSION_FILE_LOCK:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            commands = [row for row in data.get("managed_bash", []) if isinstance(row, dict)]
+            target_id = remove_id or str((record or {}).get("session_id") or "")
+            if target_id:
+                commands = [row for row in commands if str(row.get("session_id") or "") != target_id]
+            if record is not None:
+                commands.append(record)
+            data["managed_bash"] = commands
+            tmp = path.with_name(f".{path.name}.{_uuid_mod.uuid4().hex}.tmp")
+            try:
+                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                tmp.replace(path)
+            finally:
+                tmp.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError):
+            logger.debug("MCP managed Bash registration update failed", exc_info=True)
+
+
+def _record_mcp_managed_bash(started: dict[str, Any]) -> None:
+    session_id = str(started.get("session_id") or "")
+    pid = started.get("pid")
+    if not session_id or not isinstance(pid, int):
+        return
+    record: dict[str, Any] = {
+        "session_id": session_id,
+        "pid": pid,
+        "explicit_background": bool(started.get("explicit_background")),
+        "started_at": time.time(),
+    }
+    for key in ("log_file", "log_file_stderr"):
+        value = started.get(key)
+        if isinstance(value, str) and value:
+            record[key] = value
+    _mutate_mcp_managed_bash(record=record)
+
+
+def _forget_mcp_managed_bash(session_id: str) -> None:
+    if session_id:
+        _mutate_mcp_managed_bash(remove_id=session_id)
 
 
 def _workspace_bridge_file() -> Path:
@@ -2655,6 +2706,7 @@ def _register_mcp_session() -> None:
             "started_at": datetime.utcnow().isoformat(),
             "claude_session_id": "",
             "model": "",
+            "managed_bash": [],
         }
         f.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError:
@@ -9479,6 +9531,16 @@ def _deferred_completion_executor() -> ThreadPoolExecutor:
     return _DEFERRED_COMPLETION_EXECUTOR
 
 
+def _default_bash_soft_timeout() -> int:
+    try:
+        return max(1, int(os.environ.get("LEMONCROW_BASH_SOFT_TIMEOUT", "120")))
+    except ValueError:
+        return 120
+
+
+_DEFAULT_BASH_SOFT_TIMEOUT = _default_bash_soft_timeout()
+
+
 def _run_bash_tool(
     command: str = "",
     timeout: int | None = None,
@@ -9534,31 +9596,42 @@ def _run_bash_tool(
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
         if action == "cancel":
-            return poll_managed_command(session_id, cancel=True)
+            result = poll_managed_command(session_id, cancel=True)
+            _forget_mcp_managed_bash(session_id)
+            return result
         if action == "status":
             # Single non-blocking check -- unlike `poll`, never waits for the
             # command to finish and never reaps the session.
-            return peek_managed_command(session_id)
+            result = peek_managed_command(session_id)
+            if result.get("status") != "running":
+                _forget_mcp_managed_bash(session_id)
+            return result
         if action == "update":
             if timeout is None:
                 raise ValueError("timeout is required for shell action=update")
             if timeout <= 0:
                 raise ValueError("timeout must be positive")
             return update_managed_command(session_id, timeout)
-        # Block until the backgrounded command finishes (or its own timeout
-        # kills it). No artificial window -- the command's timeout is the bound.
+        # Block until the managed command finishes, is cancelled, or reaches
+        # its one-hour safety cap / action="update" deadline.
         delay = 0.02
         while True:
             poll_result = poll_managed_command(session_id)
             if poll_result.get("status") != "running":
+                _forget_mcp_managed_bash(session_id)
                 return poll_result
             time.sleep(delay)
             delay = min(delay * 2, 0.5)
     if not command.strip():
         raise ValueError("command is required for shell action=run")
-    timeout_explicit = timeout is not None
     if timeout is None:
-        timeout = 120
+        timeout = _DEFAULT_BASH_SOFT_TIMEOUT
+
+    # Only the API's explicit bg=true flag grants permission to survive MCP
+    # shutdown. A trailing ampersand still gets the fast managed-command path,
+    # but remains owned by this MCP session and is cleaned up with foreground
+    # work when the session exits.
+    explicit_background = background
 
     # A trailing `&` (but not `&&`) means "run in background": strip it and
     # force background mode so the command runs as a managed LemonCrow session
@@ -9818,14 +9891,15 @@ def _run_bash_tool(
         command,
         cwd=effective_cwd,
         timeout=timeout,
-        timeout_explicit=timeout_explicit,
         max_lines=max_lines,
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
         note=_pipeline_note,
+        explicit_background=explicit_background,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
         return started  # blocked by policy
+    _record_mcp_managed_bash(started)
 
     # Phase 2: foreground deferral. For the block-until-done case (a foreground
     # run, where inline_wait covers the full timeout), hand the pool worker back
@@ -9854,6 +9928,7 @@ def _run_bash_tool(
             # result and apply the identical terminal transforms the inline path
             # does, so the deferred result dict matches the synchronous one.
             polled = poll_managed_command(managed_id)
+            _forget_mcp_managed_bash(managed_id)
             polled.pop("session_id", None)
             polled.pop("status", None)
             chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
@@ -9924,6 +9999,7 @@ def _run_bash_tool(
     # Finished inline: present as a plain synchronous result. The managed
     # session is already reaped, so status/session_id would only invite a
     # useless poll turn; exit_code/stderr carry the terminal state.
+    _forget_mcp_managed_bash(managed_id)
     polled.pop("session_id", None)
     polled.pop("status", None)
     chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
@@ -9949,6 +10025,7 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     lines_omitted = result.get("lines_omitted")
     status = str(result.get("status") or "")
     session_id = str(result.get("session_id") or "")
+    explicit_background = bool(result.get("explicit_background"))
 
     parts: list[str] = []
     if "updated" in result:
@@ -9962,23 +10039,13 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             parts.append(f"update failed: session already {status} id={session_id}")
         return "\n".join(parts).strip()
     if status == "running":
-        # Just the handle: pid/elapsed/timeout/log paths are dead weight the
-        # model never acts on -- poll/status/cancel need only the id
-        # (and action=status ships a live output tail on demand). No "status="
-        # key either: the state word is self-evident; id= stays because it
-        # names the exact argument to echo back (bash(id=x)). "overrunning"
-        # instead of "running" once the command has burned through its
-        # requested timeout budget -- distinct from a plain mid-flight peek
-        # that's still well inside its window.
         over_budget = bool(result.get("over_budget"))
-        word = "overrunning" if over_budget else "running"
-        # Nothing kills this automatically at this point (the real kill is the
-        # much larger hard cap) -- "act now" pushes the model to actually
-        # decide (cancel, or have a reason to keep going) instead of
-        # reflexively polling again. Kept to 2 words: this line is read on
-        # every single overrunning poll, not just the first.
-        suffix = " -- act now" if over_budget else ""
-        parts.append(f"{word} id={session_id}{suffix}")
+        if explicit_background:
+            parts.append(f"background running id={session_id}")
+        elif over_budget:
+            parts.append(f"still running id={session_id}")
+        else:
+            parts.append(f"running id={session_id}")
     elif status and status != "completed":
         # Terminal states (cancelled/timed_out): the session is reaped, its id
         # can never be polled again -- don't ship a dead handle. A clean
@@ -10006,6 +10073,8 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     else:
         log_paths = log_file or log_file_stderr
     log_ptr = f"; full: {log_paths}" if log_paths and not spill_hint else ""
+    if status == "running" and log_paths:
+        parts.append(f"[logs: {log_paths}]")
     if isinstance(tail_lines, int) and tail_lines > 0:
         parts.append(f"[tail: last {tail_lines} lines{log_ptr}]")
     if blocked:
@@ -10042,12 +10111,6 @@ def _render_bash_text(result: dict[str, Any]) -> str:
             parts.append(spill_hint)
         else:
             parts.append(f"[output truncated: {lines_omitted} lines omitted{log_ptr}]")
-    # No exit-code guard: pipelines (e.g. `... 2>&1 | tail`) mask failures.
-    if "No module named pip" in stdout or "No module named pip" in stderr:
-        parts.append(
-            "[hint] This venv has no pip (uv-managed). Install with: "
-            "uv pip install --python <venv>/bin/python <pkg>  (or python -m ensurepip first)"
-        )
     rendered = "\n".join(parts).strip()
     if rendered:
         return rendered
@@ -11072,13 +11135,13 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "timeout": {
             "type": "integer",
-            "default": 120,
-            "description": "Soft response budget (s) -- past it, returns a handle instead of blocking. Explicit timeout also installs a hard kill at max(timeout, 60s); omitted, hard kill after 1hr. action=cancel kills now; action=update + id + timeout kills at exact new timeout.",
+            "default": _DEFAULT_BASH_SOFT_TIMEOUT,
+            "description": "Soft response budget (s) -- past it, returns a warned live handle while the command continues until cancelled or the MCP session exits. Only bg=true survives MCP shutdown. Every command has a fixed 1hr safety cap; action=update + id + timeout installs an exact deadline.",
         },
         "bg": {
             "type": "boolean",
             "default": False,
-            "description": "Run in background, return id immediately.",
+            "description": "Run in background, return id immediately, and preserve the command when the MCP session exits.",
         },
         "id": {
             "type": "string",
@@ -11120,8 +11183,9 @@ def tool_bash(
     Prefer LemonCrow read/grep/search tools directly — they are faster and cheaper.
     Use bash only for commands that have no LemonCrow equivalent (git, make, uv, npm, etc.).
 
-    bg=True starts the command in the background and returns its `id`.
-    bash(id=x) alone waits for that run to finish (poll); action="status"
+    bg=True starts the command in the background, returns its `id`, and is
+    the only mode preserved across MCP shutdown. bash(id=x) alone waits for
+    that run to finish (poll); action="status"
     peeks without waiting (state + last 10 output lines); action="cancel"
     kills it now. `timeout` at start is only ever a soft response budget --
     it does not kill by itself (eventual internal ~1hr backstop still
@@ -11132,8 +11196,6 @@ def tool_bash(
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
         action = "poll"
-    if action == "run" and timeout is None:
-        timeout = 120
     result = _run_bash_tool(
         command,
         timeout=timeout,
@@ -13608,6 +13670,26 @@ def _warm_stdio_zoekt_webserver() -> None:
         _log.debug("zoekt pre-warm failed", exc_info=True)
 
 
+def _shutdown_managed_bash_commands() -> None:
+    from lemoncrow.core.capabilities.tool_supervision.bash_exec import cleanup_managed_commands
+
+    summary = cleanup_managed_commands()
+    terminated = summary["terminated"]
+    preserved = summary["preserved"]
+    if terminated:
+        logger.warning(
+            "MCP shutdown terminated %d foreground Bash command(s): %s",
+            len(terminated),
+            ", ".join(str(row["session_id"]) for row in terminated),
+        )
+    if preserved:
+        logger.info(
+            "MCP shutdown preserved %d explicit bg=true Bash command(s): %s",
+            len(preserved),
+            ", ".join(str(row["session_id"]) for row in preserved),
+        )
+
+
 def main() -> None:
     # Phase 1: Absorb wrapper logic into `lc mcp` (zero-config)
     os.environ.setdefault("LEMONCROW_SERVICE_URL", "http://127.0.0.1:8787")
@@ -13670,9 +13752,24 @@ def main() -> None:
 
     _update_thread = threading.Thread(target=_check_auto_update, daemon=True)
     _update_thread.start()
+    # Convert process-termination signals into normal Python unwinding so the
+    # finally block can terminate every MCP-owned process group. SIGKILL remains
+    # uncatchable by definition.
+    import signal as _signal
+
+    previous_handlers: list[tuple[_signal.Signals, Any]] = []
+    if threading.current_thread() is threading.main_thread():
+
+        def _exit_on_signal(signum: int, _frame: Any) -> None:
+            raise SystemExit(128 + signum)
+
+        for signum in (_signal.SIGTERM, _signal.SIGHUP):
+            previous_handlers.append((_signal.Signals(signum), _signal.getsignal(signum)))
+            _signal.signal(signum, _exit_on_signal)
     try:
         serve()
     finally:
+        _shutdown_managed_bash_commands()
         _unregister_mcp_session()
         # If an opt-in auto-update reinstall (git pull + install.sh) is mid-flight
         # when the host disconnects, let it finish rather than killing the daemon
@@ -13680,7 +13777,5 @@ def main() -> None:
         # immediately in the common no-update case (the thread already exited);
         # only blocks when an install is genuinely running (its own cap is ~300s).
         _update_thread.join(timeout=310.0)
-
-
-if __name__ == "__main__":
-    main()
+        for signum, handler in previous_handlers:
+            _signal.signal(signum, handler)
