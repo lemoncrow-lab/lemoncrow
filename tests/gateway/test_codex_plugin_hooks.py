@@ -148,9 +148,9 @@ def test_codex_user_prompt_emits_high_context_nudge_once(tmp_path: Path, monkeyp
 def test_codex_pre_tool_use_blocks_full_reread_after_edit(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     session_id = "c1"
-    runs = root / "runs"
-    runs.mkdir(parents=True)
-    (runs / f"{session_id}.json").write_text(
+    run_file = plugin_runtime._codex_run_file(root, session_id)
+    run_file.parent.mkdir(parents=True, exist_ok=True)
+    run_file.write_text(
         json.dumps({"session_id": session_id, "events": [], "files_touched": ["src/a.py"]}),
         encoding="utf-8",
     )
