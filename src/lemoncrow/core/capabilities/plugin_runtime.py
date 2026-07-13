@@ -910,7 +910,7 @@ def session_start_bootstrap(
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
     if payload:
         update_session_stats(root, {"hook_event_name": "SessionStart", **payload})
-    stdout = _merge_session_start_stdout(update.get("stdout"), _session_optimizer_start_notice(root, host="claude"))
+    stdout = _merge_session_start_stdout(update.get("stdout"))
     return {
         "settings": settings,
         "host_settings": updated_host,
@@ -976,12 +976,6 @@ def update_notification(current_version: str, flag: dict[str, Any] | None) -> di
             "hookSpecificOutput": {"hookEventName": "SessionStart"},
         }
     }
-
-
-def _session_optimizer_start_notice(root: str | Path, *, host: str) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.session_optimizer import build_session_start_notice
-
-    return build_session_start_notice(str(root), host=host)
 
 
 def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
