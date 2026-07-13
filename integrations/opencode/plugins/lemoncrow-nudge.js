@@ -69,6 +69,37 @@ const showToast = async (client, message, title = "lc", duration = 8000) => {
   }
 };
 
+// Re-drive an idle session with a follow-up instruction -- verify-before-done's
+// emulated block, since OpenCode exposes no Stop-block hook. Tries the known
+// @opencode-ai/sdk client shapes and fails open: if none work the caller falls
+// back to a toast, so this never throws. The Python gate's fire-once dedup means
+// a given nudge is emitted at most once, so re-driving cannot loop.
+const continueSession = async (client, sessionID, text) => {
+  if (!sessionID || !text?.trim()) return false;
+  const attempts = [
+    () =>
+      client.session.prompt({
+        path: { id: sessionID },
+        body: { parts: [{ type: "text", text }] },
+      }),
+    () => client.session.prompt({ sessionID, parts: [{ type: "text", text }] }),
+    () =>
+      client.session.chat({
+        path: { id: sessionID },
+        body: { parts: [{ type: "text", text }] },
+      }),
+  ];
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+      return true;
+    } catch {
+      // Try the next client shape.
+    }
+  }
+  return false;
+};
+
 const eventSessionID = (event) =>
   event?.sessionID ??
   event?.sessionId ??
@@ -149,6 +180,18 @@ export const LemonCrowNudge = async ({ client, directory }) => ({
       cwd: directory,
       model: event?.model,
     });
+    // Verify-before-done "block": re-drive the session with the FIXME so the
+    // agent keeps going (parity with Claude/Codex Stop). Fall back to a toast
+    // if the client can't be driven.
+    if (status.continuePrompt) {
+      const continued = await continueSession(
+        client,
+        sessionID,
+        status.continuePrompt,
+      );
+      if (!continued)
+        await showToast(client, status.continuePrompt, "lc verify", 12000);
+    }
     await showToast(client, status.uiMessage, "lc status", 12000);
   },
 });
