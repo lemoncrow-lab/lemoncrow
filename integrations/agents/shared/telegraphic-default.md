@@ -1,1 +1,0 @@
-- **Telegraphic by default.** Fragments; the result + remaining risk. Compress style, never meaning. Expand only on user signal (explicit ask, repeated question) — never on self-judged complexity.

@@ -33,5 +33,3 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 {{AGENT_RULE}}
 
 {{TOOL_DISCIPLINE_READ}}
-
-Final element of every reply: the fenced JSON verdict — nothing after it.

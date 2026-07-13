@@ -1,21 +1,17 @@
 """Reply-register level plumbing (persona reply style: ultra | lite | off).
 
-The level controls how much reply-style instruction is baked into every
-installed agent persona:
+All response policy lives in sectioned ``shared/reply-register.md``:
 
-- ``ultra`` (default): the full telegraphic template
-  (``integrations/agents/shared/reply-register.md``) plus the core-discipline
-  "Telegraphic by default" bullet (``telegraphic-default.md``).
-- ``lite``: concise-core register only (``reply-register-lite.md``); the
-  ultra bullet is stripped.
-- ``off``: no reply-style instruction at all.
+- ``invariants``: byte-exact technical content and safety expansion; always on.
+- ``telegraphic-default``: strict default appended through core discipline and
+  removed for lite/off.
+- ``ultra`` / ``lite``: mutually exclusive reply-style registers.
+- ``off``: no reply-style register; invariants remain.
 
 Resolution order: ``LEMONCROW_TELEGRAPHIC`` env var → persisted
-``cli.telegraphic`` key in ``<root>/plugin_settings.json`` (written by
-``lc settings set cli.telegraphic <level>``) → ``ultra``. The same
-logic is mirrored (self-contained, no import) in
-``scripts/lib/managed_context.sh::lemoncrow_apply_reply_register_level`` for
-install scripts that stage pre-rendered files — keep the two in sync.
+``cli.telegraphic`` key in ``<root>/plugin_settings.json`` → ``ultra``. The
+same transformation is mirrored in
+``scripts/lib/managed_context.sh::lemoncrow_apply_reply_register_level``.
 """
 
 from __future__ import annotations
@@ -23,17 +19,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from lemoncrow.core.persona_partials import markdown_section
+
 REPLY_REGISTER_LEVELS: tuple[str, ...] = ("ultra", "lite", "off")
 TELEGRAPHIC_SETTING_KEY = "cli.telegraphic"
 _ENV_OVERRIDE = "LEMONCROW_TELEGRAPHIC"
 
 
 def _persisted_level() -> str | None:
-    """Direct read of the persisted setting.
-
-    ``apply_settings_env`` seeds ``LEMONCROW_TELEGRAPHIC`` only once at package
-    import; a ``settings set`` inside the same process needs the file value.
-    """
+    """Read the persisted level after package import-time environment seeding."""
     try:
         from lemoncrow.core.settings import _resolve_root, load_raw
 
@@ -48,17 +42,16 @@ def reply_register_level() -> str:
     return level if level in REPLY_REGISTER_LEVELS else "ultra"
 
 
-def _register_body(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
+def _register_body(shared_dir: Path, section: str) -> str:
+    return markdown_section(shared_dir / "reply-register.md", section)
 
 
 def reply_register_body(shared_dir: Path, level: str | None = None) -> str:
-    """The reply-register text for ``level`` (current level when ``None``)."""
+    """Return the selected style section; ``off`` returns no style text."""
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
     if lvl == "off":
         return ""
-    name = "reply-register.md" if lvl == "ultra" else "reply-register-lite.md"
-    return _register_body(shared_dir / name)
+    return _register_body(shared_dir, lvl)
 
 
 def _toml_escape(value: str) -> str:
@@ -66,27 +59,18 @@ def _toml_escape(value: str) -> str:
 
 
 def apply_reply_register_level(text: str, shared_dir: Path, level: str | None = None) -> str:
-    """Swap the baked-in ultra register in pre-rendered agent text for ``level``.
-
-    ``ultra`` (and unknown levels) return ``text`` unchanged -- it's what ships
-    baked into every generated persona. Matches both the raw bodies and their
-    TOML-escaped forms (codex ``developer_instructions``). Text without the
-    register/bullet passes through untouched.
-    """
+    """Replace baked ultra style and remove its telegraphic-default section."""
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
     if lvl == "ultra":
         return text
-    default_body = _register_body(shared_dir / "reply-register.md")
+    default_body = _register_body(shared_dir, "ultra")
     if not default_body:
         return text
-    pairs: list[tuple[str, str]] = [(default_body, reply_register_body(shared_dir, lvl))]
-    bullet_path = shared_dir / "telegraphic-default.md"
-    if bullet_path.exists():
-        bullet = _register_body(bullet_path)
-        if bullet:
-            # lite/off soften or drop the register; the ultra bullet
-            # ("never on self-judged complexity") goes with it.
-            pairs += [(bullet + "\n", ""), (bullet, "")]
+    replacement = "" if lvl == "off" else _register_body(shared_dir, "lite")
+    bullet = _register_body(shared_dir, "telegraphic-default")
+    pairs: list[tuple[str, str]] = [(default_body, replacement)]
+    if bullet:
+        pairs += [(bullet + "\n", ""), (bullet, "")]
     out = text
     for raw_needle, raw_sub in pairs:
         for needle, sub in ((raw_needle, raw_sub), (_toml_escape(raw_needle), _toml_escape(raw_sub))):

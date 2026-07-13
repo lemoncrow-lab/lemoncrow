@@ -42,14 +42,13 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     swap_tool_discipline_lead_in,
 )
 from lemoncrow.core.environment import skill_installed_by_default
+from lemoncrow.core.persona_partials import markdown_section
 
 CODING_GUIDELINES_PATH = ROOT / "integrations/agents/shared/coding-guidelines.md"
 CORE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/core-discipline.md"
 CHANGE_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/change-discipline.md"
 DESTRUCTIVE_GUARD_PATH = ROOT / "integrations/agents/shared/destructive-guard.md"
-RESPONSE_ECONOMY_PATH = ROOT / "integrations/agents/shared/response-economy.md"
 TOOL_DISCIPLINE_PATH = ROOT / "integrations/agents/shared/tool-discipline.md"
-TOOL_DISCIPLINE_READ_PATH = ROOT / "integrations/agents/shared/tool-discipline-read.md"
 REPLY_REGISTER_PATH = ROOT / "integrations/agents/shared/reply-register.md"
 AGENT_RULE_PATH = ROOT / "integrations/agents/shared/agent-rule.md"
 AGENTS_GUIDE_PATH = ROOT / "integrations/AGENTS.lemoncrow.md"
@@ -62,11 +61,17 @@ SHARED_SECTIONS: dict[str, Path] = {
     "{{CORE_DISCIPLINE}}": CORE_DISCIPLINE_PATH,
     "{{CHANGE_DISCIPLINE}}": CHANGE_DISCIPLINE_PATH,
     "{{DESTRUCTIVE_GUARD}}": DESTRUCTIVE_GUARD_PATH,
-    "{{RESPONSE_ECONOMY}}": RESPONSE_ECONOMY_PATH,
+    "{{RESPONSE_ECONOMY}}": REPLY_REGISTER_PATH,
     "{{TOOL_DISCIPLINE}}": TOOL_DISCIPLINE_PATH,
-    "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_READ_PATH,
+    "{{TOOL_DISCIPLINE_READ}}": TOOL_DISCIPLINE_PATH,
     "{{REPLY_REGISTER}}": REPLY_REGISTER_PATH,
     "{{AGENT_RULE}}": AGENT_RULE_PATH,
+}
+SHARED_SECTION_NAMES = {
+    "{{RESPONSE_ECONOMY}}": "invariants",
+    "{{TOOL_DISCIPLINE}}": "write",
+    "{{TOOL_DISCIPLINE_READ}}": "read-only",
+    "{{REPLY_REGISTER}}": "ultra",
 }
 HOST_SKILL_DIRS = {
     "claude": ROOT / "integrations" / "claude" / "plugin" / "skills",
@@ -134,7 +139,7 @@ _CLAUDE_SHARED_OVERRIDES = {
 # *after* that rewrite pass runs (see profile.native_fallback_names).
 _OPENCODE_NATIVE_FALLBACK_NAMES: tuple[str, ...] = ("read", "grep", "bash", "edit", "patch")
 _OPENCODE_TOOL_DISCIPLINE = swap_tool_discipline_lead_in(
-    _markdown_body(TOOL_DISCIPLINE_PATH),
+    markdown_section(TOOL_DISCIPLINE_PATH, "write"),
     "Native OpenCode {{NATIVE_FALLBACK_NAMES}} are fallback-only "
     "(use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop)",
 )
@@ -148,7 +153,7 @@ _CODEX_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": codex_tool_discipline_body(TOOL_DISCIPLINE_PATH.parent),
     "{{TOOL_DISCIPLINE_READ}}": codex_tool_discipline_body(
         TOOL_DISCIPLINE_PATH.parent,
-        source_name="tool-discipline-read.md",
+        section="read-only",
         native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ,
     ),
 }
@@ -290,7 +295,7 @@ def render_cursor_coding_rules() -> str:
             _markdown_body(DESTRUCTIVE_GUARD_PATH) + "\n" + _markdown_body(AGENT_RULE_PATH),
         ),
         ("Coding Guidelines", _markdown_body(CODING_GUIDELINES_PATH)),
-        ("Reply Register", _markdown_body(REPLY_REGISTER_PATH)),
+        ("Reply Register", markdown_section(REPLY_REGISTER_PATH, "ultra")),
     ]
     body = "\n\n".join(f"## {title}\n\n{text.strip()}" for title, text in sections)
     return (
@@ -382,10 +387,12 @@ def render_mode_body(mode_doc: ModeDoc, overrides: dict[str, str] | None = None)
 
 
 def _shared_section_body(token: str, source_path: Path) -> str:
-    """Expand one shared partial. ``{{CORE_DISCIPLINE}}`` also carries the
-    response-economy directive (byte-exact technical content + expand-for-safety)."""
+    """Expand one standalone or consolidated shared partial section."""
     if token == "{{CORE_DISCIPLINE}}":
         return core_discipline_body(source_path.parent)
+    section_name = SHARED_SECTION_NAMES.get(token)
+    if section_name:
+        return markdown_section(source_path, section_name)
     return _markdown_body(source_path)
 
 
