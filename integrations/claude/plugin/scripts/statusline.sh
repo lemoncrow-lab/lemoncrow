@@ -9,7 +9,7 @@
 
 set -u
 input=$(cat)
-PLUGIN_LABEL="lc(free)"
+PLUGIN_LABEL="❯ lc(free)"
 
 if command -v jq >/dev/null 2>&1; then
   # Use a non-whitespace delimiter so Bash preserves empty fields.
@@ -87,7 +87,11 @@ except Exception:
   fi
   case "${_LEMONCROW_PLAN:-}" in
     pro|enterprise)
-      PLUGIN_LABEL="lc"
+      # Wall-clock rotation (5s per icon), same cadence as the dynamic segment
+      # below -- deterministic within a render, no flicker.
+      _LEMONCROW_PRO_ICONS=("⚡" "✨", "❯")
+      _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_PRO_ICONS[@]} ))
+      PLUGIN_LABEL="${_LEMONCROW_PRO_ICONS[$_LEMONCROW_ICON_IDX]} lc"
       ;;
   esac
 fi

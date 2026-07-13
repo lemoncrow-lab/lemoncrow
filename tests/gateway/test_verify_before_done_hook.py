@@ -154,6 +154,43 @@ def test_passing_test_run_after_edit_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
+def test_rejected_edit_after_verified_change_does_not_reblock(tmp_path: Path) -> None:
+    # A real edit gets verified by a passing test run. A LATER edit attempt
+    # that the user rejects (tool_result is_error=True, nothing written) must
+    # not re-poison last_edit_idx and re-block on every subsequent Stop even
+    # though nothing on disk changed since the verified edit.
+    t = _transcript(
+        tmp_path,
+        _assistant(("Edit", {"file_path": "app/core.py"})),
+        _assistant_with_id("Bash", {"command": "pytest -q"}, "tu1"),
+        _tool_result("tu1", False),
+        _assistant_with_id("Edit", {"file_path": "app/other.py"}, "tu2"),
+        _tool_result("tu2", True),
+    )
+    assert not _blocked(_run(t))
+
+
+def test_repeated_stop_with_no_new_edit_does_not_reblock(tmp_path: Path) -> None:
+    # Same unresolved edit, no new edit/verification since the last Stop -- the
+    # second call is the exact same nudge again and must be suppressed.
+    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
+    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
+
+
+def test_new_edit_after_suppressed_nudge_fires_again(tmp_path: Path) -> None:
+    # A genuinely new edit event appended after a suppressed repeat must still
+    # get its own one-time nudge -- suppression is per-nudge, not permanent.
+    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/core.py"})))
+    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
+    t.write_text(
+        t.read_text(encoding="utf-8") + "\n" + json.dumps(_assistant(("Edit", {"file_path": "app/core.py"}))),
+        encoding="utf-8",
+    )
+    assert _blocked(_run(t))
+
+
 def test_docs_only_edit_allows(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "README.md"})))
     assert not _blocked(_run(t))

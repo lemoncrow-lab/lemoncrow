@@ -2096,7 +2096,7 @@ _ensure_path_persistence() {
 
     rm -f "$tmp_input" "$tmp_output"
 
-    info "Added LemonCrow directories to PATH in ${profile_file/#$HOME/~}"
+    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "Added LemonCrow directories to PATH in ${profile_file/#$HOME/~}"
 }
 
 # _capture_install_previous_version — preserve the executable version before
