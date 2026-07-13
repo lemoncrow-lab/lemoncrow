@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from lemoncrow.core.persona_partials import markdown_section
 from lemoncrow.core.reply_register import (
     apply_reply_register_level,
     reply_register_body,
@@ -21,9 +22,11 @@ from lemoncrow.core.reply_register import (
 
 _REPO = Path(__file__).resolve().parents[2]
 _SHARED = _REPO / "integrations" / "agents" / "shared"
-_ULTRA = (_SHARED / "reply-register.md").read_text(encoding="utf-8").strip()
-_LITE = (_SHARED / "reply-register-lite.md").read_text(encoding="utf-8").strip()
-_BULLET = (_SHARED / "telegraphic-default.md").read_text(encoding="utf-8").strip()
+_REGISTER = _SHARED / "reply-register.md"
+_ULTRA = markdown_section(_REGISTER, "ultra")
+_LITE = markdown_section(_REGISTER, "lite")
+_BULLET = markdown_section(_REGISTER, "telegraphic-default")
+_INVARIANTS = markdown_section(_REGISTER, "invariants")
 
 _GENERATED_PATTERNS = (
     "integrations/claude/plugin/agents/*.md",
@@ -67,6 +70,11 @@ def test_reply_register_body_per_level() -> None:
     assert reply_register_body(_SHARED, "off") == ""
 
 
+def test_consolidated_reply_register_replaces_legacy_partials() -> None:
+    for name in ("reply-register-lite.md", "response-economy.md", "telegraphic-default.md"):
+        assert not (_SHARED / name).exists()
+
+
 def test_apply_ultra_is_noop_and_unknown_text_passes_through() -> None:
     text = f"header\n\n{_ULTRA}\n\ntail"
     assert apply_reply_register_level(text, _SHARED, "ultra") == text
@@ -86,6 +94,7 @@ def test_ultra_register_baked_verbatim_and_swappable_everywhere() -> None:
     assert files, "no generated surface contains the ultra register verbatim — sync drift?"
     for path in files:
         text = path.read_text(encoding="utf-8")
+        assert _INVARIANTS in text, f"{path}: always-on reply invariants missing"
         assert _LITE not in text, f"{path}: generated file already carries the lite register"
         assert (
             apply_reply_register_level(text, _SHARED, "ultra") == text
@@ -93,9 +102,11 @@ def test_ultra_register_baked_verbatim_and_swappable_everywhere() -> None:
 
         lite = apply_reply_register_level(text, _SHARED, "lite")
         assert _ULTRA not in lite and _LITE in lite, f"{path}: lite swap failed"
+        assert _INVARIANTS in lite, f"{path}: invariants lost at level=lite"
 
         off = apply_reply_register_level(text, _SHARED, "off")
         assert _ULTRA not in off, f"{path}: off removal failed"
+        assert _INVARIANTS in off, f"{path}: invariants lost at level=off"
         assert "\n\n\n" not in off, f"{path}: off removal left blank-line runs"
 
 
@@ -112,10 +123,12 @@ def test_telegraphic_bullet_stripped_at_lite_and_off() -> None:
     assert files, "no generated surface contains the telegraphic-default bullet — sync drift?"
     for path in files:
         text = path.read_text(encoding="utf-8")
+        assert _INVARIANTS in text, f"{path}: always-on reply invariants missing"
         assert apply_reply_register_level(text, _SHARED, "ultra") == text
         for lvl in ("lite", "off"):
             out = apply_reply_register_level(text, _SHARED, lvl)
             assert _BULLET not in out, f"{path}: bullet survived level={lvl}"
+            assert _INVARIANTS in out, f"{path}: invariants lost at level={lvl}"
             assert "\n\n\n" not in out, f"{path}: bullet removal left blank-line runs at level={lvl}"
 
 
@@ -124,6 +137,7 @@ def test_core_discipline_body_carries_bullet() -> None:
 
     body = core_discipline_body(_SHARED)
     assert _BULLET in body, "core_discipline_body must always render the strict/full text"
+    assert _INVARIANTS in body, "core_discipline_body must carry always-on reply invariants"
     assert (
         body.index("Act, don't announce")
         < body.index("Telegraphic by default")

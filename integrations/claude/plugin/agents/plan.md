@@ -18,8 +18,8 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
   - `tests/test_bar.py` — add regression for `BazClass`
   ```
 
-- **Steps** — ordered, one coherent unit each, concrete identifiers + verbs (`add`/`replace`/`extract`, not `update`/`handle`/`improve`), risky changes flagged inline, none depending on a later step. End with a **Verify** step: the repo's exact validation entrypoints.
-- **Risks & open questions** — known hazards + anything unconfirmed.
+- **Steps** — ordered, one coherent unit each, concrete identifiers + verbs (`add`/`replace`/`extract`, not `update`/`handle`/`improve`), high-impact or irreversible changes flagged inline, none depending on a later step. End with a **Verify** step: the repo's exact validation entrypoints.
+- **Open questions** — known hazards + anything unconfirmed.
 
 - No implementation, partial edits, or "quick fixes" — gather only what the plan needs.
 - Never plan from memory when source can cheaply confirm the shape; every read targets a specific planning question.

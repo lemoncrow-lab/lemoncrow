@@ -20,6 +20,7 @@ from lemoncrow.core.capabilities.model_settings import (
     resolve_host_model,
 )
 from lemoncrow.core.environment import skill_installed_by_default
+from lemoncrow.core.persona_partials import markdown_section
 from lemoncrow.core.reply_register import apply_reply_register_level, reply_register_body
 
 LEMONCROW_REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -581,35 +582,30 @@ CODEX_NATIVE_FALLBACK_NAMES_READ: tuple[str, ...] = ("exec_command",)
 def codex_tool_discipline_body(
     shared_dir: Path,
     *,
-    source_name: str = "tool-discipline.md",
+    section: str = "write",
     native_fallback_names: tuple[str, ...] = CODEX_NATIVE_FALLBACK_NAMES,
 ) -> str:
-    """tool-discipline*.md, with its closing "Host tools disabled" line's lead-in
-    swapped for Codex's own native tool names -- "Host tools disabled" is generic
-    host-agnostic phrasing; Codex's actual native tools are apply_patch/
-    exec_command, and Codex has no tool-permission-deny mechanism to make that
-    phrasing literally true (see _codex_native_tool_replacement's reactive-only
-    PostToolUse nudge), so name them directly and say what happens instead.
+    """One tool-discipline section with a Codex-specific native-tool lead-in.
 
-    Shared by both Codex render paths: sync_agent_context.py's SKILL.md
-    generation and this module's _render_codex_mode_body (the installed
-    agent TOMLs written by write_codex_agents), so the two can't drift.
+    Shared by sync_agent_context.py and the installed-agent TOML renderer so
+    host wording and tool names cannot drift between the two surfaces.
     """
-    body = _markdown_body(shared_dir / source_name)
+    body = markdown_section(shared_dir / "tool-discipline.md", section)
     names, verb = format_native_names_and_verb(native_fallback_names)
     return swap_tool_discipline_lead_in(body, f"Native Codex {names} {verb} disallowed")
 
 
 def core_discipline_body(shared_dir: Path) -> str:
-    """Expand ``{{CORE_DISCIPLINE}}``: core-discipline plus the telegraphic-default
-    bullet (split into its own partial so the reply-register level machinery can
-    strip it for lite/off — see lemoncrow.core.reply_register) plus the
-    response-economy directive (byte-exact + expand-for-safety invariants that
-    bound how terse a reply may get). Always renders the strict/full text;
-    level application happens downstream via apply_reply_register_level."""
+    """Render core discipline plus strict reply defaults and invariants.
+
+    Reply-level application later removes ``telegraphic-default`` for lite/off;
+    ``invariants`` remains at every level, including off.
+    """
     body = _markdown_body(shared_dir / "core-discipline.md")
-    telegraphic = _markdown_body(shared_dir / "telegraphic-default.md")
-    return f"{body}\n{telegraphic}\n{_markdown_body(shared_dir / 'response-economy.md')}"
+    reply_path = shared_dir / "reply-register.md"
+    telegraphic = markdown_section(reply_path, "telegraphic-default")
+    invariants = markdown_section(reply_path, "invariants")
+    return f"{body}\n{telegraphic}\n{invariants}"
 
 
 # Bare tool names referenced as inline code (`` `read` ``) in shared mode-doc
@@ -635,16 +631,17 @@ def replace_inline_tool_names(body: str, prefix: str) -> str:
 
 def _render_codex_mode_body(body: str, repo_root: Path) -> str:
     shared_dir = repo_root / "integrations" / "agents" / "shared"
+    reply_path = shared_dir / "reply-register.md"
     shared = {
         "{{CORE_DISCIPLINE}}": core_discipline_body(shared_dir),
         "{{AGENT_RULE}}": _markdown_body(shared_dir / "agent-rule.md"),
         "{{CHANGE_DISCIPLINE}}": _markdown_body(shared_dir / "change-discipline.md"),
         "{{DESTRUCTIVE_GUARD}}": _markdown_body(shared_dir / "destructive-guard.md"),
-        "{{RESPONSE_ECONOMY}}": _markdown_body(shared_dir / "response-economy.md"),
+        "{{RESPONSE_ECONOMY}}": markdown_section(reply_path, "invariants"),
         "{{CODING_GUIDELINES}}": _markdown_body(shared_dir / "coding-guidelines.md"),
         "{{TOOL_DISCIPLINE}}": codex_tool_discipline_body(shared_dir),
         "{{TOOL_DISCIPLINE_READ}}": codex_tool_discipline_body(
-            shared_dir, source_name="tool-discipline-read.md", native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ
+            shared_dir, section="read-only", native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ
         ),
         "{{REPLY_REGISTER}}": reply_register_body(shared_dir),
     }
