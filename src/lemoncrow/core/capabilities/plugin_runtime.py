@@ -16,7 +16,10 @@ import re
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lemoncrow.core.capabilities.verify_gate import VerifySignals
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +68,26 @@ UPDATE_CHECK_THROTTLE_SECONDS = 30 * 60
 BILLING_WINDOW_DAYS = 30
 SUBSCRIPTION_WARN_FRACTION = 0.8
 
+# Savings cap ($ saved per BILLING_WINDOW_DAYS) by plan tier. None = uncapped.
+# This is the product's tiering axis: the savings engine runs until a plan's
+# cumulative $-saved crosses its cap, then goes dormant (degrade to host default,
+# never block — see cap_exhausted / the dormant Layer-2 seam). Free is always
+# capped; paid tiers raise or remove the ceiling. The hosted auth server may
+# override per account via subscriptionStatus.monthlySavingsCapInUsd.
+FREE_SAVINGS_CAP_USD = 20.0
+LITE_SAVINGS_CAP_USD = 200.0
+SAVINGS_CAP_BY_PLAN: dict[str, float | None] = {
+    "free": FREE_SAVINGS_CAP_USD,
+    "local": FREE_SAVINGS_CAP_USD,
+    "anonymous": FREE_SAVINGS_CAP_USD,
+    "lite": LITE_SAVINGS_CAP_USD,
+    "pro": None,
+    "enterprise": None,
+}
+
 
 def _read_json(path: Path, default: Any) -> Any:
+    """Read JSON from *path*, returning *default* on any failure."""
     try:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
@@ -358,6 +379,37 @@ def auth_status(root: str | Path) -> dict[str, Any]:
     }
 
 
+def _plan_key(subscription: dict[str, Any]) -> str:
+    """Normalize a subscription blob's plan/status to a lowercase tier key.
+
+    Hosted blobs use ``FREE``/``LOCAL``/``PRO``/``LITE``/``ENTERPRISE`` in
+    ``status`` or ``plan``; the anonymous trial stamps ``plan=LOCAL``. All of
+    those collapse to ``free`` for cap purposes.
+    """
+    raw = str(subscription.get("plan") or subscription.get("status") or "free").strip().lower()
+    if raw in ("", "local", "anonymous"):
+        return "free"
+    return raw
+
+
+def _savings_cap_usd(subscription: dict[str, Any]) -> float | None:
+    """Resolve the monthly savings cap ($) for this plan; ``None`` = uncapped.
+
+    A server-set ``monthlySavingsCapInUsd`` wins (lets the hosted plan tune the
+    ceiling per account). Otherwise fall back to the per-plan default. Fail
+    *open*: an unknown/paid plan key defaults to ``None`` (uncapped) so a paying
+    user is never made dormant by accident; only known free keys carry the cap.
+    """
+    raw = subscription.get("monthlySavingsCapInUsd")
+    if raw is not None:
+        try:
+            cap = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return cap if cap > 0.0 else None
+    return SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription))
+
+
 def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None = None) -> dict[str, Any]:
     """Price trailing-window usage against the plan's monthly limit.
 
@@ -410,6 +462,20 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     subscription["windowDays"] = BILLING_WINDOW_DAYS
     subscription["warning"] = warning
     subscription["overLimit"] = over_limit
+
+    # Savings cap (the product tiering axis) — independent of the spend limit
+    # above. Free/Lite cap cumulative $-saved; Pro+ are uncapped. Additive and
+    # non-blocking: cap_exhausted() reads savingsOverCap to drive dormancy.
+    savings_cap = _savings_cap_usd(subscription)
+    subscription["monthlySavingsCapInUsd"] = savings_cap
+    if savings_cap is not None:
+        subscription["savingsRemainingUsd"] = round(max(0.0, savings_cap - savings_usd), 4)
+        subscription["savingsCapFraction"] = round(savings_usd / savings_cap, 4) if savings_cap > 0.0 else 0.0
+        subscription["savingsOverCap"] = bool(savings_usd >= savings_cap)
+    else:
+        subscription["savingsRemainingUsd"] = None
+        subscription["savingsCapFraction"] = 0.0
+        subscription["savingsOverCap"] = False
     if over_limit:
         subscription["message"] = f"Monthly limit reached — ${spend_usd:.2f} of ${limit_usd:.2f} used"
     elif warning:
@@ -431,6 +497,70 @@ def refresh_subscription_meter(root: str | Path) -> dict[str, Any]:
     with suppress(OSError, ValueError):
         _write_json(subscription_state_path(root_path), metered)
     return metered
+
+
+def cap_exhausted(root: str | Path) -> bool:
+    """Whether the plan's savings cap is exhausted (savings engine goes dormant).
+
+    The single shared cap-state check for every dormant seam (Layer 1 tool
+    passthrough, Layer 2 agent-swap, the user nudge). Reads the persisted meter
+    (``subscription.json`` written by :func:`refresh_subscription_meter`); if
+    absent or stale-shaped, recomputes once.
+
+    Fail-OPEN: any error, an uncapped (Pro+) plan, or a missing meter returns
+    ``False`` — the product is never made dormant by accident.
+    """
+    try:
+        sub = _read_json(subscription_state_path(root), None)
+        if not isinstance(sub, dict) or "savingsOverCap" not in sub:
+            sub = compute_usage_meter(root)
+        return bool(sub.get("savingsOverCap"))
+    except Exception:  # noqa: BLE001 — fail-open: dormancy must never crash a hook
+        return False
+
+
+def cap_nudge_text(root: str | Path) -> str:
+    """User-facing one-line cap notice (value-framed, with the upgrade link)."""
+    from lemoncrow.core.capabilities import licensing
+
+    sub = _read_json(subscription_state_path(root), {})
+    sub = sub if isinstance(sub, dict) else {}
+    cap = sub.get("monthlySavingsCapInUsd")
+    saved = sub.get("monthlySavingsInUsd")
+    url = licensing.pro_url()
+    if isinstance(cap, (int, float)) and isinstance(saved, (int, float)):
+        return (
+            f"LemonCrow savings cap reached (~${saved:.0f} of ${cap:.0f} this month). "
+            f"Running on host defaults — upgrade to keep saving: {url}"
+        )
+    return f"LemonCrow savings cap reached — running on host defaults. Upgrade to keep saving: {url}"
+
+
+def build_cap_nudge(root: str | Path, *, session_id: str, host: str = "claude") -> str | None:
+    """One-shot user-facing cap notice — fires once per session while dormant.
+
+    Returns the nudge string the first time it is called for a dormant session,
+    then ``None`` (rate-limited via session stats, keyed ``cap_nudged``). The
+    caller routes it to a USER-only channel (Claude ``systemMessage`` /
+    OpenCode ``uiMessage`` / statusline) — never into model context, so it costs
+    no tokens and cannot derail the agent. Fail-open: any error -> ``None``.
+    """
+    try:
+        if not cap_exhausted(root):
+            return None
+        path = session_stats_path(root, session_id)
+        stats = _read_json(path, {})
+        if not isinstance(stats, dict):
+            stats = {}
+        if stats.get("cap_nudged"):
+            return None
+        stats["cap_nudged"] = True
+        with suppress(OSError, ValueError):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_json(path, stats)
+        return cap_nudge_text(root)
+    except Exception:  # noqa: BLE001 — fail-open: a nudge must never break a tool call
+        return None
 
 
 def begin_browser_login(
@@ -898,11 +1028,22 @@ def session_start_bootstrap(
     actions.append("spinner_verbs_installed" if settings["spinnerVerbs"] else "spinner_verbs_removed")
     updated_host = apply_attribution_setting(updated_host, settings["attribution"])
     actions.append("attribution_installed" if settings["attribution"] else "attribution_removed")
-    mcp_result = rewrite_mcp_always_load(mcp_json, settings["alwaysLoadTools"])
-    if mcp_result["changed"]:
-        actions.append("always_load_updated")
+
+    # Refresh the meter first so the dormant decision reads fresh cap state.
+    # Dormant = the plan's savings cap is exhausted: the plugin goes quiet
+    # (degrade to the host default agent, never block) until the cap resets or
+    # the user upgrades. Auto-recovers on a later session start once under cap.
     auth = claim_anonymous_trial(root)
     refresh_subscription_meter(root)
+    dormant = cap_exhausted(root)
+    actions.append("dormant" if dormant else "active")
+
+    # When dormant, stop force-loading the lc tools so the default agent runs on
+    # host-native tools (Layer 2). When active, honor the configured flag.
+    always_load = False if dormant else settings["alwaysLoadTools"]
+    mcp_result = rewrite_mcp_always_load(mcp_json, always_load)
+    if mcp_result["changed"]:
+        actions.append("always_load_updated")
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
     if payload:
         update_session_stats(root, {"hook_event_name": "SessionStart", **payload})
@@ -913,9 +1054,40 @@ def session_start_bootstrap(
         "mcp_json": mcp_result["mcp_json"],
         "auth": auth,
         "actions": actions,
+        "dormant": dormant,
         "stdout": stdout,
         "update": update,
     }
+
+
+PLUGIN_ACTIVE_AGENT = "lemoncrow:code"
+
+
+def reconcile_dormant_agent(plugin_root: str | Path, *, dormant: bool) -> bool:
+    """Toggle the plugin's default ``agent`` directive for Layer-2 dormancy.
+
+    Dormant -> drop the ``agent`` key from the plugin's ``settings.json`` so the
+    host falls back to its built-in default agent (as if ``lemoncrow:code`` did
+    not exist — degrade, not block). Active -> ensure it points back at
+    ``lemoncrow:code``. Idempotent; returns True only when the file changed.
+    Best-effort — never raises into the SessionStart hook.
+    """
+    settings_path = Path(plugin_root) / "settings.json"
+    data = _read_json(settings_path, None)
+    if not isinstance(data, dict):
+        return False
+    if dormant:
+        if "agent" not in data:
+            return False
+        data.pop("agent", None)
+    else:
+        if data.get("agent") == PLUGIN_ACTIVE_AGENT:
+            return False
+        data["agent"] = PLUGIN_ACTIVE_AGENT
+    with suppress(OSError, ValueError):
+        _write_json(settings_path, data)
+        return True
+    return False
 
 
 def apply_session_start_files(
@@ -951,6 +1123,11 @@ def apply_session_start_files(
     _write_json(settings_path, result["host_settings"])
     if mcp_path.exists():
         _write_json(mcp_path, result["mcp_json"])
+    # Layer 2: swap the plugin's default agent based on the dormant decision so
+    # the next session starts on lemoncrow:code (active) or the host default
+    # (dormant). Effect is next-session by design (host reads the agent at
+    # session start) — the current session's tools already degraded via Layer 1.
+    reconcile_dormant_agent(plugin_root_path, dormant=bool(result.get("dormant")))
     return result
 
 
@@ -1012,7 +1189,12 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
     return output
 
 
-def _codex_session_start_tool_policy() -> dict[str, Any]:
+def _codex_session_start_tool_policy(*, dormant: bool = False) -> dict[str, Any]:
+    if dormant:
+        # Layer 2 (codex): the savings cap is exhausted — stop steering Codex
+        # toward LemonCrow tools/agents so it runs on its native tools, as if the
+        # LemonCrow policy weren't installed. No additionalContext = no steering.
+        return {"hookSpecificOutput": {"hookEventName": "SessionStart"}}
     return {
         "hookSpecificOutput": {"hookEventName": "SessionStart"},
         "message": "LemonCrow policy: use LemonCrow tools first and keep responses delivery-focused.",
@@ -1031,14 +1213,17 @@ def codex_update_notification(root: str | Path, *, current_version: str) -> dict
     # Session-optimizer guidance is intentionally NOT injected here: its rules
     # duplicate the agent persona (core-discipline / change-discipline). The
     # offline analysis (build_trace_optimization_report) and rule data are kept.
+    # Refresh the meter first so the dormant decision reads fresh cap state.
+    refresh_subscription_meter(root)
+    dormant = cap_exhausted(root)
     result = update_notification(current_version, _read_json(update_flag_path(root), None))
     if result.get("delete_flag"):
         update_flag_path(root).unlink(missing_ok=True)
     stdout = _merge_session_start_stdout(
         result.get("stdout"),
-        _codex_session_start_tool_policy(),
+        _codex_session_start_tool_policy(dormant=dormant),
     )
-    return {**result, "stdout": stdout, "optimizer": {"host": "codex"}}
+    return {**result, "stdout": stdout, "optimizer": {"host": "codex"}, "dormant": dormant}
 
 
 _LEMONCROW_TOOL_NAMES: frozenset[str] = frozenset(
@@ -1077,15 +1262,18 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
     command = str(tool_input.get("command") or "")
     normalized = " ".join(command.strip().split()).lower()
 
+    # Codex invokes LemonCrow's MCP tools as "lc.<tool>" (see _CODEX_TOOL_PREFIX
+    # in scripts/sync_agent_context.py) -- NOT Claude Code's "mcp__lc__<tool>"
+    # form -- so the nudge must recommend a name Codex can actually call.
     if lowered == "read":
-        return ("mcp__lc__read", "Use LemonCrow read for file reads and ranges.")
+        return ("lc.read", "Use LemonCrow read for file reads and ranges.")
     if lowered in {"edit", "write", "multiedit", "patch", "apply_patch", "replace"}:
         return (
-            "mcp__lc__edit",
+            "lc.edit",
             "Use LemonCrow edit for deterministic grouped writes and rollback.",
         )
     if lowered in {"grep", "glob"}:
-        return ("mcp__lc__grep", "Use LemonCrow grep/search for text and path discovery.")
+        return ("lc.grep", "Use LemonCrow grep/search for text and path discovery.")
     if lowered in {"bash", "shell", "exec_command", "run_command"}:
         if (
             normalized.startswith(("rg ", "grep ", "find "))
@@ -1093,13 +1281,13 @@ def _codex_native_tool_replacement(payload: dict[str, Any]) -> tuple[str, str] |
             or " grep " in f" {normalized} "
         ):
             return (
-                "mcp__lc__grep",
+                "lc.grep",
                 "Use LemonCrow grep/search instead of shell rg/grep/find loops.",
             )
         if normalized.startswith(("cat ", "sed ", "head ", "tail ")):
-            return ("mcp__lc__read", "Use LemonCrow read instead of shell file-print commands.")
+            return ("lc.read", "Use LemonCrow read instead of shell file-print commands.")
         return (
-            "mcp__lc__bash",
+            "lc.bash",
             "Use LemonCrow bash so command execution stays compact and supervised.",
         )
     return None
@@ -1135,7 +1323,7 @@ def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[
         "additionalContext": "\n".join(
             [
                 rationale,
-                "For coding tasks, call mcp__lc__context first if you have not already.",
+                "For coding tasks, call lc.context first if you have not already.",
                 "Keep native Codex tools as fallback only when the LemonCrow equivalent is hidden, unavailable, or returned noop.",
             ]
         ),
@@ -1307,6 +1495,7 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, payload)
+    _opencode_record_prompt(root, payload)
     update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)
     try:
@@ -1331,11 +1520,528 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     normalized["hook_event_name"] = "PostToolUse"
     _write_opencode_session_state(root, normalized)
     update_session_stats(root, normalized)
+    # Record edits/commands into the canonical run ledger so verify-before-done
+    # has live data at idle time. Runs for lc AND native tools (before the
+    # lc-tool nudge short-circuit) -- the MCP server only persists its own
+    # ledger at session close, too late for the idle hook.
+    _record_tool_for_verify(root, normalized)
+    # One-shot cap nudge (user-only uiMessage) fires before the lc-tool
+    # short-circuit so it shows even on an lc tool call while dormant.
+    cap_msg = build_cap_nudge(root, session_id=str(normalized.get("session_id") or "default"), host="opencode")
+    if cap_msg:
+        return {"uiMessage": cap_msg}
     if _is_lemoncrow_tool(str(normalized.get("tool_name") or "")):
         return {"no_output": True}
     nudge = _codex_native_tool_nudge(root, normalized)
     message = str(nudge.get("message") or "").strip()
     return {"uiMessage": message} if message else {"no_output": True}
+
+
+def _record_tool_for_verify(root: str | Path, payload: dict[str, Any]) -> None:
+    """Append an edit/command to the canonical run ledger (fail-open).
+
+    The (mechanically host-neutral) codex recorders write file_edit /
+    command_result events keyed to the host session id; ``_codex_append_ledger_events``
+    creates run.json on first write. Used by OpenCode's PostToolUse (Codex has
+    its own ledger hook in savings_reporter).
+    """
+    session_id = _codex_ledger_session_id(root, payload)
+    if not session_id:
+        return
+    norm = _normalize_codex_tool(str(payload.get("tool_name") or ""))
+    raw_input = payload.get("tool_input")
+    tool_input = raw_input if isinstance(raw_input, dict) else {}
+    raw_response = payload.get("tool_response")
+    tool_response = raw_response if isinstance(raw_response, dict) else {}
+    if norm == "edit":
+        _codex_record_file_edits(root, payload, session_id, tool_input)
+    elif norm == "bash":
+        # Side-effect only: OpenCode's JS plugin owns the repeated-failure rescue
+        # nudge, so drop any systemMessage this returns.
+        _codex_record_command(root, payload, session_id, tool_input, tool_response)
+
+
+def _opencode_record_prompt(root: str | Path, payload: dict[str, Any]) -> None:
+    """Persist the first user prompt into OpenCode session state (feeds detector B)."""
+    prompt = str(payload.get("prompt") or "")
+    if not prompt.strip():
+        return
+    path = _opencode_session_state_path(root, payload)
+    try:
+        state = json.loads(path.read_text("utf-8")) if path.exists() else {}
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        state = {}
+    if state.get("last_user_prompt"):
+        return
+    state["last_user_prompt"] = prompt[:8192]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+# --- Shared stop-hook supplemental savings rows ---------------------------------
+# Ported from integrations/claude/plugin/hooks/stop.py so OpenCode (and any
+# future host) can write the same bench-calibrated savings rows without
+# duplicating the pricing logic.
+
+_TURN_CUT_RATIO_DEFAULT = 0.642
+_INPUT_STYLE_RATIO_DEFAULT = 1.16
+_OUTPUT_STYLE_RATIO_DEFAULT = 2.09
+
+
+def _savings_sidecar_path(root: str | Path, session_id: str, agent: str) -> Path | None:
+    """Return the per-session savings sidecar path for a given agent.
+
+    Unlike the Claude stop hook's ``_sidecar_path`` (which hardcodes
+    ``"claude"``), this accepts the agent name so OpenCode can write to
+    ``sessions/<id>/opencode/<sid>/savings.jsonl``.
+    """
+    try:
+        from lemoncrow.core.foundation.paths import session_dir
+
+        return session_dir(Path(root), agent, session_id) / "savings.jsonl"
+    except ImportError:
+        return None
+
+
+def write_stop_hook_turn_cut_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
+) -> None:
+    """Bench-calibrated turn-cut credit (``kind == "turn_cut"``).
+
+    Shared implementation used by both the Claude stop hook and the OpenCode
+    idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
+    full derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    turns = int(stats.get("turns") or 0)
+    if turns <= 0:
+        return
+    target = int(turns * ratio)
+    if target <= 0:
+        return
+    credited = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                credited += max(0, int(row.get("calls") or 0))
+    delta = target - credited
+    if delta <= 0:
+        return
+    avg_ctx = int(stats.get("cache_read_tokens") or 0) // turns
+    avg_out = int(stats.get("output_tokens") or 0) // turns
+    if avg_ctx <= 0 and avg_out <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return
+        usd = pricing.request_cost_usd(
+            cache_read_tokens=delta * avg_ctx,
+            output_tokens=delta * avg_out,
+            cache_write_tokens=delta * avg_out,
+        )
+    except Exception:
+        logger.exception("Failed to price turn-cut row")
+        return
+    if usd <= 0:
+        return
+    row_out = {
+        "kind": "turn_cut",
+        "calls": int(delta),
+        "calls_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "turns": turns,
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+def write_stop_hook_input_style_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
+) -> None:
+    """Credit leaner per-turn context: cache-read tokens NOT re-sent.
+
+    Shared implementation used by both the Claude stop hook and the OpenCode
+    idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
+    full derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    cache_read_tokens = int(stats.get("cache_read_tokens") or 0)
+    if cache_read_tokens <= 0:
+        return
+    prev_cum = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "input_style":
+                prev_cum = max(prev_cum, int(row.get("cum_cache_read_tokens") or 0))
+    delta = cache_read_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return
+        usd = pricing.request_cost_usd(cache_read_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price input-style row")
+        return
+    row_out = {
+        "kind": "input_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_cache_read_tokens": int(cache_read_tokens),
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+_PROSE_FENCE_RE = re.compile(r"```.*?(?:```|$)", re.DOTALL)
+_PROSE_CODEISH_RE = re.compile(r"^\s*(\+|\-|@@|\{|\}|\[|def |class |import |from \S+ import|#|\$|>>>|\.\.\.)")
+
+
+def _compressible_prose_chars(text: str) -> int:
+    """Chars of genuinely compressible reply prose: fenced code stripped, bare
+    code/diff/JSON lines stripped. Host-agnostic core of the output-style basis;
+    MUST mirror the filter the bench ratio was measured on (see stop.py)."""
+    stripped = _PROSE_FENCE_RE.sub("", text)
+    return sum(len(line) for line in stripped.splitlines() if line.strip() and not _PROSE_CODEISH_RE.match(line))
+
+
+def prose_output_tokens(blocks: list[tuple[str, str]]) -> int:
+    """Compressible reply-prose tokens from ``(dedup_key, text)`` blocks.
+
+    Shared plugin-level core of the output-style basis: dedups by
+    ``(key, text-hash)`` so a re-emitted snapshot line never double-counts,
+    strips fenced code + bare code/diff/JSON lines (style-invariant), ~4
+    chars/token. Each host feeds its own reply text (Claude transcript, Codex
+    rollout, OpenCode DB) and must exclude thinking/reasoning blocks itself.
+    """
+    chars = 0
+    seen: set[tuple[str, int]] = set()
+    for key, text in blocks:
+        if not text:
+            continue
+        k = (key, hash(text))
+        if k in seen:
+            continue
+        seen.add(k)
+        chars += _compressible_prose_chars(text)
+    return chars // 4
+
+
+def _codex_reply_blocks(path: Path) -> list[tuple[str, str]]:
+    """Assistant reply text blocks from a Codex rollout transcript.
+
+    Handles both rollout formats: ``event_msg``/``agent_message`` (message
+    text) and flat/``response_item`` ``role:"assistant"`` messages with
+    ``output_text``/``text`` content. Reasoning and tool events are excluded.
+    """
+    blocks: list[tuple[str, str]] = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return blocks
+    for idx, raw in enumerate(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ev = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        et = ev.get("type")
+        if et == "event_msg":
+            p = ev.get("payload")
+            if isinstance(p, dict) and p.get("type") == "agent_message":
+                text = str(p.get("message") or "")
+                if text:
+                    blocks.append((str(p.get("id") or f"i{idx}"), text))
+        elif et in ("message", "response_item"):
+            node = ev.get("payload") if et == "response_item" else ev
+            if isinstance(node, dict) and node.get("role") == "assistant":
+                content = node.get("content")
+                if isinstance(content, list):
+                    text = "".join(
+                        str(c.get("text") or "")
+                        for c in content
+                        if isinstance(c, dict) and c.get("type") in ("output_text", "text")
+                    )
+                    if text:
+                        blocks.append((str(node.get("id") or ev.get("id") or f"i{idx}"), text))
+    return blocks
+
+
+def _codex_prose_output_tokens(payload: dict[str, Any], session_id: str) -> int:
+    """Reply-prose tokens for a Codex session. Returns 0 unless a
+    filename-matched rollout is found -- never credits another session's prose."""
+    if not session_id:
+        return 0
+    for path in _codex_transcript_paths(payload, session_id):
+        if session_id not in path.name:
+            continue
+        blocks = _codex_reply_blocks(path)
+        if blocks:
+            return prose_output_tokens(blocks)
+    return 0
+
+
+def _opencode_prose_output_tokens(session_id: str) -> int:
+    """Reply-prose tokens for an OpenCode session, read from its sqlite store
+    (assistant ``text`` parts only; ``synthetic`` and reasoning parts excluded)."""
+    if not session_id:
+        return 0
+    db_path = Path.home() / ".local/share/opencode/opencode.db"
+    if not db_path.exists():
+        return 0
+    try:
+        from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
+
+        serialized = serialize_opencode_session(session_id, db_path)
+    except Exception:  # noqa: BLE001  # fail-open: a hook must never crash the agent
+        return 0
+    blocks: list[tuple[str, str]] = []
+    for idx, line in enumerate(serialized.splitlines()):
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict) or ev.get("_type") != "part" or ev.get("role") != "assistant":
+            continue
+        data = ev.get("data")
+        if isinstance(data, dict) and data.get("type") == "text" and not data.get("synthetic"):
+            text = str(data.get("text") or "")
+            if text:
+                blocks.append((str(ev.get("id") or f"i{idx}"), text))
+    return prose_output_tokens(blocks)
+
+
+def write_stop_hook_output_style_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], prose_tokens: int, *, agent: str = "claude"
+) -> None:
+    """Credit the telegraphic output style: prose the model did NOT emit.
+
+    Plugin-level savings logic shared across hosts; pricing resolves per model
+    from ``stats``. The prose-token BASIS is host-specific -- each host measures
+    its own reply prose (Claude parses its transcript via ``_prose_output_tokens``
+    in stop.py) and passes it as ``prose_tokens``; a host with no prose source
+    passes 0 and no row is written. See integrations/claude/plugin/hooks/stop.py
+    for the ratio (2.09) derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", str(_OUTPUT_STYLE_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    if prose_tokens <= 0:
+        return
+    prev_cum = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "output_style":
+                prev_cum = max(prev_cum, int(row.get("cum_prose_tokens") or 0))
+    delta = prose_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.output <= 0:
+            return
+        usd = pricing.request_cost_usd(output_tokens=saved, cache_write_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price output-style row")
+        return
+    row_out = {
+        "kind": "output_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_prose_tokens": int(prose_tokens),
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+def rtk_total_tokens_saved(payload: Any) -> int:
+    """Total tokens saved from ``rtk gain --format json`` output.
+
+    rtk v0.43 emits ``{"summary": {"total_saved": N, "avg_savings_pct": ...}}``
+    (verified against the real binary). Accept that plus older/alternate
+    spellings (``tokens_saved``, ``saved_tokens``, ``total_tokens_saved``) and
+    take the maximum -- totals dominate per-command entries. Percentage fields
+    are excluded.
+    """
+    best = 0
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                lk = str(key).lower()
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+                    continue
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    continue
+                if "pct" in lk or "percent" in lk:
+                    continue
+                if "sav" in lk and ("token" in lk or "total" in lk or lk == "saved"):
+                    best = max(best, int(value))
+        elif isinstance(node, list):
+            stack.extend(node)
+    return best
+
+
+def credit_rtk_gain(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, workspace: str | Path, agent: str = "claude"
+) -> None:
+    """Fold rtk's own measured savings into the ledger as a bash row.
+
+    Plugin-level, fully host-agnostic (a subprocess probe of the ``rtk`` binary,
+    not a transcript scan), so every host that routes bash through rtk credits
+    it identically. ``workspace`` is the host's project cwd (Claude:
+    CLAUDE_WORKSPACE_ROOT, OpenCode: the payload cwd); the cumulative marker in
+    ``<root>/rtk_gain_state.json`` is keyed per workspace so each project's rtk
+    tokens are credited exactly once across that project's sessions. Pricing
+    resolves per model from ``stats``. ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
+    """
+    if not session_id or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0":
+        return
+    import shutil
+    import subprocess
+
+    from lemoncrow.core.foundation.paths import workspace_key
+
+    rtk_bin = shutil.which("rtk")
+    if not rtk_bin:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    workspace = str(workspace or os.getcwd())
+    ws_key = workspace_key(workspace)
+    try:
+        proc = subprocess.run(
+            [rtk_bin, "gain", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=workspace,
+        )
+        payload = json.loads(proc.stdout or "{}")
+    except Exception:
+        logger.exception("rtk gain probe failed")
+        return
+    total = rtk_total_tokens_saved(payload)
+    marker = Path(root) / "rtk_gain_state.json"
+    credited_map: dict[str, Any] = {}
+    with suppress(Exception):
+        raw_marker = json.loads(marker.read_text(encoding="utf-8"))
+        if isinstance(raw_marker, dict) and isinstance(raw_marker.get("credited_by_workspace"), dict):
+            credited_map = raw_marker["credited_by_workspace"]
+    credited = int(credited_map.get(ws_key) or 0)
+    if total < credited:
+        credited = 0  # rtk ledger was reset; start over rather than under-credit forever
+    delta = total - credited
+    usd = 0.0
+    if delta > 0:
+        try:
+            from lemoncrow.core.capabilities.pricing import get_model_pricing
+            from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+            model = str(stats.get("last_model") or stats.get("model") or "")
+            pricing = get_model_pricing(resolve_model_id(model)) if model else None
+            if pricing is not None and pricing.known and pricing.input > 0:
+                usd = pricing.request_cost_usd(input_tokens=delta)
+            else:
+                return  # never guess a rate
+        except Exception:
+            logger.exception("Failed to price rtk gain row")
+            return
+        row = {
+            "kind": "external_compactor",
+            "tool": "bash",
+            "tokens": int(delta),
+            "cost_saved_usd": round(usd, 6),
+            "model": model,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    credited_map[ws_key] = int(max(total, credited))
+    tmp = marker.with_suffix(".tmp")
+    with suppress(OSError):
+        tmp.write_text(json.dumps({"credited_by_workspace": credited_map}), encoding="utf-8")
+        tmp.replace(marker)
 
 
 def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1344,7 +2050,35 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     normalized["hook_event_name"] = "Stop"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, normalized)
+    # Verify-before-done (own fire-once dedup). OpenCode has no Stop-block hook,
+    # so a block is emulated by ``continuePrompt``: the JS plugin re-drives the
+    # session with this text on idle (fail-open to a toast if the client can't).
+    # Threaded through every return below so it survives the idle report's
+    # dedup / zero-activity short-circuits.
+    verify = build_opencode_verify_output(root, normalized)
+    continue_prompt = str(verify.get("reason") or "") if verify.get("decision") == "block" else ""
     state = update_session_stats(root, normalized)
+
+    # Write bench-calibrated supplemental savings rows BEFORE reading the
+    # report, so the fresh rows are included in the aggregate.
+    raw_usage = state.get("usage")
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+    stop_stats = {
+        "turns": state.get("turns"),
+        "cache_read_tokens": usage.get("cache_read_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "last_model": state.get("last_model") or state.get("model"),
+    }
+    write_stop_hook_turn_cut_row(root, session_id, stop_stats, agent="opencode")
+    write_stop_hook_input_style_row(root, session_id, stop_stats, agent="opencode")
+    # rtk external-compactor credit: fully host-agnostic (a subprocess probe, no
+    # transcript), so OpenCode credits it identically to Claude when bash is
+    # routed through rtk. No-op when rtk isn't installed / no delta.
+    credit_rtk_gain(root, session_id, stop_stats, workspace=_opencode_workspace_root(normalized), agent="opencode")
+    write_stop_hook_output_style_row(
+        root, session_id, stop_stats, _opencode_prose_output_tokens(session_id), agent="opencode"
+    )
+
     report = build_savings_report(root, session_id=session_id)
     session = _as_dict(report.get("session"))
     cost = _as_dict(report.get("cost"))
@@ -1356,15 +2090,15 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     prompt_turns = int(session.get("turns", 0) or state.get("turns", 0) or 0)
     signature = f"{prompt_turns}:{total_tool_calls}:{tokens_saved}:{calls_avoided}:{saved_usd:.6f}"
     if state.get("opencode_idle_report_signature") == signature:
-        return {"no_output": True}
+        return {"continuePrompt": continue_prompt} if continue_prompt else {"no_output": True}
     if total_tool_calls <= 0 and prompt_turns <= 0 and tokens_saved <= 0 and calls_avoided <= 0:
-        return {"no_output": True}
+        return {"continuePrompt": continue_prompt} if continue_prompt else {"no_output": True}
     state["opencode_idle_report_signature"] = signature
     session_stats_path(root, session_id).write_text(json.dumps(state, indent=2), encoding="utf-8")
     from lemoncrow.core.capabilities.savings_summary import _fmt_usd, estimate_time_saved_seconds, fmt_duration
 
     lines = [
-        "LemonCrow session idle.",
+        "lc session idle.",
         f"{prompt_turns} prompt turn{'s' if prompt_turns != 1 else ''} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''}",
         f"savings: {_fmt_usd(saved_usd)} · {_codex_fmt_tokens(tokens_saved)} tokens saved · {calls_avoided} calls avoided",
         f"tools: {_codex_tools_text(tools)}",
@@ -1372,7 +2106,37 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     faster = estimate_time_saved_seconds(calls_avoided=calls_avoided)
     if faster >= 60:
         lines[2] += f" · ~{fmt_duration(faster)} faster"
-    return {"uiMessage": "\n".join(lines), "report": report}
+    out: dict[str, Any] = {"uiMessage": "\n".join(lines), "report": report}
+    if continue_prompt:
+        out["continuePrompt"] = continue_prompt
+    return out
+
+
+def build_opencode_verify_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Verify-before-done gate for OpenCode, off the run ledger.
+
+    Same shared core as Claude/Codex; returns the raw gate decision
+    (``{"decision": "block", "reason": ...}``) or ``{"no_output": True}``.
+    OpenCode has no Stop-block hook, so ``build_opencode_stop_output`` threads a
+    block's reason out as ``continuePrompt`` and the JS plugin re-drives the
+    session with it on idle -- a block emulated by continuation.
+    """
+    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+
+    if verify_disabled():
+        return {"no_output": True}
+    normalized = dict(payload)
+    normalized["hook_event_name"] = "Stop"
+    session_id = _codex_ledger_session_id(root, normalized)
+    if not session_id:
+        return {"no_output": True}
+    prompt = str(_read_codex_session_state(root, normalized).get("last_user_prompt") or "")
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
+    result = verify_decide(signals, dedup_key=f"opencode:{session_id}", root=_opencode_workspace_root(normalized))
+    if not result:
+        return {"no_output": True}
+    return result
 
 
 def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1546,6 +2310,24 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         with suppress(Exception):
             state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
     _apply_codex_transcript_snapshot(root, session_id, payload)
+    # Supplemental bench-calibrated savings rows (plugin-level logic; pricing
+    # resolves per model). Written BEFORE build_savings_report so the fresh rows
+    # land in the aggregate.
+    with suppress(Exception):
+        _codex_state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
+        _codex_usage = _as_dict(_codex_state.get("usage"))
+        _codex_row_stats = {
+            "turns": _codex_state.get("turns"),
+            "cache_read_tokens": _codex_usage.get("cache_read_tokens"),
+            "output_tokens": _codex_usage.get("output_tokens"),
+            "last_model": _codex_state.get("last_model") or _codex_state.get("model"),
+        }
+        write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex")
+        write_stop_hook_input_style_row(root, session_id, _codex_row_stats, agent="codex")
+        credit_rtk_gain(root, session_id, _codex_row_stats, workspace=_codex_workspace_root(payload), agent="codex")
+        write_stop_hook_output_style_row(
+            root, session_id, _codex_row_stats, _codex_prose_output_tokens(payload, session_id), agent="codex"
+        )
     report = build_savings_report(root, session_id=session_id)
     session = report.get("session") or {}
     cost = report.get("cost") or {}
@@ -1615,7 +2397,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     activity = f"{turn_part} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''} ({tool_source})"
 
     lines = [
-        "LemonCrow session complete.",
+        "lc session complete.",
         activity,
     ]
     if total_tokens > 0:
@@ -1669,6 +2451,117 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         if dynamic_line:
             lines.append(dynamic_line)
     return {"systemMessage": "\n".join(lines), "report": report}
+
+
+def _unified_diff_sides(diff: str) -> tuple[str, str]:
+    """Split a unified diff back into its old-side and new-side text.
+
+    The run ledger stores each edit as a unified diff (``_codex_unified_diff``),
+    but verify_gate's detector A wants the pre/post text. Context lines feed
+    both sides; ``-`` lines only the old, ``+`` lines only the new; hunk/file
+    headers are dropped.
+    """
+    old_lines: list[str] = []
+    new_lines: list[str] = []
+    for line in diff.splitlines():
+        if line.startswith(("@@", "+++", "---", "diff ", "index ")):
+            continue
+        if line.startswith("-"):
+            old_lines.append(line[1:])
+        elif line.startswith("+"):
+            new_lines.append(line[1:])
+        else:
+            body = line[1:] if line.startswith(" ") else line
+            old_lines.append(body)
+            new_lines.append(body)
+    return "\n".join(old_lines), "\n".join(new_lines)
+
+
+def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: str) -> VerifySignals:
+    """Build host-neutral verify signals from the canonical run.json event ledger.
+
+    Shared by Codex and OpenCode -- both record ``file_edit`` / ``command_result``
+    events into the same ledger shape, so the verify signals derive identically.
+    """
+    from lemoncrow.core.capabilities.verify_gate import (
+        _TEST_RUN,
+        VerifySignals,
+        is_code_path,
+        is_verifiable_path,
+    )
+
+    run_file = _codex_run_file(root, session_id)
+    try:
+        data = json.loads(run_file.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return VerifySignals(prompt=prompt)
+    events = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(events, list):
+        return VerifySignals(prompt=prompt)
+
+    edited: list[str] = []
+    diffs: list[tuple[str, str, str]] = []
+    commands: list[tuple[int, str, bool]] = []  # (order, command, ok)
+    last_edit_idx = -1
+    idx = 0
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        idx += 1
+        kind = event.get("kind")
+        raw_payload = event.get("payload")
+        ev_payload = raw_payload if isinstance(raw_payload, dict) else {}
+        if kind == "file_edit":
+            path = str(ev_payload.get("path") or "")
+            if not path or not is_verifiable_path(path, include_docs=True):
+                continue
+            edited.append(path)
+            last_edit_idx = idx
+            diff = str(ev_payload.get("diff") or "")
+            if diff and is_code_path(path):
+                old, new = _unified_diff_sides(diff)
+                diffs.append((path, old, new))
+        elif kind == "command_result":
+            # payload.command when the hook recorded it (Codex/OpenCode native
+            # tools); event summary when the MCP server recorded an lc-tool run
+            # (there the summary IS the full command).
+            command = str(ev_payload.get("command") or event.get("summary") or "")
+            if command:
+                commands.append((idx, command, bool(ev_payload.get("ok", True))))
+
+    verified = any(i > last_edit_idx and ok and bool(_TEST_RUN.search(cmd)) for i, cmd, ok in commands)
+    bases = {b for b in (Path(p.split("#")[0]).name for p in edited) if len(b) >= 5}
+    checked = any(b in cmd for _, cmd, _ in commands for b in bases)
+    return VerifySignals(edited=edited, verified=verified, checked=checked, diffs=diffs, prompt=prompt)
+
+
+def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Verify-before-done gate for Codex, off the run ledger.
+
+    Codex speaks the Claude-Code hook protocol (its PreToolUse hook already
+    returns ``hookSpecificOutput.permissionDecision``), so its Stop hook honours
+    Claude's ``{"decision": "block", "reason": ...}`` -- a still-unverified edit
+    hard-blocks the turn exactly as on Claude, not merely nudges. Returns the
+    raw gate decision (``{"decision": "block", "reason": ...}``) or
+    ``{"no_output": True}``.
+    """
+    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+
+    event = str(payload.get("hook_event_name") or payload.get("event") or "")
+    if event and event != "Stop":
+        return {"no_output": True}
+    if verify_disabled():
+        return {"no_output": True}
+    session_id = _codex_ledger_session_id(root, payload)
+    if not session_id:
+        return {"no_output": True}
+    prompt = str(_read_codex_session_state(root, payload).get("last_user_prompt") or "")
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
+    result = verify_decide(signals, dedup_key=f"codex:{session_id}", root=_codex_workspace_root(payload))
+    if not result:
+        return {"no_output": True}
+    return result
 
 
 # ===========================================================================
@@ -1725,21 +2618,40 @@ def _write_codex_session_state(root: str | Path, payload: dict[str, Any], state:
 
 
 def _codex_run_file(root: str | Path, session_id: str) -> Path:
-    return Path(root) / "runs" / f"{session_id}.json"
+    """Canonical per-session run ledger: ``sessions/YYYY/MM/DD/<host>/<id>/run.json``.
+
+    The old flat ``root/runs/<id>.json`` location was retired long ago (see
+    ``paths.session_dir`` -- one canonical per-session directory). Resolve the
+    real dir by id (host-agnostic); when none exists yet, return a
+    definitely-absent canonical-style path so readers get ``exists() is False``
+    and writers no-op. Never reconstruct ``runs/`` -- nothing must recreate it.
+    """
+    from lemoncrow.core.foundation.paths import find_session_dir
+
+    found = find_session_dir(root, session_id)
+    if found is not None:
+        return found / "run.json"
+    return Path(root) / "sessions" / session_id / "run.json"
 
 
 def _codex_ledger_session_id(root: str | Path, payload: dict[str, Any]) -> str:
-    """Resolve the run-ledger id whose ``runs/<id>.json`` exists.
+    """Resolve the host session id whose canonical run-ledger directory exists.
 
-    Priority: session_state ``active_session_id`` / ``session_id`` (the internal
-    LemonCrow id the MCP server keys the ledger to), then the host ``session_id``
-    on the payload. Returns "" when no run file exists yet -- callers then skip
-    rather than create a spurious ledger from a hook.
+    Prefers the ``session_id`` on the payload -- authoritative for THIS hook
+    event -- over the workspace-shared session_state values, which a concurrent
+    same-workspace session on another host can clobber (host/id flip). A real
+    session is one whose canonical ``sessions/.../<host>/<id>/`` directory
+    already exists (find_session_dir) or that already has a run.json; the hook
+    then creates/appends run.json there. (The old check required run.json to
+    pre-exist, but the MCP server persists it only at session close -- which the
+    per-turn Stop hook races -- so it was effectively never satisfied.)
     """
+    from lemoncrow.core.foundation.paths import find_session_dir
+
     state = _read_codex_session_state(root, payload)
-    for candidate in (state.get("active_session_id"), state.get("session_id"), payload.get("session_id")):
+    for candidate in (payload.get("session_id"), state.get("active_session_id"), state.get("session_id")):
         sid = str(candidate or "").strip()
-        if sid and _codex_run_file(root, sid).exists():
+        if sid and (find_session_dir(root, sid) is not None or _codex_run_file(root, sid).exists()):
             return sid
     return ""
 
@@ -1767,14 +2679,24 @@ def _codex_append_ledger_events(root: str | Path, session_id: str, events_to_add
     if not session_id or not events_to_add:
         return False
     run_file = _codex_run_file(root, session_id)
-    if not run_file.exists():
-        return False
-    try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    if not isinstance(data, dict):
-        return False
+    if run_file.exists():
+        try:
+            data = json.loads(run_file.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(data, dict):
+            return False
+    else:
+        # The MCP server persists run.json only at session close, which the
+        # per-turn Stop hook races (and a killed MCP subprocess never reaches),
+        # so create it here in the canonical session dir. This makes the hook
+        # the ledger writer verify-before-done reads -- the MCP-owns-creation
+        # assumption never held for codex/opencode.
+        data = {"session_id": session_id, "events": [], "files_touched": []}
+        try:
+            run_file.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
     events = data.setdefault("events", [])
     if not isinstance(events, list):
         return False
@@ -1886,13 +2808,42 @@ def _codex_full_read_paths(tool_input: dict[str, Any]) -> list[str]:
     return paths
 
 
-def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
-    """Block wasteful full rereads of files already edited in this Codex run.
+def _codex_read_after_edit_line_cap() -> int:
+    """Line count at/above which a full reread of an already-edited file is hard
+    blocked; below it the reread is allowed with a nudge.
 
-    This intentionally ports only the narrow Claude read-after-edit guard. The
-    older Codex grounding gate was removed because it blocked from-scratch file
-    creation too broadly; this guard only fires on explicit full-file reads of
-    paths already observed in the run ledger as edited.
+    A whole-file re-ingest only wastes meaningful tokens on a large file; on a
+    small one a hard block starves the agent for near-zero saving. Override with
+    LEMONCROW_READ_AFTER_EDIT_MAX_LINES.
+    """
+    raw = os.environ.get("LEMONCROW_READ_AFTER_EDIT_MAX_LINES", "").strip()
+    return int(raw) if raw.isdigit() else 400
+
+
+def _codex_file_line_count(path: str, workspace: str) -> int:
+    """Line count of the on-disk file, or 0 when it can't be read.
+
+    0 (unknown) is treated as small by the caller -- fail toward the softer
+    action, never hard-block a file whose size we cannot confirm.
+    """
+    clean = re.sub(r":(?:full|outline|summary|head=\d+|tail=\d+|L\d+(?:-L?\d+)?)$", "", path.split("#", 1)[0])
+    p = Path(clean).expanduser()
+    if not p.is_absolute():
+        p = Path(workspace) / p
+    try:
+        with p.open("rb") as fh:
+            return sum(1 for _ in fh)
+    except OSError:
+        return 0
+
+
+def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Guard wasteful full rereads of files already edited in this Codex run.
+
+    Size-gated: a large edited file being full-read is hard-blocked (deny) so the
+    agent ranges it; a small one is allowed with a nudge (the wrong-block cost of
+    starving the agent exceeds the tokens saved). Only fires on explicit
+    full-file reads of paths the run ledger shows as edited.
     """
     if os.environ.get("LEMONCROW_READ_AFTER_EDIT_GUARD", "1") == "0":
         return {"no_output": True}
@@ -1907,18 +2858,37 @@ def build_codex_pre_tool_use_output(root: str | Path, payload: dict[str, Any]) -
     if not full_reads:
         return {"no_output": True}
     edited = _codex_edited_path_keys(root, payload)
+    workspace = _codex_workspace_root(payload)
+    cap = _codex_read_after_edit_line_cap()
+    small_hit: str | None = None
     for path in full_reads:
         keys = _codex_path_keys(path)
         if keys.isdisjoint(edited):
             continue
         base = Path(next(iter(keys))).name or path
+        if _codex_file_line_count(path, workspace) >= cap:
+            # Large edited file -> the whole-file re-ingest is real waste: hard block.
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Edited {base} already and it is large -- read an exact range "
+                        '(for example, range="L1-L120") instead of expanding the whole file again.'
+                    ),
+                }
+            }
+        if small_hit is None:
+            small_hit = base
+    if small_hit is not None:
+        # Small edited file -> allow, but nudge toward a ranged read next time.
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
+                "permissionDecision": "allow",
                 "permissionDecisionReason": (
-                    f'Edited {base} already -- read an exact range (for example, range="L1-L120") '
-                    "instead of expanding the whole file again."
+                    f"Edited {small_hit} already -- a ranged read around your change is usually "
+                    "enough; allowing the full read since the file is small."
                 ),
             }
         }
@@ -1986,14 +2956,19 @@ def _codex_command_text(tool_input: dict[str, Any]) -> str:
 
 
 def _codex_return_code(tool_response: dict[str, Any]) -> int | None:
-    for key in ("exit_code", "exitCode", "returnCode", "return_code", "code"):
-        value = tool_response.get(key)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
+    # OpenCode nests the exit code under ``metadata``; check it as a fallback so
+    # command success is read correctly there too.
+    metadata = tool_response.get("metadata")
+    sources = [tool_response, metadata] if isinstance(metadata, dict) else [tool_response]
+    for source in sources:
+        for key in ("exit_code", "exitCode", "returnCode", "return_code", "code"):
+            value = source.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
     return None
 
 
