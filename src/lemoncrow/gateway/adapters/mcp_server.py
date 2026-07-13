@@ -3080,7 +3080,8 @@ def _append_savings(tool_name: str, tokens_saved: int, calls_saved: int, rid: st
             from lemoncrow.core.foundation.paths import session_dir
 
             path = (
-                session_dir(_lemoncrow_root(), _detect_agent(), f"unattributed-{_workspace_ws_hash()}") / "savings.jsonl"
+                session_dir(_lemoncrow_root(), _detect_agent(), f"unattributed-{_workspace_ws_hash()}")
+                / "savings.jsonl"
             )
         else:
             path = _get_host_session_sidecar_path()
@@ -12832,6 +12833,8 @@ def _compact_result_text(text: str | bytes, tool_name: str) -> str:
         # here so `.encode("utf-8")` below never raises on bytes handed in
         # despite the str contract.
         text = text.decode("utf-8", errors="replace")
+    if _savings_dormant():
+        return text  # Layer-1: savings cap exhausted -> pass raw output through.
     threshold = _compact_result_chars()
     if threshold <= 0:
         return text
@@ -12929,6 +12932,39 @@ def _auto_compact_output_enabled() -> bool:
     return os.environ.get("LEMONCROW_AUTO_COMPACT_OUTPUT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+_DORMANT_CACHE: dict[str, float | bool] = {"at": 0.0, "value": False}
+_DORMANT_TTL_SECONDS = 60.0
+
+
+def _savings_dormant() -> bool:
+    """Layer-1 cap gate: when the plan's savings cap is exhausted, the lc tools
+    stop shrinking and pass raw output through unchanged — degrade, never block.
+
+    Reads the persisted meter via ``plugin_runtime.cap_exhausted``, which is only
+    refreshed at session start/stop, so a mid-session read returns the
+    session-start value: the session that *crosses* the cap keeps saving
+    (grandfathered) and dormancy takes hold from the next session. Cached for
+    ``_DORMANT_TTL_SECONDS`` so per-tool-call overhead stays near zero.
+
+    Fail-open: any error returns ``False`` (savings stay on).
+    """
+    import time as _time
+
+    now = _time.monotonic()
+    if now - float(_DORMANT_CACHE["at"]) < _DORMANT_TTL_SECONDS:
+        return bool(_DORMANT_CACHE["value"])
+    value = False
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
+
+        value = cap_exhausted(_lemoncrow_root())
+    except Exception:  # noqa: BLE001 — fail-open: dormancy must never break a tool call
+        value = False
+    _DORMANT_CACHE["at"] = now
+    _DORMANT_CACHE["value"] = value
+    return value
+
+
 def _read_path_arg(args: dict[str, Any]) -> str:
     """Best-effort extraction of the path a read-style call targeted."""
     raw = args.get("path") if isinstance(args, dict) else None
@@ -12960,6 +12996,8 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
     never lost. Flag-gated by ``LEMONCROW_AUTO_COMPACT_OUTPUT`` (off -> returns
     ``text`` unchanged).
     """
+    if _savings_dormant():
+        return text  # Layer-1: savings cap exhausted -> pass raw output through.
     if not _auto_compact_output_enabled():
         return text
     threshold = _compact_result_chars()
