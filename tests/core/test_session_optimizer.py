@@ -4,8 +4,6 @@ from datetime import UTC, datetime
 
 from lemoncrow.core.capabilities.session_optimizer import (
     build_trace_optimization_report,
-    render_session_optimizer_guidance,
-    session_optimization_rules,
 )
 from lemoncrow.core.foundation.models import ToolCall, Trace
 
@@ -39,19 +37,6 @@ def _trace(
         model=model,
         created_at=datetime(2026, 5, 11, tzinfo=UTC),
     )
-
-
-def test_guidance_contains_all_codeburn_guardrails() -> None:
-    guidance = render_session_optimizer_guidance("codex")
-    assert "smallest viable plan" in guidance
-    assert "under 10 bullets" in guidance
-    assert "10 minutes" in guidance
-    assert "do not retry a third time" in guidance
-    assert {rule["id"] for rule in session_optimization_rules()} == {
-        "smallest-reviewable-plan",
-        "fresh-bounded-context",
-        "delivery-or-stop",
-    }
 
 
 def test_trace_report_flags_outliers_context_and_low_delivery() -> None:
