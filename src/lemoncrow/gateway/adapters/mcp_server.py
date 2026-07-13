@@ -12841,8 +12841,6 @@ def _compact_result_text(text: str | bytes, tool_name: str) -> str:
         # here so `.encode("utf-8")` below never raises on bytes handed in
         # despite the str contract.
         text = text.decode("utf-8", errors="replace")
-    if _savings_dormant():
-        return text  # Layer-1: savings cap exhausted -> pass raw output through.
     threshold = _compact_result_chars()
     if threshold <= 0:
         return text
@@ -12945,16 +12943,18 @@ _DORMANT_TTL_SECONDS = 60.0
 
 
 def _savings_dormant() -> bool:
-    """Layer-1 cap gate: when the plan's savings cap is exhausted, the lc tools
-    stop shrinking and pass raw output through unchanged — degrade, never block.
+    """Cap gate for tool EXPOSURE: when the plan's savings cap is exhausted, the
+    server advertises no tools (``tools/list`` -> []). Tool *behavior* is never
+    changed — a listed tool always runs identically; enforcement is purely
+    whether the model sees it.
 
     Reads the persisted meter via ``plugin_runtime.cap_exhausted``, which is only
-    refreshed at session start/stop, so a mid-session read returns the
-    session-start value: the session that *crosses* the cap keeps saving
-    (grandfathered) and dormancy takes hold from the next session. Cached for
-    ``_DORMANT_TTL_SECONDS`` so per-tool-call overhead stays near zero.
+    refreshed at session start/stop, so a read returns the session-start value:
+    a session that connected under the cap keeps its tools for its lifetime
+    (grandfathered); dormancy takes hold from the next connection. Cached for
+    ``_DORMANT_TTL_SECONDS``.
 
-    Fail-open: any error returns ``False`` (savings stay on).
+    Fail-open: any error returns ``False`` (tools stay visible).
     """
     import time as _time
 
@@ -13004,8 +13004,6 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
     never lost. Flag-gated by ``LEMONCROW_AUTO_COMPACT_OUTPUT`` (off -> returns
     ``text`` unchanged).
     """
-    if _savings_dormant():
-        return text  # Layer-1: savings cap exhausted -> pass raw output through.
     if not _auto_compact_output_enabled():
         return text
     threshold = _compact_result_chars()
