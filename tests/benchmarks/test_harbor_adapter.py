@@ -332,4 +332,5 @@ def test_install_configures_and_probes_lemoncrow_mcp(
     config_call = next(command for command in calls if "/root/.claude-bench/.claude.json" in command)
     assert '"mcpServers"' in config_call
     assert '"command": "lemoncrow"' in config_call
+    assert '"alwaysLoad": true' in config_call
     assert "lemoncrow mcp --host claude check" in calls

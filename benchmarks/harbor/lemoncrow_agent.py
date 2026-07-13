@@ -553,7 +553,8 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             ),
         )
         # Isolated CLAUDE_CONFIG_DIR: no ambient plugins/hooks/MCP. The LemonCrow
-        # arm gets exactly one user-config MCP server, loaded before headless turn 1.
+        # arm gets exactly one non-plugin server. alwaysLoad blocks headless turn 1
+        # until lc connects and exposes the short mcp__lc__* tool namespace.
         mcp_config = (
             {
                 "mcpServers": {
@@ -561,6 +562,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                         "type": "stdio",
                         "command": "lemoncrow",
                         "args": ["mcp", "--host", "claude"],
+                        "alwaysLoad": True,
                     }
                 }
             }

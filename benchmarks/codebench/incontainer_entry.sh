@@ -65,7 +65,7 @@ MODEL="${CODEBENCH_MODEL:-opus}"
 export CLAUDE_CONFIG_DIR=/tmp/codebench-claude-config
 mkdir -p "$CLAUDE_CONFIG_DIR"
 if [ "$ARM" = "lemoncrow" ]; then
-  printf '%s' '{"mcpServers":{"lc":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","claude"]}}}' \
+  printf '%s' '{"mcpServers":{"lc":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","claude"],"alwaysLoad":true}}}' \
     >"$CLAUDE_CONFIG_DIR/.claude.json"
 else
   printf '%s' '{}' >"$CLAUDE_CONFIG_DIR/.claude.json"
@@ -117,8 +117,8 @@ prompt="$(cat /mnt/prompt.txt)"
 args=(-p "$prompt" --model "$MODEL" --output-format json --permission-mode bypassPermissions)
 [ -n "${CODEBENCH_MAX_TURNS:-}" ] && args+=(--max-turns "$CODEBENCH_MAX_TURNS")
 if [ "$ARM" = "lemoncrow" ]; then
-  # MCP comes from the isolated user config written above. Avoid --mcp-config:
-  # headless -p can start turn 1 before CLI-supplied stdio servers connect.
+  # Isolated user config supplies exactly one non-plugin server. alwaysLoad=true
+  # blocks headless turn 1 until lc connects and exposes mcp__lc__* schemas.
   args+=(--plugin-dir /mnt/plugin)
 else
   args+=(--mcp-config '{"mcpServers":{}}' --strict-mcp-config)
