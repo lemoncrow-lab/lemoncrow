@@ -70,6 +70,7 @@ SUBSCRIPTION_WARN_FRACTION = 0.8
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    """Read JSON from *path*, returning *default* on any failure."""
     try:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
@@ -1637,7 +1638,7 @@ def _opencode_prose_output_tokens(session_id: str) -> int:
         from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
         serialized = serialize_opencode_session(session_id, db_path)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-open: a hook must never crash the agent
         return 0
     blocks: list[tuple[str, str]] = []
     for idx, line in enumerate(serialized.splitlines()):
@@ -2266,8 +2267,8 @@ def _unified_diff_sides(diff: str) -> tuple[str, str]:
     return "\n".join(old_lines), "\n".join(new_lines)
 
 
-def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: str) -> "VerifySignals":
-    """Build host-neutral verify signals from a ``runs/<id>.json`` event ledger.
+def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: str) -> VerifySignals:
+    """Build host-neutral verify signals from the canonical run.json event ledger.
 
     Shared by Codex and OpenCode -- both record ``file_edit`` / ``command_result``
     events into the same ledger shape, so the verify signals derive identically.
@@ -2407,7 +2408,20 @@ def _write_codex_session_state(root: str | Path, payload: dict[str, Any], state:
 
 
 def _codex_run_file(root: str | Path, session_id: str) -> Path:
-    return Path(root) / "runs" / f"{session_id}.json"
+    """Canonical per-session run ledger: ``sessions/YYYY/MM/DD/<host>/<id>/run.json``.
+
+    The old flat ``root/runs/<id>.json`` location was retired long ago (see
+    ``paths.session_dir`` -- one canonical per-session directory). Resolve the
+    real dir by id (host-agnostic); when none exists yet, return a
+    definitely-absent canonical-style path so readers get ``exists() is False``
+    and writers no-op. Never reconstruct ``runs/`` -- nothing must recreate it.
+    """
+    from lemoncrow.core.foundation.paths import find_session_dir
+
+    found = find_session_dir(root, session_id)
+    if found is not None:
+        return found / "run.json"
+    return Path(root) / "sessions" / session_id / "run.json"
 
 
 def _codex_ledger_session_id(root: str | Path, payload: dict[str, Any]) -> str:
