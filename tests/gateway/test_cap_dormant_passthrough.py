@@ -1,4 +1,9 @@
-"""Layer-1: lc MCP tools pass raw output through when the savings cap is exhausted."""
+"""Cap gate helper (_savings_dormant) that drives tool exposure (tools/list).
+
+Tool *behavior* is never changed by the cap — only whether the tool is exposed.
+The exposure gate itself is covered by test_cap_tools_list_gate.py; here we pin
+the helper's read of the persisted meter (fail-open, grandfather snapshot).
+"""
 
 from __future__ import annotations
 
@@ -37,25 +42,8 @@ def test_dormant_false_when_under_cap(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert mcp_server._savings_dormant() is False
 
 
-def test_auto_compact_passthrough_when_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_dormant_fail_open_when_meter_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
-    big = "def f():\n" + "\n\n\n".join(f"    x{i} = {i}  " for i in range(2000)) + "\n"
-    _seed_meter(tmp_path, over=True)
-    out = mcp_server._auto_compact_result_text(big, "read", {"path": "mod.py"})
-    assert out == big  # dormant -> unchanged, no projection footer
-
-
-def test_auto_compact_active_when_under_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from lemoncrow.gateway.adapters import mcp_server
-
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
-    monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
-    big = "def f():\n" + "\n\n\n".join(f"    x{i} = {i}  " for i in range(2000)) + "\n"
-    _seed_meter(tmp_path, over=False)
-    out = mcp_server._auto_compact_result_text(big, "read", {"path": "mod.py"})
-    assert "projection:python" in out  # under cap -> savings applied
+    assert mcp_server._savings_dormant() is False  # no meter -> tools stay visible
