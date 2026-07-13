@@ -31,6 +31,7 @@ from typing import Any
 from lemoncrow.core.capabilities.prompt_compilation.tokens import (
     count_tokens as _count_tokens,
 )
+from lemoncrow.core.capabilities.source_projection.errors import MinifiedEditError
 from lemoncrow.core.capabilities.source_projection.models import (
     ProjectionMapping,
     ProjectionSegment,
@@ -120,15 +121,6 @@ class MinifiedProjectionResult:
     @property
     def saved_tokens(self) -> int:
         return max(0, self.original_tokens - self.projected_tokens)
-
-
-class MinifiedEditError(ValueError):
-    """Raised when an edit against the minified view cannot be applied safely."""
-
-    def __init__(self, message: str, *, code: str, hint: str = "") -> None:
-        super().__init__(message)
-        self.code = code
-        self.hint = hint
 
 
 def language_for_minify(path: str) -> str | None:
