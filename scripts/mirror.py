@@ -50,7 +50,21 @@ DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 # The release now builds from this private repo (.github/workflows/release.yml)
 # and cross-publishes the prebuilt tarball to the public repo's Releases, so IP
 # source never lands on public and the public repo never runs a source build.
-INJECTED_FILES: list[tuple[str, str]] = []
+# Public open-core shims: injected at the excluded IP module paths so the public
+# tree imports and runs degraded (real .py denied below; see release/shims/).
+_SHIM_BASE = "release/shims/lemoncrow/core/capabilities"
+_SHIM_DEST = "src/lemoncrow/core/capabilities"
+INJECTED_FILES: list[tuple[str, str]] = [
+    (f"{_SHIM_BASE}/{rel}", f"{_SHIM_DEST}/{rel}")
+    for rel in (
+        "source_projection/minify.py",
+        "source_projection/mapping.py",
+        "code_context/budget.py",
+        "code_context/rerank.py",
+        "code_context/search_verdict.py",
+        "code_context/renderer.py",
+    )
+]
 
 
 # ---------------------------------------------------------------------------
