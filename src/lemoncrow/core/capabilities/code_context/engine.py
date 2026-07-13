@@ -1119,6 +1119,39 @@ _SEARCH_CHANNEL_DEADLINE_S = float(os.environ.get("LEMONCROW_SEARCH_CHANNEL_DEAD
 # query falls back to lexical-only ranking -- degraded, not blocked.
 _SEMANTIC_SYMBOL_DEADLINE_S = float(os.environ.get("LEMONCROW_SEMANTIC_SYMBOL_DEADLINE_S", "2.0"))
 
+# Benchmark/CI-only: re-raise a semantic-symbol failure (timeout or exception)
+# instead of the production default of silently degrading to lexical_hits.
+# Graceful degradation is correct in production (one embedder hiccup must never
+# take down a user's whole query) but it also means an eval/benchmark run can
+# silently score "semantic channel worked" numbers that are actually 100%
+# lexical fallback -- exactly the failure mode that hid the real bug behind an
+# earlier fix here (see the except-Exception comment below). Off by default;
+# set only in benchmark/CI harnesses, never in a real deployment.
+_SEMANTIC_SYMBOL_HARD_FAIL = os.environ.get("LEMONCROW_SEMANTIC_HARD_FAIL", "").strip() == "1"
+
+# Temporary diagnostic (LEMONCROW_SEMANTIC_STATS=1): tally how the semantic-
+# symbol branch actually resolves under real load -- ok / timeout / exception --
+# and log a running count every 20 calls. The timeout/exception branches below
+# are otherwise completely silent (by design, for production), so there is no
+# way to see from the outside whether "semantic enabled" is actually
+# contributing or is silently starved by _SEMANTIC_SYMBOL_DEADLINE_S under
+# sustained multi-repo load. Remove once the investigation this supports is
+# closed out.
+_SEMANTIC_SYMBOL_STATS_ENABLED = os.environ.get("LEMONCROW_SEMANTIC_STATS", "").strip() == "1"
+_SEMANTIC_SYMBOL_STATS: dict[str, int] = {"ok": 0, "timeout": 0, "exception": 0}
+_SEMANTIC_SYMBOL_STATS_LOCK = threading.Lock()
+
+
+def _tally_semantic_symbol_outcome(outcome: str) -> None:
+    if not _SEMANTIC_SYMBOL_STATS_ENABLED:
+        return
+    with _SEMANTIC_SYMBOL_STATS_LOCK:
+        _SEMANTIC_SYMBOL_STATS[outcome] += 1
+        total = sum(_SEMANTIC_SYMBOL_STATS.values())
+        if total % 20 == 0:
+            logger.warning("semantic-symbol tally after %d calls: %s", total, dict(_SEMANTIC_SYMBOL_STATS))
+
+
 # Tight deadline for the low-priority recall-supplement channels (substring +
 # path trigram scans, base 820-860).  Their cost is set by trigram POSTING size,
 # not token df: a common substring like 'include' has huge 3-gram postings
@@ -7474,12 +7507,16 @@ class CodeContextEngine:
                     )
                     try:
                         semantic_hits = _sem_fut.result(timeout=_SEMANTIC_SYMBOL_DEADLINE_S)
+                        _tally_semantic_symbol_outcome("ok")
                     except (TimeoutError, concurrent.futures.CancelledError):
+                        _tally_semantic_symbol_outcome("timeout")
+                        if _SEMANTIC_SYMBOL_HARD_FAIL:
+                            raise
                         # Don't block on a cold ANN-matrix load (see
                         # _SEMANTIC_SYMBOL_DEADLINE_S) -- fall back to lexical_hits
                         # alone; the abandoned future keeps warming the cache.
                         pass
-                    except Exception as exc:  # noqa: BLE001 -- must degrade gracefully, see below
+                    except Exception as exc:  # must degrade gracefully (unless hard-fail), see below
                         # ANY embedder/ANN failure (missing dependency, OOM, backend
                         # error, bad response shape, ...) must degrade to
                         # lexical_hits alone -- exactly like _semantic_candidate_files'
@@ -7494,8 +7531,10 @@ class CodeContextEngine:
                         # golds (short, non-NL queries that skip this branch) were
                         # unaffected -- previously only KeyError/TypeError/ValueError
                         # were caught here.
+                        _tally_semantic_symbol_outcome("exception")
                         logger.warning("semantic symbol search failed, falling back to lexical-only: %s", exc)
-                        pass
+                        if _SEMANTIC_SYMBOL_HARD_FAIL:
+                            raise
                 # Merge commit chunks as a third candidate source (LINEAGE-03)
                 commit_hits: list[SymbolRecord] = []
                 with contextlib.suppress(Exception):
@@ -13469,6 +13508,7 @@ class CodeContextEngine:
     ) -> SymbolRecord:
         if snippet == "none":
             return symbol.model_copy(update={"snippet": None})
+        symbol = self._refresh_stale_symbol(symbol)
         safe_line_count = max(1, snippet_lines)
         snippet_text = self._read_symbol_snippet(
             symbol.file_path,
@@ -13478,6 +13518,64 @@ class CodeContextEngine:
             snippet_lines=safe_line_count,
         )
         return symbol.model_copy(update={"snippet": snippet_text})
+
+    def _refresh_stale_symbol(self, symbol: SymbolRecord) -> SymbolRecord:
+        """Query-time freshness guard for the one file about to be rendered.
+
+        ``_read_symbol_snippet`` always reads *current* bytes off disk, but it
+        slices them using ``symbol.start_line``/``end_line`` from the index. If
+        the file changed since it was last indexed -- edited outside
+        ``lc.edit``, or the async post-edit reindex (``_reindex_edited_files``)
+        hasn't landed yet -- those line numbers can point at the wrong region
+        of the now-current file. Detect that with a single stat + indexed
+        lookup, and if stale, incrementally reindex just this file (already
+        the O(edited files) path used after every edit) before serving it.
+
+        Bounded to the single file behind *symbol* -- never a repo-wide stat
+        sweep (see ``_ensure_indexed``'s autosync-owns-that-tax comment).
+        Fail-open: any I/O/DB error just returns *symbol* unchanged so a
+        freshness check can never break a query.
+        """
+        try:
+            resolved = self._resolve_inside_repo(symbol.file_path)
+            if not resolved.is_file():
+                return symbol
+            disk_mtime_ns = resolved.stat().st_mtime_ns
+        except (OSError, ValueError):
+            return symbol
+        try:
+            with self._connect() as conn:
+                self._init_schema(conn)
+                row = conn.execute(
+                    "SELECT mtime_ns FROM files WHERE repo_id = ? AND file_path = ?",
+                    (self.repo_id, symbol.file_path),
+                ).fetchone()
+        except sqlite3.Error:
+            return symbol
+        indexed_mtime_ns = int(row["mtime_ns"]) if row is not None else None
+        if indexed_mtime_ns == disk_mtime_ns:
+            return symbol
+        try:
+            self._reindex_files([symbol.file_path])
+        except Exception:  # noqa: BLE001 -- best-effort freshness refresh, never blocks the query
+            logger.debug("query-time freshness reindex failed for %s", symbol.file_path, exc_info=True)
+            return symbol
+        try:
+            with self._connect() as conn:
+                self._init_schema(conn)
+                fresh = conn.execute(
+                    """
+                    SELECT start_line, end_line FROM symbols
+                    WHERE repo_id = ? AND file_path = ? AND qualified_name = ?
+                    LIMIT 1
+                    """,
+                    (self.repo_id, symbol.file_path, symbol.qualified_name),
+                ).fetchone()
+        except sqlite3.Error:
+            return symbol
+        if fresh is None:
+            return symbol
+        return symbol.model_copy(update={"start_line": int(fresh["start_line"]), "end_line": int(fresh["end_line"])})
 
     def _read_symbol_snippet(
         self,

@@ -366,6 +366,42 @@ def test_incremental_index_forces_rebuild_when_indexer_semantics_version_changes
     assert int(row[0]) == 2
 
 
+def test_search_symbols_refreshes_stale_line_numbers_after_external_edit(tmp_path: Path) -> None:
+    """A file edited outside lc.edit (or before the async post-edit reindex
+    lands) leaves the index's start_line/end_line pointing at the pre-edit
+    layout. ``_attach_snippet`` must detect the mtime mismatch, incrementally
+    reindex just that file, and serve the refreshed line numbers + a snippet
+    sliced from the correct region -- not stale ones.
+    """
+    _write_fixture_repo(tmp_path)
+    db_path = tmp_path / "code.sqlite"
+    engine = CodeContextEngine(tmp_path, db_path=db_path, autosync_enabled=False)
+    engine.index_repo()
+
+    before = engine.search_symbols("calculate_total", limit=5)
+    original = next(h for h in before if h.qualified_name == "OrderService.calculate_total")
+
+    orders_path = tmp_path / "src" / "orders.py"
+    shift = 5
+    orders_path.write_text(("# shifted\n" * shift) + orders_path.read_text(encoding="utf-8"), encoding="utf-8")
+    # Force the mtime unambiguously forward -- coarse filesystem mtime
+    # resolution could otherwise leave it identical to the indexed value.
+    bumped = time.time() + 5
+    os.utime(orders_path, (bumped, bumped))
+
+    hits = engine.search_symbols("calculate_total", limit=5, snippet="full", snippet_lines=5)
+    hit = next(h for h in hits if h.qualified_name == "OrderService.calculate_total")
+
+    assert hit.start_line == original.start_line + shift
+    assert "def calculate_total" in (hit.snippet or "")
+    assert "return sum(items)" in (hit.snippet or "")
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT mtime_ns FROM files WHERE file_path = ?", ("src/orders.py",)).fetchone()
+    assert row is not None
+    assert row[0] == orders_path.stat().st_mtime_ns
+
+
 def test_code_context_outline_and_context_pack(tmp_path: Path) -> None:
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
