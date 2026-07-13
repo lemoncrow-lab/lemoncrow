@@ -111,6 +111,63 @@ def test_run_raises_on_truncated_output(agent: LemonCrowClaudeCodeHarborAgent) -
         asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
 
 
+def test_quota_error_class_never_falls_through_on_is_error() -> None:
+    """_quota_error_class must return SOME ApiError subclass for every
+    is_error result, never None -- caffe-cifar-10 scored a silent reward-0
+    because a 403 (org-disabled-access) matched neither the usage-limit text
+    nor the 429 check and fell through to None, undetected."""
+    from harbor.agents.installed.base import ApiRateLimitError, ApiUsageLimitError, UnknownApiError
+
+    assert lemoncrow_agent._quota_error_class(None) is None
+    assert lemoncrow_agent._quota_error_class({"is_error": False, "result": "ok"}) is None
+    assert (
+        lemoncrow_agent._quota_error_class({"is_error": True, "result": "You have hit your usage limit."})
+        is ApiUsageLimitError
+    )
+    assert (
+        lemoncrow_agent._quota_error_class({"is_error": True, "api_error_status": 429, "result": "rate limited"})
+        is ApiRateLimitError
+    )
+    # The exact caffe-cifar-10 shape: is_error true, an unrecognized status,
+    # text that matches neither known pattern -- must not be None.
+    assert (
+        lemoncrow_agent._quota_error_class(
+            {
+                "is_error": True,
+                "api_error_status": 403,
+                "result": "Your organization has disabled Claude subscription access",
+            }
+        )
+        is UnknownApiError
+    )
+
+
+def test_run_raises_on_unclassified_is_error_result(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    """End-to-end: an is_error result line with a status/text run() has never
+    seen before must still raise (UnknownApiError), not return normally and
+    let the trial score a clean-looking reward-0."""
+
+    class _UnclassifiedErrorResult:
+        stdout = json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "api_error_status": 403,
+                "result": "Your organization has disabled Claude subscription access",
+            },
+            separators=(",", ":"),
+        )
+
+    async def fake_exec(
+        environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any
+    ) -> _UnclassifiedErrorResult:
+        return _UnclassifiedErrorResult()
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    with pytest.raises(lemoncrow_agent.UnknownApiError):
+        asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
+
+
 def test_run_uses_harbor_model_and_stages_sessions(agent: LemonCrowClaudeCodeHarborAgent) -> None:
     command, _ = _run_and_capture(agent)
     # -m anthropic/claude-opus-4-8 -> operational --model claude-opus-4-8

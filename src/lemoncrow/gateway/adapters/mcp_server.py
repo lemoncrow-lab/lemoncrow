@@ -2924,66 +2924,112 @@ def _current_context_state() -> tuple[int, str]:
         )
 
         sid = _claude_session_id()
-        if not sid:
-            return 0, ""
-
-        candidates = list(claude_transcript_candidates(sid))
-        sig_parts: list[tuple[str, int, int]] = []
-        for cand in candidates:
-            try:
-                st = os.stat(cand)
-            except OSError:
-                continue
-            sig_parts.append((str(cand), st.st_mtime_ns, st.st_size))
-        sig = tuple(sig_parts)
-
-        with _STATE_LOCK:
-            cached = _CONTEXT_STATE_CACHE.get(sid)
-        if cached is not None and cached[0] == sig:
-            return cached[1]
-
-        from lemoncrow.gateway.hosts.context_state import _tail_lines
-
-        result: tuple[int, str] = (0, "")
-        for cand in candidates:
-            try:
-                tail_lines = _tail_lines(cand)
-            except OSError:
-                continue
-            best = 0
-            best_model = ""
-            for line in tail_lines:
-                line = line.strip()
-                if not line:
-                    continue
+        if sid:
+            candidates = list(claude_transcript_candidates(sid))
+            sig_parts: list[tuple[str, int, int]] = []
+            for cand in candidates:
                 try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue  # first line of the tail window may be partial
-                msg = entry.get("message") or {}
-                usage = msg.get("usage") if isinstance(msg, dict) else None
-                if not isinstance(usage, dict):
+                    st = os.stat(cand)
+                except OSError:
                     continue
-                ctx = (
-                    int(usage.get("input_tokens", 0) or 0)
-                    + int(usage.get("cache_read_input_tokens", 0) or 0)
-                    + int(usage.get("cache_creation_input_tokens", 0) or 0)
-                )
-                if ctx > 0:
-                    best = ctx
-                    candidate = str(msg.get("model") or "").strip()
-                    if is_real_model(candidate):
-                        best_model = candidate
-            if best > 0:
-                result = (best, best_model)
-                break
+                sig_parts.append((str(cand), st.st_mtime_ns, st.st_size))
+            sig = tuple(sig_parts)
 
-        with _STATE_LOCK:
-            _CONTEXT_STATE_CACHE[sid] = (sig, result)
-        return result
+            with _STATE_LOCK:
+                cached = _CONTEXT_STATE_CACHE.get(sid)
+            if cached is not None and cached[0] == sig:
+                return cached[1]
+
+            from lemoncrow.gateway.hosts.context_state import _tail_lines
+
+            result: tuple[int, str] = (0, "")
+            for cand in candidates:
+                try:
+                    tail_lines = _tail_lines(cand)
+                except OSError:
+                    continue
+                best = 0
+                best_model = ""
+                for line in tail_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue  # first line of the tail window may be partial
+                    msg = entry.get("message") or {}
+                    usage = msg.get("usage") if isinstance(msg, dict) else None
+                    if not isinstance(usage, dict):
+                        continue
+                    ctx = (
+                        int(usage.get("input_tokens", 0) or 0)
+                        + int(usage.get("cache_read_input_tokens", 0) or 0)
+                        + int(usage.get("cache_creation_input_tokens", 0) or 0)
+                    )
+                    if ctx > 0:
+                        best = ctx
+                        candidate = str(msg.get("model") or "").strip()
+                        if is_real_model(candidate):
+                            best_model = candidate
+                if best > 0:
+                    result = (best, best_model)
+                    break
+
+            with _STATE_LOCK:
+                _CONTEXT_STATE_CACHE[sid] = (sig, result)
+            return result
+
+        # --- Non-Claude hosts (OpenCode, Codex): read from workspace bridge ---
+        bridge_sid, host = _resolved_host_session()
+        if bridge_sid and host and host != "claude":
+            cache_key = f"bridge:{host}:{bridge_sid}"
+            with _STATE_LOCK:
+                cached = _CONTEXT_STATE_CACHE.get(cache_key)
+            if cached is not None:
+                return cached[1]
+            result = _bridge_context_state(bridge_sid, host)
+            if result[0] > 0:
+                with _STATE_LOCK:
+                    _CONTEXT_STATE_CACHE[cache_key] = (cache_key, result)
+            return result
+
     except Exception:
         logging.exception("Recovered from broad exception handler")
         _log.debug("context state probe failed", exc_info=True)
+    return 0, ""
+
+
+def _bridge_context_state(session_id: str, host: str) -> tuple[int, str]:
+    """Read context tokens from the workspace bridge or host-specific data.
+
+    For non-Claude hosts (OpenCode, Codex) that don't produce Claude-format
+    transcript JSONL, this reads the session stats file maintained by the host
+    plugin and extracts cumulative usage as a proxy for current context size.
+    """
+    try:
+        from lemoncrow.core.foundation.paths import session_dir
+
+        root = _lemoncrow_root()
+        stats_path = session_dir(root, host, session_id) / "stats.json"
+        if not stats_path.is_file():
+            return 0, ""
+        try:
+            stats = json.loads(stats_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return 0, ""
+        if not isinstance(stats, dict):
+            return 0, ""
+        usage = stats.get("usage") if isinstance(stats.get("usage"), dict) else {}
+        ctx = (
+            int(usage.get("input_tokens", 0) or 0)
+            + int(usage.get("cache_read_tokens", 0) or 0)
+            + int(usage.get("cache_write_tokens", 0) or 0)
+        )
+        model = str(stats.get("last_model") or stats.get("model") or "").strip()
+        return ctx, model
+    except Exception:  # noqa: BLE001 - best-effort bridge read, never break MCP dispatch
+        _log.debug("bridge context state probe failed for %s/%s", host, session_id, exc_info=True)
     return 0, ""
 
 
@@ -13178,7 +13224,7 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
                 # is what shrinks the host-prompt footprint.
                 if len(projection.content) < len(text):
                     compacted_text = projection.content
-                    method = f"source_projection:{lang}"
+                    method = f"projection:{lang}"
 
     if compacted_text is text:
         compacted = compact_output.compact(

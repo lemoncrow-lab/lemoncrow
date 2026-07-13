@@ -28,9 +28,12 @@ script path won't resolve that import):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import random
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -572,7 +575,14 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
             isolated_dir = db_path.parent
             isolated_dir.mkdir(parents=True, exist_ok=True)
             print(f"[provision] indexing {prefix} -> {db_path}", flush=True)
-            result = subprocess.run(
+            # `code index` forks its own worker pool for parallel file
+            # indexing. subprocess.run(timeout=...) only SIGKILLs the direct
+            # child on timeout -- the worker pool is reparented to init and
+            # keeps running (and can keep rewriting db_path) indefinitely.
+            # Same fix as eval_external_provider_mrr.py's
+            # _backfill_semantic_vectors: run in its own process group so a
+            # timeout can SIGKILL the whole group, not just the one child.
+            proc = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
@@ -586,13 +596,26 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
                     "--db-path",
                     str(db_path),
                 ],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=7200,
+                start_new_session=True,
             )
-            if result.returncode != 0:
-                sys.stderr.write(result.stderr)
-                print(f"[provision] index FAILED for {prefix} (exit {result.returncode})", flush=True)
+            try:
+                _stdout, stderr = proc.communicate(timeout=7200)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                try:
+                    _stdout, stderr = proc.communicate(timeout=10)
+                except Exception:
+                    stderr = ""
+                returncode = -1
+                print(f"[provision] index TIMED OUT for {prefix}, killed process group {proc.pid}", flush=True)
+            if returncode != 0:
+                sys.stderr.write(stderr or "")
+                print(f"[provision] index FAILED for {prefix} (exit {returncode})", flush=True)
             else:
                 print(f"[provision] index done {prefix}", flush=True)
 

@@ -29,6 +29,7 @@ from harbor.agents.installed.base import (
     ApiUsageLimitError,
     BaseInstalledAgent,
     NonZeroAgentExitCodeError,
+    UnknownApiError,
     with_prompt_template,
 )
 from harbor.agents.installed.claude_code import ClaudeCode
@@ -252,14 +253,19 @@ class TruncatedAgentOutputError(NonZeroAgentExitCodeError):
 
 
 def _quota_error_class(obj: dict[str, Any] | None) -> type[ApiError] | None:
-    """The harbor ApiError subclass for a provider quota/rate-limit result line,
+    """The harbor ApiError subclass for an ``is_error`` stream-json result line,
     else None.
 
-    Claude Code exits 0 on a 429 -- it writes ``is_error`` / ``api_error_status``
-    into the stream-json result object rather than returning a non-zero code --
-    so harbor's exit-code-gated ``_classify_exec_error`` never sees it and the
+    Claude Code exits 0 on a provider-side failure (429, 403 org-disabled-access,
+    5xx, ...) -- it writes ``is_error`` / ``api_error_status`` into the
+    stream-json result object rather than returning a non-zero code -- so
+    harbor's exit-code-gated ``_classify_exec_error`` never sees it and the
     trial silently scores reward-0, indistinguishable from a genuine capability
-    miss. Detect it from the result object instead.
+    miss. Detect it from the result object instead. Every ``is_error`` result
+    returns SOME class here, never None -- an unrecognized status/text still
+    must surface (as UnknownApiError) rather than silently pass through as a
+    clean run; that gap is exactly how caffe-cifar-10 scored a false reward-0
+    on an unhandled 403.
     """
     if not isinstance(obj, dict) or not obj.get("is_error"):
         return None
@@ -268,7 +274,14 @@ def _quota_error_class(obj: dict[str, Any] | None) -> type[ApiError] | None:
         return ApiUsageLimitError  # account cap exhausted -> rerun after reset
     if obj.get("api_error_status") == 429:
         return ApiRateLimitError  # transient rate-limit -> retryable sooner
-    return None
+    # Any other is_error result (403 org-disabled-access, 5xx, a status we've
+    # never seen) still must not fall through to None -- an unclassified
+    # provider error is exactly what UnknownApiError exists for (harbor's own
+    # convention, see base.py's ErrorPattern table: last-resort match on
+    # "API Error" -> UnknownApiError). Falling through here is how
+    # caffe-cifar-10 scored a silent reward-0 on a 403 instead of a retryable
+    # error.
+    return UnknownApiError
 
 
 class LemonCrowHarborAgent(BaseInstalledAgent):
@@ -684,7 +697,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         finally:
             if token_queue is not None and oauth_token is not None:
                 token_queue.put_nowait(oauth_token)
-        # Claude exits 0 on a provider 429 (it writes is_error into the
+        # Claude exits 0 on a provider-side failure (it writes is_error into the
         # stream-json result, not a non-zero code), so the trial silently scores
         # reward-0 -- indistinguishable from a genuine capability miss. Detect it
         # and raise the matching harbor ApiError: SingleStepTrial._run_agent
@@ -696,9 +709,9 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         quota_cls = _quota_error_class(result_obj)
         if quota_cls is not None:
             lines = str((result_obj or {}).get("result") or "").strip().splitlines()
-            detail = lines[0] if lines else "provider quota/rate limit"
+            detail = lines[0] if lines else "provider API error"
             status = (result_obj or {}).get("api_error_status")
-            raise quota_cls(f"Claude Code stopped on a provider limit (api_error_status={status}): {detail}")
+            raise quota_cls(f"Claude Code stopped on a provider error (api_error_status={status}): {detail}")
         if result_obj is None:
             raise TruncatedAgentOutputError(
                 "Claude Code exited without a terminal stream-json result line -- "

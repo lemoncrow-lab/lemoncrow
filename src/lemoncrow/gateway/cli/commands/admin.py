@@ -580,9 +580,7 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount)
-            if unit == "h"
-            else timedelta(minutes=amount)
+            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -649,35 +647,41 @@ def init(
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     store.init()
-    click.echo(f"initialized LemonCrow store at {store.knowledge.root}")
+    click.echo(
+        f"  {click.style('✓', fg='green')} {click.style('store', fg=(155, 117, 217))} {click.style(f'initialized at {store.knowledge.root}', dim=True)}"
+    )
     if seed:
         block_files, rubric_files = _seed_resources()
-        seeded_blocks: dict[str, Playbook] = {}
-        for path in block_files:
-            data = _load_yaml(path)
-            try:
-                if "id" not in data:
-                    data["id"] = Playbook.make_id(data["title"], data["domain"])
-                block = Playbook.model_validate(data)
-            except (KeyError, ValueError) as exc:
-                raise click.ClickException(f"invalid seed playbook {path}: {exc}") from exc
-            seeded_blocks[block.id] = block
-        for block in _load_domain_manager(root).all_playbooks():
-            seeded_blocks[block.id] = block
-        n_b = 0
-        for block in seeded_blocks.values():
-            store.knowledge.upsert_block(block)
-            n_b += 1
-        n_r = 0
-        for path in rubric_files:
-            data = _load_yaml(path)
-            try:
-                rubric = Rubric.model_validate(data)
-            except (KeyError, ValueError) as exc:
-                raise click.ClickException(f"invalid seed rubric {path}: {exc}") from exc
-            store.knowledge.upsert_rubric(rubric)
-            n_r += 1
-        click.echo(f"seeded {n_b} playbooks and {n_r} rubrics")
+        if block_files or rubric_files:
+            seeded_blocks: dict[str, Playbook] = {}
+            for path in block_files:
+                data = _load_yaml(path)
+                try:
+                    if "id" not in data:
+                        data["id"] = Playbook.make_id(data["title"], data["domain"])
+                    block = Playbook.model_validate(data)
+                except (KeyError, ValueError) as exc:
+                    raise click.ClickException(f"invalid seed playbook {path}: {exc}") from exc
+                seeded_blocks[block.id] = block
+            for block in _load_domain_manager(root).all_playbooks():
+                seeded_blocks[block.id] = block
+            n_b = 0
+            for block in seeded_blocks.values():
+                store.knowledge.upsert_block(block)
+                n_b += 1
+            n_r = 0
+            for path in rubric_files:
+                data = _load_yaml(path)
+                try:
+                    rubric = Rubric.model_validate(data)
+                except (KeyError, ValueError) as exc:
+                    raise click.ClickException(f"invalid seed rubric {path}: {exc}") from exc
+                store.knowledge.upsert_rubric(rubric)
+                n_r += 1
+            click.echo(
+                f"  {click.style('✓', fg='green')} {click.style('seed', fg=(155, 117, 217))} "
+                f"{click.style(f'seeded {n_b} playbooks and {n_r} rubrics', dim=True)}"
+            )
     if index:
         git_root = _detect_git_root(Path.cwd())
         if git_root is not None:
@@ -692,10 +696,12 @@ def init(
                 description="Bootstrapping code index",
                 success_description="Code index ready",
             )
+            fi = stats["files_indexed"]
+            si = stats["symbols_indexed"]
+            ii = stats["imports_indexed"]
             click.echo(
-                f"indexed {stats['files_indexed']} files, "
-                f"{stats['symbols_indexed']} symbols "
-                f"({stats['imports_indexed']} imports)"
+                f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
+                f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
             )
         else:
             click.echo("code index skipped (no git repository detected in current directory)")
@@ -704,7 +710,9 @@ def init(
         results = _project_init_setup(git_root)
         for section, messages in results.items():
             for msg in messages:
-                click.echo(f"  [{section}] {msg}")
+                click.echo(
+                    f"  {click.style('✓', fg='green')} {click.style(section, fg=(155, 117, 217))} {click.style(msg, dim=True)}"
+                )
     else:
         _ensure_gitignore(Path.cwd())
         click.echo(f"registered {Path.cwd()} as an LemonCrow workspace (no git repository detected)")
@@ -722,7 +730,9 @@ def init(
             )
             for section, messages in results.items():
                 for msg in messages:
-                    click.echo(f"  [{section}] {msg}")
+                    click.echo(
+                        f"  {click.style('✓', fg='green')} {click.style(section, fg=(155, 117, 217))} {click.style(msg, dim=True)}"
+                    )
 
 
 @click.command("doctor")

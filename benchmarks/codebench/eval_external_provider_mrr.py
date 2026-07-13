@@ -17,6 +17,7 @@ import contextlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tarfile
@@ -1781,21 +1782,34 @@ class LemonCrowProvider(Provider):
             "LEMONCROW_CODE_FILE_WATCHER": "0",
         }
         # No-op when no embedder is configured — only pays the FTS-check cost.
+        #
+        # `code index` forks its own internal worker pool for parallel file
+        # indexing. Plain subprocess.run(timeout=...) only SIGKILLs the direct
+        # child on timeout -- the worker pool is reparented to init and keeps
+        # running (and keeps recreating the DB file) indefinitely, invisible
+        # to this process. Confirmed via a real run: a timed-out backfill for
+        # a large repo left a dozen orphaned workers pinning 1900%+ CPU and
+        # 6-9GB RSS for 40+ minutes after this function returned, silently
+        # destabilizing every eval run started afterward until manually killed.
+        # Fix: launch in a new session (its own process group, via
+        # start_new_session=True) so the whole group can be killed together;
+        # on timeout, SIGKILL the group instead of just the one child.
+        proc = _sp.Popen(
+            cmd,
+            cwd=Path.cwd(),
+            env=env,
+            stdout=_sp.PIPE,
+            stderr=_sp.PIPE,
+            start_new_session=True,
+        )
+        t0 = time.perf_counter()
         try:
-            t0 = time.perf_counter()
-            result = _sp.run(
-                cmd,
-                cwd=Path.cwd(),
-                env=env,
-                capture_output=True,
-                timeout=600,
-                check=False,
-            )
+            _stdout, _stderr = proc.communicate(timeout=600)
             elapsed = time.perf_counter() - t0
-            if result.returncode != 0:
-                stderr_tail = (result.stderr or b"")[-300:].decode("utf-8", errors="replace")
+            if proc.returncode != 0:
+                stderr_tail = (_stderr or b"")[-300:].decode("utf-8", errors="replace")
                 print(
-                    f"[route] semantic backfill failed for {ws.name} (rc={result.returncode}, "
+                    f"[route] semantic backfill failed for {ws.name} (rc={proc.returncode}, "
                     f"{elapsed:.1f}s): {stderr_tail}",
                     file=sys.stderr,
                     flush=True,
@@ -1807,12 +1821,18 @@ class LemonCrowProvider(Provider):
                     flush=True,
                 )
         except _sp.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                proc.communicate(timeout=10)  # reap; drop any buffered output
             print(
-                f"[route] semantic backfill timed out for {ws.name} (600s)",
+                f"[route] semantic backfill timed out for {ws.name} (600s) -- killed process group {proc.pid}",
                 file=sys.stderr,
                 flush=True,
             )
         except Exception as exc:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             print(
                 f"[route] semantic backfill error for {ws.name}: {exc}",
                 file=sys.stderr,

@@ -479,6 +479,20 @@ def benchmark_harbor_cmd(
             # prior run left behind -- back-to-back fresh runs must not leak
             # state into each other. Only --resume (handled earlier, above)
             # reuses an existing bundle.
+            if ctx.get_parameter_source("bundle") == click.core.ParameterSource.DEFAULT:
+                # Caller didn't pin a path -- tag the built artifact with the
+                # source commit so the bundle filename on disk shows what it
+                # was built from.
+                commit_sha = (
+                    _subprocess.run(
+                        ["git", "-C", repo_root_str, "rev-parse", "--short", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    ).stdout.strip()
+                    or "nogit"
+                )
+                bundle_path = bundle_path.with_name(f"lemoncrow-bundle-{commit_sha}.tar.gz")
             click.echo(f"Building bundle from current source -> {bundle_path} ...")
             rebuild_script = repo_root / "benchmarks" / "harbor" / "build_bundle.sh"
             bundle_path.parent.mkdir(parents=True, exist_ok=True)

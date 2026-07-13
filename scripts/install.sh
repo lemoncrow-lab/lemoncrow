@@ -364,6 +364,13 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
         info "Added ${LEMONCROW_BIN_DIR} to PATH for this session"
     fi
 
+    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find lemoncrow
+    LOCAL_BIN="${HOME}/.local/bin"
+    if [[ ! -e "$LOCAL_BIN/lemoncrow" ]]; then
+        mkdir -p "$LOCAL_BIN" 2>/dev/null || true
+        ln -sf "${LEMONCROW_BIN_DIR}/lemoncrow" "$LOCAL_BIN/lemoncrow"
+        info "Symlinked lemoncrow -> ${LOCAL_BIN}/lemoncrow"
+    fi
     if [[ -f "$PROFILE" ]] && ! grep -q "lemoncrow.*PATH" "$PROFILE" 2>/dev/null; then
         {
             echo ""

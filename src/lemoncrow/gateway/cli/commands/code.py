@@ -282,9 +282,10 @@ def _index_repo_with_progress(
         )
 
         prefix_markup = f"[dim]{frame_prefix}[/dim]" if frame_prefix else ""
+        indent = "  "
         console = Console(stderr=True)
         progress = Progress(
-            TextColumn(f"{prefix_markup}{{task.description}}"),
+            TextColumn(f"{indent}{prefix_markup}{{task.description}}"),
             BarColumn(
                 bar_width=32,
                 style="bright_black",
@@ -348,7 +349,7 @@ def _index_repo_with_progress(
                 task_id,
                 total=100,
                 completed=100,
-                description=f"[green]✓[/green]  {success_description or description}",
+                description=f"[green]✓[/green] [rgb(155,117,217)]{success_description or description}[/rgb(155,117,217)]",
             )
             return payload
     except ImportError:
