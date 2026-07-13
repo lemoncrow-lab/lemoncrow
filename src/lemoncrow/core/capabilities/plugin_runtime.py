@@ -1341,6 +1341,467 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     return {"uiMessage": message} if message else {"no_output": True}
 
 
+# --- Shared stop-hook supplemental savings rows ---------------------------------
+# Ported from integrations/claude/plugin/hooks/stop.py so OpenCode (and any
+# future host) can write the same bench-calibrated savings rows without
+# duplicating the pricing logic.
+
+_TURN_CUT_RATIO_DEFAULT = 0.642
+_INPUT_STYLE_RATIO_DEFAULT = 1.16
+_OUTPUT_STYLE_RATIO_DEFAULT = 2.09
+
+
+def _savings_sidecar_path(root: str | Path, session_id: str, agent: str) -> Path | None:
+    """Return the per-session savings sidecar path for a given agent.
+
+    Unlike the Claude stop hook's ``_sidecar_path`` (which hardcodes
+    ``"claude"``), this accepts the agent name so OpenCode can write to
+    ``sessions/<id>/opencode/<sid>/savings.jsonl``.
+    """
+    try:
+        from lemoncrow.core.foundation.paths import session_dir
+
+        return session_dir(Path(root), agent, session_id) / "savings.jsonl"
+    except ImportError:
+        return None
+
+
+def write_stop_hook_turn_cut_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
+) -> None:
+    """Bench-calibrated turn-cut credit (``kind == "turn_cut"``).
+
+    Shared implementation used by both the Claude stop hook and the OpenCode
+    idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
+    full derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    turns = int(stats.get("turns") or 0)
+    if turns <= 0:
+        return
+    target = int(turns * ratio)
+    if target <= 0:
+        return
+    credited = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                credited += max(0, int(row.get("calls") or 0))
+    delta = target - credited
+    if delta <= 0:
+        return
+    avg_ctx = int(stats.get("cache_read_tokens") or 0) // turns
+    avg_out = int(stats.get("output_tokens") or 0) // turns
+    if avg_ctx <= 0 and avg_out <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return
+        usd = pricing.request_cost_usd(
+            cache_read_tokens=delta * avg_ctx,
+            output_tokens=delta * avg_out,
+            cache_write_tokens=delta * avg_out,
+        )
+    except Exception:
+        logger.exception("Failed to price turn-cut row")
+        return
+    if usd <= 0:
+        return
+    row_out = {
+        "kind": "turn_cut",
+        "calls": int(delta),
+        "calls_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "turns": turns,
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+def write_stop_hook_input_style_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
+) -> None:
+    """Credit leaner per-turn context: cache-read tokens NOT re-sent.
+
+    Shared implementation used by both the Claude stop hook and the OpenCode
+    idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
+    full derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    cache_read_tokens = int(stats.get("cache_read_tokens") or 0)
+    if cache_read_tokens <= 0:
+        return
+    prev_cum = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "input_style":
+                prev_cum = max(prev_cum, int(row.get("cum_cache_read_tokens") or 0))
+    delta = cache_read_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.cache_read <= 0:
+            return
+        usd = pricing.request_cost_usd(cache_read_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price input-style row")
+        return
+    row_out = {
+        "kind": "input_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_cache_read_tokens": int(cache_read_tokens),
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+_PROSE_FENCE_RE = re.compile(r"```.*?(?:```|$)", re.DOTALL)
+_PROSE_CODEISH_RE = re.compile(r"^\s*(\+|\-|@@|\{|\}|\[|def |class |import |from \S+ import|#|\$|>>>|\.\.\.)")
+
+
+def _compressible_prose_chars(text: str) -> int:
+    """Chars of genuinely compressible reply prose: fenced code stripped, bare
+    code/diff/JSON lines stripped. Host-agnostic core of the output-style basis;
+    MUST mirror the filter the bench ratio was measured on (see stop.py)."""
+    stripped = _PROSE_FENCE_RE.sub("", text)
+    return sum(len(line) for line in stripped.splitlines() if line.strip() and not _PROSE_CODEISH_RE.match(line))
+
+
+def prose_output_tokens(blocks: list[tuple[str, str]]) -> int:
+    """Compressible reply-prose tokens from ``(dedup_key, text)`` blocks.
+
+    Shared plugin-level core of the output-style basis: dedups by
+    ``(key, text-hash)`` so a re-emitted snapshot line never double-counts,
+    strips fenced code + bare code/diff/JSON lines (style-invariant), ~4
+    chars/token. Each host feeds its own reply text (Claude transcript, Codex
+    rollout, OpenCode DB) and must exclude thinking/reasoning blocks itself.
+    """
+    chars = 0
+    seen: set[tuple[str, int]] = set()
+    for key, text in blocks:
+        if not text:
+            continue
+        k = (key, hash(text))
+        if k in seen:
+            continue
+        seen.add(k)
+        chars += _compressible_prose_chars(text)
+    return chars // 4
+
+
+def _codex_reply_blocks(path: Path) -> list[tuple[str, str]]:
+    """Assistant reply text blocks from a Codex rollout transcript.
+
+    Handles both rollout formats: ``event_msg``/``agent_message`` (message
+    text) and flat/``response_item`` ``role:"assistant"`` messages with
+    ``output_text``/``text`` content. Reasoning and tool events are excluded.
+    """
+    blocks: list[tuple[str, str]] = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return blocks
+    for idx, raw in enumerate(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ev = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        et = ev.get("type")
+        if et == "event_msg":
+            p = ev.get("payload")
+            if isinstance(p, dict) and p.get("type") == "agent_message":
+                text = str(p.get("message") or "")
+                if text:
+                    blocks.append((str(p.get("id") or f"i{idx}"), text))
+        elif et in ("message", "response_item"):
+            node = ev.get("payload") if et == "response_item" else ev
+            if isinstance(node, dict) and node.get("role") == "assistant":
+                content = node.get("content")
+                if isinstance(content, list):
+                    text = "".join(
+                        str(c.get("text") or "")
+                        for c in content
+                        if isinstance(c, dict) and c.get("type") in ("output_text", "text")
+                    )
+                    if text:
+                        blocks.append((str(node.get("id") or ev.get("id") or f"i{idx}"), text))
+    return blocks
+
+
+def _codex_prose_output_tokens(payload: dict[str, Any], session_id: str) -> int:
+    """Reply-prose tokens for a Codex session. Returns 0 unless a
+    filename-matched rollout is found -- never credits another session's prose."""
+    if not session_id:
+        return 0
+    for path in _codex_transcript_paths(payload, session_id):
+        if session_id not in path.name:
+            continue
+        blocks = _codex_reply_blocks(path)
+        if blocks:
+            return prose_output_tokens(blocks)
+    return 0
+
+
+def _opencode_prose_output_tokens(session_id: str) -> int:
+    """Reply-prose tokens for an OpenCode session, read from its sqlite store
+    (assistant ``text`` parts only; ``synthetic`` and reasoning parts excluded)."""
+    if not session_id:
+        return 0
+    db_path = Path.home() / ".local/share/opencode/opencode.db"
+    if not db_path.exists():
+        return 0
+    try:
+        from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
+
+        serialized = serialize_opencode_session(session_id, db_path)
+    except Exception:
+        return 0
+    blocks: list[tuple[str, str]] = []
+    for idx, line in enumerate(serialized.splitlines()):
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict) or ev.get("_type") != "part" or ev.get("role") != "assistant":
+            continue
+        data = ev.get("data")
+        if isinstance(data, dict) and data.get("type") == "text" and not data.get("synthetic"):
+            text = str(data.get("text") or "")
+            if text:
+                blocks.append((str(ev.get("id") or f"i{idx}"), text))
+    return prose_output_tokens(blocks)
+
+
+def write_stop_hook_output_style_row(
+    root: str | Path, session_id: str, stats: dict[str, Any], prose_tokens: int, *, agent: str = "claude"
+) -> None:
+    """Credit the telegraphic output style: prose the model did NOT emit.
+
+    Plugin-level savings logic shared across hosts; pricing resolves per model
+    from ``stats``. The prose-token BASIS is host-specific -- each host measures
+    its own reply prose (Claude parses its transcript via ``_prose_output_tokens``
+    in stop.py) and passes it as ``prose_tokens``; a host with no prose source
+    passes 0 and no row is written. See integrations/claude/plugin/hooks/stop.py
+    for the ratio (2.09) derivation.
+    """
+    if not session_id:
+        return
+    try:
+        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", str(_OUTPUT_STYLE_RATIO_DEFAULT)))
+    except ValueError:
+        return
+    if ratio <= 1.0:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    if prose_tokens <= 0:
+        return
+    prev_cum = 0
+    with suppress(OSError):
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("kind") == "output_style":
+                prev_cum = max(prev_cum, int(row.get("cum_prose_tokens") or 0))
+    delta = prose_tokens - prev_cum
+    if delta <= 0:
+        return
+    saved = int(delta * (ratio - 1.0))
+    if saved <= 0:
+        return
+    try:
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+        model = str(stats.get("last_model") or stats.get("model") or "")
+        pricing = get_model_pricing(resolve_model_id(model)) if model else None
+        if pricing is None or not pricing.known or pricing.output <= 0:
+            return
+        usd = pricing.request_cost_usd(output_tokens=saved, cache_write_tokens=saved)
+    except Exception:
+        logger.exception("Failed to price output-style row")
+        return
+    row_out = {
+        "kind": "output_style",
+        "tokens": int(saved),
+        "cost_saved_usd": round(usd, 6),
+        "model": model,
+        "ratio": ratio,
+        "cum_prose_tokens": int(prose_tokens),
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row_out) + "\n")
+
+
+def rtk_total_tokens_saved(payload: Any) -> int:
+    """Total tokens saved from ``rtk gain --format json`` output.
+
+    rtk v0.43 emits ``{"summary": {"total_saved": N, "avg_savings_pct": ...}}``
+    (verified against the real binary). Accept that plus older/alternate
+    spellings (``tokens_saved``, ``saved_tokens``, ``total_tokens_saved``) and
+    take the maximum -- totals dominate per-command entries. Percentage fields
+    are excluded.
+    """
+    best = 0
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                lk = str(key).lower()
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+                    continue
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    continue
+                if "pct" in lk or "percent" in lk:
+                    continue
+                if "sav" in lk and ("token" in lk or "total" in lk or lk == "saved"):
+                    best = max(best, int(value))
+        elif isinstance(node, list):
+            stack.extend(node)
+    return best
+
+
+def credit_rtk_gain(
+    root: str | Path, session_id: str, stats: dict[str, Any], *, workspace: str | Path, agent: str = "claude"
+) -> None:
+    """Fold rtk's own measured savings into the ledger as a bash row.
+
+    Plugin-level, fully host-agnostic (a subprocess probe of the ``rtk`` binary,
+    not a transcript scan), so every host that routes bash through rtk credits
+    it identically. ``workspace`` is the host's project cwd (Claude:
+    CLAUDE_WORKSPACE_ROOT, OpenCode: the payload cwd); the cumulative marker in
+    ``<root>/rtk_gain_state.json`` is keyed per workspace so each project's rtk
+    tokens are credited exactly once across that project's sessions. Pricing
+    resolves per model from ``stats``. ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
+    """
+    if not session_id or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0":
+        return
+    import shutil
+    import subprocess
+
+    from lemoncrow.core.foundation.paths import workspace_key
+
+    rtk_bin = shutil.which("rtk")
+    if not rtk_bin:
+        return
+    path = _savings_sidecar_path(root, session_id, agent)
+    if path is None or not path.exists():
+        return
+    workspace = str(workspace or os.getcwd())
+    ws_key = workspace_key(workspace)
+    try:
+        proc = subprocess.run(
+            [rtk_bin, "gain", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=workspace,
+        )
+        payload = json.loads(proc.stdout or "{}")
+    except Exception:
+        logger.exception("rtk gain probe failed")
+        return
+    total = rtk_total_tokens_saved(payload)
+    marker = Path(root) / "rtk_gain_state.json"
+    credited_map: dict[str, Any] = {}
+    with suppress(Exception):
+        raw_marker = json.loads(marker.read_text(encoding="utf-8"))
+        if isinstance(raw_marker, dict) and isinstance(raw_marker.get("credited_by_workspace"), dict):
+            credited_map = raw_marker["credited_by_workspace"]
+    credited = int(credited_map.get(ws_key) or 0)
+    if total < credited:
+        credited = 0  # rtk ledger was reset; start over rather than under-credit forever
+    delta = total - credited
+    usd = 0.0
+    if delta > 0:
+        try:
+            from lemoncrow.core.capabilities.pricing import get_model_pricing
+            from lemoncrow.core.capabilities.savings_summary import resolve_model_id
+
+            model = str(stats.get("last_model") or stats.get("model") or "")
+            pricing = get_model_pricing(resolve_model_id(model)) if model else None
+            if pricing is not None and pricing.known and pricing.input > 0:
+                usd = pricing.request_cost_usd(input_tokens=delta)
+            else:
+                return  # never guess a rate
+        except Exception:
+            logger.exception("Failed to price rtk gain row")
+            return
+        row = {
+            "kind": "external_compactor",
+            "tool": "bash",
+            "tokens": int(delta),
+            "cost_saved_usd": round(usd, 6),
+            "model": model,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    credited_map[ws_key] = int(max(total, credited))
+    tmp = marker.with_suffix(".tmp")
+    with suppress(OSError):
+        tmp.write_text(json.dumps({"credited_by_workspace": credited_map}), encoding="utf-8")
+        tmp.replace(marker)
+
+
 def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     """Build the OpenCode idle-session status toast from live session state."""
     normalized = dict(payload)
@@ -1348,6 +1809,27 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, normalized)
     state = update_session_stats(root, normalized)
+
+    # Write bench-calibrated supplemental savings rows BEFORE reading the
+    # report, so the fresh rows are included in the aggregate.
+    raw_usage = state.get("usage")
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+    stop_stats = {
+        "turns": state.get("turns"),
+        "cache_read_tokens": usage.get("cache_read_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "last_model": state.get("last_model") or state.get("model"),
+    }
+    write_stop_hook_turn_cut_row(root, session_id, stop_stats, agent="opencode")
+    write_stop_hook_input_style_row(root, session_id, stop_stats, agent="opencode")
+    # rtk external-compactor credit: fully host-agnostic (a subprocess probe, no
+    # transcript), so OpenCode credits it identically to Claude when bash is
+    # routed through rtk. No-op when rtk isn't installed / no delta.
+    credit_rtk_gain(root, session_id, stop_stats, workspace=_opencode_workspace_root(normalized), agent="opencode")
+    write_stop_hook_output_style_row(
+        root, session_id, stop_stats, _opencode_prose_output_tokens(session_id), agent="opencode"
+    )
+
     report = build_savings_report(root, session_id=session_id)
     session = _as_dict(report.get("session"))
     cost = _as_dict(report.get("cost"))
@@ -1549,6 +2031,24 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         with suppress(Exception):
             state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
     _apply_codex_transcript_snapshot(root, session_id, payload)
+    # Supplemental bench-calibrated savings rows (plugin-level logic; pricing
+    # resolves per model). Written BEFORE build_savings_report so the fresh rows
+    # land in the aggregate.
+    with suppress(Exception):
+        _codex_state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
+        _codex_usage = _as_dict(_codex_state.get("usage"))
+        _codex_row_stats = {
+            "turns": _codex_state.get("turns"),
+            "cache_read_tokens": _codex_usage.get("cache_read_tokens"),
+            "output_tokens": _codex_usage.get("output_tokens"),
+            "last_model": _codex_state.get("last_model") or _codex_state.get("model"),
+        }
+        write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex")
+        write_stop_hook_input_style_row(root, session_id, _codex_row_stats, agent="codex")
+        credit_rtk_gain(root, session_id, _codex_row_stats, workspace=_codex_workspace_root(payload), agent="codex")
+        write_stop_hook_output_style_row(
+            root, session_id, _codex_row_stats, _codex_prose_output_tokens(payload, session_id), agent="codex"
+        )
     report = build_savings_report(root, session_id=session_id)
     session = report.get("session") or {}
     cost = report.get("cost") or {}

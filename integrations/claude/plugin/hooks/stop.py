@@ -702,46 +702,22 @@ def _refresh_statusline_frames(session_id: str) -> None:
     (seg_dir / "statusline_segment").write_text(frames[int(time.time() // 5) % len(frames)], encoding="utf-8")
 
 
-_CODE_FENCE_RE = None  # compiled lazily; stop.py imports re only where needed
-_CODEISH_LINE_RE = None  # bare code/diff/JSON lines outside fences — same filter the bench ratio used
-
-
-def _compressible_prose_chars(text: str) -> int:
-    """Chars of genuinely compressible prose: fences gone, code-ish lines gone.
-
-    MUST mirror the filter used to measure the bench ratio (swe-lite
-    2026-07-06): the ratio was computed on both arms' output after stripping
-    fenced blocks AND bare code/diff/JSON-looking lines, so the runtime basis
-    has to strip identically or the credit is applied to a different quantity
-    than the one the ratio was measured on.
-    """
-    stripped = _CODE_FENCE_RE.sub("", text)
-    return sum(len(line) for line in stripped.splitlines() if line.strip() and not _CODEISH_LINE_RE.match(line))
-
-
 def _prose_output_tokens(transcript_path: str) -> int:
     """Estimated compressible PROSE output tokens (reply text blocks only).
 
-    Fixed output is excluded on purpose — telegraphic style compresses the
-    reply, nothing else — so the basis drops: fenced code blocks, bare
-    code/diff/JSON lines, and THINKING blocks entirely (reasoning volume is
-    style-invariant — both bench arms think the same; only reply prose
-    differed). Claude Code writes one transcript line per content block
-    sharing the message id; blocks are deduped by (msg_id, text-hash) so a
-    re-emitted snapshot line never double-counts.
+    Host-specific measurement: parses THIS Claude session's transcript for
+    assistant text blocks (THINKING blocks excluded -- reasoning volume is
+    style-invariant). Claude Code writes one transcript line per content block
+    sharing the message id, so blocks are keyed by msg_id and deduped by
+    (msg_id, text-hash) in the shared core. The fence/code-ish stripping and
+    token math live in ``plugin_runtime.prose_output_tokens`` so every host
+    (Claude, Codex, OpenCode) measures prose identically. Fail-open: 0 when the
+    transcript or the shared core is unavailable.
     """
-    import re
-
-    global _CODE_FENCE_RE, _CODEISH_LINE_RE
-    if _CODE_FENCE_RE is None:
-        _CODE_FENCE_RE = re.compile(r"```.*?(?:```|$)", re.DOTALL)
-    if _CODEISH_LINE_RE is None:
-        _CODEISH_LINE_RE = re.compile(r"^\s*(\+|\-|@@|\{|\}|\[|def |class |import |from \S+ import|#|\$|>>>|\.\.\.)")
     p = Path(transcript_path) if transcript_path else None
     if p is None or not p.exists():
         return 0
-    chars = 0
-    seen: set[tuple[str, int]] = set()
+    blocks: list[tuple[str, str]] = []
     try:
         with p.open(encoding="utf-8", errors="replace") as f:
             for raw in f:
@@ -765,16 +741,15 @@ def _prose_output_tokens(transcript_path: str) -> int:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
                     text = str(block.get("text") or "")
-                    if not text:
-                        continue
-                    key = (mid, hash(text))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    chars += _compressible_prose_chars(text)
+                    if text:
+                        blocks.append((mid, text))
     except OSError:
         return 0
-    return chars // 4
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import prose_output_tokens
+    except ImportError:
+        return 0
+    return prose_output_tokens(blocks)
 
 
 def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_path: str) -> None:
@@ -800,58 +775,15 @@ def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_p
     ratios ranged 1.37x-8.33x across the 20 prompts (median 1.85x). Raw data:
     benchmarks/codebench/results/telegraphic_2026_07_08_5rep/.
     """
-    if not session_id:
-        return
-    try:
-        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", "2.09"))
-    except ValueError:
-        return
-    if ratio <= 1.0:
-        return
-    path = _sidecar_path(session_id)
-    if path is None or not path.exists():
-        return  # no sidecar → session not LemonCrow-instrumented; nothing to fold into
+    # Prose measurement stays host-local (parses this session's transcript);
+    # the pricing/ledger logic is shared plugin-level code so every host credits
+    # output-style identically.
     prose_tokens = _prose_output_tokens(transcript_path)
-    if prose_tokens <= 0:
-        return
-    prev_cum = 0
-    with contextlib.suppress(OSError):
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict) and row.get("kind") == "output_style":
-                prev_cum = max(prev_cum, int(row.get("cum_prose_tokens") or 0))
-    delta = prose_tokens - prev_cum
-    if delta <= 0:
-        return
-    saved = int(delta * (ratio - 1.0))
-    if saved <= 0:
-        return
     try:
-        from lemoncrow.core.capabilities.pricing import get_model_pricing
-        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
-
-        model = str(stats.get("last_model") or stats.get("model") or "")
-        pricing = get_model_pricing(resolve_model_id(model)) if model else None
-        if pricing is None or not pricing.known or pricing.output <= 0:
-            return  # never guess a rate
-        usd = pricing.request_cost_usd(output_tokens=saved, cache_write_tokens=saved)
-    except Exception:
-        logger.exception("Failed to price output-style row")
+        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_output_style_row
+    except ImportError:
         return
-    row_out = {
-        "kind": "output_style",
-        "tokens": int(saved),
-        "cost_saved_usd": round(usd, 6),
-        "model": model,
-        "ratio": ratio,
-        "cum_prose_tokens": int(prose_tokens),
-        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
-    }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row_out) + "\n")
+    write_stop_hook_output_style_row(_lemoncrow_root(), session_id, stats, prose_tokens, agent="claude")
 
 
 # Avoided host turns per executed turn, measured on the matched swe-lite
@@ -870,83 +802,20 @@ _TURN_CUT_RATIO_DEFAULT = 0.642
 def _write_turn_cut_row(session_id: str, stats: dict[str, Any]) -> None:
     """Bench-calibrated turn-cut credit (``kind == "turn_cut"``).
 
-    Per-call ``calls`` credits (read batching, code_search netting, code-intel
-    deferral) only capture the directly observable slice of the turn cut; the
-    measured cut on identical tasks is larger. This row tops the session up to
-    the bench-measured floor: ``target = turns x ratio`` minus every avoided
-    call already in the ledger — same counterfactual, so never double-counted,
-    and sessions whose explicit credits already exceed the bench ratio get
-    nothing extra. Self-converging across Stop fires: prior turn_cut rows
-    count toward the target.
-
-    Each avoided turn is priced exactly like the dispatcher's avoided-call
-    rule: one context re-send at the cache-read rate (session's measured
-    average context per turn) plus one turn of average output (output rate,
-    re-entering context at the cache-write rate). Unknown model → no row,
-    never guess a rate. ``LEMONCROW_TURN_CUT_RATIO`` overrides; <=0 disables.
+    Thin wrapper over the shared, host-agnostic implementation
+    ``plugin_runtime.write_stop_hook_turn_cut_row`` (``agent="claude"``): Claude
+    and every other host now credit turn cuts through one code path, so this
+    hook and the OpenCode/Codex idle handlers can never drift. The default
+    ratio (``_TURN_CUT_RATIO_DEFAULT`` above) and the full pricing derivation
+    are the canonical reference the shared writer mirrors. Fail-open: an
+    installed package predating the shared writer no-ops instead of crashing
+    Stop.
     """
-    if not session_id:
-        return
     try:
-        ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
-    except ValueError:
+        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_turn_cut_row
+    except ImportError:
         return
-    if ratio <= 0:
-        return
-    path = _sidecar_path(session_id)
-    if path is None or not path.exists():
-        return  # no sidecar → session not LemonCrow-instrumented; no turn cut to credit
-    turns = int(stats.get("turns") or 0)
-    if turns <= 0:
-        return
-    target = int(turns * ratio)
-    if target <= 0:
-        return
-    credited = 0
-    with contextlib.suppress(OSError):
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict):
-                credited += max(0, int(row.get("calls") or 0))
-    delta = target - credited
-    if delta <= 0:
-        return
-    avg_ctx = int(stats.get("cache_read_tokens") or 0) // turns
-    avg_out = int(stats.get("output_tokens") or 0) // turns
-    if avg_ctx <= 0 and avg_out <= 0:
-        return
-    try:
-        from lemoncrow.core.capabilities.pricing import get_model_pricing
-        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
-
-        model = str(stats.get("last_model") or stats.get("model") or "")
-        pricing = get_model_pricing(resolve_model_id(model)) if model else None
-        if pricing is None or not pricing.known or pricing.cache_read <= 0:
-            return  # never guess a rate
-        usd = pricing.request_cost_usd(
-            cache_read_tokens=delta * avg_ctx,
-            output_tokens=delta * avg_out,
-            cache_write_tokens=delta * avg_out,
-        )
-    except Exception:
-        logger.exception("Failed to price turn-cut row")
-        return
-    if usd <= 0:
-        return
-    row_out = {
-        "kind": "turn_cut",
-        "calls": int(delta),
-        "calls_usd": round(usd, 6),
-        "model": model,
-        "ratio": ratio,
-        "turns": turns,
-        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
-    }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row_out) + "\n")
+    write_stop_hook_turn_cut_row(_lemoncrow_root(), session_id, stats, agent="claude")
 
 
 # Baseline's avg cache-read per turn vs LemonCrow's, measured on the same
@@ -959,88 +828,18 @@ _INPUT_STYLE_RATIO_DEFAULT = 1.16
 def _write_input_style_row(session_id: str, stats: dict[str, Any]) -> None:
     """Credit leaner per-turn context: cache-read tokens NOT re-sent.
 
-    Complements ``_write_turn_cut_row`` above rather than overlapping it: that
-    credits *whole avoided turns* (each priced at the session's own avg
-    context/turn); this credits the other, orthogonal effect measured on the
-    same bench -- turns that DO execute still carry less context each,
-    because LemonCrow's context stays leaner turn over turn (compressed reads,
-    code_search over raw grep/cat, prefix-cache-aware batching) than
-    baseline's would. Credit = incremental session cache-read tokens x
-    (ratio - 1), priced at the cache-read rate. Incremental per Stop fire via
-    the cumulative marker on the last ``input_style`` row, same pattern as
-    ``_write_output_style_row``.
-
-    ``LEMONCROW_INPUT_STYLE_RATIO`` (<=1 disables) defaults to 1.16 -- measured
-    on the same swe50 head-to-head as the turn_cut ratio above (2026-06-30,
-    opus-4-8, 50 SWE-bench instances x 5 reps x 2 arms, 489 successful runs):
-    baseline's avg cache-read is 26.1k tokens/turn vs LemonCrow's 22.4k --
-    1.163x. That per-turn gap is the residual left over after turn_cut: the
-    raw cache-read delta (745.5k vs 390.5k tokens/run, 1.909x total) factors
-    as turn count (1.642x, matching 1+0.642) times per-turn leanness
-    (1.163x) -- this row's basis is the second factor only, so the two
-    credits are multiplicative on disjoint bases and never double-count.
-    Cross-checked directionally against the independent Harbor
-    Terminal-Bench-2.1 suite (89 real long-horizon tasks, no turn-cut
-    decomposition possible there -- see
-    context (fresh input + cache, 83 matched tasks with cost data on both
-    sides) there is 1.23x baseline/lemoncrow -- same
-    direction, smaller than the isolated 1.909x cache-read figure here as
-    expected (blended across fresh input and cache-creation too, on a very
-    different task distribution/turn profile from SWE-bench code fixes).
-    Raw data: benchmarks/codebench/results/swe50_2026_06_30/.
+    Thin wrapper over the shared, host-agnostic implementation
+    ``plugin_runtime.write_stop_hook_input_style_row`` (``agent="claude"``) so
+    all hosts share one code path. The default ratio
+    (``_INPUT_STYLE_RATIO_DEFAULT`` above) and the full derivation are the
+    canonical reference the shared writer mirrors. Fail-open: an installed
+    package predating the shared writer no-ops.
     """
-    if not session_id:
-        return
     try:
-        ratio = float(os.environ.get("LEMONCROW_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
-    except ValueError:
+        from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_input_style_row
+    except ImportError:
         return
-    if ratio <= 1.0:
-        return
-    path = _sidecar_path(session_id)
-    if path is None or not path.exists():
-        return  # no sidecar → session not LemonCrow-instrumented; nothing to fold into
-    cache_read_tokens = int(stats.get("cache_read_tokens") or 0)
-    if cache_read_tokens <= 0:
-        return
-    prev_cum = 0
-    with contextlib.suppress(OSError):
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict) and row.get("kind") == "input_style":
-                prev_cum = max(prev_cum, int(row.get("cum_cache_read_tokens") or 0))
-    delta = cache_read_tokens - prev_cum
-    if delta <= 0:
-        return
-    saved = int(delta * (ratio - 1.0))
-    if saved <= 0:
-        return
-    try:
-        from lemoncrow.core.capabilities.pricing import get_model_pricing
-        from lemoncrow.core.capabilities.savings_summary import resolve_model_id
-
-        model = str(stats.get("last_model") or stats.get("model") or "")
-        pricing = get_model_pricing(resolve_model_id(model)) if model else None
-        if pricing is None or not pricing.known or pricing.cache_read <= 0:
-            return  # never guess a rate
-        usd = pricing.request_cost_usd(cache_read_tokens=saved)
-    except Exception:
-        logger.exception("Failed to price input-style row")
-        return
-    row_out = {
-        "kind": "input_style",
-        "tokens": int(saved),
-        "cost_saved_usd": round(usd, 6),
-        "model": model,
-        "ratio": ratio,
-        "cum_cache_read_tokens": int(cache_read_tokens),
-        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
-    }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row_out) + "\n")
+    write_stop_hook_input_style_row(_lemoncrow_root(), session_id, stats, agent="claude")
 
 
 def _rtk_total_tokens_saved(payload: Any) -> int:
@@ -1052,25 +851,9 @@ def _rtk_total_tokens_saved(payload: Any) -> int:
     take the maximum — totals dominate per-command entries. Percentage fields
     are excluded.
     """
-    best = 0
-    stack = [payload]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            for key, value in node.items():
-                lk = str(key).lower()
-                if isinstance(value, (dict, list)):
-                    stack.append(value)
-                    continue
-                if not isinstance(value, (int, float)) or isinstance(value, bool):
-                    continue
-                if "pct" in lk or "percent" in lk:
-                    continue
-                if "sav" in lk and ("token" in lk or "total" in lk or lk == "saved"):
-                    best = max(best, int(value))
-        elif isinstance(node, list):
-            stack.extend(node)
-    return best
+    from lemoncrow.core.capabilities.plugin_runtime import rtk_total_tokens_saved
+
+    return rtk_total_tokens_saved(payload)
 
 
 def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
@@ -1088,72 +871,12 @@ def _credit_rtk_gain(session_id: str, stats: dict[str, Any]) -> None:
     the input rate — content that would have entered context once).
     ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
     """
-    if not session_id or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0":
-        return
-    import shutil
-    import subprocess
-
-    rtk_bin = shutil.which("rtk")
-    if not rtk_bin:
-        return
-    path = _sidecar_path(session_id)
-    if path is None or not path.exists():
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import credit_rtk_gain
+    except ImportError:
         return
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
-    ws_key = _workspace_key(workspace)
-    try:
-        proc = subprocess.run(
-            [rtk_bin, "gain", "--format", "json"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=workspace,
-        )
-        payload = json.loads(proc.stdout or "{}")
-    except Exception:
-        logger.exception("rtk gain probe failed")
-        return
-    total = _rtk_total_tokens_saved(payload)
-    marker = _lemoncrow_root() / "rtk_gain_state.json"
-    credited_map: dict[str, Any] = {}
-    with contextlib.suppress(Exception):
-        raw_marker = json.loads(marker.read_text(encoding="utf-8"))
-        if isinstance(raw_marker, dict) and isinstance(raw_marker.get("credited_by_workspace"), dict):
-            credited_map = raw_marker["credited_by_workspace"]
-    credited = int(credited_map.get(ws_key) or 0)
-    if total < credited:
-        credited = 0  # rtk ledger was reset; start over rather than under-credit forever
-    delta = total - credited
-    usd = 0.0
-    if delta > 0:
-        try:
-            from lemoncrow.core.capabilities.pricing import get_model_pricing
-            from lemoncrow.core.capabilities.savings_summary import resolve_model_id
-
-            model = str(stats.get("last_model") or stats.get("model") or "")
-            pricing = get_model_pricing(resolve_model_id(model)) if model else None
-            if pricing is not None and pricing.known and pricing.input > 0:
-                usd = pricing.request_cost_usd(input_tokens=delta)
-            else:
-                return  # never guess a rate
-        except Exception:
-            logger.exception("Failed to price rtk gain row")
-            return
-        row = {
-            "kind": "external_compactor",
-            "tool": "bash",
-            "tokens": int(delta),
-            "cost_saved_usd": round(usd, 6),
-            "model": model,
-            "ts": datetime.datetime.now(datetime.UTC).isoformat(),
-        }
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row) + "\n")
-    credited_map[ws_key] = int(max(total, credited))
-    tmp = marker.with_suffix(".tmp")
-    with contextlib.suppress(OSError):
-        tmp.write_text(json.dumps({"credited_by_workspace": credited_map}), encoding="utf-8")
-        tmp.replace(marker)
+    credit_rtk_gain(_lemoncrow_root(), session_id, stats, workspace=workspace, agent="claude")
 
 
 def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[str, Any]:
