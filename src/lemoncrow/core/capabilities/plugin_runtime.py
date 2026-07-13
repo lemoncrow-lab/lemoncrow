@@ -432,6 +432,13 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
         raw_sub = auth.get("subscriptionStatus") if isinstance(auth, dict) else None
         subscription = raw_sub or _read_json(subscription_state_path(root_path), {})
     subscription = dict(subscription) if isinstance(subscription, dict) else {}
+    # Server-authoritative meter: when the auth server (/api/auth/me) computes
+    # the savings meter it stamps ``savingsMeterSource="server"`` and a real
+    # ``savingsOverCap``. The client then TRUSTS those verbatim — the local
+    # estimate below becomes a fallback only and can never lower a server flag.
+    # This is what makes the cap tamper-resistant: editing local files cannot
+    # clear a cap the server owns.
+    server_meter = subscription.get("savingsMeterSource") == "server"
     # Legacy builds stamped the LOCAL trial with a $5 monthlyLimitInUsd; the
     # free core is uncapped, and positive limits come only from licensed/hosted
     # plans, so force the local plan onto the report-only (no-limit) path.
@@ -456,7 +463,10 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     over_limit = bool(has_limit and spend_usd >= limit_usd)
 
     subscription["monthlySpendInUsd"] = spend_usd
-    subscription["monthlySavingsInUsd"] = savings_usd
+    if server_meter:
+        subscription.setdefault("monthlySavingsInUsd", savings_usd)  # keep the server's figure
+    else:
+        subscription["monthlySavingsInUsd"] = savings_usd
     subscription["remainingUsd"] = round(max(0.0, limit_usd - spend_usd), 4) if has_limit else None
     subscription["usageFraction"] = fraction
     subscription["windowDays"] = BILLING_WINDOW_DAYS
@@ -468,7 +478,11 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     # non-blocking: cap_exhausted() reads savingsOverCap to drive dormancy.
     savings_cap = _savings_cap_usd(subscription)
     subscription["monthlySavingsCapInUsd"] = savings_cap
-    if savings_cap is not None:
+    if server_meter and isinstance(subscription.get("savingsOverCap"), bool):
+        # Trust the server's cap decision verbatim; fill display-only blanks.
+        subscription.setdefault("savingsRemainingUsd", None)
+        subscription.setdefault("savingsCapFraction", 0.0)
+    elif savings_cap is not None:
         subscription["savingsRemainingUsd"] = round(max(0.0, savings_cap - savings_usd), 4)
         subscription["savingsCapFraction"] = round(savings_usd / savings_cap, 4) if savings_cap > 0.0 else 0.0
         subscription["savingsOverCap"] = bool(savings_usd >= savings_cap)
