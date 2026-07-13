@@ -5,37 +5,13 @@ from __future__ import annotations
 from itertools import pairwise
 from typing import Any
 
+from lemoncrow.core.capabilities.source_projection.errors import ProjectionEditError
 from lemoncrow.core.capabilities.source_projection.mapping import (
     resolve_projected_range,
     suggest_exact_reread_range,
 )
 from lemoncrow.core.capabilities.source_projection.minify import resolve_minified_span
 from lemoncrow.core.capabilities.source_projection.models import ProjectionMapping
-
-
-class ProjectionEditError(ValueError):
-    """Raised when a projection-aware edit cannot be safely applied."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "projection_edit_error",
-        hint: str = "",
-        retry_with: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.hint = hint
-        self.retry_with = retry_with
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"error": str(self), "kind": "projection", "code": self.code}
-        if self.hint:
-            payload["hint"] = self.hint
-        if self.retry_with is not None:
-            payload["retry_with"] = self.retry_with
-        return payload
 
 
 def _read_retry(path: str, *, expand: bool = False, range_spec: str = "") -> dict[str, Any]:
