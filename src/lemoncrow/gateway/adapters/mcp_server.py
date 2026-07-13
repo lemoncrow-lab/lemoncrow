@@ -11932,6 +11932,14 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
     if method == "notifications/initialized":
         return None
     if method == "tools/list":
+        if _savings_dormant():
+            # Layer 2 (server-enforced): the savings cap is exhausted -> advertise
+            # NO tools. The model never sees them, so there is nothing to call and
+            # no user-editable settings file can re-expose them. The session
+            # degrades to the host's built-in tools (the lemoncrow:free agent).
+            # Grandfathered: a session that connected under the cap keeps its
+            # tools for its lifetime (the dormant snapshot is read at connect).
+            return _ok(rid, {"tools": []})
         tools = [
             {
                 "name": n,
