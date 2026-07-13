@@ -35,14 +35,15 @@ def _frontmatter(path: Path) -> str:
     return text.split("---", 2)[1]
 
 
-def test_plugin_mcp_server_is_loaded_at_session_start() -> None:
-    config = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
-    server = config["mcpServers"]["lc"]
-    assert server["type"] == "stdio"
-    assert server["alwaysLoad"] is True
-    assert server["command"] == "lemoncrow"
-    assert server["args"] == ["mcp", "--host", "claude"]
-    assert server["env"]["CLAUDE_PLUGIN_ROOT"] == "${CLAUDE_PLUGIN_ROOT}"
+def test_plugin_does_not_bundle_its_own_mcp_server() -> None:
+    """The plugin must NOT ship .mcp.json -- see install_claude.sh's matching
+    structural-validation guard for why (duplicate plugin:lemoncrow:lc
+    namespace / doubled token cost)."""
+    assert not (PLUGIN / ".mcp.json").exists(), (
+        "integrations/claude/plugin/.mcp.json must not exist -- bundling it "
+        "reintroduces the plugin:lemoncrow:lc / mcp__plugin_lemoncrow_lc__* "
+        "duplicate-namespace regression"
+    )
 
 
 def test_plugin_no_longer_ships_dev_agent_variants() -> None:
