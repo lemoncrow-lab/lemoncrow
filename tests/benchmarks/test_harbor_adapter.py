@@ -315,3 +315,21 @@ def test_install_forwards_lemoncrow_auth_token_to_init(
     init_calls = [c for c in calls if "lemoncrow init" in c[0]]
     assert init_calls, "no `lemoncrow init` exec_as_root call captured"
     assert init_calls[0][1] == {"LEMONCROW_AUTH_TOKEN": "lc-faketoken"}
+
+
+def test_install_configures_and_probes_lemoncrow_mcp(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    calls: list[str] = []
+
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+        calls.append(command)
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    asyncio.run(agent.install(None))  # type: ignore[arg-type]
+
+    config_call = next(command for command in calls if "/root/.claude-bench/.claude.json" in command)
+    assert '"mcpServers"' in config_call
+    assert '"command": "lemoncrow"' in config_call
+    assert "lemoncrow mcp --host claude check" in calls

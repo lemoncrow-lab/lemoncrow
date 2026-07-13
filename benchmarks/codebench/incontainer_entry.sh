@@ -62,6 +62,14 @@ export BASH_ENV="$_act"
 
 ARM="${CODEBENCH_ARM:-baseline}"
 MODEL="${CODEBENCH_MODEL:-opus}"
+export CLAUDE_CONFIG_DIR=/tmp/codebench-claude-config
+mkdir -p "$CLAUDE_CONFIG_DIR"
+if [ "$ARM" = "lemoncrow" ]; then
+  printf '%s' '{"mcpServers":{"lc":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","claude"]}}}' \
+    >"$CLAUDE_CONFIG_DIR/.claude.json"
+else
+  printf '%s' '{}' >"$CLAUDE_CONFIG_DIR/.claude.json"
+fi
 
 # LemonCrow arm: build the FULL code index BEFORE the timed agent run (setup, not
 # graded). The live MCP server only READS this index -- it must never build on
@@ -96,20 +104,21 @@ if [ "$ARM" = "lemoncrow" ]; then
       && echo "lemoncrow zoekt up: prewarm OK" >&2 \
       || { echo "[warn] lemoncrow zoekt up failed -- falling back to FTS5" >&2; tail -n 5 /tmp/lemoncrow-zoekt.log >&2 || true; }
   fi
+
+  if ! lemoncrow mcp --host claude check >/tmp/lemoncrow-mcp-check.log 2>&1; then
+    echo "FATAL: LemonCrow MCP failed initialize/tools-list preflight; aborting before Claude starts." >&2
+    tail -n 20 /tmp/lemoncrow-mcp-check.log >&2 || true
+    exit 6
+  fi
+  echo "lemoncrow MCP: preflight OK" >&2
 fi
 
 prompt="$(cat /mnt/prompt.txt)"
 args=(-p "$prompt" --model "$MODEL" --output-format json --permission-mode bypassPermissions)
 [ -n "${CODEBENCH_MAX_TURNS:-}" ] && args+=(--max-turns "$CODEBENCH_MAX_TURNS")
 if [ "$ARM" = "lemoncrow" ]; then
-  # MCP server rides the plugin's own .mcp.json (--plugin-dir), NOT --mcp-config:
-  # headless -p starts turn 1 before --mcp-config stdio servers finish connecting
-  # (anthropics/claude-code#43298, regression since v2.1.81) -- the agent then
-  # sees "lemoncrow still connecting", has no tools/instructions, and falls back to
-  # Explore subagents (measured 2026-07-06 rep3: 10/10 sessions raced, 267 vs 125
-  # turns, +$1.67/run). Plugin-embedded servers load before turn 1. Costs the
-  # long mcp__plugin_lemoncrow_lc__* names (~5 tok/call vs mcp__lc__*);
-  # revisit when #43298 is fixed.
+  # MCP comes from the isolated user config written above. Avoid --mcp-config:
+  # headless -p can start turn 1 before CLI-supplied stdio servers connect.
   args+=(--plugin-dir /mnt/plugin)
 else
   args+=(--mcp-config '{"mcpServers":{}}' --strict-mcp-config)

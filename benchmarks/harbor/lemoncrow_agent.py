@@ -552,12 +552,27 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "/opt/lemoncrow-venv/bin/python -c 'import lemoncrow'"
             ),
         )
-        # Isolated CLAUDE_CONFIG_DIR: empty .claude.json, no pre-installed
-        # plugins/hooks. CLAUDE_CODE_OAUTH_TOKEN authenticates so the credentials
-        # file is not copied (avoids stale-token conflicts with concurrent runs).
+        # Isolated CLAUDE_CONFIG_DIR: no ambient plugins/hooks/MCP. The LemonCrow
+        # arm gets exactly one user-config MCP server, loaded before headless turn 1.
+        mcp_config = (
+            {
+                "mcpServers": {
+                    "lc": {
+                        "type": "stdio",
+                        "command": "lemoncrow",
+                        "args": ["mcp", "--host", "claude"],
+                    }
+                }
+            }
+            if self._bench_mode != "off"
+            else {}
+        )
         await self.exec_as_root(
             environment,
-            command=("mkdir -p /root/.claude-bench && echo '{}' > /root/.claude-bench/.claude.json"),
+            command=(
+                "mkdir -p /root/.claude-bench && printf '%s' "
+                f"{shlex.quote(json.dumps(mcp_config))} > /root/.claude-bench/.claude.json"
+            ),
         )
         # Init the LemonCrow store under a root-owned LEMONCROW_ROOT (the agent and
         # its MCP server both run as root). /app is already root-owned, so the
@@ -571,6 +586,16 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             ),
             env={"LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token()},
         )
+        if self._bench_mode != "off":
+            await self.exec_as_root(
+                environment,
+                command="lemoncrow mcp --host claude check",
+                env={
+                    "LEMONCROW_ROOT": "/root/.lemoncrow",
+                    "LEMONCROW_WORKSPACE_ROOT": "/root",
+                    "LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token(),
+                },
+            )
         # Bench-lean copy of the plugin: keep only the persona this arm runs
         # (solve) and drop skills/ entirely -- mounting/reading the raw plugin
         # dir ships every agent persona + the full skill list into the system

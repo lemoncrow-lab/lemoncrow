@@ -155,7 +155,6 @@ import contextlib
 import importlib.util
 import io
 import json
-import os
 import re
 import subprocess
 import sys
@@ -1310,18 +1309,15 @@ def benchmark_telegraphic_cmd(
         cmd.append("--capture" if capture else "--no-capture")
         return cmd
 
-    # mitmdump (needed by --capture) lives in benchmarks/.venv, not the main
-    # project's env that _python_cmd(bench_root) runs python from -- put its
-    # bin/ on PATH for the subprocess so shutil.which("mitmdump") resolves.
+    # mitmdump is installed in the active UV environment (the workspace root
+    # .venv), alongside the Python used by this command.
     run_env: dict[str, str] | None = None
     if capture and codebench_arms:
-        bench_venv_bin = bench_root / "benchmarks" / ".venv" / "bin"
-        if not (bench_venv_bin / "mitmdump").exists():
+        mitmdump = which("mitmdump")
+        if mitmdump is None:
             raise click.ClickException(
-                f"--capture needs mitmdump, not found at {bench_venv_bin} "
-                "(uv sync inside benchmarks/); pass --no-capture to skip wire capture."
+                "--capture needs mitmdump, but it is not on PATH " "(uv sync); pass --no-capture to skip wire capture."
             )
-        run_env = {"PATH": f"{bench_venv_bin}{os.pathsep}{environ.get('PATH', '')}"}
 
     from benchmarks.telegraphic.report import load_results, render_report
 
