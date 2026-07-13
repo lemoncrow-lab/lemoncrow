@@ -258,7 +258,13 @@ if [[ -n "$INCLUDE_SKILLS" ]]; then
 fi
 run bash "$SKILL_BUILDER" "${SKILL_BUILDER_ARGS[@]}"
 run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"
-run cp "${SOURCE_PLUGIN_DIR}/.mcp.json" "$STAGING_DIR/"
+# .mcp.json is deliberately NOT staged into the plugin (neither mode). Any
+# server Claude Code discovers inside an installed plugin package gets
+# namespaced plugin:<plugin-name>:<server-key> -> mcp__plugin_lemoncrow_lc__*,
+# doubling tool-name length/token cost. MCP registration happens below via a
+# plain, non-plugin-owned path instead (project-root .mcp.json for workspace
+# installs, `claude mcp add --scope user` for global), which Claude Code
+# registers under the short "lc" name.
 lemoncrow_apply_reply_register_level "$STAGING_DIR" "$DRY_RUN"
 # Ensure runnable bits on hook + script entrypoints, even if source perms got
 # stripped (e.g. via `git stash`, fresh clone on some FS, or restore from tar).
@@ -376,15 +382,16 @@ else
     struct_fail "hooks/hooks.json missing: ${HOOKS_JSON}"
 fi
 
+# The plugin must NOT bundle its own .mcp.json. A server bundled inside an
+# installed plugin gets namespaced plugin:lemoncrow:lc by Claude Code
+# (mcp__plugin_lemoncrow_lc__* tool names) IN ADDITION TO the "lc" server
+# registered directly below (claude mcp add / a project-root .mcp.json),
+# doubling every tool under two names and twice the token cost.
 PLUGIN_MCP_JSON="${SOURCE_PLUGIN_DIR}/.mcp.json"
 if [ -f "${PLUGIN_MCP_JSON}" ]; then
-    if grep -q 'CLAUDE_PLUGIN_ROOT' "${PLUGIN_MCP_JSON}"; then
-        struct_pass ".mcp.json uses \${CLAUDE_PLUGIN_ROOT}"
-    else
-        struct_fail ".mcp.json does not use \${CLAUDE_PLUGIN_ROOT} - absolute paths will break marketplace install"
-    fi
+    struct_fail ".mcp.json must not exist: ${PLUGIN_MCP_JSON} -- bundling it reintroduces the plugin:lemoncrow:lc duplicate-namespace regression; MCP registers via a non-plugin-owned path instead (see \"MCP config\" below)"
 else
-    struct_fail ".mcp.json missing: ${PLUGIN_MCP_JSON}"
+    struct_pass "plugin does not bundle its own .mcp.json (avoids plugin:lemoncrow:lc duplicate namespace)"
 fi
 
 if [ "$STRUCT_FAIL" -ne 0 ]; then
@@ -429,10 +436,33 @@ else
 fi
 
 # ---- MCP config -------------------------------------------------------------
-# NOTE: Project-level .mcp.json is not needed when using the Claude plugin.
-# This installer only deals with Claude-specific global/user MCP and settings.
+# Global mode registers "lc" directly in Claude's user scope. Workspace mode
+# has no such step, so write a plain project-root .mcp.json instead (merged,
+# so any pre-existing unrelated servers survive) -- a project-root .mcp.json
+# is not plugin-owned, so Claude Code registers it under the short "lc" name
+# rather than plugin:lemoncrow:lc.
 if $WORKSPACE_SET; then
-    info "Project-level .mcp.json is not needed with the Claude plugin — skipping"
+    if $DRY_RUN; then
+        echo "  [dry-run] merge lc MCP server into ${MCP_JSON}"
+    else
+        run mkdir -p "$(dirname "${MCP_JSON}")"
+        [[ -f "${MCP_JSON}" ]] || echo "{}" > "${MCP_JSON}"
+        LEMONCROW_MCP_JSON_PATH="${MCP_JSON}" python3 - <<'PYEOF'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["LEMONCROW_MCP_JSON_PATH"])
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+data.setdefault("mcpServers", {})["lc"] = {
+    "type": "stdio",
+    "command": "lemoncrow",
+    "args": ["mcp", "--host", "claude"],
+}
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"[lemoncrow:claude] lc MCP server merged → {path}")
+PYEOF
+    fi
 else
     if $DRY_RUN; then
         echo "  [dry-run] claude mcp add --scope user lc -- lc mcp --host claude"
