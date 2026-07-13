@@ -1,21 +1,17 @@
 """Unit tests for the verify-before-done completeness detectors (A + B).
 
 These exercise the pure detector logic directly (the end-to-end block decision
-is covered by test_verify_before_done_hook.py).
+is covered by test_verify_before_done_hook.py). The detectors live in the
+host-agnostic ``verify_gate`` core; the Claude hook is just one adapter over it.
 """
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import pytest
 
-_HOOK = Path("integrations/claude/plugin/hooks/verify_before_done.py")
-_spec = importlib.util.spec_from_file_location("vbd_hook", _HOOK)
-assert _spec and _spec.loader
-vbd = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(vbd)
+from lemoncrow.core.capabilities import verify_gate as vbd
+
+assert vbd.detector_a and vbd.detector_b  # detectors resolve from the shared core
 
 
 # --- Detector A -------------------------------------------------------------
