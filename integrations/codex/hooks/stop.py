@@ -18,10 +18,22 @@ def _lemoncrow_root() -> Path:
 
 def main() -> int:
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import build_codex_stop_output
+        from lemoncrow.core.capabilities.plugin_runtime import (
+            build_codex_stop_output,
+            build_codex_verify_output,
+        )
 
         payload = json.loads(sys.stdin.read() or "{}")
-        output = build_codex_stop_output(_lemoncrow_root(), payload)
+        root = _lemoncrow_root()
+        # Verify-before-done first. A block re-prompts the turn (Claude Stop
+        # protocol, which Codex honours), so emit it ALONE and skip the savings
+        # summary -- the turn isn't ending, and mixing a block decision with a
+        # systemMessage would muddy the signal.
+        verify = build_codex_verify_output(root, payload)
+        if verify.get("decision") == "block":
+            sys.stdout.write(json.dumps({"decision": "block", "reason": verify["reason"]}) + "\n")
+            return 0
+        output = build_codex_stop_output(root, payload)
         if not output.get("no_output"):
             sys.stdout.write(json.dumps({"systemMessage": output["systemMessage"]}) + "\n")
     except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError):

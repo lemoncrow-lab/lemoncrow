@@ -16,7 +16,10 @@ import re
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lemoncrow.core.capabilities.verify_gate import VerifySignals
 
 logger = logging.getLogger(__name__)
 
@@ -1310,6 +1313,7 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, payload)
+    _opencode_record_prompt(root, payload)
     update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)
     try:
@@ -1339,6 +1343,33 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     nudge = _codex_native_tool_nudge(root, normalized)
     message = str(nudge.get("message") or "").strip()
     return {"uiMessage": message} if message else {"no_output": True}
+
+
+# NOTE: verify-before-done on OpenCode reads the run ledger the MCP server
+# populates from lc-tool (mcp__lc__edit / mcp__lc__bash) usage -- OpenCode's
+# primary edit surface. A session that edits ONLY through OpenCode's built-in
+# tools (never an lc tool) leaves no ledger and is not gated, matching the bound
+# that the ledger only exists once a session has made an lc-MCP call.
+def _opencode_record_prompt(root: str | Path, payload: dict[str, Any]) -> None:
+    """Persist the first user prompt into OpenCode session state (feeds detector B)."""
+    prompt = str(payload.get("prompt") or "")
+    if not prompt.strip():
+        return
+    path = _opencode_session_state_path(root, payload)
+    try:
+        state = json.loads(path.read_text("utf-8")) if path.exists() else {}
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        state = {}
+    if state.get("last_user_prompt"):
+        return
+    state["last_user_prompt"] = prompt[:8192]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 # --- Shared stop-hook supplemental savings rows ---------------------------------
@@ -1808,6 +1839,13 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     normalized["hook_event_name"] = "Stop"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, normalized)
+    # Verify-before-done (own fire-once dedup). OpenCode has no Stop-block hook,
+    # so a block is emulated by ``continuePrompt``: the JS plugin re-drives the
+    # session with this text on idle (fail-open to a toast if the client can't).
+    # Threaded through every return below so it survives the idle report's
+    # dedup / zero-activity short-circuits.
+    verify = build_opencode_verify_output(root, normalized)
+    continue_prompt = str(verify.get("reason") or "") if verify.get("decision") == "block" else ""
     state = update_session_stats(root, normalized)
 
     # Write bench-calibrated supplemental savings rows BEFORE reading the
@@ -1841,9 +1879,9 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     prompt_turns = int(session.get("turns", 0) or state.get("turns", 0) or 0)
     signature = f"{prompt_turns}:{total_tool_calls}:{tokens_saved}:{calls_avoided}:{saved_usd:.6f}"
     if state.get("opencode_idle_report_signature") == signature:
-        return {"no_output": True}
+        return {"continuePrompt": continue_prompt} if continue_prompt else {"no_output": True}
     if total_tool_calls <= 0 and prompt_turns <= 0 and tokens_saved <= 0 and calls_avoided <= 0:
-        return {"no_output": True}
+        return {"continuePrompt": continue_prompt} if continue_prompt else {"no_output": True}
     state["opencode_idle_report_signature"] = signature
     session_stats_path(root, session_id).write_text(json.dumps(state, indent=2), encoding="utf-8")
     from lemoncrow.core.capabilities.savings_summary import _fmt_usd, estimate_time_saved_seconds, fmt_duration
@@ -1857,7 +1895,37 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any]) -> dic
     faster = estimate_time_saved_seconds(calls_avoided=calls_avoided)
     if faster >= 60:
         lines[2] += f" · ~{fmt_duration(faster)} faster"
-    return {"uiMessage": "\n".join(lines), "report": report}
+    out: dict[str, Any] = {"uiMessage": "\n".join(lines), "report": report}
+    if continue_prompt:
+        out["continuePrompt"] = continue_prompt
+    return out
+
+
+def build_opencode_verify_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Verify-before-done gate for OpenCode, off the run ledger.
+
+    Same shared core as Claude/Codex; returns the raw gate decision
+    (``{"decision": "block", "reason": ...}``) or ``{"no_output": True}``.
+    OpenCode has no Stop-block hook, so ``build_opencode_stop_output`` threads a
+    block's reason out as ``continuePrompt`` and the JS plugin re-drives the
+    session with it on idle -- a block emulated by continuation.
+    """
+    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+
+    if verify_disabled():
+        return {"no_output": True}
+    normalized = dict(payload)
+    normalized["hook_event_name"] = "Stop"
+    session_id = _codex_ledger_session_id(root, normalized)
+    if not session_id:
+        return {"no_output": True}
+    prompt = str(_read_codex_session_state(root, normalized).get("last_user_prompt") or "")
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
+    result = verify_decide(signals, dedup_key=f"opencode:{session_id}", root=_opencode_workspace_root(normalized))
+    if not result:
+        return {"no_output": True}
+    return result
 
 
 def build_codex_post_tool_use_savings_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2172,6 +2240,117 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         if dynamic_line:
             lines.append(dynamic_line)
     return {"systemMessage": "\n".join(lines), "report": report}
+
+
+def _unified_diff_sides(diff: str) -> tuple[str, str]:
+    """Split a unified diff back into its old-side and new-side text.
+
+    The run ledger stores each edit as a unified diff (``_codex_unified_diff``),
+    but verify_gate's detector A wants the pre/post text. Context lines feed
+    both sides; ``-`` lines only the old, ``+`` lines only the new; hunk/file
+    headers are dropped.
+    """
+    old_lines: list[str] = []
+    new_lines: list[str] = []
+    for line in diff.splitlines():
+        if line.startswith(("@@", "+++", "---", "diff ", "index ")):
+            continue
+        if line.startswith("-"):
+            old_lines.append(line[1:])
+        elif line.startswith("+"):
+            new_lines.append(line[1:])
+        else:
+            body = line[1:] if line.startswith(" ") else line
+            old_lines.append(body)
+            new_lines.append(body)
+    return "\n".join(old_lines), "\n".join(new_lines)
+
+
+def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: str) -> "VerifySignals":
+    """Build host-neutral verify signals from a ``runs/<id>.json`` event ledger.
+
+    Shared by Codex and OpenCode -- both record ``file_edit`` / ``command_result``
+    events into the same ledger shape, so the verify signals derive identically.
+    """
+    from lemoncrow.core.capabilities.verify_gate import (
+        _TEST_RUN,
+        VerifySignals,
+        is_code_path,
+        is_verifiable_path,
+    )
+
+    run_file = _codex_run_file(root, session_id)
+    try:
+        data = json.loads(run_file.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return VerifySignals(prompt=prompt)
+    events = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(events, list):
+        return VerifySignals(prompt=prompt)
+
+    edited: list[str] = []
+    diffs: list[tuple[str, str, str]] = []
+    commands: list[tuple[int, str, bool]] = []  # (order, command, ok)
+    last_edit_idx = -1
+    idx = 0
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        idx += 1
+        kind = event.get("kind")
+        raw_payload = event.get("payload")
+        ev_payload = raw_payload if isinstance(raw_payload, dict) else {}
+        if kind == "file_edit":
+            path = str(ev_payload.get("path") or "")
+            if not path or not is_verifiable_path(path, include_docs=True):
+                continue
+            edited.append(path)
+            last_edit_idx = idx
+            diff = str(ev_payload.get("diff") or "")
+            if diff and is_code_path(path):
+                old, new = _unified_diff_sides(diff)
+                diffs.append((path, old, new))
+        elif kind == "command_result":
+            # payload.command when the hook recorded it (Codex/OpenCode native
+            # tools); event summary when the MCP server recorded an lc-tool run
+            # (there the summary IS the full command).
+            command = str(ev_payload.get("command") or event.get("summary") or "")
+            if command:
+                commands.append((idx, command, bool(ev_payload.get("ok", True))))
+
+    verified = any(i > last_edit_idx and ok and bool(_TEST_RUN.search(cmd)) for i, cmd, ok in commands)
+    bases = {b for b in (Path(p.split("#")[0]).name for p in edited) if len(b) >= 5}
+    checked = any(b in cmd for _, cmd, _ in commands for b in bases)
+    return VerifySignals(edited=edited, verified=verified, checked=checked, diffs=diffs, prompt=prompt)
+
+
+def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Verify-before-done gate for Codex, off the run ledger.
+
+    Codex speaks the Claude-Code hook protocol (its PreToolUse hook already
+    returns ``hookSpecificOutput.permissionDecision``), so its Stop hook honours
+    Claude's ``{"decision": "block", "reason": ...}`` -- a still-unverified edit
+    hard-blocks the turn exactly as on Claude, not merely nudges. Returns the
+    raw gate decision (``{"decision": "block", "reason": ...}``) or
+    ``{"no_output": True}``.
+    """
+    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+
+    event = str(payload.get("hook_event_name") or payload.get("event") or "")
+    if event and event != "Stop":
+        return {"no_output": True}
+    if verify_disabled():
+        return {"no_output": True}
+    session_id = _codex_ledger_session_id(root, payload)
+    if not session_id:
+        return {"no_output": True}
+    prompt = str(_read_codex_session_state(root, payload).get("last_user_prompt") or "")
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
+    result = verify_decide(signals, dedup_key=f"codex:{session_id}", root=_codex_workspace_root(payload))
+    if not result:
+        return {"no_output": True}
+    return result
 
 
 # ===========================================================================
@@ -2489,14 +2668,19 @@ def _codex_command_text(tool_input: dict[str, Any]) -> str:
 
 
 def _codex_return_code(tool_response: dict[str, Any]) -> int | None:
-    for key in ("exit_code", "exitCode", "returnCode", "return_code", "code"):
-        value = tool_response.get(key)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
+    # OpenCode nests the exit code under ``metadata``; check it as a fallback so
+    # command success is read correctly there too.
+    metadata = tool_response.get("metadata")
+    sources = [tool_response, metadata] if isinstance(metadata, dict) else [tool_response]
+    for source in sources:
+        for key in ("exit_code", "exitCode", "returnCode", "return_code", "code"):
+            value = source.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
     return None
 
 
