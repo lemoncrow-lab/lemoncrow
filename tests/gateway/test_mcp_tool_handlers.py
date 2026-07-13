@@ -2499,6 +2499,32 @@ def test_shell_poll_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.
     assert completed["stdout"] == "done"
 
 
+def test_shell_poll_timeout_returns_running_handle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
+
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
+    started = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(1); print('done')\"",
+        timeout=10,
+        background=True,
+    )
+    try:
+        poll_started = time.monotonic()
+        result = _run_bash_tool(
+            session_id=started["session_id"],
+            action="poll",
+            timeout=0.2,
+        )
+        elapsed = time.monotonic() - poll_started
+
+        assert elapsed < 1.0
+        assert result["status"] == "running"
+        assert result["session_id"] == started["session_id"]
+    finally:
+        _run_bash_tool(session_id=started["session_id"], action="cancel")
+
+
 def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
