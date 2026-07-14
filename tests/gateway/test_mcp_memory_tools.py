@@ -39,8 +39,8 @@ def mcp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / ".lemoncrow"
     monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setattr(mcp_server, "_REMOTE_TOOLS", frozenset())
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     return root
 
 

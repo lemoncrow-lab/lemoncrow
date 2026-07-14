@@ -41,8 +41,8 @@ def workflow_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-wf-session")
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = None
     # _resolve_live_session_id caches the session id by window-file mtime (0.0 in
     # test environments).  If a prior test in the same xdist worker cached

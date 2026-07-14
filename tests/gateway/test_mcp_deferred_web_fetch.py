@@ -66,8 +66,8 @@ def wf_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     monkeypatch.delenv("LEMONCROW_MCP_DEFER_WEB_FETCH", raising=False)
     monkeypatch.setenv("LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK", "1")
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     web_fetch.clear_web_fetch_cache()
     return tmp_path
 
