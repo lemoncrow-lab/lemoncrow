@@ -580,9 +580,7 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount)
-            if unit == "h"
-            else timedelta(minutes=amount)
+            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -1393,15 +1391,24 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
         from lemoncrow.core.capabilities.licensing import pro_url
 
         click.secho(
-            f"You're on Free. Pro beta ($5/mo or $49/yr) unlocks large-repo search & indexing, "
-            f"cross-session memory, the savings engine, model routing, and multi-repo "
-            f"swarm — upgrade at {pro_url()}",
+            f"You're on Free (savings engine active up to $20/mo). Lite ($5/mo or $50/yr) "
+            f"raises that cap to $200/mo; Pro ($20/mo or $200/yr) is uncapped and unlocks "
+            f"large-repo search & indexing, cross-session memory, the savings engine, model "
+            f"routing, and multi-repo swarm — upgrade at {pro_url()}",
             fg="cyan",
         )
-    elif result.plan == "pro":
+    elif result.plan == "lite":
         click.secho(
-            "Pro beta is active — large-repo search, cross-session memory, savings engine, "
-            "model routing & multi-repo swarm all unlocked. Thanks for supporting LemonCrow!",
+            "Lite is active — your savings cap is raised to $200/mo. Upgrade to Pro for "
+            "uncapped savings plus large-repo search, cross-session memory, model routing "
+            "& swarm. Thanks for supporting LemonCrow!",
+            fg="cyan",
+        )
+    elif result.plan in ("pro", "enterprise"):
+        click.secho(
+            "Pro is active — uncapped savings plus large-repo search, cross-session memory, "
+            "savings engine, model routing & multi-repo swarm all unlocked. Thanks for "
+            "supporting LemonCrow!",
             fg="cyan",
         )
 

@@ -9,17 +9,19 @@ entitlements, not prices.
 
 ## At a glance
 
-| Capability | Free | Pro beta |
-| --- | :---: | :---: |
-| Code-navigation tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ |
-| Normal-size repo map and context engine | ✅ | ✅ |
-| Local savings estimate and session replay | ✅ | ✅ |
-| Large-repo search and indexing | — | ✅ |
-| Session recall and cross-vendor memory | — | ✅ |
-| Reasoning library | — | ✅ |
-| Savings engine, context compression, and budget optimization | — | ✅ |
-| Model routing | — | ✅ |
-| Multi-worktree swarm | — | ✅ |
+| Capability | Free | Lite | Pro | Enterprise |
+| --- | :---: | :---: | :---: | :---: |
+| Code-navigation tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ | ✅ | ✅ |
+| Normal-size repo map and context engine | ✅ | ✅ | ✅ | ✅ |
+| Local savings estimate and session replay | ✅ | ✅ | ✅ | ✅ |
+| Monthly savings before the engine goes dormant | up to $20 | up to $200 | unlimited | unlimited |
+| Large-repo search and indexing | — | — | ✅ | ✅ |
+| Session recall and cross-vendor memory | — | — | ✅ | ✅ |
+| Reasoning library | — | — | ✅ | ✅ |
+| Savings engine, context compression, and budget optimization | — | — | ✅ | ✅ |
+| Model routing | — | — | ✅ | ✅ |
+| Multi-worktree swarm | — | — | ✅ | ✅ |
+| Shared team context, governance, audit, and SSO | — | — | — | ✅ |
 
 ## Free — $0
 
@@ -30,29 +32,59 @@ normal-size repository context, benchmarks, and local savings estimates. Create
 a free account with lc login, then activate the official install with
 lc init.
 
+The local savings engine keeps working until it has saved you **$20 in a
+rolling 30-day window**. After that the plugin goes *dormant*: it stops
+force-loading its tools and the agent falls back to your host's built-in tools.
+Nothing breaks and no local data is touched — the cap resets when the window
+rolls over, or upgrade to keep the engine active.
+
 Remote telemetry is on by default to help us improve the product. Opt out
 anytime with `lc telemetry remote off`.
 
-## Pro beta — for individual developers
+## Lite — for light daily users
 
-For developers who use the existing gated capabilities regularly.
+For developers who want the savings to keep running but do not need the
+large-repo or memory features yet.
 
-Everything in Free, plus large-repository search and indexing, session recall,
-reasoning library, savings optimization, model routing, and multi-worktree swarm.
+Everything in Free, with the monthly savings cap raised to **$200 in a rolling
+30-day window** before the engine goes dormant. Lite does not unlock the gated
+Pro capabilities — it simply lets the free engine keep saving for far longer.
 
 | Billing | Price | Notes |
 | --- | --- | --- |
 | Monthly | **$5 / mo** | Stripe subscription; cancel anytime |
-| Annual | **$49 / yr** | Two months free versus monthly |
+| Annual | **$50 / yr** | Two months free versus monthly |
+
+## Pro — for individual developers
+
+For developers who use the gated capabilities regularly.
+
+Everything in Lite, **uncapped** (the engine never goes dormant), plus
+large-repository search and indexing, session recall, reasoning library,
+savings optimization, model routing, and multi-worktree swarm.
+
+| Billing | Price | Notes |
+| --- | --- | --- |
+| Monthly | **$20 / mo** | Stripe subscription; cancel anytime |
+| Annual | **$200 / yr** | Two months free versus monthly |
 
 The official client checks the account plan. The local runtime remains
 source-available; the subscription supports the maintained product and unlocks
 the official Pro distribution.
 
+## Enterprise — for teams
+
+For teams that need scale and governance.
+
+Everything in Pro, plus very large repositories with no index or symbol caps,
+shared team context across repositories, and governance: audit export,
+retention, and SSO. Contact us for team pricing.
+
 ## Billing terms
 
-A successful Stripe payment sets the account plan to pro. On cancellation or
-refund, gated surfaces return to Free and local data remains untouched.
+A successful Stripe payment sets the account plan (lite / pro / enterprise). On
+cancellation or refund, gated surfaces and the savings cap return to Free and
+local data remains untouched.
 
 ## How to activate
 
@@ -67,10 +99,17 @@ In CI or containers, set LEMONCROW_AUTH_TOKEN to a session token.
 **Does Free require internet?** Only to create an account and activate the
 official installation. The local runtime itself works on your machine.
 
-**Does Pro require internet?** The plan check is cached locally for 24 hours.
+**What is the savings cap?** Free saves up to $20 and Lite up to $200 per
+rolling 30-day window; past that the engine goes dormant (falls back to host
+defaults) until the window rolls over or you upgrade. Pro and Enterprise are
+uncapped.
 
-**What happens when Pro lapses?** Nothing breaks: gated surfaces return to Free.
-Code, memory, and configuration remain untouched.
+**Does a paid plan require internet?** The plan check is cached locally for a
+few hours.
+
+**What happens when a plan lapses?** Nothing breaks: gated surfaces return to
+Free. Code, memory, and configuration remain untouched.
 
 **Why charge for source-available code?** Local feature checks can be patched.
-Pro is an official maintained distribution and a way to support the product—not DRM.
+A paid plan is an official maintained distribution and a way to support the
+product — not DRM.
