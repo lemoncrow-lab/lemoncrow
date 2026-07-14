@@ -255,7 +255,8 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 - Source-available runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
 - Free account required to activate the official install.
 - Live local stats for cost, tokens, and savings; anonymous remote telemetry is on by default (opt out anytime).
-- Pro beta: existing gated features for $5/month or $49/year.
+- Lite: keeps the savings engine running (cap raised to $200/mo) for $5/month or $50/year.
+- Pro: uncapped, plus all gated features (large-repo search, recall, routing, swarm) for $20/month or $200/year.
 
 ## Learn more
 

@@ -2,7 +2,7 @@
 
 LemonCrow is source-available and runs locally. Existing paid Pro control surfaces
 are gated behind the signed-in account's plan. Free remains genuinely useful;
-Pro beta covers the existing gated capabilities.
+Lite raises the savings cap; Pro and Enterprise cover the gated capabilities.
 
 > Customer-facing plans and prices: [Plans & Pricing](./pricing.md). This page
 > documents the technical entitlement design.
@@ -29,19 +29,25 @@ license keys, no device-bound leases, no local crypto, and no dev backdoor —
 the account's plan is the single source of truth, and every check fails closed
 to Free.
 
-## Free vs Pro beta
+## Plans: Free / Lite / Pro / Enterprise
 
-| Capability | Free | Pro beta |
-| --- | :---: | :---: |
-| Code-nav MCP tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ |
-| Normal-size repo map and context engine | ✅ | ✅ |
-| Local savings estimate and session replay | ✅ | ✅ |
-| Large-repo search and indexing | — | ✅ |
-| Session recall and cross-vendor memory | — | ✅ |
-| Reasoning library | — | ✅ |
-| Savings engine, compression, and budget optimization | — | ✅ |
-| Model routing | — | ✅ |
-| Multi-worktree swarm | — | ✅ |
+| Capability | Free | Lite | Pro | Enterprise |
+| --- | :---: | :---: | :---: | :---: |
+| Code-nav MCP tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ | ✅ | ✅ |
+| Normal-size repo map and context engine | ✅ | ✅ | ✅ | ✅ |
+| Local savings estimate and session replay | ✅ | ✅ | ✅ | ✅ |
+| Monthly savings before the engine goes dormant | $20 | $200 | ∞ | ∞ |
+| Large-repo search and indexing | — | — | ✅ | ✅ |
+| Session recall and cross-vendor memory | — | — | ✅ | ✅ |
+| Reasoning library | — | — | ✅ | ✅ |
+| Savings engine, compression, and budget optimization | — | — | ✅ | ✅ |
+| Model routing | — | — | ✅ | ✅ |
+| Multi-worktree swarm | — | — | ✅ | ✅ |
+| Shared team context, governance, audit, SSO | — | — | — | ✅ |
+
+Lite only raises the savings cap (`plugin_runtime.SAVINGS_CAP_BY_PLAN`); it does
+not unlock any `PRO_FEATURES`. Pro and Enterprise are in `PRO_PLANS` and grant
+the gated keys (Enterprise additionally grants `ENTERPRISE_FEATURES`).
 
 Feature keys remain in src/lemoncrow/core/capabilities/licensing/features.py.
 Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
@@ -54,7 +60,7 @@ lc init           # activates the official install
 lc login --status # show account and plan
 lc logout         # removes the local session
 ```
-A Pro beta account supports up to **three active CLI devices**; the auth server
+A paid account supports up to **three active CLI devices**; the auth server
 tracks the slots. LEMONCROW_PRO_URL overrides the buy link shown in upsells.
 ## The entitlement contract
 
