@@ -191,6 +191,25 @@ def test_new_edit_after_suppressed_nudge_fires_again(tmp_path: Path) -> None:
     assert _blocked(_run(t))
 
 
+def test_stale_file_does_not_refire_when_a_different_file_is_edited(tmp_path: Path) -> None:
+    # Reported bug: file A was nudged, then editing an unrelated file B on a
+    # later turn re-fired the SAME alert naming A -- which was never touched
+    # again. The nudge must name only newly-edited files and never repeat A.
+    t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "app/alpha.py"})))
+    out = _run(t)
+    assert _blocked(out) and "alpha.py" in json.loads(out)["reason"]
+    assert not _blocked(_run(t))  # no new edits -> silent
+    # Edit a DIFFERENT file -> fires, names only the new file, not alpha.py.
+    t.write_text(
+        t.read_text(encoding="utf-8") + "\n" + json.dumps(_assistant(("Edit", {"file_path": "app/beta.py"}))),
+        encoding="utf-8",
+    )
+    out2 = _run(t)
+    reason = json.loads(out2)["reason"]
+    assert _blocked(out2) and "beta.py" in reason and "alpha.py" not in reason
+    assert not _blocked(_run(t))  # silent again afterwards
+
+
 def test_docs_only_edit_allows(tmp_path: Path) -> None:
     t = _transcript(tmp_path, _assistant(("Edit", {"file_path": "README.md"})))
     assert not _blocked(_run(t))
