@@ -35,7 +35,7 @@ install_console_scripts() {
         stop_existing_lemoncrow_processes
         printf '[dry-run] uv sync --frozen (prime cache from uv.lock)\n'
         printf '[dry-run] uv tool uninstall lemoncrow (if present)\n'
-        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv tool install --force --editable' "$LEMONCROW_BIN_DIR" "$LEMONCROW_TOOL_DIR"
+        printf '[dry-run] UV_TOOL_BIN_DIR=%q UV_TOOL_DIR=%q uv tool install --force' "$LEMONCROW_BIN_DIR" "$LEMONCROW_TOOL_DIR"
         printf ' %q' "$package_spec"
         printf '\n'
         return
@@ -67,13 +67,17 @@ install_console_scripts() {
         UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
         uv tool uninstall lemoncrow >/dev/null 2>&1 || true
     
-    # Editable tool install: the on-PATH `lc` (the MCP server Claude Code
-    # launches) imports straight from this checkout, so a source edit goes live
-    # on the next server/session restart -- no `make dev` re-run needed. Prod
-    # (bundle.sh) installs a built wheel instead; only dev is editable.
+    # Snapshot (NON-editable) tool install: the on-PATH `lc` (the MCP server
+    # Claude Code launches) is a COPY of this checkout in its own venv, not a
+    # live link into the repo. A source edit does NOT affect the running tool
+    # until you re-run `make dev`. This is deliberate: a half-finished refactor
+    # can never break the very tool (and Claude session) you're using to do it,
+    # and the dev checkout is never touched by the auto-updater (.dev_mode).
+    # Prod (bundle.sh) installs a built wheel; dev installs a source copy.
+    # SKIP_MYPYC keeps the build fast (pro/ ships as source, not compiled).
     UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" \
         UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
-        LEMONCROW_SKIP_MYPYC=1 uv tool install --force --editable "$package_spec"
+        LEMONCROW_SKIP_MYPYC=1 uv tool install --force "$package_spec"
 
 }
 
