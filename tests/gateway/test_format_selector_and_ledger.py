@@ -28,8 +28,8 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LEMONCROW_STORE_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     return root
 
 

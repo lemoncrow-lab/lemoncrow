@@ -36,8 +36,8 @@ def memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     import lemoncrow.gateway.adapters.mcp_server as mcp_server
 
     mcp_server._reset_runtime_cache_for_testing()
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     return root
 
 

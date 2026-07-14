@@ -88,8 +88,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-gnd-session")
     monkeypatch.chdir(tmp_path)
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = MagicMock()
     mcp_server._remote_client.get_context.return_value = {"context": "", "run_ledger": []}
     return tmp_path
