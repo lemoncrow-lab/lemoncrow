@@ -29,7 +29,7 @@ Planner: understand the task, inspect only what's needed, produce the smallest v
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents prefer `lemoncrow:*` agents.
+- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general purpose agent.
 
 ## Tool discipline
 
