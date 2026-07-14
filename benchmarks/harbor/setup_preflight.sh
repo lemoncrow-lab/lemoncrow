@@ -35,7 +35,7 @@ done
 command -v rtk >/dev/null 2>&1 && RTK_STATUS="ok:$(rtk --version 2>&1 | head -c 40)"
 
 export LEMONCROW_ROOT=/root/.lemoncrow
-cd /root && /opt/lemoncrow-venv/bin/lemoncrow init >/dev/null 2>&1 || fail lemoncrow_init
+cd /root && /opt/lemoncrow-venv/bin/lemoncrow init --no-login >/dev/null 2>&1 || fail lemoncrow_init
 
 # Static plugin/agent check: the bench loads --plugin-dir + --agent lemoncrow:solve
 # (the lean plugin prunes every agents/*.md except solve.md -- see lemoncrow_agent.py install()).

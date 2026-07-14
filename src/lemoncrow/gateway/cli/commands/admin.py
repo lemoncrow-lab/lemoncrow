@@ -606,29 +606,39 @@ def _parse_since_arg(value: str) -> datetime:
     default=None,
     help="Prompt for project-local role/host model settings when running inside a git repo.",
 )
+@click.option(
+    "--login/--no-login",
+    default=True,
+    help="Require an activated LemonCrow account, prompting an interactive browser login when "
+    "none is found (default: on). Use --no-login for unattended/scripted runs (e.g. benchmarks) "
+    "to skip the account check entirely instead of popping a browser tab.",
+)
 @click.pass_context
 def init(
     ctx: click.Context,
     seed: bool,
     index: bool,
     configure_models: bool | None,
+    login: bool,
 ) -> None:
     """Initialize the official runtime store at --root.
 
     Official activation requires a free LemonCrow account. Source builds can still
     be run independently; this check establishes the supported product boundary.
+    Pass --no-login to skip the account check (e.g. for unattended benchmark runs).
     """
-    from lemoncrow.core.capabilities.licensing.store import load_auth_token
+    if login:
+        from lemoncrow.core.capabilities.licensing.store import load_auth_token
 
-    if not load_auth_token():
-        if not _is_interactive_terminal():
-            raise click.ClickException(
-                "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
-            )
-        click.echo("No LemonCrow account found — starting login...")
-        _oauth_login(as_json=False)
         if not load_auth_token():
-            raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
+            if not _is_interactive_terminal():
+                raise click.ClickException(
+                    "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
+                )
+            click.echo("No LemonCrow account found — starting login...")
+            _oauth_login(as_json=False)
+            if not load_auth_token():
+                raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:

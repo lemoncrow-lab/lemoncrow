@@ -79,9 +79,9 @@ def test_harbor_uses_shorter_bash_soft_timeout(agent: LemonCrowClaudeCodeHarborA
 
 def test_solve_persona_protects_mechanical_deliverable_gates() -> None:
     solve_prompt = (REPO_ROOT / "integrations/claude/plugin/agents/solve.md").read_text(encoding="utf-8")
-    assert "keep the hard gates green from the first checkpoint" in solve_prompt
-    assert "One slow proxy exceeds its time box" in solve_prompt
-    assert "reserve the final budget for literal path/size/format/build checks" in solve_prompt
+    assert "runnable candidate at the required location" in solve_prompt
+    assert "never sleep-loop polls" in solve_prompt
+    assert "A numeric bar is the deliverable" in solve_prompt
 
 
 def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborAgent) -> None:
