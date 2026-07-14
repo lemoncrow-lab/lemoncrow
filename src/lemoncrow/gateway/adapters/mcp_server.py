@@ -13549,7 +13549,15 @@ def _try_seamless_login(lemoncrow_root: Path) -> bool:
     not delay tool responses. Debounced via a marker file so an unattended
     session (offline, no browser, user ignores the tab) doesn't pop a new
     browser tab on every workspace/session start.
+
+    Never fires after an explicit `lc init --no-login` (``store.is_login_declined``)
+    -- that opt-out persists until the next successful `lc login` / `lc init`
+    without --no-login, so an unattended install never gets a surprise browser tab.
     """
+    from lemoncrow.core.capabilities.licensing import store as _licensing_store
+
+    if _licensing_store.is_login_declined():
+        return False
     marker = Path(lemoncrow_root) / ".login_attempted_at"
     try:
         last = float(marker.read_text("utf-8").strip())
