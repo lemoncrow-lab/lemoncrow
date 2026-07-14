@@ -511,56 +511,23 @@ def refresh_subscription_meter(root: str | Path) -> dict[str, Any]:
     return metered
 
 
-def _cap_verdict_token(root: str | Path) -> str | None:
-    """The server's signed cap verdict token, if the account has one."""
-    auth = _read_json(auth_state_path(root), {})
-    sub = auth.get("subscriptionStatus") if isinstance(auth, dict) else None
-    if not isinstance(sub, dict):
-        sub = _read_json(subscription_state_path(root), {})
-    tok = sub.get("capVerdictToken") if isinstance(sub, dict) else None
-    return tok if isinstance(tok, str) and tok else None
-
-
 def cap_exhausted(root: str | Path) -> bool:
     """Whether the plan's savings cap is exhausted (savings engine goes dormant).
 
-    The single shared cap-state check for every dormant seam (tool exposure,
-    agent unset, the user nudge).
-
-    Trust order:
-    1. **Signed server verdict** (``capVerdictToken``) — the authoritative,
-       tamper-resistant path. When a hosted account has a token AND a public key
-       is pinned, its Ed25519-verified value wins. A present-but-untrusted token
-       (invalid / expired / spoofed) fails **CLOSED** (dormant), so blocking or
-       editing local state can't yield "free forever."
-    2. **Local meter** (``subscription.json`` / recompute) — offline fallback for
-       accounts with no server verdict; fails **OPEN** (never dormant by accident).
+    Thin delegator to the COMPILED authority,
+    :func:`lemoncrow.pro.capabilities.licensing_gate.cap_exhausted`. The real
+    trust-order decision (signed Ed25519 server verdict, fail-CLOSED when
+    untrusted; local-meter fallback, fail-OPEN) and the pinned public key live in
+    the ``.so`` so they cannot be edited out of an install. This open wrapper
+    exists only for the non-enforcement callers here (the user nudge, host
+    settings, the codex notification) and for tests; the server-side tool-hiding
+    enforcement in the MCP server calls the compiled gate directly. Editing this
+    wrapper therefore cannot grant free engine access — the server still hides the
+    tools when the compiled gate reports dormant.
     """
-    try:
-        from lemoncrow.core.capabilities.licensing import cap_verdict
+    from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted as _gate_cap_exhausted
 
-        token = _cap_verdict_token(root)
-        if token and cap_verdict.is_configured():
-            import time as _time
-
-            verdict = cap_verdict.cap_over_from_token(token, now=int(_time.time()))
-            # Token present -> authoritative. None (untrusted/expired) = fail-closed.
-            return True if verdict is None else verdict
-        # `lc login` stores the verified OAuth plan in auth_user.json, while
-        # subscription.json may still contain the pre-login LOCAL meter. A
-        # paid entitlement must override that stale local cap immediately.
-        if not token:
-            from lemoncrow.core.capabilities.licensing import entitlements
-
-            license_ = entitlements.current_license()
-            if license_ is not None and license_.plan in {"pro", "enterprise"}:
-                return False
-        sub = _read_json(subscription_state_path(root), None)
-        if not isinstance(sub, dict) or "savingsOverCap" not in sub:
-            sub = compute_usage_meter(root)
-        return bool(sub.get("savingsOverCap"))
-    except Exception:  # noqa: BLE001 — fail-open (local path): dormancy must never crash a hook
-        return False
+    return _gate_cap_exhausted(root)
 
 
 def cap_nudge_text(root: str | Path) -> str:
