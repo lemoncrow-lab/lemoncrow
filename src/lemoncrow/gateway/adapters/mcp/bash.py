@@ -1,9 +1,8 @@
 """The bash tool + its command-stats/token-savings helpers (public commodity).
 
 Executes shell commands via ``tool_supervision.bash_exec`` and credits output
-trimming. Imports the framework/deferral/session/smart_state substrates; the
-only back-dependency is the edit-shared ``_claude_additional_dirs``, delegated
-below until it moves to a common leaf.
+trimming. Imports the framework/deferral/session/smart_state/fs_access
+substrates with no back-dependency on ``mcp_server``.
 
 Extracted verbatim from ``mcp_server.py`` (behaviour-preserving); ``mcp_server``
 re-exports these names for backward compatibility.
@@ -28,6 +27,7 @@ from lemoncrow.gateway.adapters.mcp.deferral import (
     _DeferredResult,
 )
 from lemoncrow.gateway.adapters.mcp.framework import TOOLS, mcp_tool
+from lemoncrow.gateway.adapters.mcp.fs_access import _claude_additional_dirs
 from lemoncrow.gateway.adapters.mcp.session_state import _forget_mcp_managed_bash, _record_mcp_managed_bash
 from lemoncrow.gateway.adapters.mcp.smart_state import (
     _STATE_LOCK,
@@ -39,14 +39,6 @@ from lemoncrow.gateway.adapters.mcp.smart_state import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _claude_additional_dirs(workspace_root: Path) -> list[Path]:
-    # Shared with the edit tools; delegated to mcp_server until it moves to a
-    # common leaf. Call-time import avoids an import cycle.
-    from lemoncrow.gateway.adapters.mcp_server import _claude_additional_dirs as _impl
-
-    return _impl(workspace_root)
 
 
 _VANILLA_BASH_OUTPUT_CHARS = 30_000
