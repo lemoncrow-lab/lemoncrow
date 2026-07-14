@@ -86,7 +86,9 @@ from lemoncrow.core.capabilities import plugin_runtime as pr  # noqa: E402
 def _seed_token(root: Path, token: str) -> None:
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, auth_state_path
 
-    _write_json(auth_state_path(root), {"authenticated": True, "subscriptionStatus": {"plan": "pro", "capVerdictToken": token}})
+    _write_json(
+        auth_state_path(root), {"authenticated": True, "subscriptionStatus": {"plan": "pro", "capVerdictToken": token}}
+    )
 
 
 def test_cap_exhausted_trusts_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -118,3 +120,36 @@ def test_cap_exhausted_local_fallback_without_token(tmp_path: Path) -> None:
 
     _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": True})
     assert pr.cap_exhausted(tmp_path) is True  # no token -> local meter
+
+
+# --- Compiled-gate wiring: the .so is the single authority -------------------
+from lemoncrow.pro.capabilities import licensing_gate as _gate  # noqa: E402
+
+
+def test_cap_verdict_reexports_the_compiled_gate() -> None:
+    # The open module is a thin surface over the compiled gate, not a 2nd impl:
+    # the verify path + pinned key ship as .so and cannot be edited in source.
+    assert cv.verify_cap_token is _gate.verify_cap_token
+    assert cv.cap_over_from_token is _gate.cap_over_from_token
+    assert cv.is_configured is _gate.is_configured
+
+
+def test_plugin_runtime_delegates_to_the_compiled_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Patching the compiled gate flips plugin_runtime's result -> pr.cap_exhausted
+    # is a delegator to the .so, not a stale copy of the decision logic.
+    monkeypatch.setattr(_gate, "cap_exhausted", lambda _root: True)
+    assert pr.cap_exhausted(tmp_path) is True
+    monkeypatch.setattr(_gate, "cap_exhausted", lambda _root: False)
+    assert pr.cap_exhausted(tmp_path) is False
+
+
+def test_gate_fail_closed_when_pinned_key_present_but_token_untrusted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Pinned key configured + a garbage/forged token -> no trustworthy verdict
+    # -> the compiled gate reports dormant (fail-CLOSED). Blocking/spoofing the
+    # server cannot yield "free forever."
+    _, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    _seed_token(tmp_path, "not-a-real-signed-token")
+    assert _gate.cap_exhausted(tmp_path) is True
