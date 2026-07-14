@@ -6,31 +6,25 @@ Codex / Claude Code to discover and call the runtime tools.
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import dataclasses
-import inspect
 import json
 import logging
 import os
 import re
-import shlex
 import sys
 import tempfile
 import threading
 import time
-import types
-import uuid as _uuid_mod
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from functools import wraps
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, cast, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import Field, ValidationError, create_model
+from pydantic import Field, ValidationError
 
 from lemoncrow import __version__ as lemoncrow_version
 from lemoncrow.core.capabilities.default_definitions import DefaultRegistry, build_default_registry
@@ -72,6 +66,56 @@ from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import RawArtifact, Trace, to_jsonable
 from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.core.foundation.rubric_gate import run_rubric
+from lemoncrow.gateway.adapters.mcp.bash import (  # noqa: F401  (registers bash tool + re-exports)
+    _DEFAULT_BASH_SOFT_TIMEOUT,
+    _bash_command_key,
+    _bash_omitted_tokens_saved,
+    _record_bash_command_stats,
+    _render_bash_text,
+    _run_bash_tool,
+    tool_bash,
+)
+from lemoncrow.gateway.adapters.mcp.deferral import (  # noqa: F401  (re-exported for back-compat)
+    _defer_bash_enabled,
+    _defer_web_fetch_enabled,
+    _deferral_context,
+    _deferral_supported,
+    _Deferred,
+    _deferred_completion_executor,
+    _DeferredResult,
+)
+from lemoncrow.gateway.adapters.mcp.framework import (  # noqa: F401  (re-exported for back-compat)
+    _COERCE_UNCHANGED,
+    TOOLS,
+    _annotation_base_types,
+    _coerce_json_strings,
+    _coerce_str_to_annotation,
+    _slim_schema,
+    _ToolArgumentError,
+    mcp_tool,
+)
+from lemoncrow.gateway.adapters.mcp.session_state import (  # noqa: F401  (re-exported for back-compat)
+    _MCP_ID,
+    _MCP_SESSION_FILE_LOCK,
+    _forget_mcp_managed_bash,
+    _lemoncrow_root,
+    _mcp_session_file,
+    _mutate_mcp_managed_bash,
+    _record_mcp_managed_bash,
+)
+from lemoncrow.gateway.adapters.mcp.smart_state import (  # noqa: F401  (re-exported for back-compat)
+    _STATE_LOCK,
+    _acquire_smart_state_flock,
+    _read_smart_state,
+    _release_smart_state_flock,
+    _smart_state_path,
+    _tool_call_tokens_saved,
+    _write_smart_state,
+)
+from lemoncrow.gateway.adapters.mcp.tools_commodity import (  # noqa: F401  (registers commodity tools + re-exports)
+    tool_mcp,
+    tool_web_fetch,
+)
 from lemoncrow.infra.runtime.realtime_context import RealtimeContextManager
 from lemoncrow.infra.runtime.run_ledger import (
     RunLedger,
@@ -172,7 +216,7 @@ AUTO_COMPACT_HIGH_UTIL_OVERRIDE = 90.0
 # Tool Registry Decorator                                                     #
 # --------------------------------------------------------------------------- #
 
-TOOLS: dict[str, dict[str, Any]] = {}
+# TOOLS registry now lives in mcp.framework (imported above).
 
 
 def _tool_description(spec: dict[str, Any]) -> str:
@@ -201,287 +245,8 @@ def _tool_mode(spec: dict[str, Any]) -> str:
     return mcp_tool_mode(str(spec.get("name", "") or ""))
 
 
-_COERCE_UNCHANGED: Any = object()
-
-
-def _annotation_base_types(annotation: Any) -> set[Any]:
-    """Resolve an annotation to the set of concrete base types it accepts.
-
-    Unwraps Optional/Union (both ``Union[...]`` and ``X | Y``) and generic
-    aliases (``list[str]`` -> ``list``). Returns an empty set for ``Any`` or
-    anything unrecognised, signalling "leave the value alone".
-    """
-    origin = get_origin(annotation)
-    if origin is Union or origin is types.UnionType:
-        resolved: set[Any] = set()
-        for arg in get_args(annotation):
-            resolved |= _annotation_base_types(arg)
-        return resolved
-    if origin is not None:
-        return {origin}
-    if isinstance(annotation, type):
-        return {annotation}
-    return set()
-
-
-def _coerce_str_to_annotation(value: Any, annotation: Any) -> Any:
-    """Coerce a stringified value to its parameter's annotated type.
-
-    Some MCP clients serialise argument *values* as strings (``"20"`` for an
-    int, ``"true"`` for a bool, ``'["a"]'`` for a list). Returns the coerced
-    value, or the ``_COERCE_UNCHANGED`` sentinel when the value should be left
-    untouched (already acceptable as a str, ambiguous, or not coercible).
-    """
-    if not isinstance(value, str):
-        return _COERCE_UNCHANGED
-    base = _annotation_base_types(annotation)
-    if not base or str in base:
-        return _COERCE_UNCHANGED
-    if bool in base:
-        low = value.strip().lower()
-        if low in {"true", "1", "yes", "on"}:
-            return True
-        if low in {"false", "0", "no", "off"}:
-            return False
-        return _COERCE_UNCHANGED
-    if int in base:
-        try:
-            return int(value)
-        except ValueError:
-            return _COERCE_UNCHANGED
-    if float in base:
-        try:
-            return float(value)
-        except ValueError:
-            return _COERCE_UNCHANGED
-    if base & {list, dict, tuple, set}:
-        for parser in (json.loads, ast.literal_eval):
-            try:
-                parsed = parser(value)
-            except (ValueError, SyntaxError):
-                continue
-            if isinstance(parsed, (list, dict, tuple, set)):
-                return parsed
-        return _COERCE_UNCHANGED
-    return _COERCE_UNCHANGED
-
-
-def _coerce_json_strings(args: dict[str, Any], param_annotations: dict[str, Any]) -> dict[str, Any]:
-    """Self-heal stringified argument values before Pydantic validation.
-
-    Some MCP clients serialise argument values as strings (``"20"`` instead of
-    ``20``, ``"true"`` instead of ``True``, ``'["a"]'`` instead of ``["a"]``).
-    Each value is coerced to its parameter's annotated type so otherwise-valid
-    calls don't fail. This matters doubly for the mypyc-compiled build, whose
-    handlers enforce argument types at runtime and reject a stringified value
-    outright. ``param_annotations`` maps each parameter to its *resolved* type:
-    resolution (``get_type_hints`` in ``mcp_tool``) is required because
-    ``from __future__ import annotations`` makes raw annotations plain strings.
-    """
-    if not isinstance(args, dict):
-        return args
-    coerced = args
-    for param_name, annotation in param_annotations.items():
-        if param_name not in coerced:
-            continue
-        new_val = _coerce_str_to_annotation(coerced[param_name], annotation)
-        if new_val is _COERCE_UNCHANGED:
-            continue
-        if coerced is args:
-            coerced = dict(args)
-        coerced[param_name] = new_val
-    return coerced
-
-
-def _slim_schema(node: Any) -> Any:
-    """Shrink a generated JSON schema for LLM tool clients without changing its contract.
-
-    Drops per-node ``title`` keys and collapses nullable ``anyOf`` unions
-    (Pydantic's ``X | None``) down to ``X``: the parameter stays optional via
-    its absence from ``required``, and the tool handler's Pydantic model is
-    untouched, so omitted or ``None`` arguments are still accepted. Purely
-    removes wire bytes that never guided the model.
-    """
-    if isinstance(node, dict):
-        # Strip Pydantic's scalar `title` annotation, but keep a property that is
-        # literally named `title` (its value is a schema dict, not a string).
-        slimmed = {
-            key: _slim_schema(value) for key, value in node.items() if not (key == "title" and isinstance(value, str))
-        }
-        branches = slimmed.get("anyOf")
-        if isinstance(branches, list):
-            non_null = [b for b in branches if not (isinstance(b, dict) and b.get("type") == "null")]
-            if non_null and len(non_null) < len(branches):
-                if len(non_null) == 1:
-                    collapsed = {key: value for key, value in slimmed.items() if key != "anyOf"}
-                    collapsed.update(non_null[0])
-                    if collapsed.get("default") is None:
-                        collapsed.pop("default", None)
-                    return collapsed
-                # Multiple real branches: drop only the null option. The param
-                # stays optional via its absence from `required`.
-                slimmed["anyOf"] = non_null
-                if slimmed.get("default") is None:
-                    slimmed.pop("default", None)
-                return slimmed
-        return slimmed
-    if isinstance(node, list):
-        return [_slim_schema(item) for item in node]
-    return node
-
-
-class _ToolArgumentError(ValueError):
-    """Malformed tool arguments (pre-dispatch or handler argument-shape checks).
-
-    Split marker for the dispatcher: a params-shape fault maps to a JSON-RPC
-    -32602 protocol error, while any other handler-raised execution failure is
-    returned as a successful response whose result carries ``isError: true``.
-    """
-
-
-def mcp_tool(
-    name: str | None = None,
-    description: str | None = None,
-    input_schema: dict[str, Any] | None = None,
-    hidden_params: tuple[str, ...] = (),
-    param_aliases: dict[str, str] | None = None,
-    recover_args: Callable[[dict[str, Any], frozenset[str]], dict[str, Any]] | None = None,
-) -> Callable[[Callable[..., Any]], Callable[[dict[str, Any]], Any]]:
-    """Decorator to register a tool and auto-derive its MCP schema.
-
-    ``param_aliases`` maps an old (deprecated) argument name to its current
-    parameter name. The advertised schema only shows the current name, but the
-    handler accepts either: incoming args carrying an old name are remapped
-    before validation (the current name wins if both are present).
-
-    ``recover_args`` is a structural self-heal hook: called with
-    ``(args, known_params)`` after alias remapping and before the unknown-args
-    check, it may rewrite a malformed-but-unambiguous call shape (e.g. a
-    flattened single-edit call) into a valid one. Fail-open: an exception in
-    the hook leaves the original args untouched.
-    """
-    aliases = dict(param_aliases or {})
-
-    def decorator(
-        func: Callable[..., Any],
-    ) -> Callable[[dict[str, Any]], Any]:
-        tool_name = name or func.__name__.removeprefix("tool_")
-        # Use the full docstring as the description so agents see all op detail.
-        tool_description = description or (func.__doc__ or "").strip()
-
-        sig = inspect.signature(func)
-        # `from __future__ import annotations` makes raw signature annotations
-        # plain strings; resolve them to real types so stringified scalar args
-        # ("20" -> 20) can be coerced before the (mypyc-strict) handler runs.
-        try:
-            resolved_hints = get_type_hints(func)
-        except Exception:  # noqa: BLE001 - fall back to raw annotations if hints don't resolve
-            resolved_hints = {}
-        param_annotations = {
-            param_name: resolved_hints.get(param_name, param.annotation) for param_name, param in sig.parameters.items()
-        }
-        fields = {}
-        for param_name, param in sig.parameters.items():
-            annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
-            default = param.default if param.default is not inspect.Parameter.empty else ...
-            fields[param_name] = (
-                annotation,
-                Field(default=default) if default is not ... else Field(...),
-            )
-
-        if fields:
-            # Convert to format expected by create_model: (type, default/Field)
-            field_defs = {k: (v[0], v[1]) for k, v in fields.items()}
-            known_params = frozenset(field_defs)
-            visible_params = frozenset(k for k in field_defs if k not in hidden_params)
-            ArgsModel = create_model(f"{func.__name__}_Args", **field_defs)  # type: ignore[call-overload]
-            schema = ArgsModel.model_json_schema()
-            # Niche params stay accepted by the handler but are not published to LLMs.
-            for hidden in hidden_params:
-                schema.get("properties", {}).pop(hidden, None)
-            # Strip Pydantic schema noise (per-node `title`, nullable `anyOf`
-            # unions) that costs tokens on every request without guiding the
-            # LLM. The handler's model is unchanged, so omitted/None args are
-            # still accepted; this only shrinks the wire schema.
-            schema = _slim_schema(schema)
-
-            @wraps(func)
-            def handler_wrapper(args: dict[str, Any]) -> Any:
-                # Remap deprecated arg names to their current parameter before
-                # validation. The current name wins if both are present.
-                if isinstance(args, dict) and aliases:
-                    remapped: dict[str, Any] | None = None
-                    for old_name, new_name in aliases.items():
-                        if old_name in args and new_name not in args:
-                            if remapped is None:
-                                remapped = dict(args)
-                            remapped[new_name] = remapped.pop(old_name)
-                    if remapped is not None:
-                        args = remapped
-                # Structural self-heal (e.g. a flattened single-edit call).
-                # Runs after alias remap so it sees canonical top-level names,
-                # and before the unknown-args check so a recovered call does
-                # not error. A rejection here throws away the entire tool_use
-                # the model just emitted (often several KB of file content)
-                # and forces a full re-emission on the retry.
-                _recovery_failure: str | None = None
-                if recover_args is not None and isinstance(args, dict):
-                    try:
-                        args = recover_args(args, known_params)
-                    except Exception as recover_exc:
-                        _recovery_failure = f"{type(recover_exc).__name__}: {recover_exc}"
-                        logging.exception("Recovered from broad exception handler")
-                # Pydantic's default config silently drops unknown keys, so a
-                # typo'd argument (e.g. codemod `dryrun` for `dry_run`) would be
-                # discarded and the wrong default used while the call still
-                # "succeeds". Surface those keys instead of forbidding them, so
-                # callers that legitimately pass extras are not broken. Accepted
-                # aliases are not "unknown" even if a caller passes both names.
-                if isinstance(args, dict):
-                    unknown = [key for key in args if key not in known_params and key not in aliases]
-                    if unknown:
-                        msg = (
-                            f"tool {tool_name!r} received unknown argument(s) {sorted(unknown)}; "
-                            f"known: {sorted(visible_params)}"
-                        )
-                        if _recovery_failure:
-                            msg += f" (argument recovery attempted and failed: {_recovery_failure})"
-                        raise _ToolArgumentError(msg)
-                try:
-                    validated = ArgsModel.model_validate(_coerce_json_strings(args, param_annotations))
-                except ValidationError as exc:
-                    if isinstance(args, dict) and not args:
-                        # An empty argument object almost always means the client
-                        # dropped the call's arguments in transit -- typically a large
-                        # batch (e.g. many `edits`) carrying non-ASCII characters that
-                        # didn't serialise. Surface an actionable hint instead of a
-                        # bare "field required".
-                        raise _ToolArgumentError(
-                            f"{tool_name}: received empty arguments. If this was a large batch "
-                            "(e.g. many edits) with non-ASCII characters, the MCP client likely "
-                            "dropped the arguments in transit -- retry with fewer items per call "
-                            "and \\uXXXX escapes for any non-ASCII characters."
-                        ) from exc
-                    raise
-                return func(**validated.model_dump())
-
-        else:
-            schema = {"type": "object", "properties": {}}
-
-            @wraps(func)
-            def handler_wrapper(_args: dict[str, Any]) -> Any:
-                return func()
-
-        TOOLS[tool_name] = {
-            "name": tool_name,
-            "handler": handler_wrapper,
-            "description": tool_description,
-            "inputSchema": input_schema or schema,
-            "param_aliases": dict(aliases),
-        }
-        return handler_wrapper
-
-    return decorator
+# _COERCE_UNCHANGED, the argument-coercion helpers, _ToolArgumentError and the
+# @mcp_tool decorator now live in mcp.framework (imported above).
 
 
 # G13 — caller-selectable output encoding for read/search/grep. NOT published to
@@ -593,7 +358,7 @@ def _advance_monitors(session_id: str, task: str, original_task: str) -> tuple[f
 # LemonCrow-internal MCP process identity — generated once at import, never changes.
 # SessionStart hook finds this file and writes the Claude session UUID + model into it.
 # _get_claude_session_id() reads it once then caches in _cached_claude_session_id.
-_MCP_ID: str = f"lemoncrow-{_uuid_mod.uuid4().hex[:16]}"
+# _MCP_ID moved to mcp.session_state (imported near the top).
 _cached_claude_session_id: str = ""
 _cached_mcp_model: str = ""
 # _current_context_state cache: session id -> (stat-signature, (ctx, model)).
@@ -602,7 +367,7 @@ _cached_mcp_model: str = ""
 # transcripts' (path, mtime_ns, size) so any new turn / rewrite invalidates it.
 _CONTEXT_STATE_CACHE: dict[str, tuple[tuple[tuple[str, int, int], ...], tuple[int, str]]] = {}
 _STDOUT_LOCK = threading.Lock()
-_STATE_LOCK = threading.RLock()
+# _STATE_LOCK moved to mcp.smart_state (imported/re-exported).
 # Per-file edit locks: concurrent edit calls (the MCP dispatcher runs a thread
 # pool) that touch the same file must not interleave snapshot/apply/write, or one
 # write clobbers the other (lost update). _EDIT_PATH_LOCKS maps a resolved file
@@ -806,7 +571,7 @@ _DEFAULT_READ_INLINE_BUDGET_BYTES = 40 * 1024
 # ~30k chars, and the host inlines at most ~50KB of MCP tool output before
 # dumping the rest to a file the model never pays for. Both constants bound the
 # NAIVE side of a savings computation only; they never change returned bytes.
-_VANILLA_BASH_OUTPUT_CHARS = 30_000
+# bash symbols moved to mcp.bash (imported/registered near the top).
 _HOST_INLINE_RESULT_CHARS = 50 * 1024
 
 
@@ -992,10 +757,7 @@ def _emit_playbook_retrieved(scored: list[Any], domain: str | None) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _lemoncrow_root() -> Path:
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    return Path(os.environ.get("LEMONCROW_ROOT", str(default_store_root())))
+# _lemoncrow_root moved to mcp.session_state (imported near the top).
 
 
 def _make_outcome_writer(led: RunLedger) -> Any:
@@ -1343,63 +1105,7 @@ def _workspace_savings_path() -> Path:
     return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
 
 
-_MCP_SESSION_FILE_LOCK = threading.Lock()
-
-
-def _mcp_session_file() -> Path:
-    """Path to this MCP process's registration file.
-
-    Written at startup; SessionStart hook writes claude_session_id + model into it.
-    """
-    return _lemoncrow_root() / "mcp_sessions" / f"{_MCP_ID}.json"
-
-
-def _mutate_mcp_managed_bash(*, record: dict[str, Any] | None = None, remove_id: str = "") -> None:
-    """Atomically update live Bash ownership in this MCP registration."""
-    path = _mcp_session_file()
-    with _MCP_SESSION_FILE_LOCK:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                return
-            commands = [row for row in data.get("managed_bash", []) if isinstance(row, dict)]
-            target_id = remove_id or str((record or {}).get("session_id") or "")
-            if target_id:
-                commands = [row for row in commands if str(row.get("session_id") or "") != target_id]
-            if record is not None:
-                commands.append(record)
-            data["managed_bash"] = commands
-            tmp = path.with_name(f".{path.name}.{_uuid_mod.uuid4().hex}.tmp")
-            try:
-                tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                tmp.replace(path)
-            finally:
-                tmp.unlink(missing_ok=True)
-        except (OSError, json.JSONDecodeError):
-            logger.debug("MCP managed Bash registration update failed", exc_info=True)
-
-
-def _record_mcp_managed_bash(started: dict[str, Any]) -> None:
-    session_id = str(started.get("session_id") or "")
-    pid = started.get("pid")
-    if not session_id or not isinstance(pid, int):
-        return
-    record: dict[str, Any] = {
-        "session_id": session_id,
-        "pid": pid,
-        "explicit_background": bool(started.get("explicit_background")),
-        "started_at": time.time(),
-    }
-    for key in ("log_file", "log_file_stderr"):
-        value = started.get(key)
-        if isinstance(value, str) and value:
-            record[key] = value
-    _mutate_mcp_managed_bash(record=record)
-
-
-def _forget_mcp_managed_bash(session_id: str) -> None:
-    if session_id:
-        _mutate_mcp_managed_bash(remove_id=session_id)
+# session-file + managed-bash helpers moved to mcp.session_state (imported near the top).
 
 
 def _workspace_bridge_file() -> Path:
@@ -3475,42 +3181,7 @@ def _append_mcp_debug_event(
         pass  # never disrupt the server
 
 
-def _smart_state_path() -> Path:
-    return _lemoncrow_root() / "smart_state.json"
-
-
-def _read_smart_state() -> dict[str, Any]:
-    path = _smart_state_path()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        logging.exception("Recovered from broad exception handler")
-        return {}
-
-
-def _write_smart_state(state: dict[str, Any]) -> None:
-    try:
-        path = _smart_state_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write: a torn smart_state.json would corrupt cumulative
-        # counters, so stage to a temp file and os.replace into place.
-        tmp_path: str | None = None
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=path.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as handle:
-            json.dump(state, handle, indent=2)
-            tmp_path = handle.name
-        Path(tmp_path).replace(path)
-    except Exception:
-        logging.exception("Recovered from broad exception handler")
-        logger.warning("Suppressed exception while writing smart_state", exc_info=True)
+# smart_state read/write moved to mcp.smart_state (imported near the top).
 
 
 def _coerce_saved_tokens(value: Any) -> int:
@@ -3544,19 +3215,7 @@ def _extract_tokens_saved(result: dict[str, Any]) -> int:
     return _extract_compact_output_tokens_saved(result)
 
 
-def _bash_omitted_tokens_saved(polled: dict[str, Any], chars_omitted: int) -> int:
-    """Tokens credited for bash output trimming, against an honest baseline.
-
-    Vanilla Claude Code truncates Bash output at ~30k chars itself, so the
-    naive cost of the omitted chars is capped at what vanilla would actually
-    have put in context: a 10 MB build log is NOT ~2.5M tokens saved. chars/4
-    is the standard chars-per-token estimate.
-    """
-    if chars_omitted <= 0:
-        return 0
-    shown = len(str(polled.get("stdout") or "")) + len(str(polled.get("stderr") or ""))
-    naive = min(shown + chars_omitted, _VANILLA_BASH_OUTPUT_CHARS)
-    return max(0, naive - shown) // 4
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
 def _trimmed_tokens_saved(pre_chars: int, post_chars: int) -> int:
@@ -3570,36 +3229,7 @@ def _trimmed_tokens_saved(pre_chars: int, post_chars: int) -> int:
     return max(0, min(pre_chars, _HOST_INLINE_RESULT_CHARS) - post_chars) // 4
 
 
-def _acquire_smart_state_flock() -> Any:
-    """Best-effort POSIX exclusive flock on smart_state's sidecar lock file so a
-    sibling MCP process can't lose-update the machine-global counters. Returns an
-    open handle the caller must release, or None where flock is unavailable."""
-    try:
-        import fcntl
-    except ImportError:
-        return None
-    try:
-        p = _smart_state_path()
-        lock_path = p.parent / (p.name + ".lock")
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(lock_path, "w", encoding="utf-8")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return handle
-    except OSError:
-        return None
-
-
-def _release_smart_state_flock(handle: Any) -> None:
-    if handle is None:
-        return
-    try:
-        import fcntl
-
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    except (ImportError, OSError):
-        pass
-    with contextlib.suppress(OSError):
-        handle.close()
+# smart_state flock moved to mcp.smart_state (imported near the top).
 
 
 def _record_smart_state_savings(tokens_saved: int, calls_avoided: int) -> None:
@@ -3628,95 +3258,18 @@ def _record_smart_state_savings(tokens_saved: int, calls_avoided: int) -> None:
 # output still SHIPPED into context after all compaction next to how many it
 # OMITTED. The top shipped rows are the compaction gaps worth new filters --
 # the `rtk discover` equivalent, built from LemonCrow's own ledger.
-_BASH_STATS_MAX_KEYS = 200
-_BASH_STATS_PRUNE_TO = 150
-_BASH_KEY_RUNNER_PAIRS = {("uv", "run"), ("npm", "run"), ("pnpm", "run"), ("yarn", "run"), ("poetry", "run")}
-_BASH_KEY_GROUP_HEADS = frozenset(
-    {
-        "git",
-        "docker",
-        "kubectl",
-        "oc",
-        "cargo",
-        "go",
-        "npm",
-        "pnpm",
-        "yarn",
-        "bun",
-        "uv",
-        "pip",
-        "pip3",
-        "aws",
-        "gcloud",
-        "az",
-        "make",
-        "poetry",
-        "bundle",
-        "gh",
-        "terraform",
-        "helm",
-    }
-)
-_BASH_KEY_ENV_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
-_BASH_KEY_CD_PREFIX_RE = re.compile(r"^\s*cd\s+[^&|;]+&&\s*")
+# bash symbols moved to mcp.bash (imported/registered near the top).
+# bash symbols moved to mcp.bash (imported/registered near the top).
+# bash symbols moved to mcp.bash (imported/registered near the top).
+# bash symbols moved to mcp.bash (imported/registered near the top).
+# bash symbols moved to mcp.bash (imported/registered near the top).
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-def _bash_command_key(command: str) -> str:
-    """Normalize a shell command to a short aggregation key (``git status``,
-    ``uv run pytest``, ``make lint``): leading cd/env prefixes dropped, only
-    the head of the first pipeline segment kept, flags and paths stripped."""
-    body = _BASH_KEY_CD_PREFIX_RE.sub("", command)
-    body = re.split(r"[|;&]", body, maxsplit=1)[0].strip()
-    try:
-        tokens = shlex.split(body)
-    except ValueError:
-        tokens = body.split()
-    tokens = [t for t in tokens if not _BASH_KEY_ENV_ASSIGN_RE.fullmatch(t)]
-    words: list[str] = []
-    for tok in tokens[:3]:
-        if tok.startswith("-"):
-            break
-        words.append(tok.rsplit("/", 1)[-1])
-    if not words:
-        return ""
-    take = 2 if words[0] in _BASH_KEY_GROUP_HEADS else 1
-    if len(words) >= 2 and (words[0], words[1]) in _BASH_KEY_RUNNER_PAIRS:
-        take = 3
-    return " ".join(words[:take])[:60]
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-def _record_bash_command_stats(command: str, *, shipped_chars: int, omitted_chars: int) -> None:
-    """Fold one finished bash call into smart_state's per-command spend ledger."""
-    key = _bash_command_key(command)
-    if not key:
-        return
-    with _STATE_LOCK:
-        _flock = _acquire_smart_state_flock()
-        try:
-            state = _read_smart_state()
-            cmds = state.get("bash_commands")
-            if not isinstance(cmds, dict):
-                cmds = {}
-            row = cmds.get(key)
-            if not isinstance(row, dict):
-                row = {"calls": 0, "shipped_chars": 0, "omitted_chars": 0}
-            row["calls"] = int(row.get("calls", 0) or 0) + 1
-            row["shipped_chars"] = int(row.get("shipped_chars", 0) or 0) + max(0, shipped_chars)
-            row["omitted_chars"] = int(row.get("omitted_chars", 0) or 0) + max(0, omitted_chars)
-            cmds[key] = row
-            if len(cmds) > _BASH_STATS_MAX_KEYS:
-                # Bounded: keep the biggest shippers -- exactly the rows the
-                # audit exists to surface -- and drop the long tail.
-                ranked = sorted(
-                    cmds.items(),
-                    key=lambda kv: int(kv[1].get("shipped_chars", 0) or 0) if isinstance(kv[1], dict) else 0,
-                    reverse=True,
-                )
-                cmds = dict(ranked[:_BASH_STATS_PRUNE_TO])
-            state["bash_commands"] = cmds
-            _write_smart_state(state)
-        finally:
-            _release_smart_state_flock(_flock)
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
 class _NoOpContextBudgetRecorder:
@@ -3984,7 +3537,7 @@ def _claude_additional_dirs(workspace_root: Path) -> list[Path]:
 
 # Thread-local slot for passing real tokens_saved from tool handlers to the
 # budget recorder without polluting the LLM-facing response dict.
-_tool_call_tokens_saved: threading.local = threading.local()
+# _tool_call_tokens_saved moved to mcp.smart_state (imported/re-exported).
 # Per-call counterfactual breakdown stamped by _finish_code_result when its
 # vanilla grep+read arm wins the max(): {"per_file_chars": {path: chars},
 # "returned_chars": int, "floor_tokens": int}. _process_tool_accounting nets
@@ -9455,676 +9008,18 @@ def tool_orient(topic: str | None = None) -> dict[str, Any]:
     return orientation_playbook(topic)
 
 
-class _DeferredResult:
-    """Returned by a handler that has started external work and will produce its
-    real result later. ``collect()`` yields the final result dict (called once,
-    after the work is known complete, so it does not block); ``register(cb)``
-    registers a completion callback, returning False if already complete."""
-
-    def __init__(
-        self,
-        collect: Callable[[], dict[str, Any]],
-        register: Callable[[Callable[[], None]], bool],
-    ) -> None:
-        self.collect = collect
-        self.register = register
+# _DeferredResult, _Deferred and the deferral kill-switch/executor helpers now
+# live in mcp.deferral (imported above).
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-class _Deferred:
-    """Sentinel returned by _handle telling _handle_and_write not to write now;
-    the response will be produced by a watcher-fired continuation."""
-
-    def __init__(
-        self,
-        src: _DeferredResult,
-        finalize: Callable[[dict[str, Any]], dict[str, Any]],
-        finalize_error: Callable[[Exception], dict[str, Any]],
-    ) -> None:
-        self.src = src
-        self.finalize = finalize
-        # Routes a failed deferred result (e.g. a web_fetch network/SSRF error)
-        # through the same tool-error pipeline the synchronous path uses.
-        self.finalize_error = finalize_error
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-def _defer_bash_enabled() -> bool:
-    """Phase 2 deferred-bash kill switch. Default ENABLED; set LEMONCROW_MCP_DEFER_BASH
-    to 0/false/no/off to fall back to the synchronous busy-poll."""
-    raw = os.environ.get("LEMONCROW_MCP_DEFER_BASH", "1").strip().lower()
-    return raw not in {"0", "false", "no", "off"}
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-# Deferral is only safe where a continuation can later write the JSON-RPC response
-# -- i.e. the stdio server worker path (_handle_and_write). _handle and the tool
-# handlers are also called synchronously by the CLI / in-process runtime, which
-# cannot process a deferred marker; this thread-local, set only by
-# _handle_and_write, keeps those callers on the synchronous path.
-_deferral_context: threading.local = threading.local()
-
-
-def _deferral_supported() -> bool:
-    return bool(getattr(_deferral_context, "active", False))
-
-
-def _defer_web_fetch_enabled() -> bool:
-    """Phase 3 deferred-web_fetch kill switch. Default ENABLED; set
-    LEMONCROW_MCP_DEFER_WEB_FETCH to 0/false/no/off to fetch synchronously."""
-    raw = os.environ.get("LEMONCROW_MCP_DEFER_WEB_FETCH", "1").strip().lower()
-    return raw not in {"0", "false", "no", "off"}
-
-
-# Small pool that runs deferred completions (collect + finalize + write) off the
-# reactor loop thread, so finalize work never blocks the event loop. Lazy so it
-# is never created in CLI / in-process contexts that don't defer.
-_DEFERRED_COMPLETION_EXECUTOR: ThreadPoolExecutor | None = None
-_DEFERRED_COMPLETION_LOCK = threading.Lock()
-
-
-def _deferred_completion_executor() -> ThreadPoolExecutor:
-    global _DEFERRED_COMPLETION_EXECUTOR
-    if _DEFERRED_COMPLETION_EXECUTOR is None:
-        with _DEFERRED_COMPLETION_LOCK:
-            if _DEFERRED_COMPLETION_EXECUTOR is None:
-                _DEFERRED_COMPLETION_EXECUTOR = ThreadPoolExecutor(
-                    max_workers=8, thread_name_prefix="lemoncrow-defer-fin"
-                )
-    return _DEFERRED_COMPLETION_EXECUTOR
-
-
-def _default_bash_soft_timeout() -> int:
-    try:
-        return max(1, int(os.environ.get("LEMONCROW_BASH_SOFT_TIMEOUT", "120")))
-    except ValueError:
-        return 120
-
-
-_DEFAULT_BASH_SOFT_TIMEOUT = _default_bash_soft_timeout()
-
-
-def _run_bash_tool(
-    command: str = "",
-    timeout: int | None = None,
-    cwd: str | None = None,
-    max_lines: int = 200,
-    max_output_tokens: int | None = None,
-    background: bool = False,
-    session_id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
-) -> dict[str, Any] | _DeferredResult:
-    """Execute a shell command and return compact structured output."""
-    from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
-        classify_command,
-        execute_inline_op,
-        peek_managed_command,
-        poll_managed_command,
-        start_managed_command,
-        update_managed_command,
-    )
-
-    def _render_grep_stdout(payload: dict[str, Any]) -> str:
-        blocks = payload.get("content", [])
-        if isinstance(blocks, list):
-            texts: list[str] = []
-            for block in blocks:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text")
-                    if isinstance(text, str) and text:
-                        texts.append(text)
-            if texts:
-                normalized: list[str] = []
-                for line in "\n".join(texts).splitlines():
-                    if line.startswith("@@ "):
-                        continue
-                    normalized.append(line)
-                return "\n".join(normalized)
-        matches = payload.get("matches")
-        if isinstance(matches, list):
-            return json.dumps(matches, ensure_ascii=False)
-        return json.dumps(payload, ensure_ascii=False)
-
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    # A misconfigured CLAUDE_WORKSPACE_ROOT -- e.g. a host path that leaked into
-    # a container via the environment and does not exist here -- would make every
-    # cwd-less command fail with a raw FileNotFoundError from Popen, surfaced as
-    # an opaque "MCP error -32000". Fall back to the process cwd (always a real
-    # directory) so the command still runs instead of hard-failing.
-    if not Path(workspace).is_dir():
-        workspace = os.getcwd()
-    effective_cwd = cwd or workspace
-
-    if action in {"poll", "cancel", "status", "update"}:
-        if not session_id:
-            raise ValueError(f"session_id is required for shell action={action}")
-        if action == "cancel":
-            result = poll_managed_command(session_id, cancel=True)
-            _forget_mcp_managed_bash(session_id)
-            return result
-        if action == "status":
-            # Single non-blocking check -- unlike `poll`, never waits for the
-            # command to finish and never reaps the session.
-            result = peek_managed_command(session_id)
-            if result.get("status") != "running":
-                _forget_mcp_managed_bash(session_id)
-            return result
-        if action == "update":
-            if timeout is None:
-                raise ValueError("timeout is required for shell action=update")
-            if timeout <= 0:
-                raise ValueError("timeout must be positive")
-            return update_managed_command(session_id, timeout)
-        # Block until the managed command finishes, is cancelled, or the
-        # caller's optional poll timeout expires. With no timeout, wait
-        # indefinitely (subject to the managed command's own deadline).
-        delay = 0.02
-        poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
-        while True:
-            poll_result = poll_managed_command(session_id)
-            if poll_result.get("status") != "running":
-                _forget_mcp_managed_bash(session_id)
-                return poll_result
-            if poll_deadline is not None:
-                remaining = poll_deadline - time.monotonic()
-                if remaining <= 0:
-                    return poll_result
-                time.sleep(min(delay, remaining))
-            else:
-                time.sleep(delay)
-            delay = min(delay * 2, 0.5)
-    if not command.strip():
-        raise ValueError("command is required for shell action=run")
-    if timeout is None:
-        timeout = _DEFAULT_BASH_SOFT_TIMEOUT
-
-    # Only the API's explicit bg=true flag grants permission to survive MCP
-    # shutdown. A trailing ampersand still gets the fast managed-command path,
-    # but remains owned by this MCP session and is cleaned up with foreground
-    # work when the session exits.
-    explicit_background = background
-
-    # A trailing `&` (but not `&&`) means "run in background": strip it and
-    # force background mode so the command runs as a managed LemonCrow session
-    # with a session_id + pid the model can poll/cancel.  Passing the `&`
-    # verbatim to `bash -c "cmd &"` would fork an untracked grandchild that
-    # exits from bash immediately with empty output and no handle to follow.
-    _stripped = command.rstrip()
-    if _stripped.endswith("&") and not _stripped.endswith("&&"):
-        command = _stripped[:-1].rstrip()
-        background = True
-
-    _shell_workspace_root = Path(workspace).resolve()
-    policy = classify_command(
-        command,
-        allowed_write_roots=[_shell_workspace_root, *_claude_additional_dirs(_shell_workspace_root)],
-        cwd=effective_cwd,
-    )
-
-    if policy.action == "block":
-        return {
-            "status": "blocked",
-            "stderr": policy.reason,
-            "exit_code": -1,
-            "blocked": True,
-            "blocked_reason": policy.reason,
-        }
-
-    # Soft external-compactor pass-through (e.g. rtk, when detected and
-    # enabled -- see tool_supervision.external_compactors): substitute the
-    # binary-prefixed command and let it run through the normal managed-
-    # command path below like any other command, so timeout/background/
-    # polling behave identically. Never short-circuits -- a failure here is
-    # just the wrapped command's own exit code, not a fallback trigger,
-    # since re-running a side-effecting command a second time would be wrong.
-    # Pre-wrapper form: the per-command spend ledger attributes output cost to
-    # the real command family, not to the compactor binary's path.
-    _stats_command = command
-    if policy.action == "rewrite" and policy.rewrite_target == "external_compactor" and policy.rewrite_payload:
-        _binary_path = str(policy.rewrite_payload.get("binary_path") or "")
-        _original_command = str(policy.rewrite_payload.get("original_command") or command)
-        if _binary_path:
-            command = f"{shlex.quote(_binary_path)} {_original_command}"
-
-    # Pipeline seek rewrite (classify_command): `od <bigfile> | tail` -> an
-    # in-place `od -j <offset>` that formats only the tail region instead of the
-    # whole file. Substitute the command and run it through the normal managed
-    # path like external_compactor; carry the note so the model sees the rewrite.
-    _pipeline_note = ""
-    if policy.action == "rewrite" and policy.rewrite_target == "pipeline_seek" and policy.rewrite_payload:
-        _seek_command = str(policy.rewrite_payload.get("command") or "")
-        if _seek_command:
-            command = _seek_command
-            _pipeline_note = str(policy.rewrite_payload.get("note") or "")
-
-    if policy.action == "rewrite" and policy.rewrite_target in {"head", "tail", "wc"} and policy.rewrite_payload:
-        _stdout, _stderr, _exit = execute_inline_op(policy.rewrite_target, policy.rewrite_payload, effective_cwd)
-        return {
-            "stdout": _stdout,
-            "stderr": _stderr,
-            "exit_code": _exit,
-            "truncated": False,
-            "lines_omitted": 0,
-            "duration_ms": 0,
-        }
-
-    if policy.action == "rewrite" and policy.rewrite_target == "read" and policy.rewrite_payload:
-        raw_file_path = str(policy.rewrite_payload.get("file_path") or "").strip()
-        if raw_file_path:
-            target_path = Path(raw_file_path)
-            if not target_path.is_absolute():
-                target_path = (Path(effective_cwd) / target_path).resolve()
-            read_handler: Callable[[dict[str, Any]], Any] = TOOLS["read"]["handler"]
-            rewritten = cast(dict[str, Any], read_handler({"path": str(target_path), "full": True}))
-            rewritten_stdout = str(rewritten.get("content") or "")
-            return {
-                "stdout": rewritten_stdout,
-                "stderr": "",
-                "exit_code": 0,
-                "truncated": False,
-                "lines_omitted": 0,
-                "duration_ms": 0,
-            }
-
-    if policy.action == "rewrite" and policy.rewrite_target == "grep" and policy.rewrite_payload:
-        raw_search_path = str(policy.rewrite_payload.get("file_path") or ".")
-        content_regex = cast(str | None, policy.rewrite_payload.get("content_regex"))
-        ignore_case = bool(policy.rewrite_payload.get("ignore_case", False))
-        file_type = cast(str | None, policy.rewrite_payload.get("type"))
-
-        resolved_search_path = Path(raw_search_path)
-        if not resolved_search_path.is_absolute():
-            resolved_search_path = (Path(effective_cwd) / resolved_search_path).resolve()
-        # Glob patterns from the payload (e.g. --include / -g flags) take
-        # precedence; fall back to "**/*" for directory-wide searches.
-        payload_globs = policy.rewrite_payload.get("glob")
-        if payload_globs:
-            glob_patterns = payload_globs if isinstance(payload_globs, list) else [payload_globs]
-        elif resolved_search_path.is_dir():
-            glob_patterns = ["**/*"]
-        else:
-            glob_patterns = None
-        grep_args: dict[str, Any] = {
-            # Pass the cwd-resolved absolute path: tool_grep resolves a relative
-            # path against CLAUDE_WORKSPACE_ROOT, which would search the wrong
-            # directory when the shell call's cwd differs from the workspace.
-            "path": str(resolved_search_path),
-            "content_regex": content_regex,
-            "file_glob_patterns": glob_patterns,
-            "ignore_case": ignore_case,
-            "summary": False,
-            "output_mode": cast(
-                Literal[
-                    "ranked_file_map",
-                    "file_paths_with_content",
-                    "file_paths_only",
-                    "file_paths_with_match_count",
-                ],
-                policy.rewrite_payload.get("output_mode", "file_paths_with_content"),
-            ),
-            "lines_before": int(policy.rewrite_payload.get("lines_before", 0)),
-            "lines_after": int(policy.rewrite_payload.get("lines_after", 0)),
-        }
-        if file_type:
-            grep_args["type"] = file_type
-        grep_handler: Callable[[dict[str, Any]], Any] = TOOLS["grep"]["handler"]
-        rewritten = cast(dict[str, Any], grep_handler(grep_args))
-        rewritten_stdout = _render_grep_stdout(rewritten)
-
-        # If the original command had a pipe tail (e.g. ``grep ... | head -20``),
-        # feed the grep output through it so the agent gets the trimmed result
-        # rather than the full unpiped output.
-        pipe_remainder = str(policy.rewrite_payload.get("pipe_remainder") or "")
-        if pipe_remainder:
-            try:
-                import subprocess as _sp
-
-                pipe_proc = _sp.run(
-                    ["bash", "-c", pipe_remainder],
-                    input=rewritten_stdout,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                rewritten_stdout = pipe_proc.stdout
-                if pipe_proc.returncode != 0 and pipe_proc.stderr:
-                    rewritten_stdout = rewritten_stdout + pipe_proc.stderr
-            except (OSError, ValueError, _sp.TimeoutExpired):  # type: ignore[possibly-undefined]
-                pass  # fall through with unpiped output on any error
-
-        return {
-            "stdout": rewritten_stdout,
-            "stderr": "",
-            "exit_code": 0,
-            "truncated": False,
-            "lines_omitted": 0,
-            "duration_ms": 0,
-        }
-
-    if policy.action == "rewrite" and policy.rewrite_target == "web_fetch" and policy.rewrite_payload:
-        _wf_url = str(policy.rewrite_payload.get("url") or "").strip()
-        if _wf_url:
-            try:
-                from lemoncrow.core.capabilities.web_fetch import fetch_url
-
-                _wf = fetch_url(_wf_url)
-                _wf_out = _wf.get("content") if isinstance(_wf, dict) else str(_wf)
-            except Exception as _wf_exc:  # noqa: BLE001 -- redirect must never raise
-                _wf_out = f"[web_fetch] {_wf_exc}"
-            return {
-                "stdout": str(_wf_out or ""),
-                "stderr": "",
-                "exit_code": 0,
-                "truncated": False,
-                "lines_omitted": 0,
-                "duration_ms": 0,
-            }
-
-    if policy.action == "rewrite" and policy.rewrite_target == "find_glob" and policy.rewrite_payload:
-        _fg_pat = str(policy.rewrite_payload.get("glob") or "*")
-        _fg_path = str(policy.rewrite_payload.get("path") or ".")
-        try:
-            _fg_base = Path(_fg_path) if Path(_fg_path).is_absolute() else (Path(effective_cwd) / _fg_path)
-            _fg_hits = sorted(str(p.relative_to(_fg_base)) for p in _fg_base.rglob(_fg_pat) if p.is_file())
-        except Exception:  # noqa: BLE001 -- redirect must never raise
-            _fg_hits = []
-        _fg_out = "\n".join(_fg_hits[:300]) if _fg_hits else "(no files match)"
-        if len(_fg_hits) > 300:
-            _fg_out += f"\n... ({len(_fg_hits) - 300} more)"
-        return {
-            "stdout": _fg_out,
-            "stderr": "",
-            "exit_code": 0,
-            "truncated": False,
-            "lines_omitted": 0,
-            "duration_ms": 0,
-        }
-
-    if policy.action == "rewrite" and policy.rewrite_target == "read_range" and policy.rewrite_payload:
-        _rr_spec = str(policy.rewrite_payload.get("spec") or "").strip()
-        if _rr_spec and ":" in _rr_spec:
-            _rr_fp, _, _rr_rng = _rr_spec.rpartition(":")
-            _rr_target = Path(_rr_fp) if Path(_rr_fp).is_absolute() else (Path(effective_cwd) / _rr_fp).resolve()
-            try:
-                _rr = cast(dict[str, Any], TOOLS["read"]["handler"]({"path": str(_rr_target), "range": _rr_rng}))
-                _rr_out = _rr.get("content") if isinstance(_rr, dict) else str(_rr)
-            except Exception as _rr_exc:  # noqa: BLE001
-                _rr_out = f"[read] {_rr_exc}"
-            return {
-                "stdout": str(_rr_out or ""),
-                "stderr": "",
-                "exit_code": 0,
-                "truncated": False,
-                "lines_omitted": 0,
-                "duration_ms": 0,
-            }
-
-    # Literal-text "search" rewrite: simple rg/grep queries without regex
-    # metacharacters are rewritten to the grep tool (content_regex), which
-    # handles the search natively without requiring rg/grep on PATH.
-    if policy.action == "rewrite" and policy.rewrite_target == "search" and policy.rewrite_payload:
-        _sq = str(policy.rewrite_payload.get("query") or "")
-        _search_path = str(policy.rewrite_payload.get("path") or ".")
-        if _sq:
-            _resolved_sp = Path(_search_path)
-            if not _resolved_sp.is_absolute():
-                _resolved_sp = (Path(effective_cwd) / _search_path).resolve()
-            _search_payload: dict[str, Any] = {
-                "path": str(_resolved_sp),
-                "content_regex": _sq,
-                "ignore_case": False,
-                "output_mode": "file_paths_with_content",
-                "lines_after": 0,
-                "lines_before": 0,
-            }
-            _search_handler: Callable[[dict[str, Any]], Any] = TOOLS["grep"]["handler"]
-            _rewritten = cast(dict[str, Any], _search_handler(_search_payload))
-            _rewritten_stdout = _render_grep_stdout(_rewritten)
-            return {
-                "stdout": _rewritten_stdout,
-                "stderr": "",
-                "exit_code": 0,
-                "truncated": False,
-                "lines_omitted": 0,
-                "duration_ms": 0,
-            }
-
-    # One execution model: every command runs as a managed session; the only
-    # variable is how long we block inline before returning a poll handle.
-    #   background → 0s (detach immediately, poll/cancel by session)
-    #   default    → full timeout (block until the command finishes, or hand
-    #                back a still-running session handle at the deadline --
-    #                see the deferred branch below.  The command itself is NOT
-    #                killed just because this call stopped waiting for it.)
-    inline_wait = 0.0 if background else float(timeout)
-
-    started = start_managed_command(
-        command,
-        cwd=effective_cwd,
-        timeout=timeout,
-        max_lines=max_lines,
-        max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
-        note=_pipeline_note,
-        explicit_background=explicit_background,
-    )
-    managed_id = str(started.get("session_id") or "")
-    if started.get("status") != "running" or not managed_id:
-        return started  # blocked by policy
-    _record_mcp_managed_bash(started)
-
-    # Phase 2: foreground deferral. For the block-until-done case (a foreground
-    # run, where inline_wait covers the full timeout), hand the pool worker back
-    # immediately and let bash_exec's watcher finalize the response when the
-    # command completes. Gated by the kill switch AND by _deferral_supported() so
-    # synchronous callers (CLI / in-process runtime / direct test calls), which
-    # cannot process a deferred marker, keep today's busy-poll behavior.
-    if _defer_bash_enabled() and _deferral_supported() and inline_wait >= float(timeout):
-        from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
-            peek_managed_command,
-            register_completion,
-        )
-
-        def _collect() -> dict[str, Any]:
-            # A soft-deadline resolution (see _register below) races the real
-            # completion callback, so this can run before the command is
-            # actually done -- peek first (non-blocking, never reaps) and only
-            # fall through to the terminal, reaping poll once it agrees the
-            # process has actually finished. Covers a command that's
-            # genuinely still running past `timeout` (e.g. a backgrounded
-            # server a task wants left running).
-            snapshot = peek_managed_command(managed_id)
-            if snapshot.get("status") == "running":
-                return snapshot
-            # The process has finished when this runs; poll once for the terminal
-            # result and apply the identical terminal transforms the inline path
-            # does, so the deferred result dict matches the synchronous one.
-            polled = poll_managed_command(managed_id)
-            _forget_mcp_managed_bash(managed_id)
-            polled.pop("session_id", None)
-            polled.pop("status", None)
-            chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
-            ts = _bash_omitted_tokens_saved(polled, chars_omitted)
-            if ts > 0:
-                _tool_call_tokens_saved.value = ts
-            _record_bash_command_stats(
-                _stats_command,
-                shipped_chars=len(str(polled.get("stdout") or "")) + len(str(polled.get("stderr") or "")),
-                omitted_chars=chars_omitted,
-            )
-            return polled
-
-        def _register(cb: Callable[[], None]) -> bool:
-            fired = threading.Event()
-            timer_box: list[threading.Timer] = []
-
-            def _once() -> None:
-                if fired.is_set():
-                    return
-                fired.set()
-                pending = timer_box[0] if timer_box else None
-                if pending is not None:
-                    pending.cancel()
-                cb()
-
-            armed = register_completion(managed_id, _once)
-            if not armed:
-                return False
-            # Soft-deadline safety net: register_completion's callback only
-            # fires once the watcher confirms the process has exited, which
-            # for a command a task wants left running in the background may
-            # be much later than `timeout` (bash_exec's own hard cap is the
-            # real, much larger kill deadline -- see
-            # _MANAGED_COMMAND_HARD_CAP_S). Race a timer against it so the MCP
-            # response never blocks past `timeout` regardless of what the
-            # command is doing. This never kills anything: the managed
-            # session keeps running untouched; the model gets a session_id
-            # back and can poll again, keep working, or action="cancel" it.
-            timer = threading.Timer(float(timeout), _once)
-            timer.daemon = True
-            timer_box.append(timer)
-            timer.start()
-            return True
-
-        return _DeferredResult(collect=_collect, register=_register)
-
-    # When the inline wait covers the full timeout budget, allow a short grace
-    # before giving up and returning a running handle -- covers a command that
-    # finishes (or that bash_exec's own hard cap kills) right around the
-    # deadline, so we return that reaped terminal result instead of a handle
-    # to a session that's about to change state anyway.
-    if inline_wait >= float(timeout):
-        inline_wait = float(timeout) + 10.0
-    deadline = time.monotonic() + inline_wait
-    delay = 0.02
-    polled: dict[str, Any] = started
-    while True:
-        polled = poll_managed_command(managed_id)
-        if polled.get("status") != "running":
-            break
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return polled  # still running at the window edge — poll later
-        time.sleep(min(delay, remaining))
-        delay = min(delay * 2, 0.5)
-
-    # Finished inline: present as a plain synchronous result. The managed
-    # session is already reaped, so status/session_id would only invite a
-    # useless poll turn; exit_code/stderr carry the terminal state.
-    _forget_mcp_managed_bash(managed_id)
-    polled.pop("session_id", None)
-    polled.pop("status", None)
-    chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
-    ts = _bash_omitted_tokens_saved(polled, chars_omitted)
-    if ts > 0:
-        _tool_call_tokens_saved.value = ts
-    _record_bash_command_stats(
-        _stats_command,
-        shipped_chars=len(str(polled.get("stdout") or "")) + len(str(polled.get("stderr") or "")),
-        omitted_chars=chars_omitted,
-    )
-    return polled
-
-
-def _render_bash_text(result: dict[str, Any]) -> str:
-    """Render shell output as compact text while preserving structured internals."""
-    exit_code = result.get("exit_code")
-    stdout = str(result.get("stdout") or "")
-    stderr = str(result.get("stderr") or "")
-    blocked = bool(result.get("blocked"))
-    blocked_reason = str(result.get("blocked_reason") or "")
-    truncated = bool(result.get("truncated"))
-    lines_omitted = result.get("lines_omitted")
-    status = str(result.get("status") or "")
-    session_id = str(result.get("session_id") or "")
-    explicit_background = bool(result.get("explicit_background"))
-
-    parts: list[str] = []
-    if "updated" in result:
-        # action="update" response -- a distinct shape from the plain
-        # running/status payloads below, so render it up front and return.
-        remaining_ms = result.get("timeout_remaining_ms")
-        if result.get("updated"):
-            remaining_txt = f"{int(remaining_ms) // 1000}s" if isinstance(remaining_ms, int) else "?"
-            parts.append(f"kill deadline updated, {remaining_txt} left id={session_id}")
-        else:
-            parts.append(f"update failed: session already {status} id={session_id}")
-        return "\n".join(parts).strip()
-    if status == "running":
-        over_budget = bool(result.get("over_budget"))
-        if explicit_background:
-            parts.append(f"background running id={session_id}")
-        elif over_budget:
-            parts.append(f"still running id={session_id}")
-        else:
-            parts.append(f"running id={session_id}")
-    elif status and status != "completed":
-        # Terminal states (cancelled/timed_out): the session is reaped, its id
-        # can never be polled again -- don't ship a dead handle. A clean
-        # "completed" is implied by output + exit_code and costs a line.
-        # "blocked" with a reason skips the bare state word too -- every
-        # blocked_reason already says "blocked".
-        if not (status == "blocked" and blocked_reason):
-            parts.append(status)
-    # Log paths are recovery pointers: folded into the lossy-view marker
-    # (tail slice / truncation) instead of standalone log_file= lines. A spill
-    # hint already names a full-output path, so logs are skipped there.
-    log_file = str(result.get("log_file") or "")
-    log_file_stderr = str(result.get("log_file_stderr") or "")
-    tail_lines = result.get("tail_lines")
-    spill_hint = str(result.get("spill_hint") or "")
-    if log_file and log_file_stderr:
-        # The two stream logs differ only in suffix -- brace the divergence
-        # ({stdout.txt, stderr.txt}) instead of repeating the directory + id.
-        i = len(os.path.commonprefix([log_file, log_file_stderr]))
-        i = max(log_file.rfind(c, 0, i) + 1 for c in "./")
-        if i:
-            log_paths = f"{log_file[:i]}{{{log_file[i:]}, {log_file_stderr[i:]}}}"
-        else:
-            log_paths = f"{log_file} {log_file_stderr}"
-    else:
-        log_paths = log_file or log_file_stderr
-    log_ptr = f"; full: {log_paths}" if log_paths and not spill_hint else ""
-    if status == "running" and log_paths:
-        parts.append(f"[logs: {log_paths}]")
-    if isinstance(tail_lines, int) and tail_lines > 0:
-        parts.append(f"[tail: last {tail_lines} lines{log_ptr}]")
-    if blocked:
-        if status != "blocked":
-            header = "blocked"
-            if exit_code is not None:
-                header = f"{header} (exit_code={exit_code})"
-            parts.append(header)
-        if blocked_reason:
-            parts.append(blocked_reason)
-            # Streams that merely echo the reason are noise.
-            if stdout.strip() == blocked_reason:
-                stdout = ""
-            if stderr.strip() == blocked_reason:
-                stderr = ""
-    elif exit_code not in (None, 0):
-        parts.append(f"exit_code={exit_code}")
-
-    if stdout:
-        parts.append(stdout)
-    if stderr:
-        if stdout:
-            parts.append("")
-        if exit_code in (None, 0) and not blocked:
-            parts.append("stderr:")
-        parts.append(stderr)
-    if truncated and isinstance(lines_omitted, int) and lines_omitted > 0:
-        if stdout or stderr:
-            parts.append("")
-        # The spill notice already carries the omission accounting AND the
-        # recovery path; a second "[output truncated ...]" line would restate
-        # it. Only fall back to the bare marker (+ log pointer) without a spill.
-        if spill_hint:
-            parts.append(spill_hint)
-        else:
-            parts.append(f"[output truncated: {lines_omitted} lines omitted{log_ptr}]")
-    rendered = "\n".join(parts).strip()
-    if rendered:
-        return rendered
-    if exit_code is not None:
-        return f"exit_code={exit_code}"
-    return ""
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
 def _run_native_grep(
@@ -11130,256 +10025,14 @@ def _contract_surface_once(sites: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # previous action-branched oneOf shape made `bash` vanish from the tool list
 # while every other tool stayed. Per-action requirements (command for run,
 # session_id for poll/cancel) are enforced in _run_bash_tool, not the schema.
-BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "command": {
-            "type": "string",
-            "description": "Command to run. Blocked: inline bash -c/sh -c (script files ok), rm -rf, git reset --hard, git clean -fd. Auto-rewritten: cat→read, rg/grep→grep.",
-        },
-        "cwd": {
-            "type": "string",
-            "description": "Working directory (cd doesn't persist).",
-        },
-        "timeout": {
-            "type": "integer",
-            "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Soft response budget (s) -- past it, returns a warned live handle while the command continues until cancelled or the MCP session exits. Only bg=true survives MCP shutdown. Every command has a fixed 1hr safety cap; action=update + id + timeout installs an exact deadline.",
-        },
-        "bg": {
-            "type": "boolean",
-            "default": False,
-            "description": "Run in background, return id immediately, and preserve the command when the MCP session exits.",
-        },
-        "id": {
-            "type": "string",
-            "description": "Background run id. bash(id=x) alone waits for it to finish.",
-        },
-        "action": {
-            "type": "string",
-            "enum": ["poll", "status", "cancel", "update"],
-            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill now; update = install new timeout.",
-        },
-    },
-    "additionalProperties": False,
-}
+# BASH_TOOL_INPUT_SCHEMA moved to mcp.bash.
 
 
-@mcp_tool(
-    name="bash",
-    input_schema=BASH_TOOL_INPUT_SCHEMA,
-    description=(
-        "Run a shell command, return compact text. Prefer read/grep/search where "
-        "possible; bash = git, make, uv, npm, etc. cd doesn't persist — pass cwd= or "
-        "absolute paths."
-    ),
-    hidden_params=("max_lines", "max_output_tokens"),
-    param_aliases={"session_id": "id", "background": "bg"},
-)
-def tool_bash(
-    command: str = "",
-    timeout: int | None = None,
-    cwd: str | None = None,
-    max_lines: int = 200,
-    max_output_tokens: int | None = None,
-    bg: bool = False,
-    id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
-) -> str | _DeferredResult:
-    """Execute a shell command and return compact text output.
-
-    Prefer LemonCrow read/grep/search tools directly — they are faster and cheaper.
-    Use bash only for commands that have no LemonCrow equivalent (git, make, uv, npm, etc.).
-
-    bg=True starts the command in the background, returns its `id`, and is
-    the only mode preserved across MCP shutdown. bash(id=x) alone waits for
-    that run to finish (poll); action="status"
-    peeks without waiting (state + last 10 output lines); action="cancel"
-    kills it now. `timeout` at start is only ever a soft response budget --
-    it does not kill by itself (eventual internal ~1hr backstop still
-    applies). action="update" with id= and a new timeout= installs an exact,
-    enforced kill deadline for a running job (e.g. to kill something in 5
-    minutes: start it, then update it with timeout=300).
-    """
-    if id and not command and action == "run":
-        # bash(id=x) with no explicit action = wait for the run to finish.
-        action = "poll"
-    result = _run_bash_tool(
-        command,
-        timeout=timeout,
-        cwd=cwd,
-        max_lines=max_lines,
-        max_output_tokens=max_output_tokens,
-        background=bg,
-        session_id=id,
-        action=action,
-    )
-    # Phase 2: a deferred foreground command flows straight through to _handle,
-    # which returns a _Deferred sentinel and lets the watcher render the result.
-    if isinstance(result, _DeferredResult):
-        return result
-    return _render_bash_text(result)
+# bash symbols moved to mcp.bash (imported/registered near the top).
 
 
-@mcp_tool(
-    name="web_fetch",
-    description=(
-        "Fetch a public HTTP/HTTPS page for research. Requests Markdown when available, "
-        "converts HTML to clean Markdown by default, blocks private/local URLs, caches 5 minutes."
-    ),
-    hidden_params=("timeout_s", "include_meta", "max_chars"),
-    param_aliases={"output_format": "type", "format": "type"},
-)
-def tool_web_fetch(
-    url: Annotated[str, Field(description="Public HTTP/HTTPS URL to fetch.")],
-    type: Annotated[
-        Literal["auto", "markdown", "text", "html"],
-        Field(description="Return format. auto prefers Markdown and converts HTML to Markdown."),
-    ] = "auto",
-    max_chars: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Max returned chars, clamped 1,000-100,000. Omit = auto-size to the page. Number = force that cap."
-            )
-        ),
-    ] = None,
-    timeout_s: Annotated[
-        float,
-        Field(description="Network timeout in seconds. Clamped to a safe upper bound."),
-    ] = 20.0,
-    include_meta: Annotated[
-        bool,
-        Field(description="Include minimal debug metadata in the internal payload."),
-    ] = False,
-    query: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional search term. Long page → keep the sections/table-rows most "
-                "relevant to the term (embedding rank when a local embedder is configured, "
-                "else keyword coverage), not a blind head cut — jump straight to one "
-                "row/section of a long table or doc. Omit = head truncation."
-            )
-        ),
-    ] = None,
-    summary: Annotated[
-        bool,
-        Field(
-            description=(
-                "true = bounded gist instead of the rendered page: internal-LLM summary when "
-                "configured, else type-aware extractive gist. Full page always spilled first; "
-                "the footer names the spill path — recover via `read`. Ignored when `query` "
-                "or `type='html'` is given — the more specific request wins."
-            )
-        ),
-    ] = False,
-) -> dict[str, Any] | _DeferredResult:
-    """Fetch a public web page and return coding-agent-friendly content.
-
-    Returns: {content, format, tokens_saved}; the MCP layer renders `content` directly.
-    """
-    from lemoncrow.core.capabilities.web_fetch import fetch_url
-
-    # Phase 3: on the stdio worker, run the fetch on the shared asyncio reactor so
-    # the worker frees immediately; the reactor future's completion fires the
-    # deferral continuation (bounced to a small pool so finalize never blocks the
-    # loop). Same SSRF-validated fetch, just off the worker. Kill switch:
-    # LEMONCROW_MCP_DEFER_WEB_FETCH=0.
-    if _defer_web_fetch_enabled() and _deferral_supported():
-        from lemoncrow.core.capabilities.web_fetch import async_fetch_url
-        from lemoncrow.gateway.adapters._io_reactor import get_io_reactor
-
-        future = get_io_reactor().submit(
-            async_fetch_url(
-                url,
-                output_format=type,
-                max_chars=max_chars,
-                timeout_s=timeout_s,
-                include_meta=include_meta,
-                query=query,
-                summary=summary,
-            )
-        )
-
-        def _collect() -> dict[str, Any]:
-            return cast(dict[str, Any], future.result())
-
-        def _register(cb: Callable[[], None]) -> bool:
-            if future.done():
-                return False
-            future.add_done_callback(lambda _f: _deferred_completion_executor().submit(cb))
-            return True
-
-        return _DeferredResult(collect=_collect, register=_register)
-
-    return fetch_url(
-        url,
-        output_format=type,
-        max_chars=max_chars,
-        timeout_s=timeout_s,
-        include_meta=include_meta,
-        query=query,
-        summary=summary,
-    )
-
-
-@mcp_tool(name="mcp")
-def tool_mcp(
-    op: Annotated[
-        Literal["call", "list"],
-        Field(
-            description=(
-                "'list' = catalog of OTHER configured stdio MCP servers + their tools "
-                "(name, one-line description, required/optional params). 'call' "
-                "(default) = invoke one."
-            )
-        ),
-    ] = "call",
-    server: Annotated[
-        str | None,
-        Field(description="Server name from `mcp(op='list')`. Required for op='call'."),
-    ] = None,
-    tool: Annotated[
-        str | None,
-        Field(description="Tool name on that server. Required for op='call'."),
-    ] = None,
-    params: Annotated[
-        dict[str, Any] | None,
-        Field(description="Args passed through to the proxied tool."),
-    ] = None,
-    refresh: Annotated[
-        bool,
-        Field(description="op='list': re-discover configs + re-query tool lists, skip the cache."),
-    ] = False,
-) -> dict[str, Any]:
-    """Proxy: discover + call tools on OTHER configured stdio MCP servers (never LemonCrow's own).
-
-    ``mcp(op="list")`` first — the configured servers/tools (reads the same
-    `.mcp.json` / `.claude/mcp.json` the host uses) — then
-    ``mcp(server=..., tool=..., params={...})``. Servers spawn on first use,
-    reused after. Oversized proxied results compact/spill like
-    `bash`/`code_search`; the canonical footer names the recovery path —
-    nothing silently lost.
-    """
-    from lemoncrow.gateway.adapters import mcp_proxy
-
-    normalized = (op or "call").strip().lower()
-    if normalized == "list":
-        return mcp_proxy.catalog(refresh=refresh)
-    if normalized != "call":
-        raise ValueError(f"unsupported mcp op: {op!r}; use 'list' or 'call'")
-
-    def require(name: str, current: str | None) -> str:
-        if not current:
-            raise ValueError(f"{name} is required for mcp op={normalized!r}")
-        return current
-
-    return {
-        "content": mcp_proxy.call(require("server", server), require("tool", tool), params or {}),
-    }
-
-
+# tool_web_fetch now lives in mcp.tools_commodity (imported near the top).
+# tool_mcp now lives in mcp.tools_commodity (imported near the top).
 _remote_client: Any = None
 
 
