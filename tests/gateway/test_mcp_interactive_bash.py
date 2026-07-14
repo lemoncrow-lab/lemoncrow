@@ -58,5 +58,8 @@ def test_schema_advertises_interactive_params() -> None:
     props = mcp_server.BASH_TOOL_INPUT_SCHEMA["properties"]
     assert "interactive" in props
     assert "input" in props
-    assert "idle_ttl" in props
+    # idle_ttl is intentionally hidden from the wire schema (still accepted by
+    # tool_bash/_run_bash_tool -- see test_interactive_run_returns_a_handle_immediately)
+    # so the LLM isn't shown a knob it rarely needs to set.
+    assert "idle_ttl" not in props
     assert "send" in props["action"]["enum"]

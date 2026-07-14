@@ -89,7 +89,7 @@ except Exception:
     pro|enterprise)
       # Wall-clock rotation (5s per icon), same cadence as the dynamic segment
       # below -- deterministic within a render, no flicker.
-      _LEMONCROW_PRO_ICONS=("⚡" "✨", "❯")
+      _LEMONCROW_PRO_ICONS=("⚡" "✨" "❯")
       _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_PRO_ICONS[@]} ))
       PLUGIN_LABEL="${_LEMONCROW_PRO_ICONS[$_LEMONCROW_ICON_IDX]} lc"
       ;;

@@ -71,13 +71,26 @@ else
   printf '%s' '{}' >"$CLAUDE_CONFIG_DIR/.claude.json"
 fi
 
-# LemonCrow arm: build the FULL code index BEFORE the timed agent run (setup, not
-# graded). The live MCP server only READS this index -- it must never build on
-# the tool-call path. A forced full rebuild (--reindex) avoids incremental-on-
-# fresh edge cases; we then HARD-FAIL on an empty index so a broken build aborts
-# the run (which --resume retries) instead of silently degrading: an empty index
-# makes grep return nothing, and the agent burns turns falling back to shell.
 if [ "$ARM" = "lemoncrow" ]; then
+  # Activate the store + persist the --no-login opt-out so the live MCP
+  # server's background seamless-login (mcp_server._try_seamless_login) never
+  # pops a browser tab in this headless container. Runs from $HOME, NOT
+  # $REPO, with --no-index: init's own project-setup step (AGENTS.md,
+  # .gitignore, .codex/config.toml) targets the CURRENT git repo, and
+  # $REPO -- the task repo the agent is about to edit -- would otherwise get
+  # scaffolding files written straight into it, contaminating the diff
+  # captured between the DIFF markers below. $HOME is not a git repo, so
+  # `lc init` there only initialises the global store and skips that step.
+  (cd "$HOME" && lemoncrow init --no-login --no-index >/tmp/lemoncrow-init.log 2>&1) \
+    || { echo "FATAL: lemoncrow init --no-login failed" >&2; tail -n 20 /tmp/lemoncrow-init.log >&2 || true; exit 7; }
+
+  # Build the FULL code index BEFORE the timed agent run (setup, not graded).
+  # The live MCP server only READS this index -- it must never build on the
+  # tool-call path. A forced full rebuild (--reindex) avoids incremental-on-
+  # fresh edge cases; we then HARD-FAIL on an empty index so a broken build
+  # aborts the run (which --resume retries) instead of silently degrading: an
+  # empty index makes grep return nothing, and the agent burns turns falling
+  # back to shell.
   idx_json="$(lemoncrow code index --repo-root "$REPO" --reindex --json 2>/tmp/lemoncrow-index.log)"
   files_indexed="$(printf '%s' "$idx_json" | grep -o '"files_indexed"[^,}]*' | grep -o '[0-9][0-9]*' | head -1)"
   files_indexed="${files_indexed:-0}"

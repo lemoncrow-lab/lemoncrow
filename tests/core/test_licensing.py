@@ -126,3 +126,19 @@ def test_pro_url_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert licensing.pro_url() == "https://lemoncrow.com/pro"
     monkeypatch.setenv("LEMONCROW_PRO_URL", "https://buy.example.com/pro")
     assert licensing.pro_url() == "https://buy.example.com/pro"
+
+
+def test_login_declined_marker_round_trips() -> None:
+    assert store.is_login_declined() is False
+    store.mark_login_declined()
+    assert store.is_login_declined() is True
+    store.clear_login_declined()
+    assert store.is_login_declined() is False
+
+
+def test_save_auth_token_clears_declined_marker() -> None:
+    """`lc login` / `lc init` (without --no-login) un-declines a prior --no-login."""
+    store.mark_login_declined()
+    assert store.is_login_declined() is True
+    store.save_auth_token("a-token")
+    assert store.is_login_declined() is False
