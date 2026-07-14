@@ -15,6 +15,14 @@ import pytest
 
 from lemoncrow.infra.runtime import servicectl_lifecycle as svc
 
+
+def test_is_dev_install_marker(tmp_path: Path) -> None:
+    """`_is_dev_install` gates auto-update off for a `make dev` checkout."""
+    assert svc._is_dev_install(tmp_path) is False
+    (tmp_path / ".dev_mode").touch()
+    assert svc._is_dev_install(tmp_path) is True
+
+
 # --------------------------------------------------------------------------- #
 # detection                                                                   #
 # --------------------------------------------------------------------------- #

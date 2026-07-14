@@ -796,6 +796,18 @@ def _check_auto_update() -> None:
         _log.debug("auto-update disabled by LEMONCROW_AUTO_UPDATE")
         return
 
+    # Dev/source installs (`make dev` writes <root>/.dev_mode) must never
+    # auto-update: a git fetch/merge on the live checkout would fight an
+    # in-progress refactor and can clobber uncommitted work. Production installs
+    # have no marker. Read the marker fresh (not the cached _is_dev_mode()) so
+    # the decision tracks the current root.
+    try:
+        if (_lemoncrow_root() / ".dev_mode").exists():
+            _log.debug("auto-update skipped: dev install (.dev_mode present)")
+            return
+    except OSError:
+        pass
+
     _log.info("checking for auto-update...")
 
     try:
