@@ -8,7 +8,7 @@ models) while callers keep importing the same names.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -70,3 +70,13 @@ class GateResult(BaseModel):
     compact_chars: int
     savings_ratio: float
     threshold: float
+
+
+class _TextSearcher(Protocol):
+    """The slice of ``CodeContextEngine`` the text fallback depends on.
+
+    Defined here (open, uncompiled) because mypyc cannot compile a Protocol whose
+    method uses ``= ...`` parameter defaults.
+    """
+
+    def search_text(self, query: str, *, path: str = ..., limit: int = ..., ignore_case: bool = ...) -> list[Any]: ...
