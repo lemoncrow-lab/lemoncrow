@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
 from lemoncrow.infra.code_intel.cross_lang.runner import CrossLangRunner
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
 
 def _write_cross_lang_repo(root: Path) -> None:

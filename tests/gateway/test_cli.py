@@ -314,7 +314,7 @@ def test_worker_runs_consolidation_job_on_sqlite(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.consolidation.worker.chat", unavailable)
 
     enqueue = _invoke(root, "worker", "enqueue", JOB_CONSOLIDATE_BLOCKS, "--json")
     assert enqueue.exit_code == 0, enqueue.output
@@ -530,7 +530,7 @@ def test_servicectl_tick_enqueues_and_processes_periodic_consolidation(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.consolidation.worker.chat", unavailable)
 
     res = _invoke(
         root,
@@ -634,7 +634,7 @@ def test_servicectl_tick_imports_only_new_or_updated_sessions(
         _ = (messages, json_schema)
         raise OllamaUnavailable("offline")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.consolidation.worker.chat", unavailable)
 
     first = _invoke(
         root,

@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities.optimization.automation import (
+from lemoncrow.pro.capabilities.optimization.automation import (
     PROPOSAL_ARTIFACT_PATH,
     _evaluate_proposal,
 )
-from lemoncrow.core.capabilities.optimization.policy import AutomationConfig, BenchmarkEvidence
+from lemoncrow.pro.capabilities.optimization.policy import AutomationConfig, BenchmarkEvidence
 
 
 def test_evaluate_proposal_fails_closed_without_evidence(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
 
     result = _evaluate_proposal(
         repo_root=tmp_path,
@@ -37,13 +37,13 @@ def test_evaluate_proposal_writes_repo_root_artifact(monkeypatch, tmp_path: Path
         def to_dict(self) -> dict[str, object]:
             return {"passed": True, "delta_lower_bound": 0.02}
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.optimization.automation.load_terminalbench_records",
+        "lemoncrow.pro.capabilities.optimization.automation.load_terminalbench_records",
         lambda path: [],
     )
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.optimization.automation.evaluate_non_inferiority",
+        "lemoncrow.pro.capabilities.optimization.automation.evaluate_non_inferiority",
         lambda *a, **k: _Verdict(),
     )
 
@@ -88,13 +88,13 @@ def test_evaluate_proposal_uses_nested_advisor_recommendation(monkeypatch, tmp_p
         def to_dict(self) -> dict[str, object]:
             return {"passed": True, "delta_lower_bound": 0.03}
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.optimization.automation.emit_product_local", lambda *a, **k: None)
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.optimization.automation.load_terminalbench_records",
+        "lemoncrow.pro.capabilities.optimization.automation.load_terminalbench_records",
         lambda path: [],
     )
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.optimization.automation.evaluate_non_inferiority",
+        "lemoncrow.pro.capabilities.optimization.automation.evaluate_non_inferiority",
         lambda *a, **k: _Verdict(),
     )
 

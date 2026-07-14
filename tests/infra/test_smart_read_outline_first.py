@@ -1,12 +1,12 @@
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.prompt_compilation.tokens import count_tokens as _count_tokens
-from lemoncrow.core.capabilities.semantic_file_memory.capability import (
+from lemoncrow.gateway.adapters.mcp_server import _handle
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import count_tokens as _count_tokens
+from lemoncrow.pro.capabilities.semantic_file_memory.capability import (
     SemanticFileMemoryCapability,
     claude_read_baseline_text,
 )
-from lemoncrow.gateway.adapters.mcp_server import _handle
 from tests.helpers import init_store_at
 
 

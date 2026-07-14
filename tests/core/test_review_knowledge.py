@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities.live_reviewer.knowledge import (
+from lemoncrow.pro.capabilities.live_reviewer.knowledge import (
     collect_review_context,
     load_overlay,
 )
@@ -31,7 +31,7 @@ def test_collect_empty_when_nothing(tmp_path: Path) -> None:
 
 
 def test_ensure_repo_share_gitignore(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.live_reviewer.knowledge import ensure_repo_share_gitignore
+    from lemoncrow.pro.capabilities.live_reviewer.knowledge import ensure_repo_share_gitignore
 
     ensure_repo_share_gitignore(tmp_path)
     gi = (tmp_path / ".lemoncrow" / ".gitignore").read_text(encoding="utf-8")

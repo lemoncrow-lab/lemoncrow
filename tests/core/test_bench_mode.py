@@ -176,7 +176,7 @@ def test_bench_off_overrides_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_memory_returns_empty_bench_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """MemoryRegistry._load() returns [] when bench is off (no adapter calls made)."""
     monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
-    from lemoncrow.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+    from lemoncrow.pro.capabilities.cross_vendor_memory.registry import MemoryRegistry
 
     # Supply empty adapter list so no real I/O can happen
     registry = MemoryRegistry(adapters=[])
@@ -196,7 +196,7 @@ def test_compression_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
     A passthrough CompressionResult has reduction_pct=0 and dropped=[].
     """
     monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
-    from lemoncrow.core.capabilities.context_compression.capability import (
+    from lemoncrow.pro.capabilities.context_compression.capability import (
         ContextCompressionCapability,
     )
 

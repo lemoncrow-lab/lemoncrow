@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def test_shell_outline_reaches_treesitter_bash(tmp_path: Path) -> None:

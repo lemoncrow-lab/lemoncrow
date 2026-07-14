@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.swarm.models import Finding, SwarmChildState, SwarmRunState, SwarmWaveState
-from lemoncrow.core.capabilities.swarm.reducers import WaveContext, get_reducer
+from lemoncrow.pro.capabilities.swarm.models import Finding, SwarmChildState, SwarmRunState, SwarmWaveState
+from lemoncrow.pro.capabilities.swarm.reducers import WaveContext, get_reducer
 
 
 def _child(

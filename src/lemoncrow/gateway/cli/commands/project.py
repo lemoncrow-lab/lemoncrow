@@ -225,7 +225,7 @@ def _resolve_threshold(threshold: int | None) -> int:
     """CLI override, else the pipeline default (LEMONCROW_OUTLINE_THRESHOLD / 200)."""
     if threshold is not None:
         return max(0, threshold)
-    from lemoncrow.core.capabilities.semantic_file_memory.capability import (
+    from lemoncrow.pro.capabilities.semantic_file_memory.capability import (
         default_outline_threshold,
     )
 
@@ -234,7 +234,7 @@ def _resolve_threshold(threshold: int | None) -> int:
 
 def _project_file(path: Path, source: str, threshold: int) -> dict[str, Any]:
     """Real projection preview: {"mode", "language", "loc", "text", "raw_tokens", "tokens"}."""
-    from lemoncrow.core.capabilities.semantic_file_memory.capability import (
+    from lemoncrow.pro.capabilities.semantic_file_memory.capability import (
         SemanticFileMemoryCapability,
     )
 
@@ -865,7 +865,7 @@ def _render_diff(file_path: Path, threshold: int) -> None:
     from rich.syntax import Syntax
     from rich.table import Table
 
-    from lemoncrow.core.capabilities.semantic_file_memory.capability import (
+    from lemoncrow.pro.capabilities.semantic_file_memory.capability import (
         SemanticFileMemoryCapability,
     )
 

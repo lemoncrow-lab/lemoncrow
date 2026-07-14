@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.repo_map import build_repo_map
-from lemoncrow.core.capabilities.repo_map.graph import build_reference_graph, iter_source_files
 from lemoncrow.infra.tree_sitter.tags import extract_tags
+from lemoncrow.pro.capabilities.repo_map import build_repo_map
+from lemoncrow.pro.capabilities.repo_map.graph import build_reference_graph, iter_source_files
 
 
 def test_extract_tags_python_symbols(tmp_path: Path) -> None:

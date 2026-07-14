@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import math
 
-from lemoncrow.core.capabilities.code_context.embedding import (
+from lemoncrow.pro.capabilities.code_context.embedding import (
     FusionWeights,
     SemanticSearchRanker,
 )
-from lemoncrow.core.capabilities.code_context.eval_harness import (
+from lemoncrow.pro.capabilities.code_context.eval_harness import (
     EvalCase,
     evaluate_cases,
     score_ranking,
 )
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 
 
 def _symbol(sym_id: str, *, file_path: str = "src/m.py", start_line: int = 1) -> SymbolRecord:

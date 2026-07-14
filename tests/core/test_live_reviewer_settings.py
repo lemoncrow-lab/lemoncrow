@@ -7,7 +7,7 @@ from lemoncrow.core.capabilities.default_definitions import (
     DEFAULT_OWNED_MODEL,
     READONLY_OWNED_MODEL,
 )
-from lemoncrow.core.capabilities.live_reviewer.settings import (
+from lemoncrow.pro.capabilities.live_reviewer.settings import (
     DEFAULT_DEEP_INTERVAL,
     MAX_DEEP_INTERVAL,
     MIN_DEEP_INTERVAL,

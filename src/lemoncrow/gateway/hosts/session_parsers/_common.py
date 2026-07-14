@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.capabilities.pricing import is_placeholder_model, usage_cost_usd
-from lemoncrow.core.capabilities.prompt_compilation.tokens import approx_tokens
 from lemoncrow.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
@@ -24,6 +23,7 @@ from lemoncrow.core.foundation.models import (
 )
 from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 
 logger = logging.getLogger(__name__)
 

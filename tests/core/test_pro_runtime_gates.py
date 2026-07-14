@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.core.capabilities.licensing import entitlements
-from lemoncrow.core.capabilities.optimization.policy import load_current_policy
 from lemoncrow.core.service import code_warm
+from lemoncrow.pro.capabilities.optimization.policy import load_current_policy
 from tests.helpers import deny_oauth, grant_oauth_pro
 
 
@@ -74,7 +74,7 @@ def test_read_uses_source_projection_without_pro(monkeypatch: pytest.MonkeyPatch
 def test_free_context_compression_is_passthrough() -> None:
     from typing import ClassVar
 
-    from lemoncrow.core.capabilities.context_compression.capability import ContextCompressionCapability
+    from lemoncrow.pro.capabilities.context_compression.capability import ContextCompressionCapability
 
     class _Ledger:
         session_id = "s"

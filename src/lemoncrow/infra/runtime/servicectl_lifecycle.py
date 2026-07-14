@@ -690,9 +690,9 @@ def _servicectl_tick(
     auto_update: bool = False,
     auto_update_interval_seconds: int = 3600,
 ) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.optimization import load_automation_config
     from lemoncrow.core.service.jobs import JOB_CONSOLIDATE_BLOCKS, JOB_OPTIMIZE, JOB_RETENTION_CLEANUP
     from lemoncrow.infra.storage.factory import create_store
+    from lemoncrow.pro.capabilities.optimization import load_automation_config
 
     SESSION_IMPORT_KEY = "import_host_sessions"
 

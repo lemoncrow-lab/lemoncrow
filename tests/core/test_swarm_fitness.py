@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.swarm.capability import build_swarm_spec_payload
-from lemoncrow.core.capabilities.swarm.fitness import (
+from lemoncrow.pro.capabilities.swarm.capability import build_swarm_spec_payload
+from lemoncrow.pro.capabilities.swarm.fitness import (
     FitnessSpec,
     beats_baseline,
     build_fitness_spec,
@@ -14,8 +14,8 @@ from lemoncrow.core.capabilities.swarm.fitness import (
     measure_baseline,
     parse_metric,
 )
-from lemoncrow.core.capabilities.swarm.models import SwarmChildState, SwarmRunState, SwarmWaveState
-from lemoncrow.core.capabilities.swarm.reducers import WaveContext, get_reducer
+from lemoncrow.pro.capabilities.swarm.models import SwarmChildState, SwarmRunState, SwarmWaveState
+from lemoncrow.pro.capabilities.swarm.reducers import WaveContext, get_reducer
 
 
 @pytest.mark.parametrize(

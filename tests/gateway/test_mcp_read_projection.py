@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.source_projection import build_compact_projection
 from lemoncrow.gateway.adapters.mcp_server import (
     _read_dedup_resource,
     tool_smart_edit,
     tool_smart_read,
 )
+from lemoncrow.pro.capabilities.source_projection import build_compact_projection
 
 
 def test_default_reader_read_uses_minified_projection_for_safe_language(

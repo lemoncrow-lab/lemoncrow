@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
 _PATH_RE = re.compile(r"read (\S+\.txt)\]")
 

@@ -8,7 +8,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lemoncrow.core.capabilities.repo_map.budget import count_tokens
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import (
@@ -20,6 +19,7 @@ from lemoncrow.gateway.adapters.mcp_server import (
     tool_sql,
 )
 from lemoncrow.gateway.sdk.mcp import _LoopbackTransport
+from lemoncrow.pro.capabilities.repo_map.budget import count_tokens
 
 
 def _op_result(render_name: str, op_fn: Any, **kwargs: Any) -> Any:
@@ -120,9 +120,9 @@ def test_mcp_grep_native_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_mcp_search_adds_backend_metadata_for_large_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import smart_search as smart_search_mod
-    from lemoncrow.core.capabilities.tool_supervision.search_read import FileMatch, SearchReadResult
     from lemoncrow.infra.code_intel.zoekt.adapter import ZoektBackendHealth
+    from lemoncrow.pro.capabilities.tool_supervision import smart_search as smart_search_mod
+    from lemoncrow.pro.capabilities.tool_supervision.search_read import FileMatch, SearchReadResult
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_ZOEKT_LOC_THRESHOLD", "20")

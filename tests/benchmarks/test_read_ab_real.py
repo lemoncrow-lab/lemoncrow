@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 

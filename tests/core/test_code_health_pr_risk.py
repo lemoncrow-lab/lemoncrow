@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_health.pr_risk import (
+from lemoncrow.pro.capabilities.code_health.pr_risk import (
     classify_commit_message,
     commit_provenance,
     pr_risk,
@@ -46,7 +46,7 @@ def _write_graph(repo: Path) -> None:
 
 
 def _index_all(repo: Path, cache_root: Path) -> None:
-    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
     cap = SemanticFileMemoryCapability(cache_root)
     for py in sorted((repo / "src").glob("*.py")):
@@ -84,7 +84,7 @@ def test_pr_risk_test_gap_lowers_score_when_tests_present(tmp_path: Path) -> Non
         "from src.base import base_fn\n\ndef test_base() -> None:\n    assert base_fn(2) == 0\n",
         encoding="utf-8",
     )
-    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
     cap = SemanticFileMemoryCapability(cache)
     for py in sorted((repo / "src").glob("*.py")):

@@ -77,7 +77,9 @@ from lemoncrow.gateway.adapters.mcp.bash import (  # noqa: F401  (registers bash
     _record_bash_command_stats,
     _render_bash_text,
     _run_bash_tool,
-    tool_bash,
+)
+from lemoncrow.gateway.adapters.mcp.bash import (
+    tool_bash as tool_bash,
 )
 from lemoncrow.gateway.adapters.mcp.deferral import (  # noqa: F401  (re-exported for back-compat)
     _defer_bash_enabled,
@@ -90,13 +92,15 @@ from lemoncrow.gateway.adapters.mcp.deferral import (  # noqa: F401  (re-exporte
 )
 from lemoncrow.gateway.adapters.mcp.framework import (  # noqa: F401  (re-exported for back-compat)
     _COERCE_UNCHANGED,
-    TOOLS,
     _annotation_base_types,
     _coerce_json_strings,
     _coerce_str_to_annotation,
     _slim_schema,
     _ToolArgumentError,
     mcp_tool,
+)
+from lemoncrow.gateway.adapters.mcp.framework import (
+    TOOLS as TOOLS,
 )
 from lemoncrow.gateway.adapters.mcp.fs_access import (  # noqa: F401  (re-exported for back-compat)
     _CLAUDE_ADDITIONAL_DIRS_CACHE,
@@ -149,10 +153,10 @@ from lemoncrow.infra.storage.factory import make_memory_store
 from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError, MemorySidecarUnavailable
 
 if TYPE_CHECKING:
-    from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
-    from lemoncrow.core.capabilities.memory import MemoryService
-    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
     from lemoncrow.gateway.adapters.runtime import ContextRuntime
+    from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
+    from lemoncrow.pro.capabilities.memory import MemoryService
+    from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +183,7 @@ def _warm_pricing_table() -> None:
     when the first build happens.  Fail-open.
     """
     try:
-        from lemoncrow.core.capabilities.counterfactual.pricing import load_pricing_table
+        from lemoncrow.pro.capabilities.counterfactual.pricing import load_pricing_table
 
         load_pricing_table()
     except Exception:  # noqa: BLE001
@@ -466,7 +470,7 @@ def _apply_search_verdict(
     """
     if not isinstance(result, dict) or not (query or "").strip():
         return result
-    from lemoncrow.core.capabilities.code_context.search_verdict import (
+    from lemoncrow.pro.capabilities.code_context.search_verdict import (
         BREAKER_NOTE,
         ChannelHealth,
         SearchHistory,
@@ -988,6 +992,7 @@ def _reset_runtime_cache_for_testing() -> None:
     _last_blocked_plan_hash_by_session.clear()
     _code_engine_cache.clear()
     _scoped_context_cache.clear()
+    _DORMANT_SNAPSHOT_BY_SESSION.clear()
 
 
 def _live_savings_events_path() -> Path:
@@ -1340,13 +1345,13 @@ def _default_workflow_agent_executor(
 ) -> Any:
     import subprocess
 
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-    from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
     from lemoncrow.core.capabilities.owned_execution_cache_affinity import (
         cache_affinity_hint,
         latest_cache_affinity,
     )
     from lemoncrow.core.capabilities.workflow_spawn import build_spawn_envelope, compile_prompt_text
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
     workspace = _workspace_root().resolve()
     defaults = build_default_registry()
@@ -2066,7 +2071,7 @@ def tool_agent(
     ``Agent`` tool when LemonCrow should control the sub-agent's model, cost,
     and cache affinity.
     """
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
 
     root = _workspace_root()
     session_state = _read_workspace_session_state()
@@ -2558,16 +2563,24 @@ def _current_context_state() -> tuple[int, str]:
         bridge_sid, host = _resolved_host_session()
         if bridge_sid and host and host != "claude":
             cache_key = f"bridge:{host}:{bridge_sid}"
+            from lemoncrow.core.foundation.paths import session_dir
+
+            # Freshness signature over the bridge stats file (mtime+size) so a
+            # cached entry is recomputed when the host plugin updates it.
+            stats_path = session_dir(_lemoncrow_root(), host, bridge_sid) / "stats.json"
+            try:
+                bst = os.stat(stats_path)
+                sig = ((str(stats_path), bst.st_mtime_ns, bst.st_size),)
+            except OSError:
+                sig = ()
             with _STATE_LOCK:
                 cached = _CONTEXT_STATE_CACHE.get(cache_key)
-            if cached is not None:
+            if cached is not None and cached[0] == sig:
                 return cached[1]
             result = _bridge_context_state(bridge_sid, host)
             if result[0] > 0:
                 with _STATE_LOCK:
-                    # Bridge path caches by dict key, not by signature; store an
-                    # empty signature tuple so the value matches the cache type.
-                    _CONTEXT_STATE_CACHE[cache_key] = ((), result)
+                    _CONTEXT_STATE_CACHE[cache_key] = (sig, result)
             return result
 
     except Exception:
@@ -3259,15 +3272,15 @@ def _memory_store() -> Any:
 
 
 def _archival_recall() -> ArchivalRecallCapability:
-    from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
     from lemoncrow.infra.embeddings.factory import make_embedder
+    from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
     return ArchivalRecallCapability(_memory_store(), make_embedder(), redactor=redact)
 
 
 def _symbol_recall() -> Any:
-    from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
     from lemoncrow.core.foundation.history_store import HistoryStore
+    from lemoncrow.pro.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
 
     workspace_root = _workspace_root()
     trace_store = HistoryStore(_lemoncrow_root())
@@ -3415,10 +3428,10 @@ _MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
 
 
 def _bootstrap_context_status(root: Path) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
     from lemoncrow.core.service.bootstrap_context import bootstrap_status, missing_bootstrap_labels
     from lemoncrow.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
     from lemoncrow.infra.storage.factory import create_store
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     repo_root = _workspace_root().resolve()
     repo_id = CodeContextEngine(repo_root).repo_id
@@ -3493,7 +3506,7 @@ def tool_get_context(
         )
     if mode == "pull":
         from lemoncrow.core.capabilities import licensing as _licensing
-        from lemoncrow.core.capabilities.scoped_context import Subtask
+        from lemoncrow.pro.capabilities.scoped_context import Subtask
 
         _licensing.require("scoped_context")
         subtask = Subtask(
@@ -3584,8 +3597,8 @@ def tool_get_context(
     # on the hot path.
     if _mcp_debug_enabled():
         try:
-            from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlanner
-            from lemoncrow.core.capabilities.prompt_compilation.models import (
+            from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlanner
+            from lemoncrow.pro.capabilities.prompt_compilation.models import (
                 BlockKind,
                 PromptBlock,
                 Stability,
@@ -4108,7 +4121,7 @@ def tool_record_trace(
             led.record("note", f"event:{redact(event_type)}", _redact_json_strings(event_payload))
 
     rt.store.history.record_trace(trace)
-    from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
+    from lemoncrow.pro.capabilities.lesson_promotion import ingest_failed_trace
 
     ingest_failed_trace(rt.store, trace)
 
@@ -4254,7 +4267,7 @@ def _memory_upsert_block(
         current_history_id=existing.current_history_id if existing else None,
         created_at=seed.created_at,
     )
-    from lemoncrow.core.capabilities.memory_arbitration import arbitrate
+    from lemoncrow.pro.capabilities.memory_arbitration import arbitrate
 
     decision = arbitrate(block, store, make_embedder())
     target = None
@@ -4376,8 +4389,8 @@ def _session_recall_passages(query: str, top_k: int) -> list[dict[str, Any]]:
 
 
 def _memory_service() -> MemoryService:
-    from lemoncrow.core.capabilities.memory import MemoryService
     from lemoncrow.infra.embeddings.factory import make_embedder
+    from lemoncrow.pro.capabilities.memory import MemoryService
 
     return MemoryService(store=_memory_store(), embedder=make_embedder(), redactor=redact)
 
@@ -5005,7 +5018,7 @@ def render_tool_result_text(name: str, result: Any) -> str | None:
             text = _render_sql_md(payload)
     elif name == "explore":
         with contextlib.suppress(Exception):
-            from lemoncrow.core.capabilities.code_context.renderer import _render_explore
+            from lemoncrow.pro.capabilities.code_context.renderer import _render_explore
 
             text = _render_explore(payload) or None
     elif name == "memory":
@@ -5233,7 +5246,7 @@ def _semantic_file_memory(root: Path) -> SemanticFileMemoryCapability:
     reuse across the server's worker threads and the index refreshes only when
     the underlying files change.
     """
-    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
     key = str(root)
     cap = _semantic_file_memory_cache.get(key)
@@ -5265,10 +5278,10 @@ def _read_summary_response(resolved: Path) -> dict[str, Any]:
     back silently -- a ``:summary`` read must never fail because the optional
     LLM tier did.
     """
-    from lemoncrow.core.capabilities.semantic_file_memory.capability import _read_source_bounded
-    from lemoncrow.core.capabilities.source_projection import SourceProjection
-    from lemoncrow.core.capabilities.tool_supervision.text_summary import heuristic_summary, llm_summary_tier
-    from lemoncrow.core.capabilities.tool_supervision.tool_output_spill import spill_notice
+    from lemoncrow.pro.capabilities.semantic_file_memory.capability import _read_source_bounded
+    from lemoncrow.pro.capabilities.source_projection import SourceProjection
+    from lemoncrow.pro.capabilities.tool_supervision.text_summary import heuristic_summary, llm_summary_tier
+    from lemoncrow.pro.capabilities.tool_supervision.tool_output_spill import spill_notice
 
     source_text, _truncated = _read_source_bounded(resolved)
     original_chars = len(source_text)
@@ -5371,7 +5384,7 @@ def _smart_read_single(
     View precedence when `expand`/`range`/`outline`/`summary` combine: expand >
     range > outline > summary (most detailed wins; see the resolution below).
     """
-    from lemoncrow.core.capabilities.source_projection import (
+    from lemoncrow.pro.capabilities.source_projection import (
         CompactProjectionResult,
         MinifiedProjectionResult,
         SourceProjection,
@@ -5671,7 +5684,7 @@ def _smart_read_single(
                 payload["lines_total"] = len(_src_lines)
                 payload["lines_shown"] = _shown
     if isinstance(content, str) and content and mode in ("full", "range") and not exact_read:
-        from lemoncrow.core.capabilities.source_projection import (
+        from lemoncrow.pro.capabilities.source_projection import (
             ProjectionDelta,
             build_compact_projection,
             build_minified_projection,
@@ -6021,7 +6034,7 @@ def _collect_touched_paths(edits: list[dict[str, Any]], *, repo_root: str | Path
     for edit in edits:
         raw = str(edit.get("file_path") or edit.get("path") or "")
         if not raw and str(edit.get("kind") or "") == "symbol":
-            from lemoncrow.core.capabilities.tool_supervision.symbol_edit import (
+            from lemoncrow.pro.capabilities.tool_supervision.symbol_edit import (
                 preview_symbol_edit_path,
             )
 
@@ -6321,7 +6334,7 @@ def _apply_edit_verify_gate(
     legitimate edit.
     """
     try:
-        from lemoncrow.core.capabilities.verification.edit_gate import run_edit_gate
+        from lemoncrow.pro.capabilities.verification.edit_gate import run_edit_gate
 
         checks_seq = tuple(checks) if checks else ("typecheck",)
         counterexamples = run_edit_gate(
@@ -6379,7 +6392,7 @@ def _loop_nudge_for_call(name: str, args: dict[str, Any]) -> str | None:
     Narrow, false-positive-free no-progress signal at the MCP boundary.
     Fail-open: any error returns None so a tool call is never broken by it.
     """
-    from lemoncrow.core.capabilities.tool_supervision.loop_review import (
+    from lemoncrow.pro.capabilities.tool_supervision.loop_review import (
         SessionLoopTracker,
         call_signature,
         repeat_nudge,
@@ -6420,7 +6433,7 @@ def _attach_contract_literal_review(
     if not _contract_review_enabled():
         return
     try:
-        from lemoncrow.core.capabilities.tool_supervision.edit_impact import (
+        from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
             contract_literal_impact,
             decorator_contract_impact,
             signature_change_impact,
@@ -6800,7 +6813,7 @@ def tool_smart_edit(
     # silently -- old-anchored edits self-verify, blind ranges cannot. Reject
     # with the fix spelled out. LEMONCROW_RANGE_EDIT_GUARD=0 disables.
     if os.environ.get("LEMONCROW_RANGE_EDIT_GUARD", "1") != "0":
-        from lemoncrow.core.capabilities.tool_supervision.rich_edit import _parse_target
+        from lemoncrow.pro.capabilities.tool_supervision.rich_edit import _parse_target
 
         _session_sigs = _range_read_sigs()
         _stale: list[dict[str, Any]] = []
@@ -6856,7 +6869,7 @@ def tool_smart_edit(
             _edit_locks.enter_context(_lock)
         snapshots = _snapshot_paths(paths)
 
-        from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+        from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
         result = apply_rich_edits(edits, atomic=atomic, repo_root=repo_root, allowed_roots=_extra_roots)
 
@@ -6892,7 +6905,7 @@ def tool_smart_edit(
                         "test_weakening": weakenings,
                     }
             if hooks:
-                from lemoncrow.core.capabilities.tool_supervision.post_edit_hooks import (
+                from lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks import (
                     HookConfig,
                     run_post_edit_hooks,
                 )
@@ -7167,7 +7180,7 @@ def tool_sql(
     Returns: introspection actions return {tables|table_count|schema|columns|foreign_keys|relationships|matches};
     lint -> {ok, message}; query -> {results: [{name, columns, rows, row_count, truncated}], took_ms}.
     """
-    from lemoncrow.core.capabilities.tool_supervision.sql_tool import sql_tool
+    from lemoncrow.pro.capabilities.tool_supervision.sql_tool import sql_tool
 
     if action not in {
         "connect",
@@ -7510,7 +7523,7 @@ def _memory_summary(session_id: str) -> dict[str, Any]:
         tokens_pre, tokens_post, summary_md, evicted_event_ids, strategy
     """
     try:
-        from lemoncrow.core.capabilities.context_compression.capability import (
+        from lemoncrow.pro.capabilities.context_compression.capability import (
             ContextCompressionCapability,
         )
 
@@ -7558,7 +7571,7 @@ _scoped_context_cache_lock: threading.Lock = threading.Lock()
 
 
 def _code_context_engine(repo_root: str = ".") -> Any:
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     workspace = str(_workspace_root())
     root = Path(repo_root)
@@ -7575,7 +7588,7 @@ def _code_context_engine(repo_root: str = ".") -> Any:
 
 
 def _scoped_context_capability(repo_root: str = ".") -> Any:
-    from lemoncrow.core.capabilities.scoped_context import ScopedContextCapability
+    from lemoncrow.pro.capabilities.scoped_context import ScopedContextCapability
 
     workspace = str(_workspace_root())
     root = Path(repo_root)
@@ -7592,7 +7605,7 @@ def _scoped_context_capability(repo_root: str = ".") -> Any:
 
 
 def _workspace_code_router(repo_root: str = ".") -> Any:
-    from lemoncrow.core.capabilities.code_context.workspace_router import WorkspaceCodeRouter
+    from lemoncrow.pro.capabilities.code_context.workspace_router import WorkspaceCodeRouter
 
     workspace = str(_workspace_root())
     root = Path(repo_root)
@@ -7715,7 +7728,7 @@ def _strip_code_op_response(op: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def _maybe_attach_code_rendered(op: str, payload: dict[str, Any], *, render_compact: bool) -> dict[str, Any]:
     # Render first so the markdown uses all original fields (e.g. repo_id for cache_status heading).
-    from lemoncrow.core.capabilities.code_context.renderer import render_code_payload
+    from lemoncrow.pro.capabilities.code_context.renderer import render_code_payload
 
     rendered = render_code_payload(op, payload)
 
@@ -7996,8 +8009,8 @@ def _synthesize_edges_for_paths(paths: list[str]) -> list[dict[str, Any]]:
     Returns a flat list of heuristic edge dicts (provenance="heuristic"). Never
     touches the static call graph -- this is a separate, opt-in addendum.
     """
-    from lemoncrow.core.capabilities.code_context.edge_synthesis import synthesize_edges
     from lemoncrow.infra.code_intel.languages import language_for_path
+    from lemoncrow.pro.capabilities.code_context.edge_synthesis import synthesize_edges
 
     out: list[dict[str, Any]] = []
     for raw in paths:
@@ -8094,7 +8107,7 @@ def _op_graph_code_health(
     Each delegated function is independently fail-open; this seam only resolves
     the repo/lemoncrow roots and routes by ``kind``.
     """
-    from lemoncrow.core.capabilities.code_health import (
+    from lemoncrow.pro.capabilities.code_health import (
         commit_provenance,
         design_gaps,
         index_design_docs,
@@ -8903,7 +8916,7 @@ def _run_native_grep(
     include_meta: bool,
     badge_provider: Callable[[str, list[str]], str | None] | None = None,
 ) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.tool_supervision.native_search import search_workspace
+    from lemoncrow.pro.capabilities.tool_supervision.native_search import search_workspace
 
     return search_workspace(
         path=path,
@@ -10180,7 +10193,7 @@ def _route_enforcement_enabled() -> bool:
 
 
 def _restore_legacy_route(workflow: dict[str, Any], current_step: str) -> tuple[Any | None, int]:
-    from lemoncrow.core.capabilities.model_routing import ModelRecommendation
+    from lemoncrow.pro.capabilities.model_routing import ModelRecommendation
 
     routing = workflow.get("routing")
     if not isinstance(routing, dict):
@@ -10279,10 +10292,10 @@ def _prepare_model_recommendation(
     args: dict[str, Any],
     led: RunLedger,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-    from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
-    from lemoncrow.core.capabilities.model_routing import ModelRouter
     from lemoncrow.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+    from lemoncrow.pro.capabilities.model_routing import ModelRouter
 
     session_state = _model_recommendation_state(led, args)
     session_state.update(_route_outcome_calibration(tool_name, session_state, led))
@@ -10607,12 +10620,13 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
     params = request.get("params") or {}
 
     if method == "initialize":
-        # Freeze the cap decision for this connection's lifetime (grandfather
-        # while alive; a new process re-snapshots and hard-blocks if over cap).
-        # Residual: /clear reuses this process, so tools stay exposed across it
-        # (only the agent side can act on /clear) -- see
-        # docs-internal/dormant-clear-residual.md for the revisit plan.
-        _DORMANT_SNAPSHOT["value"] = _snapshot_dormant()
+        # Freeze the cap decision for THIS session (grandfather while the session
+        # is alive; a new process still re-snapshots and hard-blocks if over cap).
+        # Keyed per session id (see _dormant_session_key), so concurrent HTTP
+        # clients sharing this process never share (or bleed) a verdict, and a
+        # /clear (which rotates the workspace bridge session id) re-snapshots
+        # instead of silently carrying the old verdict across the reset.
+        _freeze_dormant_snapshot()
         _emit_mcp_session_start()
         return _ok(
             rid,
@@ -10623,7 +10637,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 # Read automatically by MCP clients and folded into the host
                 # system prompt — the steering surface that reaches every host
                 # and subagent, installed personas or not.
-                "instructions": SERVER_INSTRUCTIONS,
+                "instructions": "" if _savings_dormant() else SERVER_INSTRUCTIONS,
             },
         )
     if method == "notifications/initialized":
@@ -10915,7 +10929,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 _fmt = args.get("format") if isinstance(args, dict) else None
                 if isinstance(_fmt, str) and _fmt.strip().lower() in {"compact", "json"}:
                     with contextlib.suppress(Exception):
-                        from lemoncrow.core.capabilities.tool_supervision.output_format import apply_output_format
+                        from lemoncrow.pro.capabilities.tool_supervision.output_format import apply_output_format
 
                         _pre_format_chars = len(response_text)
                         response_text, _ = apply_output_format(
@@ -11465,7 +11479,7 @@ def _truncate_result_text(text: str | bytes, limit: int, tool_name: str | None =
     encoded = text.encode("utf-8")
     if len(encoded) <= limit:
         return text
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
     record = None
     if tool_name and _tool_output_spill_enabled():
@@ -11560,8 +11574,8 @@ def _compact_result_text(text: str | bytes, tool_name: str) -> str:
         _over = len(text.encode("utf-8")) > threshold
     if not _over:
         return text
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
-    from lemoncrow.core.capabilities.tool_supervision.compact_output import compress_tool_output
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision.compact_output import compress_tool_output
 
     target = max(4096, threshold // 4)
     head = int(target * 0.7)
@@ -11622,7 +11636,7 @@ def _effective_spill_tool(tool_name: str, args: dict[str, Any]) -> str:
     if not command:
         return tool_name
     try:
-        from lemoncrow.core.capabilities.tool_supervision.bash_exec import classify_command
+        from lemoncrow.pro.capabilities.tool_supervision.bash_exec import classify_command
 
         decision = classify_command(command)
     except Exception:  # noqa: BLE001 -- spill identity must never raise
@@ -11651,7 +11665,13 @@ def _auto_compact_output_enabled() -> bool:
 # cleanly yank it). A new server process (resume / restart / new window)
 # re-snapshots at its own `initialize` and hard-blocks if over cap. None = not
 # yet snapshotted (lazy fallback for tests / direct calls).
-_DORMANT_SNAPSHOT: dict[str, bool | None] = {"value": None}
+# Per-session frozen cap decisions (bounded LRU), replacing a single process
+# global. Keyed by session id (see _dormant_session_key), so an uninterrupted
+# session stays grandfathered, a /clear re-snapshots, and concurrent HTTP clients
+# sharing this one process never share (or bleed) a verdict.
+_DORMANT_SNAPSHOT_BY_SESSION: OrderedDict[str, bool] = OrderedDict()
+_DORMANT_SNAPSHOT_LOCK = threading.Lock()
+_MAX_DORMANT_SNAPSHOTS = 64
 
 
 def _snapshot_dormant() -> bool:
@@ -11664,23 +11684,61 @@ def _snapshot_dormant() -> bool:
         return False
 
 
+def _dormant_session_key() -> str:
+    """Identity the frozen cap decision is scoped to.
+
+    Prefers the workspace bridge ``session_id`` (rotated by the SessionStart hook
+    on every /clear) so a /clear is detected and re-snapshotted; falls back to the
+    launch-frozen Claude session id, then a process-global sentinel (stdio, single
+    client). Fail-safe: any error collapses to the sentinel.
+    """
+    try:
+        sid = str(_read_workspace_session_state().get("session_id") or "").strip()
+    except Exception:  # noqa: BLE001 — identity resolution must never break the gate
+        sid = ""
+    return sid or _claude_session_id() or "_global"
+
+
+def _freeze_dormant_snapshot() -> bool:
+    """Snapshot and freeze the cap decision for the current session, as
+    ``initialize`` does. Bounded LRU across sessions."""
+    key = _dormant_session_key()
+    value = _snapshot_dormant()
+    with _DORMANT_SNAPSHOT_LOCK:
+        _DORMANT_SNAPSHOT_BY_SESSION[key] = value
+        _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
+        while len(_DORMANT_SNAPSHOT_BY_SESSION) > _MAX_DORMANT_SNAPSHOTS:
+            _DORMANT_SNAPSHOT_BY_SESSION.popitem(last=False)
+    return value
+
+
 def _savings_dormant() -> bool:
-    """Frozen cap gate for this server process.
+    """Frozen cap gate for the current session.
 
     When dormant the server advertises no tools (``tools/list`` -> []) and
     rejects any lc ``tools/call`` as unavailable. Tool *behavior* is never
     changed — a tool is either present (and runs identically) or absent. The
-    value is frozen at `initialize`, so the decision is stable for the whole
-    connection: grandfather while alive, hard block on the next process start.
+    decision is frozen per session at `initialize`, so a live session is
+    grandfathered while a /clear re-snapshots and concurrent HTTP clients never
+    share a verdict.
 
-    Fail-open: unset/lazy path returns whatever ``_snapshot_dormant`` yields
-    (False on error), so tools stay visible if the meter can't be read.
+    Fail-open: the lazy path (no frozen entry yet) returns whatever
+    ``_snapshot_dormant`` yields (False on error), so tools stay visible if the
+    meter can't be read.
     """
-    v = _DORMANT_SNAPSHOT["value"]
-    if v is None:
-        v = _snapshot_dormant()
-        _DORMANT_SNAPSHOT["value"] = v
-    return bool(v)
+    key = _dormant_session_key()
+    with _DORMANT_SNAPSHOT_LOCK:
+        cached = _DORMANT_SNAPSHOT_BY_SESSION.get(key)
+        if cached is not None:
+            _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
+            return cached
+    value = _snapshot_dormant()
+    with _DORMANT_SNAPSHOT_LOCK:
+        stored = _DORMANT_SNAPSHOT_BY_SESSION.setdefault(key, value)
+        _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
+        while len(_DORMANT_SNAPSHOT_BY_SESSION) > _MAX_DORMANT_SNAPSHOTS:
+            _DORMANT_SNAPSHOT_BY_SESSION.popitem(last=False)
+    return stored
 
 
 def _read_path_arg(args: dict[str, Any]) -> str:
@@ -11694,7 +11752,7 @@ def _read_path_arg(args: dict[str, Any]) -> str:
 
 def _is_spill_path(path: str) -> bool:
     """True when ``path`` resolves to a file inside the shared spill directory."""
-    from lemoncrow.core.capabilities.tool_supervision.tool_output_spill import _spill_dir
+    from lemoncrow.pro.capabilities.tool_supervision.tool_output_spill import _spill_dir
 
     try:
         return Path(path).resolve().parent == _spill_dir().resolve()
@@ -11720,7 +11778,7 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
     if threshold <= 0 or len(text) <= threshold:
         return text
 
-    from lemoncrow.core.capabilities.tool_supervision import compact_output, tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import compact_output, tool_output_spill
 
     # 16x reduction from the char threshold: first chars/4 to estimate tokens
     # (the ~4-chars-per-token rule), then /4 again for headroom so the compacted
@@ -11738,8 +11796,8 @@ def _auto_compact_result_text(text: str, tool_name: str, args: dict[str, Any]) -
 
     if tool_name in _CODE_CONTENT_TOOLS and _licensing.has_feature("source_projection"):
         with contextlib.suppress(Exception):
-            from lemoncrow.core.capabilities.source_projection import build_compact_projection
             from lemoncrow.infra.code_intel.languages import language_for_path
+            from lemoncrow.pro.capabilities.source_projection import build_compact_projection
 
             lang_record = language_for_path(_read_path_arg(args))
             if lang_record is not None:
@@ -11827,8 +11885,8 @@ def _spill_oversized_result_text(
     if limit <= 0 or measured <= limit:
         return text
 
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
-    from lemoncrow.core.capabilities.tool_supervision.compact_output import compress_tool_output
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision.compact_output import compress_tool_output
 
     record = tool_output_spill.spill(
         text,
@@ -12259,7 +12317,7 @@ def _warm_stdio_zoekt_webserver() -> None:
 
 
 def _shutdown_managed_bash_commands() -> None:
-    from lemoncrow.core.capabilities.tool_supervision.bash_exec import cleanup_managed_commands
+    from lemoncrow.pro.capabilities.tool_supervision.bash_exec import cleanup_managed_commands
 
     summary = cleanup_managed_commands()
     terminated = summary["terminated"]

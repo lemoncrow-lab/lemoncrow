@@ -319,7 +319,7 @@ class RuntimeSession:
             validation_results=validation_results or [],
         )
         self.store.history.record_trace(trace)
-        from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
+        from lemoncrow.pro.capabilities.lesson_promotion import ingest_failed_trace
 
         ingest_failed_trace(self.store, trace)
         self.trace_id = trace.id

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.tool_supervision.edit_impact import (
+from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
     _is_identifier_occurrence,
     _removed_module_symbols,
     _signature_change_params,

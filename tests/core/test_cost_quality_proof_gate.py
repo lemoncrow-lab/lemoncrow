@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.proof_gate.capability import (
+from lemoncrow.pro.capabilities.proof_gate.capability import (
     BenchmarkCase,
     ProofGateCapability,
     ProofGateConfig,

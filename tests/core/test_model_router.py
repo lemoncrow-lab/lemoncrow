@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.model_routing import ModelRouter
+from lemoncrow.pro.capabilities.model_routing import ModelRouter
 
 
 def test_model_router_routes_read_explain_to_cheap() -> None:

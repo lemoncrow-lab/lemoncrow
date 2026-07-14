@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.model_routing.router import ModelRouter
-from lemoncrow.core.capabilities.model_routing.success_predictor import (
+from lemoncrow.infra.storage.migrations import read_migration
+from lemoncrow.pro.capabilities.model_routing.router import ModelRouter
+from lemoncrow.pro.capabilities.model_routing.success_predictor import (
     DEFAULT_MIN_SAMPLES,
     DEFAULT_THRESHOLD,
     LEARNED_ROUTING_ENV_VAR,
@@ -29,7 +30,6 @@ from lemoncrow.core.capabilities.model_routing.success_predictor import (
     outcome_row_from_persisted,
     p_weak_succeeds,
 )
-from lemoncrow.infra.storage.migrations import read_migration
 
 # --------------------------------------------------------------------------- #
 # Helpers: synthetic outcome rows / tables                                     #

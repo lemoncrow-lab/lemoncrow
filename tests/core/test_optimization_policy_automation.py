@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from lemoncrow.core.capabilities.optimization.policy import (
+from lemoncrow.pro.capabilities.optimization.policy import (
     AutomationConfig,
     BenchmarkEvidence,
     load_optimization_config,

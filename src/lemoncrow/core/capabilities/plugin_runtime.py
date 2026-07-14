@@ -78,8 +78,6 @@ FREE_SAVINGS_CAP_USD = 20.0
 LITE_SAVINGS_CAP_USD = 200.0
 SAVINGS_CAP_BY_PLAN: dict[str, float | None] = {
     "free": FREE_SAVINGS_CAP_USD,
-    "local": FREE_SAVINGS_CAP_USD,
-    "anonymous": FREE_SAVINGS_CAP_USD,
     "lite": LITE_SAVINGS_CAP_USD,
     "pro": None,
     "enterprise": None,
@@ -548,6 +546,15 @@ def cap_exhausted(root: str | Path) -> bool:
             verdict = cap_verdict.cap_over_from_token(token, now=int(_time.time()))
             # Token present -> authoritative. None (untrusted/expired) = fail-closed.
             return True if verdict is None else verdict
+        # `lc login` stores the verified OAuth plan in auth_user.json, while
+        # subscription.json may still contain the pre-login LOCAL meter. A
+        # paid entitlement must override that stale local cap immediately.
+        if not token:
+            from lemoncrow.core.capabilities.licensing import entitlements
+
+            license_ = entitlements.current_license()
+            if license_ is not None and license_.plan in {"pro", "enterprise"}:
+                return False
         sub = _read_json(subscription_state_path(root), None)
         if not isinstance(sub, dict) or "savingsOverCap" not in sub:
             sub = compute_usage_meter(root)
@@ -1139,10 +1146,11 @@ def apply_session_start_files(
         payload=payload,
         current_version=current_version,
     )
-    # host_settings already carries the Layer-2 agent swap (lemoncrow:free when
-    # dormant, cleared when active) computed in session_start_bootstrap. Effect
-    # is next-session by design (the host reads `agent` at session start); the
-    # current session's tools already degraded via Layer 1.
+    # host_settings already carries the Layer-2 agent handling computed in
+    # session_start_bootstrap: when dormant the `agent` host-setting is cleared
+    # (popped), never set to a free agent. Effect is next-session by design (the
+    # host reads `agent` at session start); the current session's tools already
+    # degraded via Layer 1.
     _write_json(settings_path, result["host_settings"])
     if mcp_path.exists():
         _write_json(mcp_path, result["mcp_json"])
@@ -2983,7 +2991,7 @@ def _codex_cache_bash(root: str | Path, command: str, stdout: str, stderr: str, 
     if os.environ.get("LEMONCROW_CACHE_DISABLED") == "1":
         return
     try:
-        from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+        from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
         cap = ToolSupervisionCapability(Path(root))
         key = f"Bash:{json.dumps({'command': command}, sort_keys=True)[:100]}"

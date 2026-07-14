@@ -8,11 +8,11 @@ from typing import ClassVar
 
 import pytest
 
-from lemoncrow.core.capabilities.context_compression.capability import (
+from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.pro.capabilities.context_compression.capability import (
     ContextCompressionCapability,
 )
-from lemoncrow.core.capabilities.context_compression.sleeptime import SleeptimeChunk
-from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.pro.capabilities.context_compression.sleeptime import SleeptimeChunk
 from tests.helpers import grant_oauth_pro
 
 
@@ -75,7 +75,7 @@ def test_compress_with_sleeptime_archives_passages(
     ledger = _FakeLedger(n_events=100)
     cap = ContextCompressionCapability()
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.context_compression.capability.summarize_ledger",
+        "lemoncrow.pro.capabilities.context_compression.capability.summarize_ledger",
         lambda dropped: [
             SleeptimeChunk(
                 start_event_index=0,

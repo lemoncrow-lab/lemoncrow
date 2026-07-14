@@ -4,10 +4,10 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
-from lemoncrow.core.capabilities.lesson_promotion.pr_bot import LessonPrBot
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.lesson_promotion.pr_bot import LessonPrBot
 
 
 def test_pr_bot_dry_run_emits_diff_without_side_effects(tmp_path: Path) -> None:

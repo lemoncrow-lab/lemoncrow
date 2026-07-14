@@ -12,13 +12,13 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
-    RouteConfig,
-    save_route_config,
-)
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+    RouteConfig,
+    save_route_config,
+)
 from tests.helpers import init_store_at
 
 

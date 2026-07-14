@@ -109,7 +109,9 @@ def _high_match_block(block_id: str, title: str, trigger: str) -> Playbook:
 def test_context_reuse_filters_to_strong_top_two(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     for idx, trigger in enumerate(["deploy", "rollback", "configuration"], start=1):
-        rt.store.knowledge.upsert_block(_high_match_block(f"strong-{idx}", f"Strong {idx}", trigger), write_markdown=False)
+        rt.store.knowledge.upsert_block(
+            _high_match_block(f"strong-{idx}", f"Strong {idx}", trigger), write_markdown=False
+        )
     rt.store.knowledge.upsert_block(
         Playbook(
             id="weak-context",
@@ -159,7 +161,7 @@ def test_context_reuse_returns_empty_when_no_strong_match(tmp_path: Path) -> Non
 
 
 def test_semantic_memory_ast_truncation(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.semantic_file_memory import _ast_truncated_source
+    from lemoncrow.pro.capabilities.semantic_file_memory import _ast_truncated_source
 
     source = textwrap.dedent("""\
         def foo(x):
@@ -180,7 +182,7 @@ def test_semantic_memory_ast_truncation(tmp_path: Path) -> None:
 
 
 def test_semantic_memory_symbol_details(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.semantic_file_memory import _python_full_ast
+    from lemoncrow.pro.capabilities.semantic_file_memory import _python_full_ast
 
     source = textwrap.dedent("""\
         def compute(x: int, y: int) -> int:
@@ -262,7 +264,7 @@ def test_semantic_memory_symbol_search(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_token_savings(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -280,7 +282,7 @@ def test_tool_supervision_token_savings(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -298,7 +300,7 @@ def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_get_cached(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -310,7 +312,7 @@ def test_tool_supervision_get_cached(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_diff_context_no_crash(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -322,7 +324,7 @@ def test_tool_supervision_diff_context_no_crash(tmp_path: Path) -> None:
 
 
 def test_tool_supervision_test_context_no_crash(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -337,8 +339,8 @@ def test_tool_supervision_test_context_no_crash(tmp_path: Path) -> None:
 
 
 def test_context_compression_provenance_present(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.pro.capabilities.context_compression import ContextCompressionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -368,8 +370,8 @@ def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatc
     import sys
 
     import lemoncrow.bench.mode  # noqa: F401 — ensures the sys.modules entry exists
-    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.pro.capabilities.context_compression import ContextCompressionCapability
 
     # lemoncrow.bench.__init__ exports a `mode` function that shadows the submodule,
     # so retrieve the real module via sys.modules to reset the singleton.
@@ -404,8 +406,8 @@ def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatc
 
 
 def test_context_compression_context_report(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.context_compression import ContextCompressionCapability
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.pro.capabilities.context_compression import ContextCompressionCapability
 
     root = tmp_path / ".lemoncrow"
     _init_root(root)
@@ -638,7 +640,7 @@ def test_capability_registry_fallback_for() -> None:
 
 
 def test_budget_optimizer_empty_blocks() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import PromptBudgetOptimizer
 
     opt = PromptBudgetOptimizer()
     plan = opt.solve([], token_budget=1000)
@@ -649,7 +651,7 @@ def test_budget_optimizer_empty_blocks() -> None:
 
 
 def test_budget_optimizer_all_fit() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("a", "alpha", token_cost=50, utility=0.9, source="context_reuse"),
@@ -665,7 +667,7 @@ def test_budget_optimizer_all_fit() -> None:
 
 
 def test_budget_optimizer_respects_budget() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("a", "high utility", token_cost=100, utility=0.95, source="cap_a"),
@@ -681,7 +683,7 @@ def test_budget_optimizer_respects_budget() -> None:
 
 
 def test_budget_optimizer_to_dict_shape() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("x1", "content", token_cost=10, utility=0.5, source="tool_supervision"),
@@ -698,7 +700,7 @@ def test_budget_optimizer_to_dict_shape() -> None:
 
 
 def test_budget_optimizer_high_utility_preferred() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     # Three blocks; only room for two. High-utility block must survive.
     blocks = [
@@ -714,7 +716,7 @@ def test_budget_optimizer_high_utility_preferred() -> None:
 
 
 def test_budget_optimizer_infeasible_blocks_dropped() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
         ContextBlock("big", "too large", token_cost=500, utility=0.99, source="cap_a"),
@@ -728,7 +730,7 @@ def test_budget_optimizer_infeasible_blocks_dropped() -> None:
 
 
 def test_budget_optimizer_diversity_bonus() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     # Two sources; same utility/token — diversity bonus should help
     # include one from each source when budget allows
@@ -744,7 +746,7 @@ def test_budget_optimizer_diversity_bonus() -> None:
 
 
 def test_budget_optimizer_utility_per_token_zero_cost() -> None:
-    from lemoncrow.core.capabilities.budget_optimizer import ContextBlock
+    from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock
 
     b = ContextBlock("z", "", token_cost=0, utility=0.5, source="x")
     assert b.utility_per_token() == 0.0
@@ -945,7 +947,7 @@ def test_tool_supervision_model_aware_usd() -> None:
     import tempfile
     from pathlib import Path
 
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cap = ToolSupervisionCapability(Path(tmpdir), model="claude-sonnet-4")
@@ -965,7 +967,7 @@ def test_tool_supervision_default_model_fallback() -> None:
     import tempfile
     from pathlib import Path
 
-    from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cap = ToolSupervisionCapability(Path(tmpdir))  # no model arg

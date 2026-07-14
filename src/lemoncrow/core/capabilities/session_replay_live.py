@@ -92,7 +92,7 @@ def _build_engine(repo_root: Path) -> Any | None:
     os.environ.setdefault("LEMONCROW_EXPLORE_SEMANTIC", "0")
     os.environ.setdefault("LEMONCROW_ZOEKT_MODE", "off")
     try:
-        from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+        from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
         return CodeContextEngine(repo_root, autosync_enabled=False)
     except Exception:  # noqa: BLE001 - engine is best-effort
@@ -212,7 +212,7 @@ def _preview_edit(turn: dict[str, Any]) -> dict[str, Any]:
 def _classify_bash(command: str) -> dict[str, Any]:
     decision: dict[str, Any] = {"tool": "bash", "command": command[:300]}
     try:
-        from lemoncrow.core.capabilities.tool_supervision.bash_exec import classify_command
+        from lemoncrow.pro.capabilities.tool_supervision.bash_exec import classify_command
 
         pol = classify_command(command)
         decision["category"] = str(getattr(pol, "category", "") or "")
@@ -234,12 +234,12 @@ def _simulate_bash(turn: dict[str, Any], recorded_output: str) -> dict[str, Any]
         out["note"] = "Command is NOT executed by replay; classified only (no recorded output to compact)."
         return out
     try:
-        from lemoncrow.core.capabilities.tool_supervision.bash_exec import compact_host_bash_output
+        from lemoncrow.pro.capabilities.tool_supervision.bash_exec import compact_host_bash_output
 
         rr = compact_host_bash_output(command, recorded_output, "", 0)
         compacted = str(getattr(rr, "stdout", "") or "")
         before, after = len(recorded_output), len(compacted)
-        from lemoncrow.core.capabilities.prompt_compilation.tokens import approx_tokens
+        from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 
         before_tok, after_tok = approx_tokens(recorded_output), approx_tokens(compacted)
         out.update(

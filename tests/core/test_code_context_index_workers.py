@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.code_context import engine
+from lemoncrow.pro.capabilities.code_context import engine
 
 
 def test_explicit_index_defaults_to_full_cpu(monkeypatch) -> None:

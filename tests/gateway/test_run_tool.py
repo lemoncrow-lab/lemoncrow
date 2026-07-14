@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision.bash_exec import classify_command, run_command
+from lemoncrow.pro.capabilities.tool_supervision.bash_exec import classify_command, run_command
 
 
 def test_run_simple_command(tmp_path: Path) -> None:

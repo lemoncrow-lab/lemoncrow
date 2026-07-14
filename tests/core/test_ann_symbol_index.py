@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.code_context import ann_symbol_index as ann_mod
-from lemoncrow.core.capabilities.code_context.ann_symbol_index import (
+from lemoncrow.infra.storage.vector import cosine_similarity
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context import ann_symbol_index as ann_mod
+from lemoncrow.pro.capabilities.code_context.ann_symbol_index import (
     SymbolAnnIndex,
     ann_retrieval_enabled,
     ensure_symbol_vector_schema,
 )
-from lemoncrow.infra.storage.vector import cosine_similarity
 
 
 def _use_fake_code_embedder(monkeypatch: pytest.MonkeyPatch) -> None:

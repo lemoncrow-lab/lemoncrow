@@ -12,7 +12,7 @@ import ast
 
 import yaml
 
-from lemoncrow.core.capabilities.source_projection.compact import build_compact_projection
+from lemoncrow.pro.capabilities.source_projection.compact import build_compact_projection
 
 
 def test_collapses_blank_runs() -> None:

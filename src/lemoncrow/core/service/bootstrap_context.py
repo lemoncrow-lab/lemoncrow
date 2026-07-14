@@ -10,11 +10,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.repo_map.graph import iter_source_files
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.infra.storage.memory_store import MemoryStore
 from lemoncrow.infra.tree_sitter.tags import detect_language
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.repo_map.graph import iter_source_files
 
 BOOTSTRAP_BLOCK_TYPES = (
     "architecture-sketch",

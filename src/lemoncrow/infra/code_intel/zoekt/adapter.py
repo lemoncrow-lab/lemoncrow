@@ -15,7 +15,7 @@ from .indexer import ZoektIndexer
 from .server import ZoektServer, _resolve_host_binaries, get_zoekt_server, reset_zoekt_servers
 
 if TYPE_CHECKING:
-    from lemoncrow.core.capabilities.tool_supervision.search_read import SearchReadResult
+    from lemoncrow.pro.capabilities.tool_supervision.search_read import SearchReadResult
 
 # Route every repo through zoekt by default -- even a 1-file repo benefits
 # from the resident index (no Go-runtime spin-up per query). Override via
@@ -226,8 +226,8 @@ class ZoektSupervisor:
         prefer_source: bool = True,
         _include_index_age: bool = True,
     ) -> SearchReadResult:
-        from lemoncrow.core.capabilities.prompt_compilation.tokens import approx_tokens as _count_tokens
-        from lemoncrow.core.capabilities.tool_supervision.search_read import (
+        from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens as _count_tokens
+        from lemoncrow.pro.capabilities.tool_supervision.search_read import (
             FileMatch,
             SearchReadResult,
             Snippet,
@@ -237,7 +237,7 @@ class ZoektSupervisor:
 
         client = self.ensure_started()
         if client is None:
-            from lemoncrow.core.capabilities.tool_supervision.search_read import SearchReadResult
+            from lemoncrow.pro.capabilities.tool_supervision.search_read import SearchReadResult
 
             return SearchReadResult(
                 matches=[], total_tokens=0, tokens_saved_vs_naive=0, cache_hit=False, backend="zoekt"

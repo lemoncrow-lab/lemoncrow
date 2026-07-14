@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities.repo_map.budget import count_tokens
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.pro.capabilities.repo_map.budget import count_tokens
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 

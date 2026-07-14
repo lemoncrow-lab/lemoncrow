@@ -228,7 +228,7 @@ def validate_provider(provider_id: str, credentials: dict[str, str]) -> tuple[bo
 
 def list_provider_models(provider_id: str) -> list[str]:
     """List available models for a provider (best-effort)."""
-    from lemoncrow.core.capabilities.counterfactual.pricing import load_pricing_table
+    from lemoncrow.pro.capabilities.counterfactual.pricing import load_pricing_table
 
     table = load_pricing_table()
     candidates = table.candidates_for_vendor(provider_id)

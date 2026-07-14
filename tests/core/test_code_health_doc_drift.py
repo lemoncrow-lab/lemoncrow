@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.code_health.doc_drift import (
+from lemoncrow.pro.capabilities.code_health.doc_drift import (
     DocDriftAnalyzer,
     design_gaps,
     verify_design,
 )
-from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
 
 
 def _build_indexed_repo(repo: Path, cache_root: Path) -> SemanticFileMemoryCapability:

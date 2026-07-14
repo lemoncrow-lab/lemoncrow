@@ -14,7 +14,6 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
 from lemoncrow.core.capabilities.licensing import entitlements
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
@@ -29,6 +28,7 @@ from lemoncrow.infra.code_intel.astgrep import (
     PatternSearchResult,
 )
 from lemoncrow.infra.storage.factory import create_store, make_memory_store
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from tests.helpers import grant_oauth_pro, init_store_at
 
 # Single-primary retrieval surface: `explore` (ranked source + call-graph
@@ -558,7 +558,7 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
 
     def fake_pull(self: Any, subtask: Any) -> Any:
         seen["subtask"] = subtask
-        from lemoncrow.core.capabilities.scoped_context import ScopedContext
+        from lemoncrow.pro.capabilities.scoped_context import ScopedContext
 
         return ScopedContext(
             chunks=[],
@@ -571,7 +571,7 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(mcp_server, "_code_context_engine", lambda root: object())
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.scoped_context.ScopedContextCapability.pull",
+        "lemoncrow.pro.capabilities.scoped_context.ScopedContextCapability.pull",
         fake_pull,
     )
 
@@ -881,14 +881,14 @@ def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> 
 def test_model_recommendation_fallback_records_route_decision(
     monkeypatch: pytest.MonkeyPatch, store_root: Path
 ) -> None:
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
 
     def fail_recommend(*_: object, **__: object) -> dict[str, object]:
         raise RouteConfigError("disabled")
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend",
+        "lemoncrow.pro.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend",
         fail_recommend,
     )
     ledger = RunLedger(session_id="route-fallback", root=store_root)
@@ -1539,7 +1539,7 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
         return HookResult()
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         fake_hooks,
     )
 
@@ -2189,7 +2189,7 @@ def test_code_context_pattern_search_surface_is_cached(
     (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(
@@ -2297,7 +2297,7 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
 
     reindexed: list[list[str]] = []
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
     monkeypatch.setattr(
         CodeContextEngine,
         "_reindex_files",
@@ -2344,7 +2344,7 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
         "hint": "install ast-grep",
     }
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: (_ for _ in ()).throw(
             AstGrepToolUnavailable(payload)
         ),
@@ -2366,7 +2366,7 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
 
 def test_path_safety_module_is_importable_and_has_protected_parts() -> None:
     """Centralised PROTECTED_PARTS frozenset must exist and cover the canonical dirs."""
-    from lemoncrow.core.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
+    from lemoncrow.pro.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
 
     required = {".git", ".lemoncrow", "node_modules", ".venv"}
     assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"

@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.archival_recall import ann as ann_mod
-from lemoncrow.core.capabilities.archival_recall import ranking as ranking_mod
-from lemoncrow.core.capabilities.archival_recall.ann import ArchivalAnnIndex, ann_retrieval_enabled
-from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.pro.capabilities.archival_recall import ann as ann_mod
+from lemoncrow.pro.capabilities.archival_recall import ranking as ranking_mod
+from lemoncrow.pro.capabilities.archival_recall.ann import ArchivalAnnIndex, ann_retrieval_enabled
+from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
 
 _DIM = 8
 

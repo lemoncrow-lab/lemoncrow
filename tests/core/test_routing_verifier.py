@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.quality_router.verifier import verify_route
 from lemoncrow.core.foundation.models import ValidationResult
+from lemoncrow.pro.capabilities.quality_router.verifier import verify_route
 
 
 def test_routing_verifier_pass_outcome() -> None:

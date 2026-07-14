@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-from lemoncrow.core.capabilities.semantic_file_memory.capability import _outline_saves_enough
-from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import (
+from lemoncrow.infra.code_intel.languages import LANGUAGES, language_for_path
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
+from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+from lemoncrow.pro.capabilities.semantic_file_memory.capability import _outline_saves_enough
+from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import (
     SUPPORTED_LANGUAGES,
     outline_text,
 )
-from lemoncrow.infra.code_intel.languages import LANGUAGES, language_for_path
-from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "languages"
 AST_OUTLINE_LANGUAGES = {"python", "typescript", "javascript"}

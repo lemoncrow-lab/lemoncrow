@@ -354,7 +354,7 @@ def test_bootstrap_failed_job_does_not_block_requeue(ctx_root: Path) -> None:
 
     # Simulate a failed bootstrap job for the current repo
     import lemoncrow.gateway.adapters.mcp_server as mcp
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     repo_id = CodeContextEngine(mcp._workspace_root().resolve()).repo_id
     jid = store.jobs.enqueue_job(JOB_BOOTSTRAP_CONTEXT, {"repo_root": str(mcp._workspace_root()), "repo_id": repo_id})

@@ -21,10 +21,13 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.capabilities.licensing import store
+from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
 
 REPORT_INTERVAL_SECONDS = 30 * 60
-_BILLING_WINDOW_DAYS = 30
-USER_AGENT = "LemonCrow-CLI/1.0"
+# ~100 years: large enough that aggregate_window_savings clamps its day cutoff
+# to the epoch, summing EVERY day bucket -> a monotonic lifetime total (see
+# report_usage_once for why monotonicity matters).
+_LIFETIME_DAYS = 36_500
 
 _HttpPost = Callable[[str, dict[str, Any], str], bool]
 
@@ -72,7 +75,13 @@ def _default_post(url: str, payload: dict[str, Any], token: str) -> bool:
         return False
 
 
-def report_usage_once(root: str | Path, *, http_post: _HttpPost | None = None, now: int | None = None) -> bool:
+def report_usage_once(
+    root: str | Path,
+    *,
+    http_post: _HttpPost | None = None,
+    now: int | None = None,
+    watermark: dict[str, Any] | None = None,
+) -> bool:
     """Report the usage delta since the last watermark. Returns True if posted.
 
     No signed-in token, or no new data since last report -> returns False without
@@ -84,13 +93,20 @@ def report_usage_once(root: str | Path, *, http_post: _HttpPost | None = None, n
     try:
         from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
 
-        window = aggregate_window_savings(Path(root), days=_BILLING_WINDOW_DAYS)
-        saved_usd = round(max(0.0, float(getattr(window, "saved_usd", 0.0))), 4)
-        spend_usd = round(max(0.0, float(getattr(window, "spend_usd", 0.0))), 4)
+        # Report deltas of a MONOTONIC lifetime total, never a trailing window:
+        # a rolling window shrinks as old days age out, so diffing it against a
+        # monotonic watermark drops re-grown savings and the server under-meters
+        # (the cap silently stops enforcing). _LIFETIME_DAYS makes the aggregate
+        # clamp its cutoff to the epoch -> every day bucket summed -> a
+        # non-decreasing cumulative total. The server buckets these positive
+        # deltas by receipt-day into its own rolling 30-day window.
+        lifetime = aggregate_window_savings(Path(root), days=_LIFETIME_DAYS)
+        saved_usd = round(max(0.0, float(getattr(lifetime, "saved_usd", 0.0))), 4)
+        spend_usd = round(max(0.0, float(getattr(lifetime, "spend_usd", 0.0))), 4)
     except Exception:  # noqa: BLE001
         return False
 
-    wm = _read_watermark(root)
+    wm = _read_watermark(root) if watermark is None else watermark
     prior_saved = float(wm.get("reported_saved_usd") or 0.0)
     prior_spend = float(wm.get("reported_spend_usd") or 0.0)
     delta_saved = round(saved_usd - prior_saved, 4)
@@ -100,6 +116,8 @@ def report_usage_once(root: str | Path, *, http_post: _HttpPost | None = None, n
 
     stamp = int(time.time()) if now is None else now
     payload = {
+        # Lifetime cumulative totals (monotonic); kept under these wire names
+        # for compatibility. The server accumulates the deltas, not these.
         "window_saved_usd": saved_usd,
         "window_spend_usd": spend_usd,
         "delta_saved_usd": max(0.0, delta_saved),
@@ -118,7 +136,8 @@ def maybe_report_usage(root: str | Path, *, http_post: _HttpPost | None = None, 
     :data:`REPORT_INTERVAL_SECONDS`, and only when there is new data.
     """
     stamp = int(time.time()) if now is None else now
-    last = float(_read_watermark(root).get("at") or 0.0)
+    wm = _read_watermark(root)
+    last = float(wm.get("at") or 0.0)
     if stamp - last < REPORT_INTERVAL_SECONDS:
         return False
-    return report_usage_once(root, http_post=http_post, now=stamp)
+    return report_usage_once(root, http_post=http_post, now=stamp, watermark=wm)

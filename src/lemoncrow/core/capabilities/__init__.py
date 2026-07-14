@@ -26,40 +26,40 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     mapping = {
-        "BudgetPlan": ("lemoncrow.core.capabilities.budget_optimizer", "BudgetPlan"),
-        "ContextBlock": ("lemoncrow.core.capabilities.budget_optimizer", "ContextBlock"),
+        "BudgetPlan": ("lemoncrow.pro.capabilities.budget_optimizer", "BudgetPlan"),
+        "ContextBlock": ("lemoncrow.pro.capabilities.budget_optimizer", "ContextBlock"),
         "PromptBudgetOptimizer": (
-            "lemoncrow.core.capabilities.budget_optimizer",
+            "lemoncrow.pro.capabilities.budget_optimizer",
             "PromptBudgetOptimizer",
         ),
         "QualityRouterCapability": (
-            "lemoncrow.core.capabilities.quality_router.capability",
+            "lemoncrow.pro.capabilities.quality_router.capability",
             "QualityRouterCapability",
         ),
         "ContextCompressionCapability": (
-            "lemoncrow.core.capabilities.context_compression",
+            "lemoncrow.pro.capabilities.context_compression",
             "ContextCompressionCapability",
         ),
         "FailureAnalysisCapability": (
-            "lemoncrow.core.capabilities.failure_analysis",
+            "lemoncrow.pro.capabilities.failure_analysis",
             "FailureAnalysisCapability",
         ),
         "LessonPromoterCapability": (
-            "lemoncrow.core.capabilities.lesson_promotion",
+            "lemoncrow.pro.capabilities.lesson_promotion",
             "LessonPromoterCapability",
         ),
         "ContextReuseCapability": (
-            "lemoncrow.core.capabilities.context_reuse",
+            "lemoncrow.pro.capabilities.context_reuse",
             "ContextReuseCapability",
         ),
         "ProofGateCapability": (
-            "lemoncrow.core.capabilities.proof_gate.capability",
+            "lemoncrow.pro.capabilities.proof_gate.capability",
             "ProofGateCapability",
         ),
         "CapabilityNode": ("lemoncrow.core.capabilities.registry", "CapabilityNode"),
         "CapabilityRegistry": ("lemoncrow.core.capabilities.registry", "CapabilityRegistry"),
         "SemanticFileMemoryCapability": (
-            "lemoncrow.core.capabilities.semantic_file_memory",
+            "lemoncrow.pro.capabilities.semantic_file_memory",
             "SemanticFileMemoryCapability",
         ),
         "TelemetryEvent": ("lemoncrow.core.capabilities.telemetry", "TelemetryEvent"),
@@ -68,7 +68,7 @@ def __getattr__(name: str) -> Any:
             "TelemetrySubstrate",
         ),
         "ToolSupervisionCapability": (
-            "lemoncrow.core.capabilities.tool_supervision",
+            "lemoncrow.pro.capabilities.tool_supervision",
             "ToolSupervisionCapability",
         ),
     }

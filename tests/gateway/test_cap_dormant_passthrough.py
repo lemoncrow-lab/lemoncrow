@@ -22,7 +22,7 @@ def _seed_meter(root: Path, *, over: bool) -> None:
 def _reset_cache() -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
-    mcp_server._DORMANT_SNAPSHOT["value"] = None
+    mcp_server._DORMANT_SNAPSHOT_BY_SESSION.clear()
 
 
 def test_dormant_true_when_over_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

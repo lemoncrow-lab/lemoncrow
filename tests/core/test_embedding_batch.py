@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context.embedding import SemanticSearchRanker
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.pro.capabilities.code_context.embedding import SemanticSearchRanker
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 
 
 class _RecordingEmbedder:

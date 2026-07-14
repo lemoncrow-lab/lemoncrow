@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.swarm import (
+from lemoncrow.infra.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
+from lemoncrow.pro.capabilities.swarm import (
     apply_wave_candidates,
     initialize_swarm_run,
     launch_swarm_children,
@@ -16,13 +17,13 @@ from lemoncrow.core.capabilities.swarm import (
     save_swarm_state,
     swarm_run_dir,
 )
-from lemoncrow.core.capabilities.swarm.capability import (
+from lemoncrow.pro.capabilities.swarm.capability import (
     _fallback_wave_evaluation,
     _plan_wave_runs,
     _score_child,
     _write_child_patch,
 )
-from lemoncrow.core.capabilities.swarm.models import (
+from lemoncrow.pro.capabilities.swarm.models import (
     SwarmAcceptedCommit,
     SwarmChildState,
     SwarmRunState,
@@ -31,7 +32,6 @@ from lemoncrow.core.capabilities.swarm.models import (
     SwarmWaveEvaluation,
     SwarmWaveState,
 )
-from lemoncrow.infra.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -176,7 +176,7 @@ def test_run_child_once_writes_structured_result(tmp_path: Path) -> None:
     load_swarm.children = state.children
     load_swarm.waves = state.waves
     load_swarm.current_wave = 1
-    from lemoncrow.core.capabilities.swarm import save_swarm_state
+    from lemoncrow.pro.capabilities.swarm import save_swarm_state
 
     save_swarm_state(state_path, load_swarm)
 
@@ -242,7 +242,7 @@ def test_run_child_once_marks_silent_noop_as_failed(tmp_path: Path) -> None:
     load_swarm.children = state.children
     load_swarm.waves = state.waves
     load_swarm.current_wave = 1
-    from lemoncrow.core.capabilities.swarm import save_swarm_state
+    from lemoncrow.pro.capabilities.swarm import save_swarm_state
 
     save_swarm_state(state_path, load_swarm)
 
@@ -746,7 +746,7 @@ def test_apply_wave_candidates_respects_evaluator_conflict_metadata(
             ],
         )
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
 
     accepted_any = apply_wave_candidates(state, children, wave)
 
@@ -828,10 +828,12 @@ def test_apply_wave_candidates_rejects_duplicate_of_accepted_history(
             decisions=[SwarmWaveDecision(child_id=child.child_id, verdict="accept", rationale="Looks good.")],
         )
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._write_child_patch", lambda _child: candidate_patch)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._evaluate_wave", _fake_evaluate)
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.swarm.capability._can_apply_patch",
+        "lemoncrow.pro.capabilities.swarm.capability._write_child_patch", lambda _child: candidate_patch
+    )
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.swarm.capability._can_apply_patch",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("duplicate should be rejected before patch apply")
         ),
@@ -909,9 +911,9 @@ def test_launch_swarm_children_continues_after_deferred_wave(
         state.convergence_status = "continue"
         return True
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._prepare_wave", _prepare)
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._run_wave_children", _run_wave)
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._prepare_wave", _prepare)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._run_wave_children", _run_wave)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability.apply_wave_candidates", _apply)
 
     completed = launch_swarm_children(root, state_path)
 

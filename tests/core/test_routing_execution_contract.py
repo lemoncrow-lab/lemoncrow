@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.quality_router.capability import QualityRouterCapability
-from lemoncrow.core.capabilities.quality_router.execution_contract import (
+from lemoncrow.pro.capabilities.quality_router.capability import QualityRouterCapability
+from lemoncrow.pro.capabilities.quality_router.execution_contract import (
     RouteExecutionContract,
     route_execution_contract,
 )

@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.code_context.budget import BudgetPacker
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord, TextMatch
-from lemoncrow.core.capabilities.code_context.output_policy import TRUNCATION_MARKER
 from lemoncrow.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
 from lemoncrow.infra.code_intel.cross_lang.runner import CrossLangRunner
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.budget import BudgetPacker
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord, TextMatch
+from lemoncrow.pro.capabilities.code_context.output_policy import TRUNCATION_MARKER
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -885,7 +885,7 @@ def test_explore_pins_exact_symbol_name(tmp_path: Path) -> None:
 def test_symbol_query_regex_separates_identifiers_from_concepts() -> None:
     # The exact-name lookup is gated on this regex: bare identifiers / dotted
     # paths trigger it; multi-word concept queries skip it (no extra search).
-    from lemoncrow.core.capabilities.code_context.engine import _SYMBOL_QUERY_RE
+    from lemoncrow.pro.capabilities.code_context.engine import _SYMBOL_QUERY_RE
 
     assert _SYMBOL_QUERY_RE.match("_pack_single_payload")
     assert _SYMBOL_QUERY_RE.match("module.Class.method")
@@ -1963,7 +1963,7 @@ def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkey
     # Bypass the production-code poll floor (1000ms) so the worker detects
     # changes within ~200ms instead of ~2s.
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.CodeContextEngine._parse_autosync_poll_ms",
+        "lemoncrow.pro.capabilities.code_context.engine.CodeContextEngine._parse_autosync_poll_ms",
         lambda self, raw_value: max(100, int(raw_value)) if raw_value else 100,
     )
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
@@ -2155,7 +2155,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
         assert key in tight["items"][0]
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(
@@ -2192,7 +2192,7 @@ def test_native_pattern_uses_index_and_cache_for_def_patterns(tmp_path: Path, mo
     def fail_ast_parse(_source: str) -> object:
         raise AssertionError("indexed def patterns should not parse source")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.ast.parse", fail_ast_parse)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.code_context.engine.ast.parse", fail_ast_parse)
 
     first = engine.tool_pattern(pattern="def add_node($$$):", language="python", file_glob="src/**/*.py")
     second = engine.tool_pattern(pattern="def add_node($$$):", language="python", file_glob="src/**/*.py")
@@ -2213,7 +2213,7 @@ def test_search_text_uses_index_before_ripgrep(tmp_path: Path, monkeypatch: pyte
     def fail_rg(*args: object, **kwargs: object) -> object:
         raise AssertionError("search_text should use indexed line text before rg")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.code_context.engine.subprocess.run", fail_rg)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.code_context.engine.subprocess.run", fail_rg)
 
     matches = engine.search_text("aggregate", path="src", limit=5, ignore_case=True)
 
@@ -2245,7 +2245,7 @@ def test_tiny_budget_overflow_does_not_attach_spill_metadata(tmp_path: Path) -> 
 
 def test_overflow_metadata_and_artifact_payload_are_compact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.default_store_root",
+        "lemoncrow.pro.capabilities.code_context.engine.default_store_root",
         lambda: tmp_path / ".lemoncrow-store",
     )
     (tmp_path / "src").mkdir()

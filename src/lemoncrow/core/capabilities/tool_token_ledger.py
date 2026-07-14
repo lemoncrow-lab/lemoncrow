@@ -7,7 +7,7 @@ accumulated per tool name and persisted as a JSON sidecar alongside the other
 savings accounting.
 
 Measurement primitive: the EXISTING local token counter in
-``lemoncrow.core.capabilities.prompt_compilation.tokens.estimate_tokens``
+``lemoncrow.pro.capabilities.prompt_compilation.tokens.estimate_tokens``
 (cl100k_base via tiktoken, char/4 fallback). No network API is called — the
 local tokenizer is the deterministic measurement.
 
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.prompt_compilation.tokens import estimate_tokens
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
 _log = logging.getLogger(__name__)
 

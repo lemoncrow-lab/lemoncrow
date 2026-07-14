@@ -77,6 +77,17 @@ def test_cap_exhausted_fail_open_on_missing(tmp_path: Path) -> None:
     assert pr.cap_exhausted(tmp_path) is False
 
 
+def test_verified_pro_plan_overrides_stale_local_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "LOCAL", "savingsOverCap": True})
+    monkeypatch.setattr(
+        "lemoncrow.core.capabilities.licensing.entitlements.current_license",
+        lambda: type("License", (), {"plan": "pro"})(),
+    )
+    assert pr.cap_exhausted(tmp_path) is False
+
+
 def test_server_meter_trusted_verbatim(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # server says over cap; local estimate is $0 -> must still be over (server wins)
     _patch_window(monkeypatch, saved=0.0)

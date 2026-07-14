@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lemoncrow.core.capabilities.audit_export import export_audit_bundle, verify_audit_bundle
-from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
-from lemoncrow.core.capabilities.cross_vendor_memory.models import AuditEvent
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
-from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+from lemoncrow.pro.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from lemoncrow.pro.capabilities.cross_vendor_memory.models import AuditEvent
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
 
 def test_export_bundle_redacts_and_verifies_then_detects_tampering(tmp_path: Path) -> None:

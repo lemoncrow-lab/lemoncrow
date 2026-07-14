@@ -5,7 +5,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from lemoncrow.core.capabilities.swarm.capability import (
+from lemoncrow.gateway.cli.commands.swarm import swarm_group
+from lemoncrow.pro.capabilities.swarm.capability import (
     _expand_command_tokens,
     build_child_env,
     launch_swarm_children,
@@ -14,14 +15,13 @@ from lemoncrow.core.capabilities.swarm.capability import (
     resolve_swarm_provider_command,
     save_swarm_state,
 )
-from lemoncrow.core.capabilities.swarm.models import (
+from lemoncrow.pro.capabilities.swarm.models import (
     SwarmAcceptedCommit,
     SwarmArtifactRef,
     SwarmChildState,
     SwarmRunState,
     SwarmWaveState,
 )
-from lemoncrow.gateway.cli.commands.swarm import swarm_group
 
 
 def test_swarm_start_requires_child_command(tmp_path: Path) -> None:
@@ -571,15 +571,15 @@ def test_launch_swarm_children_stops_on_first_no_improvement_wave(monkeypatch: o
         return False
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.swarm.capability._prepare_wave",
+        "lemoncrow.pro.capabilities.swarm.capability._prepare_wave",
         _prepare,
     )
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.swarm.capability._run_wave_children",
+        "lemoncrow.pro.capabilities.swarm.capability._run_wave_children",
         _run_wave,
     )
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates",
+        "lemoncrow.pro.capabilities.swarm.capability.apply_wave_candidates",
         _apply,
     )
 
@@ -636,9 +636,9 @@ def test_launch_swarm_children_stops_at_max_waves(monkeypatch: object, tmp_path:
         state.convergence_status = "continue"
         return True
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._prepare_wave", _prepare)
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability._run_wave_children", _run_wave)
-    monkeypatch.setattr("lemoncrow.core.capabilities.swarm.capability.apply_wave_candidates", _apply)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._prepare_wave", _prepare)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability._run_wave_children", _run_wave)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.swarm.capability.apply_wave_candidates", _apply)
 
     completed = launch_swarm_children(root, state_path)
 

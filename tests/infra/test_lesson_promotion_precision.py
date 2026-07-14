@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
 from lemoncrow.core.foundation.models import Playbook, Trace
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 from lemoncrow.infra.storage.vector import generate_embedding
+from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
 
 
 class _FixtureEmbedder:
@@ -25,7 +25,7 @@ def _fixture_path() -> Path:
 
 def test_lesson_promotion_precision_on_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.pro.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "fixture lesson body",
     )
     store = build_sqlite_store_bundle(tmp_path / ".lemoncrow")

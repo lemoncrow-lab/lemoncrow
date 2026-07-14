@@ -20,10 +20,10 @@ def _make_memory_registry(cwd: Path | None = None) -> Any:
 
     require_pro("cross_vendor_memory", "Unified cross-vendor memory")
 
-    from lemoncrow.core.capabilities.cross_vendor_memory import MemoryRegistry
-    from lemoncrow.core.capabilities.cross_vendor_memory.claude_adapter import ClaudeAdapter
-    from lemoncrow.core.capabilities.cross_vendor_memory.codex_adapter import CodexAdapter
-    from lemoncrow.core.capabilities.cross_vendor_memory.gemini_adapter import GeminiAdapter
+    from lemoncrow.pro.capabilities.cross_vendor_memory import MemoryRegistry
+    from lemoncrow.pro.capabilities.cross_vendor_memory.claude_adapter import ClaudeAdapter
+    from lemoncrow.pro.capabilities.cross_vendor_memory.codex_adapter import CodexAdapter
+    from lemoncrow.pro.capabilities.cross_vendor_memory.gemini_adapter import GeminiAdapter
 
     return MemoryRegistry(
         adapters=[  # type: ignore[list-item]
@@ -35,10 +35,10 @@ def _make_memory_registry(cwd: Path | None = None) -> Any:
 
 
 def _make_memory_service(root: Path) -> Any:
-    from lemoncrow.core.capabilities.memory import MemoryService
     from lemoncrow.core.foundation.redaction import redact
     from lemoncrow.infra.embeddings.factory import make_embedder
     from lemoncrow.infra.storage.factory import make_memory_store
+    from lemoncrow.pro.capabilities.memory import MemoryService
 
     return MemoryService(store=make_memory_store(root), embedder=make_embedder(), redactor=redact)
 
@@ -205,12 +205,12 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
 @click.pass_context
 def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: bool) -> None:
     """Promote one editable memory block into workspace-shared memory."""
-    from lemoncrow.core.capabilities.team import (
+    from lemoncrow.infra.storage.factory import make_memory_store
+    from lemoncrow.pro.capabilities.team import (
         TeamAuditEvent,
         TeamWorkspaceManager,
         ensure_shared_memory_write,
     )
-    from lemoncrow.infra.storage.factory import make_memory_store
 
     root = ctx.obj["root"]
     manager = TeamWorkspaceManager(root)
@@ -317,10 +317,10 @@ def memory_recall_cmd(
 
     QUERY is the natural-language search string.
     """
-    from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
     from lemoncrow.core.foundation.redaction import redact
     from lemoncrow.infra.embeddings.factory import make_embedder
     from lemoncrow.infra.storage.factory import make_memory_store
+    from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
     root = ctx.obj["root"]
     store = make_memory_store(root)

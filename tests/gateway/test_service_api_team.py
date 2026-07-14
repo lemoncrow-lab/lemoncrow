@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
-from lemoncrow.core.capabilities.cross_vendor_memory.models import AuditEvent
 from lemoncrow.core.service.api import create_app
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from lemoncrow.pro.capabilities.cross_vendor_memory.models import AuditEvent
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient

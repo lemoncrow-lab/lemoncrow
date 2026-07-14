@@ -18,7 +18,7 @@ def _reset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    mcp_server._DORMANT_SNAPSHOT["value"] = None  # unfrozen -> lazy re-read per test
+    mcp_server._DORMANT_SNAPSHOT_BY_SESSION.clear()  # unfrozen -> lazy re-read per test
 
 
 def _list(tmp_path: Path) -> list[dict]:
@@ -42,12 +42,12 @@ def test_tools_present_when_under_cap(tmp_path: Path) -> None:
 
 
 def _snapshot(tmp_path: Path, *, over: bool) -> None:
-    """Freeze the process dormant snapshot as `initialize` would."""
+    """Freeze the session dormant snapshot as `initialize` would."""
     from lemoncrow.gateway.adapters import mcp_server
 
     _seed(tmp_path, over=over)
-    mcp_server._DORMANT_SNAPSHOT["value"] = None  # force re-read
-    mcp_server._DORMANT_SNAPSHOT["value"] = mcp_server._snapshot_dormant()
+    mcp_server._DORMANT_SNAPSHOT_BY_SESSION.clear()  # force re-read
+    mcp_server._freeze_dormant_snapshot()  # freeze THIS session, as initialize does
 
 
 def test_tools_call_hard_rejected_when_dormant(tmp_path: Path) -> None:
@@ -71,3 +71,29 @@ def test_freeze_grandfathers_when_started_under_cap(tmp_path: Path) -> None:
     _seed(tmp_path, over=True)  # meter moves after connect
     assert mcp_server._savings_dormant() is False  # frozen -> still active
     assert len(_list(tmp_path)) > 0
+
+
+def test_per_session_snapshot_no_bleed_and_resnapshot_on_clear(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#5: the frozen verdict is per session, not a single process global."""
+    from lemoncrow.gateway.adapters import mcp_server
+
+    key = {"v": "sessionA"}
+    monkeypatch.setattr(mcp_server, "_dormant_session_key", lambda: key["v"])
+
+    # Session A connects UNDER cap -> frozen False; stays grandfathered even
+    # after the meter crosses the cap.
+    _seed(tmp_path, over=False)
+    mcp_server._freeze_dormant_snapshot()
+    _seed(tmp_path, over=True)
+    assert mcp_server._savings_dormant() is False  # A grandfathered
+
+    # A concurrent session B (different key) sees the over-cap meter and is
+    # dormant -- and does NOT flip A.
+    key["v"] = "sessionB"
+    assert mcp_server._savings_dormant() is True
+    key["v"] = "sessionA"
+    assert mcp_server._savings_dormant() is False  # no cross-session bleed
+
+    # /clear rotates A's bridge session id -> new key -> re-snapshot over-cap.
+    key["v"] = "sessionA::cleared"
+    assert mcp_server._savings_dormant() is True

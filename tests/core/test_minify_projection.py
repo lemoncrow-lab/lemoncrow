@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.source_projection import (
+from lemoncrow.pro.capabilities.source_projection import (
     MinifiedEditError,
     apply_minified_edit,
     build_minified_projection,
     language_for_minify,
 )
-from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
 PY_SAMPLE = '''"""Module docstring."""
 import os

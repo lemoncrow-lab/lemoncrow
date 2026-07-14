@@ -139,7 +139,7 @@ class LocalClient(LemonCrowClient):
         validation_results: list[ValidationResult] | None = None,
         learnings: list[str | dict[str, Any] | TraceLearning] | None = None,
     ) -> TraceRecordResult:
-        from lemoncrow.core.capabilities.lesson_promotion import ingest_failed_trace
+        from lemoncrow.pro.capabilities.lesson_promotion import ingest_failed_trace
 
         trace = Trace.model_validate(
             {
@@ -168,7 +168,7 @@ class LocalClient(LemonCrowClient):
         return SavingsSummary.model_validate(CostTracker(self.root).total_savings())
 
     def lesson_inbox(self, *, domain: str | None = None, limit: int = 25) -> LessonInboxResult:
-        from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
+        from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
 
         promoter = LessonPromoterCapability(self.store)
         return LessonInboxResult(lessons=promoter.inbox(domain=domain, limit=limit))
@@ -181,7 +181,7 @@ class LocalClient(LemonCrowClient):
         reviewer: str,
         reason: str,
     ) -> LessonDecisionResult:
-        from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
+        from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
 
         promoter = LessonPromoterCapability(self.store)
         payload = promoter.decide(
@@ -239,8 +239,8 @@ class LocalClient(LemonCrowClient):
         source_ref: str = "",
         tags: list[str] | None = None,
     ) -> MemoryArchiveResult:
-        from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
         from lemoncrow.infra.embeddings.factory import make_embedder
+        from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
         capability = ArchivalRecallCapability(make_memory_store(self.root), make_embedder(), redactor=redact)
         passage = capability.archive(
@@ -263,8 +263,8 @@ class LocalClient(LemonCrowClient):
     ) -> MemoryRecallResult:
         from datetime import datetime
 
-        from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
         from lemoncrow.infra.embeddings.factory import make_embedder
+        from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
         capability = ArchivalRecallCapability(make_memory_store(self.root), make_embedder(), redactor=redact)
         passages, recall = capability.recall(

@@ -192,8 +192,8 @@ def import_style_guide_cmd(
     limit: int,
 ) -> None:
     """Draft lesson candidates from Markdown style guides."""
-    from lemoncrow.core.capabilities.style_import import import_files
     from lemoncrow.infra.internal_llm import OllamaUnavailable
+    from lemoncrow.pro.capabilities.style_import import import_files
 
     if not paths:
         raise click.ClickException("at least one Markdown file or directory is required")

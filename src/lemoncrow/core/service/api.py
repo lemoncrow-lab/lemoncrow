@@ -35,7 +35,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lemoncrow.core.capabilities.host_router_bridge import evaluate_host_router_request
 from lemoncrow.core.capabilities.pricing import usage_cost_usd
-from lemoncrow.core.capabilities.swarm import (
+from lemoncrow.core.capabilities.workflow_runtime_state import (
+    pause_workflow_runtime,
+    stop_workflow_runtime,
+    workflow_runtime_detail,
+)
+from lemoncrow.core.foundation.models import Trace, coerce_trace_json, to_jsonable
+from lemoncrow.core.foundation.paths import resolve_session_state_path, resolve_workspace_root
+from lemoncrow.core.service.auth import verify_api_key
+from lemoncrow.core.service.config import cfg
+from lemoncrow.core.service.schemas import (
+    ContextRequest,
+    ContextResponse,
+)
+from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.capabilities.swarm import (
     build_swarm_apply_payload,
     build_swarm_export_payload,
     build_swarm_spec_payload,
@@ -54,23 +68,9 @@ from lemoncrow.core.capabilities.swarm import (
     spawn_swarm_coordinator,
     stop_swarm_run,
 )
-from lemoncrow.core.capabilities.workflow_runtime_state import (
-    pause_workflow_runtime,
-    stop_workflow_runtime,
-    workflow_runtime_detail,
-)
-from lemoncrow.core.foundation.models import Trace, coerce_trace_json, to_jsonable
-from lemoncrow.core.foundation.paths import resolve_session_state_path, resolve_workspace_root
-from lemoncrow.core.service.auth import verify_api_key
-from lemoncrow.core.service.config import cfg
-from lemoncrow.core.service.schemas import (
-    ContextRequest,
-    ContextResponse,
-)
-from lemoncrow.infra.storage.bundle import StoreBundle
 
 if TYPE_CHECKING:
-    from lemoncrow.core.capabilities.optimization.optimizer import Candidate, OptimizationResult
+    from lemoncrow.pro.capabilities.optimization.optimizer import Candidate, OptimizationResult
 
 logger = logging.getLogger(__name__)
 
@@ -3013,7 +3013,7 @@ def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candi
     recommended candidate (matching the CLI's rendering); every other
     candidate's Total is its own raw delta against the baseline weekly cost.
     """
-    from lemoncrow.core.capabilities.optimization import potential_savings_breakdown
+    from lemoncrow.pro.capabilities.optimization import potential_savings_breakdown
 
     if candidate.id == advisor.recommended_candidate_id:
         total_saved_usd = advisor.weekly_savings_usd
@@ -3023,12 +3023,12 @@ def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candi
 
 
 def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_days: int) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.optimization import (
+    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
+    from lemoncrow.pro.capabilities.optimization import (
         load_current_policy,
         load_history,
         optimize_from_traces,
     )
-    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
 
     savings = _savings_summary_payload(root, window_days=window_days)
     traces = store.history.list_traces(limit=5000)
@@ -3049,7 +3049,7 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
     project_root_candidate = resolve_workspace_root(root)
     if not ((project_root_candidate / "src").exists() or (project_root_candidate / "AGENTS.md").exists()):
         project_root_candidate = Path.cwd()
-    from lemoncrow.core.capabilities.optimization import (
+    from lemoncrow.pro.capabilities.optimization import (
         build_context_audit,
         build_session_quality_summary,
     )
@@ -3585,7 +3585,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return _mem_store
 
     def _team_manager_or_none() -> Any | None:
-        from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+        from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
         manager = TeamWorkspaceManager(store_path)
         return manager if manager.exists() else None
@@ -3606,7 +3606,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             if block is None:
                 raise HTTPException(status_code=404, detail=f"Block not found: {label!r}")
             if manager is not None:
-                from lemoncrow.core.capabilities.team import visible_memory_blocks
+                from lemoncrow.pro.capabilities.team import visible_memory_blocks
 
                 visible = visible_memory_blocks([block], manager=manager, user_id=user_id, shared_only=shared_only)
                 if not visible:
@@ -3615,7 +3615,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             return block
         blocks = mem.list_blocks(agent_id, include_tombstoned=include_tombstoned, limit=limit)
         if manager is not None:
-            from lemoncrow.core.capabilities.team import visible_memory_blocks
+            from lemoncrow.pro.capabilities.team import visible_memory_blocks
 
             blocks = visible_memory_blocks(blocks, manager=manager, user_id=user_id, shared_only=shared_only)
         return blocks
@@ -3639,7 +3639,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             metadata.setdefault("workspace_id", workspace.id)
             metadata.setdefault("owner_user_id", member.user_id)
             if metadata.get("scope") == "shared":
-                from lemoncrow.core.capabilities.team import ensure_shared_memory_write
+                from lemoncrow.pro.capabilities.team import ensure_shared_memory_write
 
                 ensure_shared_memory_write(member)
         existing = mem.get_block(agent_id, label)
@@ -3739,7 +3739,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.post("/v1/team/workspace", tags=["team"], dependencies=[Depends(verify_api_key)])
     def team_workspace_init(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
+        from lemoncrow.pro.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
 
         name = str(payload.get("name") or "").strip()
         if not name:
@@ -3754,7 +3754,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.post("/v1/team/invite", tags=["team"], dependencies=[Depends(verify_api_key)])
     def team_invite(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.team import TeamPermissionError, TeamWorkspaceManager
+        from lemoncrow.pro.capabilities.team import TeamPermissionError, TeamWorkspaceManager
 
         emails = [str(item).strip().lower() for item in payload.get("emails") or [] if str(item).strip()]
         if not emails:
@@ -3772,7 +3772,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.post("/v1/team/join", tags=["team"], dependencies=[Depends(verify_api_key)])
     def team_join(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
+        from lemoncrow.pro.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
 
         code = str(payload.get("invite_code") or "").strip()
         if not code:
@@ -3788,7 +3788,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.post("/v1/team/role", tags=["team"], dependencies=[Depends(verify_api_key)])
     def team_role(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.team import (
+        from lemoncrow.pro.capabilities.team import (
             TeamPermissionError,
             TeamWorkspaceError,
             TeamWorkspaceManager,
@@ -3812,7 +3812,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.get("/v1/team/usage", tags=["team"], dependencies=[Depends(verify_api_key)])
     def team_usage(user_id: str | None = None, since: str | None = None) -> Any:
-        from lemoncrow.core.capabilities.team import (
+        from lemoncrow.pro.capabilities.team import (
             TeamPermissionError,
             TeamWorkspaceManager,
             summarize_workspace_usage,
@@ -3835,7 +3835,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     @app.post("/v1/governance/policy", tags=["governance"], dependencies=[Depends(verify_api_key)])
     def governance_set(payload: dict[str, Any]) -> Any:
         from lemoncrow.core.capabilities.governance import GovernancePolicy, save_policy
-        from lemoncrow.core.capabilities.team import (
+        from lemoncrow.pro.capabilities.team import (
             TeamAuditEvent,
             TeamPermissionError,
             TeamWorkspaceManager,
@@ -3856,7 +3856,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     @app.post("/v1/audit/export", tags=["audit"], dependencies=[Depends(verify_api_key)])
     def audit_export(payload: dict[str, Any]) -> Any:
         from lemoncrow.core.capabilities.audit_export import export_audit_bundle
-        from lemoncrow.core.capabilities.team import (
+        from lemoncrow.pro.capabilities.team import (
             TeamAuditEvent,
             TeamPermissionError,
             TeamWorkspaceManager,
@@ -6374,7 +6374,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         vendor: str | None = Query(None, description="Filter by vendor: claude, codex, gemini"),
     ) -> list[dict[str, Any]]:
         """List cross-vendor memory facts, optionally filtered by vendor."""
-        from lemoncrow.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+        from lemoncrow.pro.capabilities.cross_vendor_memory.registry import MemoryRegistry
 
         registry = MemoryRegistry()
         facts = registry.by_vendor(vendor) if vendor else registry.all_facts()
@@ -6399,7 +6399,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     )
     def get_memory_fact(fact_id: str) -> dict[str, Any]:
         """Get a single cross-vendor memory fact by its stable fact_id."""
-        from lemoncrow.core.capabilities.cross_vendor_memory.registry import MemoryRegistry
+        from lemoncrow.pro.capabilities.cross_vendor_memory.registry import MemoryRegistry
 
         registry = MemoryRegistry()
         fact = registry.show(fact_id)

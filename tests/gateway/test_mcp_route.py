@@ -7,12 +7,12 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.core.capabilities.pricing import active_model
+from lemoncrow.gateway.adapters.mcp_server import _handle
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     save_route_config,
 )
-from lemoncrow.core.capabilities.pricing import active_model
-from lemoncrow.gateway.adapters.mcp_server import _handle
 
 
 def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:

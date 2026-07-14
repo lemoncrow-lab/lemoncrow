@@ -74,6 +74,9 @@ _SKIP_PATHS = {
     "lemoncrow/gateway/openai_gateway/app.py",
     "lemoncrow/gateway/cli/runtime.py",
     "lemoncrow/infra/code_intel/zoekt/server.py",  # clang 21 ICE on mypyc-generated C
+    # Must stay interpreted: mypyc-native classes have no __weakref__ slot, and
+    # this holder exists precisely to be a weakref target for the native engine.
+    "lemoncrow/core/foundation/weakref_token.py",
     # mypyc strips function annotations, but the @mcp_tool framework introspects
     # them (inspect.signature / get_type_hints) to build pydantic ArgsModels and
     # coerce stringified client args. Compiling this module erases those types, so
@@ -178,27 +181,52 @@ class CustomBuildHook(BuildHookInterface):
 
 def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list[str]:
     result = []
+    # lemoncrow/pro is the closed IP engine: EVERY module must compile to .so so
+    # no readable source ever ships. The thin-orchestration / mypyc-quirk skip
+    # lists below are allowances for the open tree only -- they do NOT apply to
+    # pro/, and any pro module that matches a mypyc-incompatible pattern is a
+    # release blocker (raised below) rather than a silent source leak.
+    pro_uncompilable: list[tuple[str, str]] = []
     for py in sorted(lemoncrow_src.rglob("*.py")):
         if any(p in py.parts for p in _SKIP_DIRS):
             continue
         if py.name == "__main__.py":
             continue
-        if py.name in _SKIP_FILES:
-            continue
         rel = str(py.relative_to(src_dir))
-        if rel in _SKIP_PATHS:
-            continue
-        text = py.read_text(errors="replace")
-        if (
-            _PYDANTIC_RE.search(text)
-            or _DYNAMIC_RE.search(text)
-            or _BUILTIN_INHERIT_RE.search(text)
-            or _NO_REDEF_RE.search(text)
-            or _RUNTIME_CHECKABLE_RE.search(text)
-            or _CLICK_RE.search(text)
-        ):
+        is_pro = rel.startswith("lemoncrow/pro/")
+        reason = ""
+        if not is_pro and py.name in _SKIP_FILES:
+            reason = f"SKIP_FILES({py.name})"
+        elif not is_pro and rel in _SKIP_PATHS:
+            reason = "SKIP_PATHS"
+        else:
+            text = py.read_text(errors="replace")
+            if _PYDANTIC_RE.search(text):
+                reason = "pydantic BaseModel/RootModel"
+            elif _DYNAMIC_RE.search(text):
+                reason = "__import__()"
+            elif _BUILTIN_INHERIT_RE.search(text):
+                reason = "builtin-type inheritance"
+            elif _NO_REDEF_RE.search(text):
+                reason = "type: ignore[no-redef]"
+            elif _RUNTIME_CHECKABLE_RE.search(text):
+                reason = "@runtime_checkable"
+            elif _CLICK_RE.search(text):
+                reason = "click decorator"
+        if reason:
+            if is_pro:
+                pro_uncompilable.append((rel, reason))
             continue
         result.append(rel)
+    if pro_uncompilable:
+        details = "\n".join(f"  - {rel}  [{why}]" for rel, why in pro_uncompilable)
+        raise RuntimeError(
+            "IP-leak guard: these lemoncrow/pro modules cannot be mypyc-compiled "
+            "and would ship as READABLE SOURCE in the wheel. Refactor them to be "
+            "compilable (move pydantic models to the open code_context_contract, "
+            "drop @runtime_checkable, replace __import__) before building a "
+            f"release:\n{details}"
+        )
     return result
 
 

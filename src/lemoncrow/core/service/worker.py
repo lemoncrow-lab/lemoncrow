@@ -21,7 +21,6 @@ from typing import Any
 
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.core.service.ingest_session import ingest_session_file
-from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.core.service.jobs import (
     JOB_BOOTSTRAP_CONTEXT,
     JOB_CONSOLIDATE_BLOCKS,
@@ -30,6 +29,7 @@ from lemoncrow.core.service.jobs import (
     JOB_RETENTION_CLEANUP,
     KNOWN_JOB_TYPES,
 )
+from lemoncrow.infra.storage.bundle import StoreBundle
 
 # Terminal jobs (succeeded/failed/dead) older than this are pruned.
 DEFAULT_JOB_RETENTION_DAYS = 14
@@ -72,13 +72,13 @@ class Worker:
                 raise ValueError(f"Session directory does not exist or is not a directory: {session_directory}")
 
     def _default_dispatch(self) -> dict[str, JobHandler]:
-        from lemoncrow.core.capabilities.consolidation import consolidate
-        from lemoncrow.core.capabilities.optimization import run_optimization_cycle
         from lemoncrow.core.service.bootstrap_context import persist_bootstrap_plan
         from lemoncrow.core.service.ingest_session import (
             ingest_session_file as ingest_session_file_service,
         )
         from lemoncrow.infra.storage.factory import make_memory_store
+        from lemoncrow.pro.capabilities.consolidation import consolidate
+        from lemoncrow.pro.capabilities.optimization import run_optimization_cycle
 
         def consolidate_handler(payload: dict[str, Any]) -> dict[str, Any]:
             report = consolidate(self._store, dry_run=bool(payload.get("dry_run", False)))

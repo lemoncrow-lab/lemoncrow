@@ -48,7 +48,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -82,7 +84,7 @@ def _cache_bash_invocation(
     if os.environ.get("LEMONCROW_CACHE_DISABLED") == "1":
         return
     try:
-        from lemoncrow.core.capabilities.tool_supervision import ToolSupervisionCapability
+        from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
 
         cap = ToolSupervisionCapability(_lemoncrow_root())
         key = f"Bash:{json.dumps({'command': command}, sort_keys=True)[:100]}"

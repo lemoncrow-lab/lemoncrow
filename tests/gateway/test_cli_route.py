@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
 from lemoncrow.gateway.cli import cli
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def _invoke(root: Path, *args: str) -> Result:

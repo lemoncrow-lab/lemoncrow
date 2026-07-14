@@ -39,7 +39,7 @@ def engine_with_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     # Mock the query-side embedder so _search_commit_chunks gets a query
     # vector with the same dimension as the stored dummy embedding.
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.embedding.SemanticSearchRanker._embed_query",
+        "lemoncrow.pro.capabilities.code_context.embedding.SemanticSearchRanker._embed_query",
         lambda _self, _q: [0.1, 0.2, 0.3, 0.4],
     )
 
@@ -59,7 +59,7 @@ def engine_with_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     db_dir = tmp_path / ".lemoncrow"
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
     engine = CodeContextEngine(repo_root=tmp_path, db_path=db_dir / "code.db")
 

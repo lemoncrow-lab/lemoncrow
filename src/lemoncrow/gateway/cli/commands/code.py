@@ -256,7 +256,7 @@ def zoekt_reset(ctx: click.Context, yes: bool) -> None:
 
 
 def _code_context_engine(repo_root: str, db_path: Path | None = None) -> Any:
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     # One-shot CLI commands don't need background autosync threads
     return CodeContextEngine(repo_root, db_path=db_path, autosync_enabled=False)
@@ -728,7 +728,7 @@ def _print_index_stats(engine: Any, frame_prefix: str = "") -> None:
     kinds = c.execute("SELECT kind, COUNT(*) FROM symbols GROUP BY kind ORDER BY COUNT(*) DESC").fetchall()
 
     # Embedding stats
-    from lemoncrow.core.capabilities.code_context.ann_symbol_index import ann_retrieval_enabled
+    from lemoncrow.pro.capabilities.code_context.ann_symbol_index import ann_retrieval_enabled
 
     ranker_configured = getattr(engine._semantic_ranker, "available", False)
     flag_enabled = ann_retrieval_enabled()

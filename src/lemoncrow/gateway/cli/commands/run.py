@@ -123,10 +123,6 @@ def _run_owned_session(
     dry_run: bool,
     root: Path,
 ) -> None:
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
-        detect_api_key_vendors,
-    )
-    from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
     from lemoncrow.core.capabilities.owned_agent_session import (
         OwnedAgentSession,
         run_phase_linear,
@@ -138,6 +134,10 @@ def _run_owned_session(
         OwnedRouteRequest,
         select_owned_route,
     )
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+        detect_api_key_vendors,
+    )
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
     # Credential check — fail fast with actionable message
     vendors = detect_api_key_vendors()
@@ -236,17 +236,17 @@ def _select_print_route(
     root: Path,
 ) -> tuple[str, str, str, str]:
     """Return provider, litellm model, transport, and normalized cache policy for one-shot runs."""
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
-        detect_api_key_vendors,
-    )
-    from lemoncrow.core.capabilities.cross_vendor_routing.router import (
-        NoFeasibleRouteError,
-    )
     from lemoncrow.core.capabilities.owned_execution_routing import (
         OwnedCachePolicy,
         OwnedRouteBudget,
         OwnedRouteRequest,
         select_owned_route,
+    )
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+        detect_api_key_vendors,
+    )
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import (
+        NoFeasibleRouteError,
     )
 
     vendors = detect_api_key_vendors()

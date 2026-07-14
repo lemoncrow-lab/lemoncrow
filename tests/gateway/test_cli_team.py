@@ -7,11 +7,11 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner, Result
 
-from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
-from lemoncrow.core.capabilities.cross_vendor_memory.models import AuditEvent
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.pro.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from lemoncrow.pro.capabilities.cross_vendor_memory.models import AuditEvent
 
 
 def _invoke(root: Path, *args: str) -> Result:

@@ -32,8 +32,8 @@ from unittest.mock import patch
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.scoped_context import ScopedContextCapability, Subtask
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.scoped_context import ScopedContextCapability, Subtask
 
 # domain -> {module_stem: keyword-rich body}
 _DOMAINS: dict[str, dict[str, str]] = {
@@ -185,12 +185,12 @@ def _ensure_commit_chunks(
     os.environ["LEMONCROW_CODE_EMBEDDER"] = "null"
     os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
     try:
-        from lemoncrow.core.capabilities.code_context.engine import _LINEAGE_INDEX_VERSION
         from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
         from lemoncrow.infra.code_intel.git_history.embedder import embed_summary
         from lemoncrow.infra.code_intel.git_history.models import CommitSummary
         from lemoncrow.infra.code_intel.git_history.walker import iter_commit_records
         from lemoncrow.infra.embeddings.factory import make_code_embedder
+        from lemoncrow.pro.capabilities.code_context.engine import _LINEAGE_INDEX_VERSION
 
         history_embedder_module._embedder = None
         make_code_embedder.cache_clear()

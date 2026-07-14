@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.prompt_compilation.tokens import estimate_tokens
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
 SUPPORTED_HOSTS = ("claude", "codex", "opencode", "copilot", "hermes", "cursor", "antigravity")
 

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.live_reviewer import child, sink
-from lemoncrow.core.capabilities.live_reviewer import runner as runner_mod
-from lemoncrow.core.capabilities.live_reviewer import settings as settings_mod
-from lemoncrow.core.capabilities.live_reviewer.settings import ReviewerSettings
+from lemoncrow.pro.capabilities.live_reviewer import child, sink
+from lemoncrow.pro.capabilities.live_reviewer import runner as runner_mod
+from lemoncrow.pro.capabilities.live_reviewer import settings as settings_mod
+from lemoncrow.pro.capabilities.live_reviewer.settings import ReviewerSettings
 
 _PATCH_VERDICT = {
     "verdict": "NEEDS_FIX",

@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from lemoncrow.core.capabilities.archival_recall import capability as cap_mod
+from lemoncrow.pro.capabilities.archival_recall import capability as cap_mod
 
 
 def test_window_saturation_warns_once(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:

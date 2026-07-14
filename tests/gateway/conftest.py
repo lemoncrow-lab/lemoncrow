@@ -17,7 +17,7 @@ def _disable_code_autosync() -> None:
     disabled there is no worker, so tests that need a populated index build it
     explicitly (via index_repo) and observe a fully built index deterministically.
     """
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     original_init = CodeContextEngine.__init__
 

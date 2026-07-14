@@ -21,14 +21,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.source_projection import build_minified_projection
-from lemoncrow.core.capabilities.source_projection.minify import _parser_for
 from lemoncrow.infra.code_intel.languages import (
     ALL_LANGUAGES,
     LANGUAGES,
     language_by_name,
     language_for_path,
 )
+from lemoncrow.pro.capabilities.source_projection import build_minified_projection
+from lemoncrow.pro.capabilities.source_projection.minify import _parser_for
 
 _CORPUS = Path(__file__).resolve().parent / "_corpus"
 

@@ -132,7 +132,7 @@ def store(tmp_path: Path) -> StoreBundle:
 # modules) runs every one of them normally, so this is a no-op in dev.
 def _open_core_shim_active() -> bool:
     try:
-        from lemoncrow.core.capabilities.code_context import ranking
+        from lemoncrow.pro.capabilities.code_context import ranking
 
         return bool(getattr(ranking, "__open_core_shim__", False))
     except Exception:  # noqa: BLE001 - best-effort probe, must never break collection
@@ -153,6 +153,7 @@ _IP_BEHAVIOR_TEST_FILES = (
     "core/test_code_context_rerank.py",
     "core/test_code_context_renderer.py",
     "core/test_code_context.py",
+    "core/capabilities/test_perplexity_compression.py",
     "core/test_code_embedder_path.py",
     "core/test_embedding_batch.py",
     "core/test_fusion_weights_eval.py",
