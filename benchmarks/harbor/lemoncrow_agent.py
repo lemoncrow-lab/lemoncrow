@@ -364,10 +364,12 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
                 environment,
                 command=f"pip install --quiet --break-system-packages 'lemoncrow=={_LEMONCROW_VERSION}'",
             )
-        # Initialise the runtime store (creates ~/.lemoncrow/ layout)
+        # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login:
+        # this is an unattended container -- never block on / pop an interactive
+        # account login even if the host token forward above came up empty.
         await self.exec_as_agent(
             environment,
-            command="lemoncrow init",
+            command="lemoncrow init --no-login",
             env=self._agent_env,
         )
         await _install_rtk(self, environment)
@@ -584,7 +586,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             environment,
             command=(
                 "cd /root && LEMONCROW_ROOT=/root/.lemoncrow LEMONCROW_WORKSPACE_ROOT=/root "
-                "/opt/lemoncrow-venv/bin/lemoncrow init"
+                "/opt/lemoncrow-venv/bin/lemoncrow init --no-login"
             ),
             env={"LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token()},
         )
