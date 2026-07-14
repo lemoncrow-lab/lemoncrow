@@ -40,8 +40,10 @@ import json
 import os
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 _CODE_SUFFIXES = frozenset(
     {
@@ -305,19 +307,22 @@ def _state_path(dedup_key: str) -> Path:
     return Path(os.environ.get("TMPDIR", "/tmp")) / "lemoncrow-verify-before-done" / f"{digest}.json"
 
 
-def _last_shown_signature(dedup_key: str) -> str | None:
+def _load_state(dedup_key: str) -> dict[str, Any]:
+    """Persisted fire-once ledger for this dedup_key: which files have already
+    been nudged (``nagged_files``) and which completeness reasons shown
+    (``shown_reasons``)."""
     try:
         data = json.loads(_state_path(dedup_key).read_text(encoding="utf-8"))
-        return data.get("signature") if isinstance(data, dict) else None
+        return data if isinstance(data, dict) else {}
     except Exception:  # noqa: BLE001  # fail-open: unreadable/missing state -> still nudge
-        return None
+        return {}
 
 
-def _record_shown_signature(dedup_key: str, signature: str) -> None:
+def _save_state(dedup_key: str, state: dict[str, Any]) -> None:
     try:
         p = _state_path(dedup_key)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"signature": signature}), encoding="utf-8")
+        p.write_text(json.dumps(state), encoding="utf-8")
     except Exception:  # noqa: BLE001  # fail-open: state persistence must never block
         pass
 
@@ -389,19 +394,33 @@ def decide(signals: VerifySignals, *, dedup_key: str = "", root: str = ".") -> d
         source_edited = [p for p in edited if is_verifiable_path(p, include_docs=bench_mode_on())]
         if not source_edited:
             return None
-        uniq = sorted({Path(p.split("#")[0]).name for p in source_edited})
-        reason = _REASON.format(n=len(uniq), sample=", ".join(uniq[:4]))
-        candidate = {"decision": "block", "reason": reason}
+        # Fire once PER (file, edit-count). A file is nudged only when its number
+        # of edit events exceeds what was last nudged for it: a file that is not
+        # touched again never re-fires (the stale-repeat bug), while a genuinely
+        # new edit to any file -- even one nudged before -- earns its own one-time
+        # nudge. Only the freshly-qualifying files are named.
+        counts = Counter(Path(p.split("#")[0]).name for p in source_edited)
+        if dedup_key:
+            state = _load_state(dedup_key)
+            seen = state.get("nagged_counts", {})
+            fresh = sorted(b for b, c in counts.items() if c > int(seen.get(b, 0) or 0))
+            if not fresh:
+                return None
+            merged = {b: int(v or 0) for b, v in seen.items()} if isinstance(seen, dict) else {}
+            for b, c in counts.items():
+                merged[b] = max(merged.get(b, 0), int(c))
+            state["nagged_counts"] = merged
+            _save_state(dedup_key, state)
+            return {"decision": "block", "reason": _REASON.format(n=len(fresh), sample=", ".join(fresh[:4]))}
+        uniq = sorted(counts)
+        return {"decision": "block", "reason": _REASON.format(n=len(uniq), sample=", ".join(uniq[:4]))}
 
-    # Fire at most once per distinct nudge: once this exact reason has already
-    # been shown for this dedup_key, showing it again -- with no new
-    # edit/verification event since -- is not new information. `depth` (how many
-    # qualifying edit calls have landed so far) disambiguates a genuinely new
-    # repeat-edit to the same file from a stale unresolved one.
+    # Completeness (detector A/B) nudge: fire once per distinct reason.
     if dedup_key:
-        depth = len(edited) + len(signals.diffs)
-        signature = f"{candidate['reason']}::depth={depth}"
-        if _last_shown_signature(dedup_key) == signature:
+        state = _load_state(dedup_key)
+        shown = set(state.get("shown_reasons", []))
+        if candidate["reason"] in shown:
             return None
-        _record_shown_signature(dedup_key, signature)
+        state["shown_reasons"] = sorted(shown | {candidate["reason"]})
+        _save_state(dedup_key, state)
     return candidate
