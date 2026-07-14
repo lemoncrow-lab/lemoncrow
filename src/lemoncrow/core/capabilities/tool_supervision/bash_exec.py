@@ -298,6 +298,18 @@ class _ManagedCommand:
     # anonymous tempfile (e.g. the log dir wasn't writable), which has no path.
     stdout_path: str = ""
     stderr_path: str = ""
+    # Interactive REPL session (bash interactive=true): stdin stays open as a
+    # private pipe, action="send" (send_managed_input) feeds it, and the
+    # session dies once it has gone `idle_ttl` seconds without input -- a
+    # sliding window measured from `last_input` (see _effective_deadline_s).
+    interactive: bool = False
+    idle_ttl: float = 0.0
+    last_input: float = 0.0
+    # Opaque text-mode tell() cookies consumed by the previous send, so each
+    # send returns only the output produced since the last one (including
+    # anything that arrived between sends).
+    stdout_read_offset: int = 0
+    stderr_read_offset: int = 0
 
 
 _MANAGED_COMMANDS: dict[str, _ManagedCommand] = {}
@@ -330,6 +342,15 @@ _MANAGED_COMMAND_HARD_CAP_S = 3600.0
 # life one update at a time -- every update is clamped to this no matter how
 # many times a session gets extended.
 _MAX_EXPLICIT_TIMEOUT_S = 604800.0  # 7 days
+# Sliding idle-TTL default for an interactive session (bash interactive=true):
+# after this long without a send the watcher kills the session. Every
+# action="send" resets the window; the value is clamped to
+# [1, _MANAGED_COMMAND_HARD_CAP_S] at session start.
+_DEFAULT_IDLE_TTL_S = 300.0
+# A send returns once neither stream has grown for this long (quiescence
+# framing -- REPL-agnostic, no sentinel injected into the child's language).
+_SEND_QUIESCENCE_S = 0.25
+_SEND_POLL_SLICE_S = 0.05
 # stdout_file/stderr_file (the managed command's only spool -- no separate
 # tee/mirror) live here when writable, instead of an anonymous tempfile with
 # no filesystem path. One write per stream, on a real path a user can
@@ -2289,9 +2310,18 @@ def _effective_deadline_s(managed: _ManagedCommand) -> float:
     A start-time ``timeout`` is always a soft response budget and never changes
     process lifetime. Commands therefore use the fixed one-hour safety cap
     until ``action="update"`` deliberately installs an exact deadline.
+
+    An interactive session instead expires ``idle_ttl`` seconds after its most
+    recent input (send_managed_input bumps ``last_input``). Each send is a
+    deliberate act -- like ``action="update"`` -- so an actively-fed session
+    may outlive the fixed hard cap; an *idle* one always dies within
+    ``idle_ttl``. The watcher re-reads this every poll slice, so a send moves
+    the deadline live.
     """
     if managed.deadline_explicit:
         return float(managed.timeout)
+    if managed.interactive and managed.idle_ttl > 0:
+        return (managed.last_input - managed.started) + managed.idle_ttl
     return _MANAGED_COMMAND_HARD_CAP_S
 
 
@@ -2400,6 +2430,8 @@ def start_managed_command(
     max_chars: int | None = None,
     note: str = "",
     explicit_background: bool = False,
+    interactive: bool = False,
+    idle_ttl: float | None = None,
 ) -> dict[str, Any]:
     """Start a command without blocking the MCP request.
 
@@ -2407,6 +2439,10 @@ def start_managed_command(
     one-hour safety cap unless ``action="update"`` installs an exact deadline.
     Foreground commands remain MCP-session-owned after that budget; only
     ``explicit_background=True`` commands survive MCP shutdown.
+
+    ``interactive=True`` opens the child with a live stdin pipe and a sliding
+    ``idle_ttl`` kill window instead of the hard cap -- a long-lived REPL fed
+    via ``send_managed_input`` that dies on its own once it goes unused.
 
     *note*, when given, seeds the managed command's ``injected_note`` (prepended
     to the compacted stdout at poll time) -- used by a caller that rewrote the
@@ -2437,6 +2473,8 @@ def start_managed_command(
         # stdin=DEVNULL: the MCP server's stdin is an open JSON-RPC pipe, so
         # inheriting it causes any child that reads stdin (e.g. `sys.stdin.read()`
         # in a python -c snippet) to block forever instead of failing fast.
+        # Interactive sessions instead get a private PIPE that action="send"
+        # (send_managed_input) feeds -- no inheritance hazard.
         # start_new_session=True calls setsid() in the child, placing it in
         # its own session and process group.  This has two effects:
         #   1. The child is detached from the MCP server's process group --
@@ -2446,7 +2484,7 @@ def start_managed_command(
         #      via SIGTERM/SIGKILL to the child's own pgid.
         proc = subprocess.Popen(
             ["bash", "-c", exec_command],
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if interactive else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -2458,12 +2496,13 @@ def start_managed_command(
         stderr_file.close()
         raise
 
+    now = time.perf_counter()
     managed = _ManagedCommand(
         command=command,
         proc=proc,
         stdout_file=stdout_file,
         stderr_file=stderr_file,
-        started=time.perf_counter(),
+        started=now,
         timeout=timeout,
         max_lines=max_lines,
         max_chars=max_chars,
@@ -2471,6 +2510,13 @@ def start_managed_command(
         injected_note=injected_note,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
+        interactive=interactive,
+        idle_ttl=(
+            min(max(float(idle_ttl if idle_ttl is not None else _DEFAULT_IDLE_TTL_S), 1.0), _MANAGED_COMMAND_HARD_CAP_S)
+            if interactive
+            else 0.0
+        ),
+        last_input=now,
     )
     managed.readers = [
         threading.Thread(target=_spool_managed_stream, args=(proc.stdout, stdout_file, managed), daemon=True),
@@ -2493,6 +2539,9 @@ def start_managed_command(
         "timeout": timeout,
         "explicit_background": managed.explicit_background,
     }
+    if interactive:
+        started_payload["interactive"] = True
+        started_payload["idle_ttl"] = managed.idle_ttl
     if managed.stdout_path:
         started_payload["log_file"] = managed.stdout_path
     if managed.stderr_path:
@@ -2674,7 +2723,10 @@ def poll_managed_command(session_id: str, *, cancel: bool = False) -> dict[str, 
 
     if managed.state == "timed_out":
         exit_code = -1
-        raw_stderr = f"Command timed out after {int(_effective_deadline_s(managed))}s"
+        if managed.interactive and not managed.deadline_explicit:
+            raw_stderr = f"Interactive session idle-expired after {int(managed.idle_ttl)}s without input"
+        else:
+            raw_stderr = f"Command timed out after {int(_effective_deadline_s(managed))}s"
     elif managed.state == "cancelled":
         exit_code = -1
         raw_stderr = "Command cancelled"
@@ -2749,6 +2801,148 @@ def update_managed_command(session_id: str, timeout: float) -> dict[str, Any]:
         "timeout": applied,
         "timeout_remaining_ms": max(0, int(applied * 1000) - elapsed_ms),
     }
+
+
+def _read_stream_delta(handle: Any, offset: int) -> tuple[str, int, bool]:
+    """Read everything written to *handle* past *offset*, restoring the
+    writer's append position. Returns (text, new_offset, capped).
+
+    Offsets are opaque text-mode tell() cookies (0 or a prior tell() value),
+    never arithmetic -- same constraint as _tail_lines_from_file. Caller must
+    hold the session's output_lock so a concurrent spool write can't land
+    between the seeks.
+    """
+    handle.flush()
+    pos = handle.tell()
+    if pos == offset:
+        return "", pos, False
+    handle.seek(offset)
+    text, capped = _read_capped(handle)
+    handle.seek(pos)
+    return text, pos, capped
+
+
+def send_managed_input(session_id: str, text: str, *, wait: float = 30.0) -> dict[str, Any]:
+    """Feed *text* to an interactive session's stdin and return the output
+    delta it produced (bash action="send").
+
+    Framing is quiescence-based: after writing, wait until neither stream has
+    grown for `_SEND_QUIESCENCE_S` (or *wait* runs out, or the process exits),
+    then return only the bytes produced since the previous send -- output that
+    arrived *between* sends is included, nothing is dropped. A child still
+    computing past *wait* returns whatever arrived so far; a follow-up *empty*
+    send blocks until more output actually arrives (growth-gated, no
+    zero-growth quiescence exit) and drains it.
+
+    Every send -- including an empty drain -- resets the session's idle-TTL
+    clock (see _effective_deadline_s).
+    """
+    with _MANAGED_COMMANDS_LOCK:
+        managed = _MANAGED_COMMANDS.get(session_id)
+        if managed is None:
+            raise KeyError(f"unknown shell session: {session_id}")
+        if not managed.interactive:
+            raise ValueError(f"session {session_id} is not interactive; start it with interactive=true")
+        alive = managed.state == "running" and managed.proc.poll() is None
+
+    # The child usually isn't a shell, but the input often is shell-shaped (an
+    # interactive bash, a REPL shelling out); the same policy gate as a
+    # top-level command costs nothing and closes the obvious escape hatch.
+    # Only "block" is honored -- rewrites target one-shot shell commands.
+    if text.strip():
+        policy = classify_command(text)
+        if policy.action == "block":
+            return {
+                "status": "running" if alive else managed.state,
+                "session_id": session_id,
+                "blocked": True,
+                "blocked_reason": policy.reason,
+                "stderr": policy.reason,
+                "exit_code": -1,
+                "interactive": True,
+            }
+
+    sent = False
+    if alive and text:
+        stdin = managed.proc.stdin
+        if stdin is None:
+            alive = False
+        else:
+            try:
+                stdin.write(text if text.endswith("\n") else text + "\n")
+                stdin.flush()
+                sent = True
+            except (OSError, ValueError):
+                alive = False  # pipe closed under us: the child just died
+    with _MANAGED_COMMANDS_LOCK:
+        # Reset the idle clock on every send -- an empty drain is activity too.
+        managed.last_input = time.perf_counter()
+
+    def _sizes() -> tuple[Any, Any]:
+        with managed.output_lock:
+            return managed.stdout_file.tell(), managed.stderr_file.tell()
+
+    send_started = time.perf_counter()
+    deadline = send_started + max(0.0, float(wait))
+    baseline = _sizes()
+    prev = baseline
+    last_growth = send_started
+    while managed.proc.poll() is None:
+        now = time.perf_counter()
+        if now >= deadline:
+            break
+        # An empty send is a pure drain: zero-growth quiescence just means
+        # "nothing yet", so keep waiting for output until the budget runs out.
+        if (sent or prev != baseline) and now - last_growth >= _SEND_QUIESCENCE_S:
+            break
+        time.sleep(min(_SEND_POLL_SLICE_S, deadline - now))
+        cur = _sizes()
+        if cur != prev:
+            prev = cur
+            last_growth = time.perf_counter()
+
+    with managed.output_lock:
+        stdout_delta, managed.stdout_read_offset, out_capped = _read_stream_delta(
+            managed.stdout_file, managed.stdout_read_offset
+        )
+        stderr_delta, managed.stderr_read_offset, err_capped = _read_stream_delta(
+            managed.stderr_file, managed.stderr_read_offset
+        )
+
+    def _cap_delta(delta: str) -> tuple[str, int]:
+        lines = delta.splitlines()
+        if len(lines) <= managed.max_lines:
+            return delta.rstrip("\n"), 0
+        return "\n".join(lines[-managed.max_lines :]), len(lines) - managed.max_lines
+
+    stdout_text, out_omitted = _cap_delta(_strip_ansi(stdout_delta))
+    stderr_text, err_omitted = _cap_delta(_strip_ansi(stderr_delta))
+
+    running = managed.proc.poll() is None
+    with _MANAGED_COMMANDS_LOCK:
+        state = managed.state
+        idle_deadline = managed.last_input + managed.idle_ttl
+    payload: dict[str, Any] = {
+        "status": "running" if running else ("completed" if state == "running" else state),
+        "session_id": session_id,
+        "pid": managed.proc.pid,
+        "stdout": redact_tool_output(stdout_text),
+        "stderr": redact_tool_output(stderr_text),
+        "duration_ms": int((time.perf_counter() - send_started) * 1000),
+        "interactive": True,
+        "sent": sent,
+        "truncated": out_capped or err_capped or out_omitted > 0 or err_omitted > 0,
+        "lines_omitted": out_omitted + err_omitted,
+    }
+    if running:
+        payload["idle_ttl_remaining_ms"] = max(0, int((idle_deadline - time.perf_counter()) * 1000))
+    else:
+        payload["exit_code"] = managed.proc.returncode
+    if managed.stdout_path:
+        payload["log_file"] = managed.stdout_path
+    if managed.stderr_path:
+        payload["log_file_stderr"] = managed.stderr_path
+    return payload
 
 
 def register_completion(session_id: str, callback: Callable[[], None]) -> bool:
