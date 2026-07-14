@@ -11236,16 +11236,11 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "interactive": {
             "type": "boolean",
             "default": False,
-            "description": "Keep the process alive as a REPL session (stdin stays open) -- e.g. one `python -u -i -q` keeps heavy imports loaded across calls. Feed it with action=send + input; killed after idle_ttl seconds without a send.",
+            "description": "Keep the process alive as a REPL session (stdin stays open) -- e.g. one `python -u -i -q` keeps heavy imports loaded across calls. Feed it with action=send + input; killed after 300s idle (every send resets the clock).",
         },
         "input": {
             "type": "string",
             "description": "action=send: text written to the session's stdin (newline appended). Empty = wait for and drain new output only.",
-        },
-        "idle_ttl": {
-            "type": "integer",
-            "default": 300,
-            "description": "interactive=true: seconds without a send before the session is killed. Every send resets the clock.",
         },
     },
     "additionalProperties": False,
