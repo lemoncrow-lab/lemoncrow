@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context.embedding import SemanticSearchRanker
-from lemoncrow.core.capabilities.code_context.engine import (
+from lemoncrow.pro.capabilities.code_context.embedding import SemanticSearchRanker
+from lemoncrow.pro.capabilities.code_context.engine import (
     _LINEAGE_INDEX_VERSION,
     CodeContextEngine,
 )
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 
 
 class _TaskAwareDummyEmbedder:
@@ -167,7 +167,7 @@ def test_lineage_ready_preserves_old_chunks_until_full_rebuild_starts(
             started.append(True)
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.code_context.engine.threading.Thread",
+        "lemoncrow.pro.capabilities.code_context.engine.threading.Thread",
         _FakeThread,
     )
 

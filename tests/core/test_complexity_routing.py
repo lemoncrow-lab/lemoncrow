@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.model_routing import (
+from lemoncrow.pro.capabilities.model_routing import (
     ComplexitySignals,
     ModelRouter,
     complexity_score,

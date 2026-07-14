@@ -3,17 +3,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lemoncrow.core.capabilities.model_routing.cache_cost import cache_eviction_cost_usd
-from lemoncrow.core.capabilities.model_routing.stickiness import (
+from lemoncrow.core.capabilities.pricing import get_model_pricing
+from lemoncrow.core.capabilities.workflow_spawn import compile_prompt_text, scope_break_reason
+from lemoncrow.pro.capabilities.model_routing.cache_cost import cache_eviction_cost_usd
+from lemoncrow.pro.capabilities.model_routing.stickiness import (
     DEFAULT_STICKINESS_WINDOW,
     decrement_stickiness,
     start_stickiness,
     stickiness_remaining,
 )
-from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlan, PrefixCachePlanner
-from lemoncrow.core.capabilities.pricing import get_model_pricing
-from lemoncrow.core.capabilities.prompt_compilation.models import BlockKind, PromptBlock, Stability
-from lemoncrow.core.capabilities.workflow_spawn import compile_prompt_text, scope_break_reason
+from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlan, PrefixCachePlanner
+from lemoncrow.pro.capabilities.prompt_compilation.models import BlockKind, PromptBlock, Stability
 
 
 def build_cache_affinity_state(

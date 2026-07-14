@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlanner
-from lemoncrow.core.capabilities.prompt_compilation.models import BlockKind, PromptBlock, Stability
+from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlanner
+from lemoncrow.pro.capabilities.prompt_compilation.models import BlockKind, PromptBlock, Stability
 
 _REQUESTED_SPAWN_FIELDS = (
     "prompt",

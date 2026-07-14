@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lemoncrow.core.capabilities.code_context.engine import (
+from lemoncrow.pro.capabilities.code_context.engine import (
     _hef_exact_is_decisive,
     _HefQueryPlan,
 )

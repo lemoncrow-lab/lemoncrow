@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import smart_search as smart_search_mod
+from lemoncrow.pro.capabilities.tool_supervision import smart_search as smart_search_mod
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:

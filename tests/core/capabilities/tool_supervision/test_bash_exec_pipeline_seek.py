@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 
 _BIG_BYTES = 9 * 1024 * 1024  # just over _PIPELINE_SEEK_MIN_BYTES (8 MiB)
 

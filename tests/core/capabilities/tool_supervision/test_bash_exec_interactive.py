@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 
 
 def _open_python_session(idle_ttl: float = 30.0) -> str:

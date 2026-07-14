@@ -38,7 +38,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -63,7 +65,9 @@ def _lemoncrow_root() -> Path:
 def _spawn(session_id: str, mode: str, path: str, root: Path) -> None:
     """Detach a reviewer child. Never waits — returns control immediately."""
     override = os.environ.get("LEMONCROW_REVIEWER_CHILD_CMD")
-    cmd = shlex.split(override) if override else [sys.executable, "-m", "lemoncrow.core.capabilities.live_reviewer.child"]
+    cmd = (
+        shlex.split(override) if override else [sys.executable, "-m", "lemoncrow.pro.capabilities.live_reviewer.child"]
+    )
     cmd += ["--session", session_id, "--mode", mode, "--path", path, "--root", str(root)]
     env = dict(os.environ)
     env["LEMONCROW_IN_REVIEW"] = "1"
@@ -96,9 +100,9 @@ def main() -> int:
         return 0
 
     try:
-        from lemoncrow.core.capabilities.live_reviewer.edit_counter import count_file_edits
-        from lemoncrow.core.capabilities.live_reviewer.settings import load_reviewer_settings
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.pro.capabilities.live_reviewer.edit_counter import count_file_edits
+        from lemoncrow.pro.capabilities.live_reviewer.settings import load_reviewer_settings
 
         root = _lemoncrow_root()
         settings = load_reviewer_settings(root)

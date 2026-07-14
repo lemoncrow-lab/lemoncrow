@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.optimization.non_inferiority import (
+from lemoncrow.pro.capabilities.optimization.non_inferiority import (
     evaluate_non_inferiority,
     load_terminalbench_records,
     wilson_interval,

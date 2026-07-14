@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
-from lemoncrow.core.capabilities.memory.staleness import (
+from lemoncrow.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
+from lemoncrow.pro.capabilities.memory.staleness import (
     CalibratedAction,
     ChangeType,
     StalenessAction,
     calibrate_staleness,
     should_auto_invalidate,
 )
-from lemoncrow.core.foundation.memory_models import ArchivalPassage
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 

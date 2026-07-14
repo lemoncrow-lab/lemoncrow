@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from lemoncrow.core.capabilities.swarm.capability import load_swarm_state
-from lemoncrow.core.capabilities.swarm.models import SwarmRunState
+from lemoncrow.pro.capabilities.swarm.capability import load_swarm_state
+from lemoncrow.pro.capabilities.swarm.models import SwarmRunState
 
 
 def _legacy_state_payload() -> dict[str, object]:

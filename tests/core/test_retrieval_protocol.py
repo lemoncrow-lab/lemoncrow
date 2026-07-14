@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine, CodeRetriever
 from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
 from lemoncrow.core.runtime.engine import LemonCrowRuntimeCore
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine, CodeRetriever
 
 
 class FakeRetriever:

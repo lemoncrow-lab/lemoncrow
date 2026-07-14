@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
 pytestmark = [pytest.mark.ab, pytest.mark.slow]
 

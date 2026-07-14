@@ -406,7 +406,7 @@ def test_workflow_run_applies_explicit_owned_route(workflow_env: Path, monkeypat
 def test_workflow_run_auto_route_failure_does_not_fallback_to_native_subprocess(
     workflow_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
     monkeypatch.setattr(
         mcp_server,

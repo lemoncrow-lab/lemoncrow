@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.live_reviewer.knowledge import (
+from lemoncrow.pro.capabilities.live_reviewer.knowledge import (
     ensure_repo_share_gitignore,
     load_overlay,
     load_repo_overlay,

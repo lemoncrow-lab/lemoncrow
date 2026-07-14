@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def test_lesson_expiry_and_decay(tmp_path) -> None:

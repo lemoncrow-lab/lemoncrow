@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 from lemoncrow.gateway.adapters import mcp_server
 from tests.helpers import init_store_at
 

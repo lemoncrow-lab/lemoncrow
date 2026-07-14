@@ -7,11 +7,11 @@ from hashlib import sha256
 
 import pytest
 
-from lemoncrow.core.capabilities.prompt_compilation.compiler import (
+from lemoncrow.pro.capabilities.prompt_compilation.compiler import (
     BudgetTooSmall,
     compile_prompt,
 )
-from lemoncrow.core.capabilities.prompt_compilation.models import (
+from lemoncrow.pro.capabilities.prompt_compilation.models import (
     COUNTEREXAMPLE_METADATA_KEY,
     BlockKind,
     PromptBlock,

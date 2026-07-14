@@ -119,7 +119,7 @@ def _grade_result(results: list[Any], expected_sha: str, keywords: list[str]) ->
 
 def _get_engine(repo_root: pathlib.Path) -> Any:
     """Instantiate a CodeContextEngine for the target repo."""
-    from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
     repo_id = hashlib.sha256(str(repo_root.resolve()).encode()).hexdigest()[:16]
     lemoncrow_root = pathlib.Path(os.environ.get("LEMONCROW_ROOT") or pathlib.Path.home() / ".lemoncrow")

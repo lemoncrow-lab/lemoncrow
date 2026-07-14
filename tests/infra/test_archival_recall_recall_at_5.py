@@ -4,10 +4,10 @@ from pathlib import Path
 
 import yaml
 
-from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
 
 def _load_questions() -> list[dict[str, str]]:

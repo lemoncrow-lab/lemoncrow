@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.tool_supervision import relevance_ranking as rr
+from lemoncrow.pro.capabilities.tool_supervision import relevance_ranking as rr
 
 
 def test_score_lexical_rewards_term_coverage_over_repetition() -> None:

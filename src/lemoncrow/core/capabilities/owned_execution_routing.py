@@ -34,26 +34,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from lemoncrow.core.capabilities.counterfactual.capabilities import (
+from lemoncrow.core.capabilities.owned_execution_cache_affinity import cache_affinity_for_route
+from lemoncrow.pro.capabilities.counterfactual.capabilities import (
     infer_turn_requirements,
     supports_turn,
 )
-from lemoncrow.core.capabilities.counterfactual.pricing import (
+from lemoncrow.pro.capabilities.counterfactual.pricing import (
     CandidateModel,
     PricingTable,
     load_pricing_table,
 )
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     detect_configured_vendors,
     load_route_config_or_default,
 )
-from lemoncrow.core.capabilities.cross_vendor_routing.router import (
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import (
     CrossVendorRouter,
     NoFeasibleRouteError,
 )
-from lemoncrow.core.capabilities.owned_execution_cache_affinity import cache_affinity_for_route
-from lemoncrow.core.capabilities.quality_router.execution_contract import route_execution_contract
+from lemoncrow.pro.capabilities.quality_router.execution_contract import route_execution_contract
 
 OwnedRouteMode = Literal["auto", "explicit"]
 OwnedRouteBudget = Literal["cheap", "balanced", "best"]

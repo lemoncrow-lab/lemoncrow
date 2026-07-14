@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfig
-from lemoncrow.core.capabilities.cross_vendor_routing.router import CrossVendorRouter
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfig
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import CrossVendorRouter
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def test_team_scoped_route_preference_applies_only_for_matching_team(tmp_path: Path) -> None:

@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
 
 
 def test_decide_atomic_on_typed_lesson_failure(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context.search_verdict import (
+from lemoncrow.pro.capabilities.code_context.search_verdict import (
     ChannelHealth,
     SearchHistory,
     breaker_threshold,

@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import edit_impact
-from lemoncrow.core.capabilities.tool_supervision.edit_impact import (
+from lemoncrow.pro.capabilities.tool_supervision import edit_impact
+from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
     _combine_matches,
     _is_structural_occurrence,
     contract_literal_impact,
@@ -180,7 +180,7 @@ def test_none_when_literal_occurs_nowhere_else(tmp_path: Path) -> None:
 def test_decorator_removal_surfaces_cache_method_usages() -> None:
     # django-11333 shape: removing @lru_cache from get_resolver breaks
     # get_resolver.cache_clear() in base.py -- a semantic dep literal matching misses.
-    from lemoncrow.core.capabilities.tool_supervision.edit_impact import decorator_contract_impact
+    from lemoncrow.pro.capabilities.tool_supervision.edit_impact import decorator_contract_impact
 
     engine = _FakeEngine(
         {
@@ -203,7 +203,7 @@ def test_decorator_removal_surfaces_cache_method_usages() -> None:
 def test_decorator_kept_on_helper_does_not_flag_helper() -> None:
     # When the decorator is merely relocated to a new helper that keeps it, and the
     # helper's own cache methods are unused, nothing is flagged for the helper.
-    from lemoncrow.core.capabilities.tool_supervision.edit_impact import decorator_contract_impact
+    from lemoncrow.pro.capabilities.tool_supervision.edit_impact import decorator_contract_impact
 
     engine = _FakeEngine({})  # no .cache_clear usages anywhere
     edits = [

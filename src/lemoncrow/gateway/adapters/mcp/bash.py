@@ -184,7 +184,7 @@ def _run_bash_tool(
     idle_ttl: int | None = None,
 ) -> dict[str, Any] | _DeferredResult:
     """Execute a shell command and return compact structured output."""
-    from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
+    from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
         classify_command,
         execute_inline_op,
         peek_managed_command,
@@ -570,7 +570,7 @@ def _run_bash_tool(
     # synchronous callers (CLI / in-process runtime / direct test calls), which
     # cannot process a deferred marker, keep today's busy-poll behavior.
     if _defer_bash_enabled() and _deferral_supported() and inline_wait >= float(timeout):
-        from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
+        from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
             peek_managed_command,
             register_completion,
         )

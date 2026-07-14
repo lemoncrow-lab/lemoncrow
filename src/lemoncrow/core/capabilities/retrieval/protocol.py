@@ -3,7 +3,7 @@
 The engine's defining promise: a single call returns everything the model
 needs for the task, packed to a token budget -- follow-up queries are
 allowed, retry loops are never required. Code retrieval
-(:class:`lemoncrow.core.capabilities.code_context.CodeContextEngine`) is the
+(:class:`lemoncrow.pro.capabilities.code_context.CodeContextEngine`) is the
 first conforming retriever; any corpus (docs, tickets, chat memory) can
 plug in by conforming to :class:`Retriever`.
 """
@@ -47,6 +47,6 @@ def default_retriever_factory(root: str | Path) -> Retriever:
     Imported lazily so the neutral retrieval surface never drags
     tree-sitter / code-intel dependencies into non-code deployments.
     """
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     return CodeContextEngine(root)

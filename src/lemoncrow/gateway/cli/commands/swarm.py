@@ -10,7 +10,8 @@ from typing import Any, cast
 
 import click
 
-from lemoncrow.core.capabilities.swarm import (
+from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.pro.capabilities.swarm import (
     build_swarm_apply_payload,
     build_swarm_export_payload,
     discover_repo_root,
@@ -32,9 +33,8 @@ from lemoncrow.core.capabilities.swarm import (
     spawn_swarm_coordinator,
     stop_swarm_run,
 )
-from lemoncrow.core.capabilities.swarm.fitness import FitnessDirection, build_fitness_spec
-from lemoncrow.core.capabilities.swarm.models import SwarmEvaluatorBackend, SwarmExecMode, SwarmRunState
-from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.pro.capabilities.swarm.fitness import FitnessDirection, build_fitness_spec
+from lemoncrow.pro.capabilities.swarm.models import SwarmEvaluatorBackend, SwarmExecMode, SwarmRunState
 
 DEFAULT_RUNNER_PROMPT = (
     "The authoritative task spec is stored at {spec}.\n\n"

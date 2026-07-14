@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.model_routing import (
+from lemoncrow.core.capabilities.pricing import ModelPricing
+from lemoncrow.pro.capabilities.model_routing import (
     DEFAULT_STICKINESS_WINDOW,
     ModelRecommendation,
     ModelRouter,
@@ -11,8 +12,7 @@ from lemoncrow.core.capabilities.model_routing import (
     reset_stickiness,
     start_stickiness,
 )
-from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlan
-from lemoncrow.core.capabilities.pricing import ModelPricing
+from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlan
 
 
 def _plan(prefix_hash: str, prefix_tokens: int = 100_000) -> PrefixCachePlan:

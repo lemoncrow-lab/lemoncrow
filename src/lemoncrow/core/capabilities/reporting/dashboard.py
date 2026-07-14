@@ -25,9 +25,9 @@ from typing import Any
 
 import click
 
-from lemoncrow.core.capabilities.optimization.optimizer import potential_savings_breakdown
 from lemoncrow.core.capabilities.pricing import fallback_cost_usd
 from lemoncrow.core.capabilities.savings_summary import _fmt_tok, _fmt_usd
+from lemoncrow.pro.capabilities.optimization.optimizer import potential_savings_breakdown
 
 logger = logging.getLogger(__name__)
 

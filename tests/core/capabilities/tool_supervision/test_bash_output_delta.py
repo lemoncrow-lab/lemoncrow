@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import bash_exec, output_delta
+from lemoncrow.pro.capabilities.tool_supervision import bash_exec, output_delta
 
 _BIG = "\n".join(f"line {i}" for i in range(120))  # > _MIN_CHARS
 

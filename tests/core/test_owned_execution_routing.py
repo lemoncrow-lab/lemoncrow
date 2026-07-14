@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
-    RouteConfig,
-    save_route_config,
-)
-from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 from lemoncrow.core.capabilities.owned_execution_routing import (
     CrossVendorRouter,
     OwnedExecutionRouteSelector,
     OwnedRouteRequest,
 )
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+    RouteConfig,
+    save_route_config,
+)
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
 
 def test_explicit_owned_route_selects_requested_provider_model_and_runner(tmp_path, monkeypatch) -> None:

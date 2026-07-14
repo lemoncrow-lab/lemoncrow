@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.memory import MemoryService
-from lemoncrow.core.capabilities.memory import service as service_module
-from lemoncrow.core.capabilities.memory_arbitration import ArbitrationDecision
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.pro.capabilities.memory import MemoryService
+from lemoncrow.pro.capabilities.memory import service as service_module
+from lemoncrow.pro.capabilities.memory_arbitration import ArbitrationDecision
 
 
 def _service(tmp_path: Path) -> MemoryService:

@@ -38,7 +38,7 @@ from lemoncrow.core.capabilities.monitors import (
     make_signals_fn,
     score_step,
 )
-from lemoncrow.core.capabilities.tool_supervision.compact_output import (
+from lemoncrow.pro.capabilities.tool_supervision.compact_output import (
     TokenSavingStats,
     compress_history,
 )

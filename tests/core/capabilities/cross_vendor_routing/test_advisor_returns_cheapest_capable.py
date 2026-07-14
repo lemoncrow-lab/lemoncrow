@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfig
-from lemoncrow.core.capabilities.cross_vendor_routing.router import CrossVendorRouter
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfig
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import CrossVendorRouter
 
 
 def test_advisor_returns_cheapest_capable(tmp_path) -> None:

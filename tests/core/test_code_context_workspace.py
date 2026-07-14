@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context.workspace_config import load_workspace_config
-from lemoncrow.core.capabilities.code_context.workspace_router import WorkspaceCodeRouter
+from lemoncrow.pro.capabilities.code_context.workspace_config import load_workspace_config
+from lemoncrow.pro.capabilities.code_context.workspace_router import WorkspaceCodeRouter
 
 
 def _write_workspace_config(workspace_root: Path) -> Path:

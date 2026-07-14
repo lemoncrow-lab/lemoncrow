@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 
 _EMBEDDER_NAMES = [
     "AlphaEmbedder",

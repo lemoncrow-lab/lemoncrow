@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.verification.edit_gate import (
+from lemoncrow.pro.capabilities.verification.edit_gate import (
     run_edit_gate,
     treesitter_parse_errors,
 )

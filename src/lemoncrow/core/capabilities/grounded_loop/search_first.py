@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lemoncrow.core.capabilities.tool_supervision.smart_search import IndexedSearch, smart_search
+from lemoncrow.pro.capabilities.tool_supervision.smart_search import IndexedSearch, smart_search
 
 
 def _match_paths(matches: list[dict[str, Any]]) -> list[str]:

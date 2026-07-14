@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.optimization.audit import context_window_for_model
-from lemoncrow.core.capabilities.optimization.policy import (
+from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.runtime.run_ledger import RunLedger
+from lemoncrow.pro.capabilities.optimization.audit import context_window_for_model
+from lemoncrow.pro.capabilities.optimization.policy import (
     CompactionPolicy,
     preset_policy,
     should_compact,
 )
-from lemoncrow.core.runtime import LemonCrowRuntimeCore
-from lemoncrow.infra.runtime.run_ledger import RunLedger
 from tests.helpers import init_store_at
 
 # Default "balanced" preset trigger fraction (policy._base_compaction default 0.72).

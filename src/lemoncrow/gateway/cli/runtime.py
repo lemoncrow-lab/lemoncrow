@@ -388,7 +388,7 @@ class InteractiveRuntime:
             except Exception as exc:  # noqa: BLE001 - fall back gracefully
                 err_str = str(exc)
                 if "API_KEY_SERVICE_BLOCKED" in err_str or "PERMISSION_DENIED" in err_str or "403" in err_str:
-                    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
+                    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
                         detect_api_key_vendors,
                     )
 
@@ -997,7 +997,7 @@ class InteractiveRuntime:
                 ),
             )
         elif name == "doctor":
-            from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
+            from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
                 detect_api_key_vendors,
             )
 

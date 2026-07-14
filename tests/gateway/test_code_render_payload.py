@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.code_context.renderer import render_code_payload
+from lemoncrow.pro.capabilities.code_context.renderer import render_code_payload
 
 
 def test_render_explore_files_shape_with_numbers_and_skeleton_notice() -> None:

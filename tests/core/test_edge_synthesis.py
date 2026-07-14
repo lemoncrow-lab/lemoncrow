@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.code_context.edge_synthesis import synthesize_edges
+from lemoncrow.pro.capabilities.code_context.edge_synthesis import synthesize_edges
 
 
 def test_flask_route_edge_synthesized() -> None:

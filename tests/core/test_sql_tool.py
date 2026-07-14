@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision.sql_tool import (
+from lemoncrow.pro.capabilities.tool_supervision.sql_tool import (
     _bound_cell,
     detect_dialect,
     discover_connection,

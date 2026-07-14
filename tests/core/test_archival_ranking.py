@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
+from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
 
 
 def _passage(

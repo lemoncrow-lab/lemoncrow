@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import bash_exec
+from lemoncrow.pro.capabilities.tool_supervision import bash_exec
 
 _NOISE = "\n".join(f"progress line {i}" for i in range(60))
 _INSTALL_OUT = _NOISE + "\nInstalled 12 packages in 1.02s"

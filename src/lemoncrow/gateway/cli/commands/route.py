@@ -27,8 +27,8 @@ def route_configure_public_cmd(
 ) -> None:
     require_pro("cross_vendor_routing", "Cross-vendor routing")
 
-    from lemoncrow.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
 
     try:
         payload = CrossVendorRouteAdvisor(ctx.obj["root"]).configure(
@@ -65,8 +65,8 @@ def route_plan_cmd(
 ) -> None:
     require_pro("cross_vendor_routing", "Cross-vendor routing")
 
-    from lemoncrow.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
 
     try:
         payload = CrossVendorRouteAdvisor(ctx.obj["root"]).recommend(
@@ -95,8 +95,8 @@ def route_plan_cmd(
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def route_status_cmd(ctx: click.Context, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
+    from lemoncrow.pro.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
 
     try:
         payload = CrossVendorRouteAdvisor(ctx.obj["root"]).status()
@@ -141,7 +141,7 @@ def proof_run_cmd(
     as_json: bool,
 ) -> None:
     """Run the cost-quality proof gate and write proof-report.json/md (WP-32)."""
-    from lemoncrow.core.capabilities.proof_gate.capability import (
+    from lemoncrow.pro.capabilities.proof_gate.capability import (
         BenchmarkCase,
         ProofGateCapability,
     )
@@ -194,7 +194,7 @@ def proof_run_cmd(
 
 
 def _show_proof_report(ctx: click.Context, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.proof_gate.capability import ProofGateCapability
+    from lemoncrow.pro.capabilities.proof_gate.capability import ProofGateCapability
 
     root: Path = ctx.obj["root"]
     capability = ProofGateCapability(root)
@@ -239,7 +239,7 @@ def _build_proof_cases(session_id: str) -> list[Any]:
     must include a trace_id so the evidence link requirement is met.  Failed
     cheap attempts are included - they cannot be elided.
     """
-    from lemoncrow.core.capabilities.proof_gate.capability import BenchmarkCase
+    from lemoncrow.pro.capabilities.proof_gate.capability import BenchmarkCase
 
     _CASES: list[dict[str, Any]] = [
         {

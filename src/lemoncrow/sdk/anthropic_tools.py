@@ -129,8 +129,8 @@ def make_lemoncrow_tools(
         prefix_hash = ""
         prefix_invalidated_reason = ""
         try:
-            from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlanner
-            from lemoncrow.core.capabilities.prompt_compilation.models import (
+            from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlanner
+            from lemoncrow.pro.capabilities.prompt_compilation.models import (
                 BlockKind,
                 PromptBlock,
                 Stability,
