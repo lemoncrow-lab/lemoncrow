@@ -2565,7 +2565,9 @@ def _current_context_state() -> tuple[int, str]:
             result = _bridge_context_state(bridge_sid, host)
             if result[0] > 0:
                 with _STATE_LOCK:
-                    _CONTEXT_STATE_CACHE[cache_key] = (cache_key, result)
+                    # Bridge path caches by dict key, not by signature; store an
+                    # empty signature tuple so the value matches the cache type.
+                    _CONTEXT_STATE_CACHE[cache_key] = ((), result)
             return result
 
     except Exception:
@@ -2594,7 +2596,8 @@ def _bridge_context_state(session_id: str, host: str) -> tuple[int, str]:
             return 0, ""
         if not isinstance(stats, dict):
             return 0, ""
-        usage = stats.get("usage") if isinstance(stats.get("usage"), dict) else {}
+        _usage = stats.get("usage")
+        usage = _usage if isinstance(_usage, dict) else {}
         ctx = (
             int(usage.get("input_tokens", 0) or 0)
             + int(usage.get("cache_read_tokens", 0) or 0)
