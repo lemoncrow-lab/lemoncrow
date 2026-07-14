@@ -11685,7 +11685,10 @@ _MAX_DORMANT_SNAPSHOTS = 64
 def _snapshot_dormant() -> bool:
     """Read the cap state once. Fail-open: any error -> not dormant."""
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
+        # Import the COMPILED authority directly (ships as .so), not the open
+        # plugin_runtime re-export — the tool-hiding decision must not be
+        # editable out of an install with a text editor.
+        from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
 
         return cap_exhausted(_lemoncrow_root())
     except Exception:  # noqa: BLE001 — fail-open: dormancy must never break the server
