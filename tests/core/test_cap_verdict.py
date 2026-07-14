@@ -81,6 +81,7 @@ import time as _t  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from lemoncrow.core.capabilities import plugin_runtime as pr  # noqa: E402
+from lemoncrow.core.capabilities.licensing import entitlements  # noqa: E402
 
 
 def _seed_token(root: Path, token: str) -> None:
@@ -92,6 +93,7 @@ def _seed_token(root: Path, token: str) -> None:
 
 
 def test_cap_exhausted_trusts_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: True)  # signed-token grace requires established pro
     priv, pub = _keypair()
     monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
     tok = cv.sign_cap_token(_payload(over=True, expires=int(_t.time()) + 3600), private_key_hex=priv)
@@ -100,6 +102,7 @@ def test_cap_exhausted_trusts_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_cap_exhausted_signed_under(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: True)
     priv, pub = _keypair()
     monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
     tok = cv.sign_cap_token(_payload(over=False, expires=int(_t.time()) + 3600), private_key_hex=priv)
@@ -108,6 +111,7 @@ def test_cap_exhausted_signed_under(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 
 
 def test_cap_exhausted_fail_closed_on_expired_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: True)
     priv, pub = _keypair()
     monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
     tok = cv.sign_cap_token(_payload(over=False, expires=1), private_key_hex=priv)  # long expired
@@ -115,11 +119,28 @@ def test_cap_exhausted_fail_closed_on_expired_token(monkeypatch: pytest.MonkeyPa
     assert pr.cap_exhausted(tmp_path) is True  # present but untrusted -> fail-CLOSED dormant
 
 
-def test_cap_exhausted_local_fallback_without_token(tmp_path: Path) -> None:
+def test_cap_exhausted_local_fallback_without_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
 
     _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": True})
     assert pr.cap_exhausted(tmp_path) is True  # no token -> local meter
+
+
+def test_free_machine_gets_no_signed_token_grace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A never-pro machine must NOT ride a still-valid signed token offline. Even
+    # with a validly-signed UNDER-cap token (which would say "active"), a free
+    # machine ignores it and falls to the local meter -> over local cap ->
+    # dormant. Proves the 24 h TTL grace is gated on established pro.
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    priv, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    tok = cv.sign_cap_token(_payload(over=False, expires=int(_t.time()) + 3600), private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": True})
+    assert pr.cap_exhausted(tmp_path) is True  # local meter used, token grace NOT applied
 
 
 # --- Compiled-gate wiring: the .so is the single authority -------------------
@@ -146,9 +167,10 @@ def test_plugin_runtime_delegates_to_the_compiled_gate(monkeypatch: pytest.Monke
 def test_gate_fail_closed_when_pinned_key_present_but_token_untrusted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Pinned key configured + a garbage/forged token -> no trustworthy verdict
-    # -> the compiled gate reports dormant (fail-CLOSED). Blocking/spoofing the
-    # server cannot yield "free forever."
+    # Established-pro machine, pinned key, garbage/forged token -> no trustworthy
+    # verdict -> the compiled gate reports dormant (fail-CLOSED). Blocking or
+    # spoofing the server cannot yield "free forever" for a pro machine.
+    monkeypatch.setattr(entitlements, "is_pro", lambda: True)
     _, pub = _keypair()
     monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
     _seed_token(tmp_path, "not-a-real-signed-token")
