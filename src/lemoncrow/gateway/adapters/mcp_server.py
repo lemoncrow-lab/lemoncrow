@@ -86,9 +86,11 @@ from lemoncrow.gateway.adapters.mcp.deferral import (  # noqa: F401  (re-exporte
     _defer_web_fetch_enabled,
     _deferral_context,
     _deferral_supported,
-    _Deferred,
     _deferred_completion_executor,
     _DeferredResult,
+)
+from lemoncrow.gateway.adapters.mcp.deferral import (
+    _Deferred as _Deferred,
 )
 from lemoncrow.gateway.adapters.mcp.framework import (  # noqa: F401  (re-exported for back-compat)
     _COERCE_UNCHANGED,
@@ -108,7 +110,6 @@ from lemoncrow.gateway.adapters.mcp.fs_access import (  # noqa: F401  (re-export
 )
 from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported for back-compat)
     _MAX_HTTP_SESSION_LEDGERS,
-    _clear_request_ledger,
     _detect_agent,
     _get_claude_session_id,
     _get_product_session_id,
@@ -119,11 +120,16 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _mcp_window_id,
     _request_ledger,
     _resolve_live_session_id,
-    _set_request_ledger,
     _workspace_ws_hash,
 )
 from lemoncrow.gateway.adapters.mcp.ledger import (
+    _clear_request_ledger as _clear_request_ledger,
+)
+from lemoncrow.gateway.adapters.mcp.ledger import (
     _get_ledger as _get_ledger,
+)
+from lemoncrow.gateway.adapters.mcp.ledger import (
+    _set_request_ledger as _set_request_ledger,
 )
 from lemoncrow.gateway.adapters.mcp.session_state import (  # noqa: F401  (re-exported for back-compat)
     _MCP_ID,

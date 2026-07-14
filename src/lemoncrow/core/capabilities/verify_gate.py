@@ -407,8 +407,8 @@ def decide(signals: VerifySignals, *, dedup_key: str = "", root: str = ".") -> d
             if not fresh:
                 return None
             merged = {b: int(v or 0) for b, v in seen.items()} if isinstance(seen, dict) else {}
-            for b, c in counts.items():
-                merged[b] = max(merged.get(b, 0), int(c))
+            for name, c in counts.items():
+                merged[name] = max(merged.get(name, 0), int(c))
             state["nagged_counts"] = merged
             _save_state(dedup_key, state)
             return {"decision": "block", "reason": _REASON.format(n=len(fresh), sample=", ".join(fresh[:4]))}
@@ -418,9 +418,9 @@ def decide(signals: VerifySignals, *, dedup_key: str = "", root: str = ".") -> d
     # Completeness (detector A/B) nudge: fire once per distinct reason.
     if dedup_key:
         state = _load_state(dedup_key)
-        shown = set(state.get("shown_reasons", []))
-        if candidate["reason"] in shown:
+        shown_set = set(state.get("shown_reasons", []))
+        if candidate["reason"] in shown_set:
             return None
-        state["shown_reasons"] = sorted(shown | {candidate["reason"]})
+        state["shown_reasons"] = sorted(shown_set | {candidate["reason"]})
         _save_state(dedup_key, state)
     return candidate

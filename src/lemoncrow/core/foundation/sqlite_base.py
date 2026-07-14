@@ -20,15 +20,15 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
 class SqliteTableStore:
     """Base class: one store = one SQLite file = one set of tables."""
 
     SCHEMA: str = ""
-    MIGRATIONS: tuple[str, ...] = ()
-    REQUIRED_TABLES: tuple[str, ...] = ()
+    MIGRATIONS: ClassVar[tuple[str, ...]] = ()
+    REQUIRED_TABLES: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, root: Path | str, *, db_name: str) -> None:
         self.root = Path(root).resolve()
