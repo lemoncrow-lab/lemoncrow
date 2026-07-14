@@ -163,10 +163,10 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
 
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = None
-    mcp_server._product_session_id = None
+    mcp_server._ledger._product_session_id = None
     mcp_server._product_session_started_at = None
     mcp_server._reset_runtime_cache_for_testing()
     mcp_server._remote_client = _FakeRemoteClient()
@@ -191,8 +191,8 @@ def test_tools_list_hides_internal_workflow_tools(tmp_path: Path, monkeypatch: p
     _seed_store(root)
     monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     response = _handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     assert response is not None
     tools = response["result"]["tools"]

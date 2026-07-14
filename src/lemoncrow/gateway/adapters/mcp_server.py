@@ -66,8 +66,12 @@ from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import RawArtifact, Trace, to_jsonable
 from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.core.foundation.rubric_gate import run_rubric
+from lemoncrow.gateway.adapters.mcp import ledger as _ledger
 from lemoncrow.gateway.adapters.mcp.bash import (  # noqa: F401  (registers bash tool + re-exports)
+    _BASH_STATS_MAX_KEYS,
+    _BASH_STATS_PRUNE_TO,
     _DEFAULT_BASH_SOFT_TIMEOUT,
+    BASH_TOOL_INPUT_SCHEMA,
     _bash_command_key,
     _bash_omitted_tokens_saved,
     _record_bash_command_stats,
@@ -94,6 +98,23 @@ from lemoncrow.gateway.adapters.mcp.framework import (  # noqa: F401  (re-export
     _ToolArgumentError,
     mcp_tool,
 )
+from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported for back-compat)
+    _MAX_HTTP_SESSION_LEDGERS,
+    _clear_request_ledger,
+    _detect_agent,
+    _get_claude_session_id,
+    _get_ledger,
+    _get_product_session_id,
+    _get_realtime_context,
+    _http_session_ledgers,
+    _http_session_ledgers_lock,
+    _ledger_for_session,
+    _mcp_window_id,
+    _request_ledger,
+    _resolve_live_session_id,
+    _set_request_ledger,
+    _workspace_ws_hash,
+)
 from lemoncrow.gateway.adapters.mcp.session_state import (  # noqa: F401  (re-exported for back-compat)
     _MCP_ID,
     _MCP_SESSION_FILE_LOCK,
@@ -116,7 +137,6 @@ from lemoncrow.gateway.adapters.mcp.tools_commodity import (  # noqa: F401  (reg
     tool_mcp,
     tool_web_fetch,
 )
-from lemoncrow.infra.runtime.realtime_context import RealtimeContextManager
 from lemoncrow.infra.runtime.run_ledger import (
     RunLedger,
     outcomes_path,
@@ -268,16 +288,16 @@ _FORMAT_FIELD = Field(
 # session_state.json helpers                                                  #
 # --------------------------------------------------------------------------- #
 
-_current_ledger: RunLedger | None = None
+# moved to mcp.ledger (imported/re-exported near the top).
 # Per-request ledger override for the HTTP transport: set on the worker thread
 # that runs _handle so concurrent HTTP clients each accumulate their own run.json
 # instead of co-mingling into the process-global _current_ledger.
-_request_ledger: threading.local = threading.local()
-_http_session_ledgers: OrderedDict[str, RunLedger] = OrderedDict()
-_http_session_ledgers_lock = threading.Lock()
-_MAX_HTTP_SESSION_LEDGERS = 64
-_realtime_ctx: RealtimeContextManager | None = None
-_product_session_id: str | None = None
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
 _product_session_started_at: float | None = None
 _last_plan_hash_by_session: dict[str, str] = {}
 _last_plan_by_session: dict[str, dict[str, Any]] = {}
@@ -359,8 +379,8 @@ def _advance_monitors(session_id: str, task: str, original_task: str) -> tuple[f
 # SessionStart hook finds this file and writes the Claude session UUID + model into it.
 # _get_claude_session_id() reads it once then caches in _cached_claude_session_id.
 # _MCP_ID moved to mcp.session_state (imported near the top).
-_cached_claude_session_id: str = ""
-_cached_mcp_model: str = ""
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
 # _current_context_state cache: session id -> (stat-signature, (ctx, model)).
 # That probe runs on every savings-bearing tool call; without this it re-tails
 # and JSON-parses a 64 KB transcript window every time. Keyed on the candidate
@@ -579,111 +599,25 @@ def _service_backed_state() -> bool:
     return True
 
 
-def _detect_agent() -> str:
-    """Derive the agent/host label from the runtime environment.
-
-    Thin re-export: the env-var sniffing lives once, canonically, in
-    ``lemoncrow.core.foundation.paths.detect_host`` so every hook script across
-    every integration (not just this MCP server) resolves the identical host
-    label -- the same value that segregates each host's session storage.
-    """
-    from lemoncrow.core.foundation.paths import detect_host
-
-    return detect_host()
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _ledger_for_session(session_id: str) -> RunLedger:
-    """Per-session ledger so concurrent HTTP clients don't co-mingle into the
-    process-global ledger. Bounded LRU; the least-recently-used entry is evicted
-    past the cap. On a cache miss an existing ``run.json`` is rehydrated so an
-    evicted-then-reused session does not overwrite its own accumulated events.
-
-    Uses the global store root (not the workspace-scoped one): a session is
-    already globally unique by id and lives under the canonical
-    ``sessions/YYYY/MM/DD/<host>/<id>/`` tree regardless of which workspace
-    happens to be resolved for this request.
-    """
-    from lemoncrow.core.foundation.paths import default_store_root, find_session_dir
-
-    root = default_store_root()
-    with _http_session_ledgers_lock:
-        led = _http_session_ledgers.get(session_id)
-        if led is not None:
-            _http_session_ledgers.move_to_end(session_id)
-            return led
-        existing_dir = find_session_dir(root, session_id)
-        if existing_dir is not None:
-            path = existing_dir / "run.json"
-            if path.exists():
-                try:
-                    led = RunLedger.load(path)
-                    # load() builds the ledger without a root; restore it so the
-                    # rehydrated ledger persists back to the same run.json.
-                    led._root = root
-                except ValueError:
-                    led = None
-        if led is None:
-            led = RunLedger(root=root, agent=_detect_agent(), session_id=session_id)
-        if len(_http_session_ledgers) >= _MAX_HTTP_SESSION_LEDGERS:
-            _http_session_ledgers.popitem(last=False)
-        _http_session_ledgers[session_id] = led
-        return led
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _set_request_ledger(session_id: str | None) -> Any:
-    """Scope _get_ledger() to a per-session ledger on the CURRENT thread; returns
-    the prior value to restore. A falsy session_id is a no-op (stdio / no session
-    header keeps the process-global ledger)."""
-    prior = getattr(_request_ledger, "value", None)
-    if session_id:
-        _request_ledger.value = _ledger_for_session(session_id)
-    return prior
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _clear_request_ledger(prior: Any) -> None:
-    _request_ledger.value = prior
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _get_ledger() -> RunLedger:
-    req = getattr(_request_ledger, "value", None)
-    if isinstance(req, RunLedger):
-        return req
-    global _current_ledger
-    if _current_ledger is not None:
-        return _current_ledger
-    # Bind the ledger to the host session id (Claude Code UUID, etc.) so
-    # run.json lands at sessions/YYYY/MM/DD/<host>/<host-id>/run.json — the
-    # same canonical folder the plugin hooks read and the savings sidecar
-    # writes. The global store root (not workspace-scoped): a session is
-    # already globally unique by id, regardless of which workspace happens to
-    # be resolved for this process. Computed outside the lock since
-    # _get_claude_session_id touches shared state; non-host runs fall back to
-    # RunLedger's own random uuid4.
-    host_sid = _get_claude_session_id() or None
-    with _STATE_LOCK:
-        if _current_ledger is None:
-            from lemoncrow.core.foundation.paths import default_store_root
-
-            _current_ledger = RunLedger(root=default_store_root(), agent=_detect_agent(), session_id=host_sid)
-    return _current_ledger
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _get_realtime_context() -> RealtimeContextManager:
-    global _realtime_ctx
-    with _STATE_LOCK:
-        if _realtime_ctx is None:
-            _realtime_ctx = RealtimeContextManager(_lemoncrow_root())
-    return _realtime_ctx
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _get_product_session_id() -> str:
-    global _product_session_id
-    with _STATE_LOCK:
-        if _product_session_id is None:
-            from lemoncrow.core.foundation.identity import new_session_id
-
-            _product_session_id = new_session_id()
-    return _product_session_id
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
 def _emit_mcp_session_start() -> None:
@@ -1029,21 +963,20 @@ def _runtime() -> ContextRuntime:
 
 
 def _reset_runtime_cache_for_testing() -> None:
-    global _current_ledger, _realtime_ctx, _product_session_id, _product_session_started_at
+    global _product_session_started_at
     global _runtime_cache, _remote_client, _context_budget_recorder
     global _last_worker_spawn_time
-    global _WINDOW_SID_CACHE, _MCP_WINDOW_ID, _MCP_WINDOW_ID_RESOLVED
-    _current_ledger = None
-    _realtime_ctx = None
-    _product_session_id = None
+    _ledger._current_ledger = None
+    _ledger._realtime_ctx = None
+    _ledger._product_session_id = None
     _product_session_started_at = None
     _runtime_cache = None
     _remote_client = None
     _context_budget_recorder = None
     _last_worker_spawn_time = 0.0
-    _WINDOW_SID_CACHE = None
-    _MCP_WINDOW_ID = None
-    _MCP_WINDOW_ID_RESOLVED = False
+    _ledger._WINDOW_SID_CACHE = None
+    _ledger._MCP_WINDOW_ID = None
+    _ledger._MCP_WINDOW_ID_RESOLVED = False
     _last_plan_hash_by_session.clear()
     _last_plan_by_session.clear()
     _CONTEXT_STATE_CACHE.clear()
@@ -1168,57 +1101,20 @@ def _read_workspace_session_bridge() -> tuple[str, str]:
 # mtime so the common path (no SessionStart since last call) is a single stat;
 # re-resolves only when SessionStart rewrote the file -- i.e. on startup /
 # resume / clear / compact.
-_WINDOW_SID_CACHE: tuple[float, str] | None = None
+# moved to mcp.ledger (imported/re-exported near the top).
 # This MCP process's (window_pid, window_btime), memoized: the claude-window
 # ancestor is fixed for the server's whole life, so walk /proc only once.
-_MCP_WINDOW_ID: tuple[int, int] | None = None
-_MCP_WINDOW_ID_RESOLVED = False
+# moved to mcp.ledger (imported/re-exported near the top).
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _mcp_window_id() -> tuple[int, int] | None:
-    global _MCP_WINDOW_ID, _MCP_WINDOW_ID_RESOLVED
-    if not _MCP_WINDOW_ID_RESOLVED:
-        from lemoncrow.core.foundation.session_window import host_window_id
-
-        _MCP_WINDOW_ID = host_window_id()
-        _MCP_WINDOW_ID_RESOLVED = True
-    return _MCP_WINDOW_ID
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _workspace_ws_hash() -> str:
-    from lemoncrow.core.foundation.session_window import workspace_hash
-
-    ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
-    return workspace_hash(ws)
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
-def _resolve_live_session_id() -> str:
-    """Live session id for this MCP server's window.
-
-    Anchors to the ``claude`` window process (stable across ``/clear``, unique
-    per window) via its own per-window identity file, falling back to the launch
-    env var. A long-lived server tracks the live session across ``/clear`` and
-    never adopts a sibling session's id from a shared workspace slot.
-    """
-    global _WINDOW_SID_CACHE
-    from lemoncrow.core.foundation.session_window import resolve_window_session_id, window_file_path
-
-    root = _lemoncrow_root()
-    ws_hash = _workspace_ws_hash()
-    win = _mcp_window_id()
-    mtime = 0.0
-    if win is not None:
-        try:
-            mtime = window_file_path(root, ws_hash, win[0], win[1]).stat().st_mtime
-        except OSError:
-            mtime = 0.0
-    cached = _WINDOW_SID_CACHE
-    if cached is not None and cached[0] == mtime:
-        return cached[1]
-    env_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
-    sid = resolve_window_session_id(root, ws_hash, env_session_id=env_sid)
-    _WINDOW_SID_CACHE = (mtime, sid)
-    return sid
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
 def _claude_session_id() -> str:
@@ -2428,44 +2324,12 @@ def _unregister_mcp_session() -> None:
         _log.debug("MCP session registration cleanup failed", exc_info=True)
 
 
-def _get_claude_session_id() -> str:
-    """Return the Claude Code session UUID.
-
-    Resolves the window-anchored live id first (``_resolve_live_session_id`` ->
-    this window's own identity file), caching it in _cached_claude_session_id.
-    Falls back to the cached value, then the MCP registration file, then the
-    product session UUID.
-    """
-    global _cached_claude_session_id, _cached_mcp_model
-
-    # Window-anchored live id: correct across /clear and immune to sibling
-    # sessions sharing the workspace bridge (resolver is mtime-cached).
-    sid = _resolve_live_session_id()
-    if sid:
-        _cached_claude_session_id = sid
-        return sid
-    if _cached_claude_session_id:
-        return _cached_claude_session_id
-
-    try:
-        f = _mcp_session_file()
-        if f.is_file():
-            data = json.loads(f.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                sid = str(data.get("claude_session_id") or "").strip()
-                if sid:
-                    _cached_claude_session_id = sid
-                    _cached_mcp_model = str(data.get("model") or "").strip()
-                    return sid
-    except (OSError, json.JSONDecodeError):
-        _log.debug("MCP session id read failed", exc_info=True)
-    return _get_product_session_id()
+# moved to mcp.ledger (imported/re-exported near the top).
 
 
 def _get_mcp_model() -> str:
     """Return the model string last written by SessionStart, or empty string."""
-    global _cached_mcp_model
-    if not _cached_claude_session_id:
+    if not _ledger._cached_claude_session_id:
         # Try to populate both caches via workspace bridge read.
         _get_claude_session_id()
 
@@ -2476,8 +2340,8 @@ def _get_mcp_model() -> str:
     # in _append_savings) covers the common case; this is a pre-first-turn fallback.
     sid, model = _read_workspace_session_bridge()
     if sid and model and sid == _resolved_host_session_id():
-        _cached_mcp_model = model
-        return _cached_mcp_model
+        _ledger._cached_mcp_model = model
+        return _ledger._cached_mcp_model
 
     # Backward-compatible fallback to MCP session file.
     try:
@@ -2485,10 +2349,10 @@ def _get_mcp_model() -> str:
         if f.is_file():
             data = json.loads(f.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                _cached_mcp_model = str(data.get("model") or "").strip()
+                _ledger._cached_mcp_model = str(data.get("model") or "").strip()
     except (OSError, json.JSONDecodeError):
         _log.debug("MCP model read failed", exc_info=True)
-    return _cached_mcp_model
+    return _ledger._cached_mcp_model
 
 
 # Native per-session id env vars for non-Claude hosts, tried in order after the

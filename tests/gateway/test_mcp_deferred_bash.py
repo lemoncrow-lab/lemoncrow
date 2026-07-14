@@ -52,8 +52,8 @@ def bash_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     # Default: deferral enabled (do not let an ambient value leak in).
     monkeypatch.delenv("LEMONCROW_MCP_DEFER_BASH", raising=False)
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     return tmp_path
 
 
