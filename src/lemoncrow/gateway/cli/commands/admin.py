@@ -580,7 +580,9 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
+            else timedelta(hours=amount)
+            if unit == "h"
+            else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -639,6 +641,15 @@ def init(
             _oauth_login(as_json=False)
             if not load_auth_token():
                 raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
+    else:
+        # Explicit --no-login: remember this so the MCP server's background
+        # seamless login (mcp_server._try_seamless_login) doesn't keep popping
+        # a browser tab every cooldown window in an unattended install.
+        # Cleared automatically the moment a token is next saved (lc login /
+        # lc init without --no-login).
+        from lemoncrow.core.capabilities.licensing.store import mark_login_declined
+
+        mark_login_declined()
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
