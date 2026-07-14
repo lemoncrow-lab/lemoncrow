@@ -1,17 +1,21 @@
 """Public contract types for tool supervision.
 
-Exception types are caller-facing contract, not engine IP; defining them in this
-open module lets the pro tool-supervision logic compile to native ``.so`` (mypyc
-cannot compile classes inheriting builtin exception types) while callers keep
-importing the same names.
+Exception types and result models are caller-facing contract, not engine IP;
+defining them in this open module lets the pro tool-supervision logic compile to
+native ``.so`` (mypyc cannot compile builtin-exception subclasses or pydantic
+models) while callers keep importing the same names.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.tool_supervision.fuzzy_match import FuzzyCandidate
+
+CompactMethod = Literal["passthrough", "deterministic_truncate", "llm_summary"]
 
 
 class SqlPathError(Exception):
@@ -38,3 +42,31 @@ class SymbolEditError(ValueError):
 
     def to_dict(self) -> dict[str, Any]:
         return {"error": self.error, "message": self.message, **self.payload}
+
+
+class CompactResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    compacted: str
+    original_tokens: int
+    compacted_tokens: int
+    recovery_hint: str
+    method: CompactMethod
+    content_type: str
+
+
+class GateResult(BaseModel):
+    """Outcome of the N6 savings gate.
+
+    ``chosen`` is the text that should actually be emitted. ``used_compact`` is
+    True only when the compact form cleared the savings threshold.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chosen: str
+    used_compact: bool
+    original_chars: int
+    compact_chars: int
+    savings_ratio: float
+    threshold: float
