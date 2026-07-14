@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
     RouteConfig,
     detect_configured_vendors,
     load_route_config,

@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.optimization.complexity import score_complexity
-from lemoncrow.core.capabilities.optimization.golden_runner import run_golden_suite
-from lemoncrow.core.capabilities.optimization.optimizer import (
+from lemoncrow.core.foundation.models import Trace, UsageEntry
+from lemoncrow.pro.capabilities.optimization.complexity import score_complexity
+from lemoncrow.pro.capabilities.optimization.golden_runner import run_golden_suite
+from lemoncrow.pro.capabilities.optimization.optimizer import (
     INSUFFICIENT_HISTORY_MESSAGE,
     optimize_from_traces,
 )
-from lemoncrow.core.capabilities.optimization.policy import (
+from lemoncrow.pro.capabilities.optimization.policy import (
     load_current_policy,
     preset_policy,
     save_policy,
 )
-from lemoncrow.core.capabilities.optimization.shadow import build_shadow_state
-from lemoncrow.core.foundation.models import Trace, UsageEntry
+from lemoncrow.pro.capabilities.optimization.shadow import build_shadow_state
 
 
 def _trace(index: int, *, task: str = "Fix a bug", cost_usd: float = 1.0) -> Trace:

@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfigError
-from lemoncrow.core.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 from lemoncrow.core.capabilities.owned_execution_routing import OwnedRouteRequest, select_owned_route
 from lemoncrow.core.capabilities.pricing import active_model
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
 HostRouterMode = Literal["disabled", "shadow", "enforced"]
 PresetRouteMode = Literal["auto", "explicit"]

@@ -19,7 +19,7 @@ def _load_stop() -> ModuleType:
 
 def test_format_review_findings_surfaces_and_consumes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    from lemoncrow.core.capabilities.live_reviewer.sink import (
+    from lemoncrow.pro.capabilities.live_reviewer.sink import (
         append_verdict,
         latest_unconsumed,
     )
@@ -41,7 +41,7 @@ def test_format_review_findings_empty_when_none(tmp_path: Path, monkeypatch: pyt
 
 def test_format_review_findings_skips_done(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    from lemoncrow.core.capabilities.live_reviewer.sink import append_verdict
+    from lemoncrow.pro.capabilities.live_reviewer.sink import append_verdict
 
     append_verdict(tmp_path, "sid1", {"verdict": "DONE"})
     stop = _load_stop()

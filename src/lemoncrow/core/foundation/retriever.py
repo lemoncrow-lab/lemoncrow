@@ -31,12 +31,12 @@ from typing import TypeVar
 
 import tiktoken
 
-from lemoncrow.core.capabilities.archival_recall.ranking import rank_archival_passages
 from lemoncrow.core.foundation._minhash import MinHash
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.core.foundation.renderer import render_block_for_agent
 from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
 
 T = TypeVar("T")
 # Compact metadata describing one recalled item injected into context. Shared

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 import lemoncrow.infra.internal_llm as internal_llm
-from lemoncrow.core.capabilities.tool_supervision import text_summary
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.pro.capabilities.tool_supervision import text_summary
 
 SMALL_CODE = (
     '"""A small module for testing outline-fits-budget."""\n'
@@ -209,7 +209,7 @@ def test_summary_dict_form_via_files_batch(tmp_path: Path) -> None:
 def test_summary_on_spill_file_uses_log_tier_and_single_footer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     spill_dir = tmp_path / "lemoncrow-spill"
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(spill_dir))
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
     record = tool_output_spill.spill(_make_log_with_traceback(), tool_name="bash")
     assert record is not None

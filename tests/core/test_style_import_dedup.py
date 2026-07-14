@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.style_import.importer import import_files
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.capabilities.style_import.importer import import_files
 
 
 def test_style_import_flags_near_duplicates(store: StoreBundle, tmp_path: Path) -> None:

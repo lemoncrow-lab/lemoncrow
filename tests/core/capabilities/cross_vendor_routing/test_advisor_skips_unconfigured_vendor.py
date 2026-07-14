@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfig
-from lemoncrow.core.capabilities.cross_vendor_routing.router import CrossVendorRouter
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfig
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import CrossVendorRouter
 
 
 def test_advisor_skips_unconfigured_vendor(tmp_path) -> None:
@@ -14,7 +14,7 @@ def test_advisor_skips_unconfigured_vendor(tmp_path) -> None:
         return None if command in blocked else f"/fake/{command}"
 
     with patch(
-        "lemoncrow.core.capabilities.cross_vendor_routing.configuration.shutil.which", side_effect=_which_no_google
+        "lemoncrow.pro.capabilities.cross_vendor_routing.configuration.shutil.which", side_effect=_which_no_google
     ):
         router = CrossVendorRouter(
             RouteConfig(enabled_vendors=["anthropic", "google"]),

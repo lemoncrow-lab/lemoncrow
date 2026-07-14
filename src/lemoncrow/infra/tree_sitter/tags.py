@@ -213,7 +213,7 @@ _LOCAL_SCOPE_KINDS: dict[str, frozenset[str]] = {
 
 
 def _definition_candidates(root: Any, language: str, definition_kinds: frozenset[str]) -> list[Any]:
-    from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import transparent_node_kinds
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import transparent_node_kinds
 
     if language in {"json", "yaml"}:
         unwrap = transparent_node_kinds(language)
@@ -248,7 +248,7 @@ def _definition_candidates(root: Any, language: str, definition_kinds: frozenset
 
 
 def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
-    from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import (
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import (
         definition_node_kinds,
         tree_sitter_parser,
     )
@@ -408,7 +408,7 @@ def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: s
         # (bytes has no `.encode`, so that would otherwise raise).
         text = text.decode("utf-8", errors="replace")
 
-    from lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast import (
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import (
         supported_tree_sitter_languages,
     )
 

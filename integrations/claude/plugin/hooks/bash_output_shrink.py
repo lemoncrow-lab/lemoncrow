@@ -75,7 +75,7 @@ def _run(payload: dict[str, Any]) -> int:
     if not command or original_chars < _MIN_SHRINK_CHARS:
         return 0
 
-    from lemoncrow.core.capabilities.tool_supervision.bash_exec import compact_host_bash_output
+    from lemoncrow.pro.capabilities.tool_supervision.bash_exec import compact_host_bash_output
 
     result = compact_host_bash_output(command, stdout, stderr, _exit_code(tool_response))
     compact_chars = len(result.stdout) + len(result.stderr)
@@ -88,7 +88,7 @@ def _run(payload: dict[str, Any]) -> int:
         # accounting.
         footer = result.spill_hint
     else:
-        from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+        from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
         footer = tool_output_spill.spill_notice(
             verb="shrunk", original_chars=original_chars, kept_chars=compact_chars, path=None

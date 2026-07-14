@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import output_delta
-from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
+from lemoncrow.pro.capabilities.tool_supervision import output_delta
+from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
     _TEST_CMD_RE,
     _dedupe_repeated_lines,
     _extract_test_output,

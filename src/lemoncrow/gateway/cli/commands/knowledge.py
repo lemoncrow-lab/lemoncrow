@@ -96,7 +96,7 @@ def knowledge_extract_cmd(
 @click.pass_context
 def knowledge_show_cmd(ctx: click.Context, as_json: bool) -> None:
     """Show the review overlays — team (repo) and personal."""
-    from lemoncrow.core.capabilities.live_reviewer.knowledge import load_overlay, load_repo_overlay
+    from lemoncrow.pro.capabilities.live_reviewer.knowledge import load_overlay, load_repo_overlay
 
     repo_root = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     team = load_repo_overlay(repo_root)

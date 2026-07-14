@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.semantic_file_memory import indexer
-from lemoncrow.core.capabilities.semantic_file_memory.indexer import FileIndex
+from lemoncrow.pro.capabilities.semantic_file_memory import indexer
+from lemoncrow.pro.capabilities.semantic_file_memory.indexer import FileIndex
 
 
 def test_save_evicts_oldest_by_recency_not_alphabet(tmp_path: Path, monkeypatch) -> None:

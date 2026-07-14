@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.team import (
+from lemoncrow.core.foundation.memory_models import MemoryBlock
+from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.pro.capabilities.team import (
     TeamPermissionError,
     TeamWorkspaceManager,
     ensure_shared_memory_write,
     visible_memory_blocks,
 )
-from lemoncrow.core.foundation.memory_models import MemoryBlock
-from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
 
 
 def test_viewer_sees_shared_memory_only(tmp_path: Path) -> None:

@@ -86,8 +86,8 @@ class GeminiADKMiddleware:
             used_model = str(getattr(response, "model", used_model) or used_model)
 
         try:
-            from lemoncrow.core.capabilities.prefix_cache.planner import PrefixCachePlanner
-            from lemoncrow.core.capabilities.prompt_compilation.models import (
+            from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlanner
+            from lemoncrow.pro.capabilities.prompt_compilation.models import (
                 BlockKind,
                 PromptBlock,
                 Stability,

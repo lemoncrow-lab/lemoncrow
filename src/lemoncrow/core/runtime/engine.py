@@ -25,7 +25,6 @@ from lemoncrow.core.capabilities import (
     ToolSupervisionCapability,
 )
 from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
-from lemoncrow.core.capabilities.tool_supervision.sql_inspect import SqlInspectCapability
 from lemoncrow.core.foundation.paths import (
     WorkspaceNotRegisteredError,
     default_store_root,
@@ -43,6 +42,7 @@ from lemoncrow.core.foundation.retriever import (
 from lemoncrow.core.foundation.routing_models import RouteDecision, StepType, TaskType
 from lemoncrow.infra.runtime.run_ledger import RunLedger, iter_run_files
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.tool_supervision.sql_inspect import SqlInspectCapability
 
 
 class LemonCrowRuntimeCore:
@@ -154,10 +154,10 @@ class LemonCrowRuntimeCore:
 
         if recall:
             try:
-                from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
                 from lemoncrow.core.foundation.redaction import redact
                 from lemoncrow.infra.embeddings.factory import get_embedder
                 from lemoncrow.infra.storage.factory import make_memory_store
+                from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
                 memory_store = make_memory_store(self.root)
                 recall_agent_id = agent_id if agent_id else "shared"
@@ -553,7 +553,7 @@ class LemonCrowRuntimeCore:
         if os.environ.get("LEMONCROW_AUTO_COMPACT", "").strip().lower() not in {"1", "true", "yes", "on"}:
             return True
         try:
-            from lemoncrow.core.capabilities.optimization.policy import load_current_policy, should_compact
+            from lemoncrow.pro.capabilities.optimization.policy import load_current_policy, should_compact
 
             policy = load_current_policy(self.root)
             fill = self._live_context_fill(ledger)
@@ -574,7 +574,7 @@ class LemonCrowRuntimeCore:
         and contradicts the "live fill" the gate needs. ``always_on`` defaults
         to 0 (matching the audit module when no context audit is supplied).
         """
-        from lemoncrow.core.capabilities.optimization.audit import context_window_for_model
+        from lemoncrow.pro.capabilities.optimization.audit import context_window_for_model
 
         def _occupancy(payload: dict[str, Any]) -> int:
             return (

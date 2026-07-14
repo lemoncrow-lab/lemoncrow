@@ -113,7 +113,7 @@ def test_data_language_parser_missing_returns_empty(
         return None
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.semantic_file_memory.treesitter_ast.tree_sitter_parser",
+        "lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast.tree_sitter_parser",
         missing_parser,
     )
 

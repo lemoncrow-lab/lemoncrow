@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 
 _BOUND_S = bx._READER_JOIN_GRACE_S + 3.0  # generous margin over the join grace
 

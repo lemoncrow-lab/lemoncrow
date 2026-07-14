@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import external_compactors as ec
+from lemoncrow.pro.capabilities.tool_supervision import external_compactors as ec
 
 
 @pytest.fixture(autouse=True)

@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
 from lemoncrow.core.capabilities.governance import load_policy, record_within_retention, redact_record
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
-from lemoncrow.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
+from lemoncrow.pro.capabilities.cross_vendor_memory.audit_log import MemoryAuditLog
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
 
 
 def export_audit_bundle(root: Path | str, *, out_dir: Path | str, since: datetime | None = None) -> dict[str, Any]:

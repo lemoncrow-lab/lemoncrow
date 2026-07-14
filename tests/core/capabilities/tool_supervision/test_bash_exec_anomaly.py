@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
-from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
+from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
     _compact_result,
     _extract_anomaly_windows,
     _strip_ansi,

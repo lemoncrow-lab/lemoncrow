@@ -18,11 +18,11 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.context_compression.sleeptime import summarize_ledger
-from lemoncrow.core.capabilities.tool_supervision.compact_output import compact
 from lemoncrow.infra.internal_llm import ollama_client
 from lemoncrow.infra.internal_llm.ollama_client import OllamaUnavailable
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.context_compression.sleeptime import summarize_ledger
+from lemoncrow.pro.capabilities.tool_supervision.compact_output import compact
 
 pytestmark = pytest.mark.slow
 

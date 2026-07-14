@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def test_lesson_scope_isolation(tmp_path) -> None:

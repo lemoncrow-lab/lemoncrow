@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_health.doc_index import (
+from lemoncrow.pro.capabilities.code_health.doc_index import (
     DesignDocStore,
     chunk_markdown,
     doc_indexing_enabled,
@@ -92,8 +92,8 @@ def test_env_flag_enables_indexing(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 def test_doc_store_is_separate_from_code_index(tmp_path: Path) -> None:
     """Indexing docs must not create or mutate the semantic code index cache."""
-    from lemoncrow.core.capabilities.semantic_file_memory import SemanticFileMemoryCapability
-    from lemoncrow.core.capabilities.semantic_file_memory.indexer import _CACHE_FILENAME
+    from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
+    from lemoncrow.pro.capabilities.semantic_file_memory.indexer import _CACHE_FILENAME
 
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)

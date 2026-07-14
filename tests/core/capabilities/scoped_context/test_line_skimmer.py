@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from lemoncrow.core.capabilities.repo_map.budget import count_tokens
-from lemoncrow.core.capabilities.scoped_context import ScopedContextCapability, Subtask
-from lemoncrow.core.capabilities.scoped_context.line_skimmer import (
+from lemoncrow.pro.capabilities.repo_map.budget import count_tokens
+from lemoncrow.pro.capabilities.scoped_context import ScopedContextCapability, Subtask
+from lemoncrow.pro.capabilities.scoped_context.line_skimmer import (
     LineSkimmer,
     build_goal_text,
     is_line_skim_enabled,

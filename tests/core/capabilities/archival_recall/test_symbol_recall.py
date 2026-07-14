@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lemoncrow.core.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
 from lemoncrow.core.foundation.history_store import HistoryStore
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import Trace
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+from lemoncrow.pro.capabilities.archival_recall.symbol_recall import SymbolRecallCapability
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
 
 def _write_fixture_repo(root: Path) -> None:

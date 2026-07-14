@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.code_context.generated_files import is_generated_path
-from lemoncrow.core.capabilities.code_context.models import SymbolRecord
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.generated_files import is_generated_path
+from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 
 
 def _symbol(
@@ -263,7 +263,7 @@ def test_context_pack_drops_generated_files_from_related_symbols(tmp_path: Path)
 
 def test_context_pack_caps_related_symbol_count(tmp_path: Path) -> None:
     """Related-symbol count stays within the context policy cap."""
-    from lemoncrow.core.capabilities.code_context.output_policy import resolve_output_policy
+    from lemoncrow.pro.capabilities.code_context.output_policy import resolve_output_policy
 
     (tmp_path / "src").mkdir()
     helpers = "\n\n".join(f"def helper_{i}() -> int:\n    return {i}" for i in range(40))

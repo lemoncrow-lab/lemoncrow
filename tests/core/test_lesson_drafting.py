@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.lesson_promotion.draft import draft_lesson_candidate
 from lemoncrow.core.foundation.models import Playbook, Trace, ValidationResult
+from lemoncrow.pro.capabilities.lesson_promotion.draft import draft_lesson_candidate
 
 
 def _trace(

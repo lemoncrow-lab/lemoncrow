@@ -23,7 +23,7 @@ def test_failed_traces_populate_lesson_inbox(tmp_path: Path, monkeypatch: pytest
     # from the offline embedder's similarity scores.
     monkeypatch.setenv("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.0")
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.pro.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "clustered failure lesson",
     )
     client = LocalClient(root=tmp_path / ".lemoncrow")
@@ -47,7 +47,7 @@ def test_recurring_failures_dedup_to_single_candidate(tmp_path: Path, monkeypatc
     # cluster candidate, not insert a near-duplicate per recurrence.
     monkeypatch.setenv("LEMONCROW_LESSON_CLUSTER_THRESHOLD", "0.0")
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.lesson_promotion.capability.draft_lesson_body",
+        "lemoncrow.pro.capabilities.lesson_promotion.capability.draft_lesson_body",
         lambda traces: "clustered failure lesson",
     )
     client = LocalClient(root=tmp_path / ".lemoncrow")

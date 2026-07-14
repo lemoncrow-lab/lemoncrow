@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.lesson_promotion.capability import LessonPromoterCapability
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
 from lemoncrow.core.foundation.lesson_models import LessonCandidate
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.lesson_promotion.capability import LessonPromoterCapability
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def test_reviewed_lesson_approval_binds_route(tmp_path) -> None:

@@ -150,7 +150,7 @@ def _legacy_optimize_report(ctx: click.Context, host: str | None, days: int, lim
 
 
 def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
-    from lemoncrow.core.capabilities.optimization import load_current_policy, optimize_from_traces
+    from lemoncrow.pro.capabilities.optimization import load_current_policy, optimize_from_traces
 
     store = _load_store(ctx.obj["root"])
     current_policy = load_current_policy(ctx.obj["root"])
@@ -167,7 +167,7 @@ def _benchmark_evidence_from_options(
     margin: float,
     confidence: float,
 ) -> Any:
-    from lemoncrow.core.capabilities.optimization import BenchmarkEvidence
+    from lemoncrow.pro.capabilities.optimization import BenchmarkEvidence
 
     provided = [runs_path is not None, baseline_cost_usd is not None, candidate_cost_usd is not None]
     if not any(provided):
@@ -199,8 +199,8 @@ def optimize_group(ctx: click.Context, host: str | None, days: int, limit: int, 
     if ctx.invoked_subcommand is not None:
         return
 
-    from lemoncrow.core.capabilities.optimization import append_history
     from lemoncrow.core.capabilities.reporting.dashboard import _render_optimization_summary
+    from lemoncrow.pro.capabilities.optimization import append_history
 
     report = _legacy_optimize_report(ctx, host, days, limit)
     result = _advisor_result(ctx, host, days)
@@ -257,7 +257,7 @@ def optimize_apply(
     as_json: bool,
 ) -> None:
     """Apply a preset, the latest recommendation, or a custom policy YAML."""
-    from lemoncrow.core.capabilities.optimization.policy import (
+    from lemoncrow.pro.capabilities.optimization.policy import (
         policy_from_config,
         preset_policy,
         save_policy,
@@ -333,7 +333,7 @@ def optimize_run(
     as_json: bool,
 ) -> None:
     """Run the optimization advisor intentionally and evaluate proposal readiness."""
-    from lemoncrow.core.capabilities.optimization import run_optimization_cycle
+    from lemoncrow.pro.capabilities.optimization import run_optimization_cycle
 
     evidence = _benchmark_evidence_from_options(
         runs_path=runs_path,
@@ -394,8 +394,8 @@ def optimize_auto() -> None:
 @click.pass_context
 def optimize_auto_status(ctx: click.Context, as_json: bool) -> None:
     """Show the persisted optimize automation configuration."""
-    from lemoncrow.core.capabilities.optimization import load_automation_config
-    from lemoncrow.core.capabilities.optimization.policy import optimization_config_path
+    from lemoncrow.pro.capabilities.optimization import load_automation_config
+    from lemoncrow.pro.capabilities.optimization.policy import optimization_config_path
 
     automation = load_automation_config(ctx.obj["root"]).to_dict()
     payload = {
@@ -435,12 +435,12 @@ def optimize_auto_enable(
     as_json: bool,
 ) -> None:
     """Enable periodic optimize jobs using the shared persisted config."""
-    from lemoncrow.core.capabilities.optimization import (
+    from lemoncrow.pro.capabilities.optimization import (
         AutomationConfig,
         load_automation_config,
         save_automation_config,
     )
-    from lemoncrow.core.capabilities.optimization.policy import optimization_config_path
+    from lemoncrow.pro.capabilities.optimization.policy import optimization_config_path
 
     evidence = _benchmark_evidence_from_options(
         runs_path=runs_path,
@@ -475,7 +475,7 @@ def optimize_auto_enable(
 @click.pass_context
 def optimize_auto_disable(ctx: click.Context, as_json: bool) -> None:
     """Disable periodic optimize jobs without discarding saved evidence."""
-    from lemoncrow.core.capabilities.optimization import (
+    from lemoncrow.pro.capabilities.optimization import (
         AutomationConfig,
         load_automation_config,
         save_automation_config,
@@ -519,11 +519,11 @@ def optimize_shadow(
     if ctx.invoked_subcommand is not None:
         return
 
-    from lemoncrow.core.capabilities.optimization.policy import (
+    from lemoncrow.pro.capabilities.optimization.policy import (
         record_shadow_consent,
         shadow_consent_at,
     )
-    from lemoncrow.core.capabilities.optimization.shadow import build_shadow_state, save_shadow_state
+    from lemoncrow.pro.capabilities.optimization.shadow import build_shadow_state, save_shadow_state
 
     if shadow_consent_at(ctx.obj["root"]) is None:
         if not i_understand_this_costs_money:
@@ -574,7 +574,7 @@ def optimize_shadow(
 @click.pass_context
 def optimize_shadow_status(ctx: click.Context, as_json: bool) -> None:
     """Show live shadow spend versus cap."""
-    from lemoncrow.core.capabilities.optimization.shadow import load_shadow_state
+    from lemoncrow.pro.capabilities.optimization.shadow import load_shadow_state
 
     state = load_shadow_state(ctx.obj["root"]) or {"status": "not_running"}
     if as_json:
@@ -593,7 +593,7 @@ def optimize_shadow_status(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def optimize_shadow_stop(ctx: click.Context, as_json: bool) -> None:
     """Halt the active shadow run immediately."""
-    from lemoncrow.core.capabilities.optimization.shadow import stop_shadow
+    from lemoncrow.pro.capabilities.optimization.shadow import stop_shadow
 
     state = stop_shadow(ctx.obj["root"])
     if as_json:
@@ -607,7 +607,7 @@ def optimize_shadow_stop(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def optimize_shadow_forget_consent(ctx: click.Context, as_json: bool) -> None:
     """Revoke persistent shadow-run cost consent."""
-    from lemoncrow.core.capabilities.optimization.policy import forget_shadow_consent
+    from lemoncrow.pro.capabilities.optimization.policy import forget_shadow_consent
 
     revoked = forget_shadow_consent(ctx.obj["root"])
     payload = {"revoked": revoked}
@@ -622,7 +622,7 @@ def optimize_shadow_forget_consent(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def optimize_compare(ctx: click.Context, as_json: bool) -> None:
     """Compare current policy with the active or latest shadow run."""
-    from lemoncrow.core.capabilities.optimization.shadow import load_shadow_state
+    from lemoncrow.pro.capabilities.optimization.shadow import load_shadow_state
 
     result = _advisor_result(ctx, None, 7)
     state = load_shadow_state(ctx.obj["root"]) or {"status": "not_running", "spend_usd": 0.0}
@@ -642,7 +642,7 @@ def optimize_compare(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def optimize_history(ctx: click.Context, limit: int, as_json: bool) -> None:
     """Show past optimization recommendations and outcomes."""
-    from lemoncrow.core.capabilities.optimization import load_history
+    from lemoncrow.pro.capabilities.optimization import load_history
 
     history = load_history(ctx.obj["root"], limit=limit)
     if as_json:
@@ -680,7 +680,7 @@ def optimize_gate(
     as_json: bool,
 ) -> None:
     """Evaluate the TerminalBench + cost non-inferiority gate."""
-    from lemoncrow.core.capabilities.optimization import evaluate_non_inferiority_from_runs
+    from lemoncrow.pro.capabilities.optimization import evaluate_non_inferiority_from_runs
 
     try:
         verdict = evaluate_non_inferiority_from_runs(
@@ -741,9 +741,9 @@ def optimize_compress_context(file: Path, do_write: bool) -> None:
     prose is compressed. Dry-run by default; --write applies it after saving
     the original to <file>.bak.
     """
-    from lemoncrow.core.capabilities.prompt_compilation.tokens import count_tokens
-    from lemoncrow.core.capabilities.tool_supervision.compact_output import gate_compact
     from lemoncrow.infra.internal_llm import InternalLLMError, summarize
+    from lemoncrow.pro.capabilities.prompt_compilation.tokens import count_tokens
+    from lemoncrow.pro.capabilities.tool_supervision.compact_output import gate_compact
 
     original = file.read_text(encoding="utf-8")
     if not original.strip():

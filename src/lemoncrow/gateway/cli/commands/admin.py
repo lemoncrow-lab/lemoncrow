@@ -984,7 +984,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
 
     # External compactors (optional soft integrations, e.g. rtk). Absence is
     # never a failure -- LemonCrow falls back to the plain shell path.
-    from lemoncrow.core.capabilities.tool_supervision.external_compactors import (
+    from lemoncrow.pro.capabilities.tool_supervision.external_compactors import (
         external_compactors_enabled,
         registered_compactors,
         resolve_compactor,
@@ -1650,7 +1650,7 @@ def team_group() -> None:
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
     workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(name=name, admin_email=admin_email)
     payload = workspace.model_dump(mode="json")
@@ -1666,7 +1666,7 @@ def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
     if not emails:
         raise click.ClickException("provide at least one email")
@@ -1685,7 +1685,7 @@ def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_j
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_join_cmd(ctx: click.Context, invite_code: str, user_id: str | None, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
     member = TeamWorkspaceManager(ctx.obj["root"]).join_workspace(invite_code, user_id=user_id)
     payload = member.model_dump(mode="json")
@@ -1701,7 +1701,7 @@ def team_join_cmd(ctx: click.Context, invite_code: str, user_id: str | None, as_
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
     member = TeamWorkspaceManager(ctx.obj["root"]).set_role(user_id, role)  # type: ignore[arg-type]
     payload = member.model_dump(mode="json")
@@ -1716,7 +1716,7 @@ def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) ->
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
 
     manager = TeamWorkspaceManager(ctx.obj["root"])
     manager.require_admin()
@@ -1736,7 +1736,7 @@ def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, default=False)
 @click.pass_context
 def team_audit_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.team import TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
 
     manager = TeamWorkspaceManager(ctx.obj["root"])
     manager.require_admin()
@@ -1782,7 +1782,7 @@ def governance_show_cmd(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def governance_apply_cmd(ctx: click.Context, file_path: Path, as_json: bool) -> None:
     from lemoncrow.core.capabilities.governance import GovernancePolicy, save_policy
-    from lemoncrow.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
 
     manager = TeamWorkspaceManager(ctx.obj["root"])
     member = manager.require_admin()
@@ -1815,7 +1815,7 @@ def audit_group() -> None:
 @click.pass_context
 def audit_export_cmd(ctx: click.Context, since: str, out_dir: Path, as_json: bool) -> None:
     from lemoncrow.core.capabilities.audit_export import export_audit_bundle
-    from lemoncrow.core.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
+    from lemoncrow.pro.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
 
     manager = TeamWorkspaceManager(ctx.obj["root"])
     member = manager.require_admin()

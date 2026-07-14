@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities.source_projection import build_compact_projection
-from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
+from lemoncrow.pro.capabilities.source_projection import build_compact_projection
+from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
 
 def test_rich_edit_sequential_same_file_and_line_range(tmp_path: Path) -> None:

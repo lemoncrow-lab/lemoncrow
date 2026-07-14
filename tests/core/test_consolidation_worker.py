@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.consolidation import consolidate
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.infra.internal_llm import InternalLLMError
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.capabilities.consolidation import consolidate
 
 
 def _block(
@@ -52,7 +52,7 @@ def test_consolidate_writes_duplicate_candidate(tmp_path: Path, monkeypatch: pyt
         seen_messages.extend(messages)
         raise InternalLLMError("offline")
 
-    monkeypatch.setattr("lemoncrow.core.capabilities.consolidation.worker.chat", unavailable)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.consolidation.worker.chat", unavailable)
 
     report = consolidate(store)
 
@@ -74,7 +74,7 @@ def test_consolidate_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.
     store.knowledge.upsert_block(_block("rb-one", "Checkout retry timeout"), write_markdown=False)
     store.knowledge.upsert_block(_block("rb-two", "Checkout retry webhook timeout"), write_markdown=False)
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.consolidation.worker.chat",
+        "lemoncrow.pro.capabilities.consolidation.worker.chat",
         lambda messages, json_schema=None: (_ for _ in ()).throw(InternalLLMError("offline")),
     )
 

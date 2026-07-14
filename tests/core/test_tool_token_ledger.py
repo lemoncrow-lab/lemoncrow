@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from lemoncrow.core.capabilities.prompt_compilation.tokens import estimate_tokens
 from lemoncrow.core.capabilities.tool_token_ledger import (
     TOOL_TOKEN_LEDGER_FILENAME,
     ToolTokenLedger,
@@ -13,6 +12,7 @@ from lemoncrow.core.capabilities.tool_token_ledger import (
     load_tool_token_ledger,
     record_tool_tokens,
 )
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
 
 def test_count_payload_tokens_matches_local_counter_for_strings() -> None:

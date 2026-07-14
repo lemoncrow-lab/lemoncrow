@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lemoncrow.core.capabilities.memory_arbitration import arbitrate
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
+from lemoncrow.pro.capabilities.memory_arbitration import arbitrate
 
 
 class _MemoryStore:
@@ -45,7 +45,7 @@ def test_arbitration_emits_per_op_metric(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setitem(sys.modules, "prometheus_client", SimpleNamespace(Counter=_Counter))
     monkeypatch.delattr(
-        "lemoncrow.core.capabilities.memory_arbitration.arbiter._emit_arbitration_metric.counter",
+        "lemoncrow.pro.capabilities.memory_arbitration.arbiter._emit_arbitration_metric.counter",
         raising=False,
     )
 
@@ -76,7 +76,7 @@ def test_arbitration_uses_ollama_json_for_similar_blocks(
         }
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.memory_arbitration.arbiter.chat",
+        "lemoncrow.pro.capabilities.memory_arbitration.arbiter.chat",
         fake_chat,
     )
 
@@ -107,7 +107,7 @@ def test_arbitration_degrades_when_base_llm_error(monkeypatch: pytest.MonkeyPatc
         raise InternalLLMError("Internal LLM disabled")
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.memory_arbitration.arbiter.chat",
+        "lemoncrow.pro.capabilities.memory_arbitration.arbiter.chat",
         fake_chat,
     )
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.code_context.cache import RetrievalCache
+from lemoncrow.pro.capabilities.code_context.cache import RetrievalCache
 
 
 def _fill(cache: RetrievalCache, n: int, size: int) -> None:

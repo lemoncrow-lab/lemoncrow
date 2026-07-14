@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from lemoncrow.core.capabilities.team import begin_google_oidc, finish_google_oidc
+from lemoncrow.pro.capabilities.team import begin_google_oidc, finish_google_oidc
 
 
 def test_google_oidc_stub_round_trip() -> None:

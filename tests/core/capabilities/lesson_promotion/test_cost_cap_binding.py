@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import RouteConfig
-from lemoncrow.core.capabilities.cross_vendor_routing.router import CrossVendorRouter
-from lemoncrow.core.capabilities.lesson_promotion.models import TypedLesson
-from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfig
+from lemoncrow.pro.capabilities.cross_vendor_routing.router import CrossVendorRouter
+from lemoncrow.pro.capabilities.lesson_promotion.models import TypedLesson
+from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
 
 def test_cost_cap_binding_downgrades_projected_breach(tmp_path, monkeypatch) -> None:

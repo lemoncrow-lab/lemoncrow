@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from lemoncrow.core.capabilities.cross_vendor_routing.configuration import (
-    RouteConfig,
-    save_route_config,
-)
 from lemoncrow.gateway.adapters.mcp_server import _emit_model_recommendation
 from lemoncrow.infra.runtime import outcome_capture
 from lemoncrow.infra.runtime.run_ledger import RunLedger
+from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+    RouteConfig,
+    save_route_config,
+)
 
 
 def test_outcome_capture_feeds_quality_prior(tmp_path, monkeypatch) -> None:

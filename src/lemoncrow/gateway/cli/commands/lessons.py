@@ -10,14 +10,14 @@ from lemoncrow.gateway.cli.commands._shared import _emit, _ledger_dir, _ledger_p
 
 
 def _lesson_promoter(root: Path) -> Any:
-    from lemoncrow.core.capabilities.lesson_promotion import LessonPromoterCapability
+    from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
 
     store = _load_store(root)
     return LessonPromoterCapability(store)
 
 
 def _lesson_pr_bot(root: Path) -> Any:
-    from lemoncrow.core.capabilities.lesson_promotion import LessonPrBot
+    from lemoncrow.pro.capabilities.lesson_promotion import LessonPrBot
 
     store = _load_store(root)
     return LessonPrBot(store=store, root=root)
@@ -348,7 +348,7 @@ def lesson_active_group() -> None:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def lesson_active_list(ctx: click.Context, include_inactive: bool, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
     lessons = TypedLessonStore(ctx.obj["root"], create=False).list_lessons()
     if not include_inactive:
@@ -372,7 +372,7 @@ def lesson_active_list(ctx: click.Context, include_inactive: bool, as_json: bool
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def lesson_active_show(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
     lesson = TypedLessonStore(ctx.obj["root"], create=False).get_lesson(lesson_id)
     if lesson is None:
@@ -388,7 +388,7 @@ def lesson_active_show(ctx: click.Context, lesson_id: str, as_json: bool) -> Non
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def lesson_active_disable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
     lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, False)
     if as_json:
@@ -402,7 +402,7 @@ def lesson_active_disable(ctx: click.Context, lesson_id: str, as_json: bool) -> 
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def lesson_active_enable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.lesson_promotion.store import TypedLessonStore
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
 
     lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, True)
     if as_json:

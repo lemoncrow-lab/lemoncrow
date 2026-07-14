@@ -422,8 +422,8 @@ def _summarize_rendered_content(content: str, *, char_limit: int) -> str:
     the request's own cap still applies, but a gist should stay small even when
     ``max_chars`` was raised for a long page the caller expected to page through.
     """
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
-    from lemoncrow.core.capabilities.tool_supervision.text_summary import heuristic_summary, llm_summary_tier
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision.text_summary import heuristic_summary, llm_summary_tier
 
     target_chars = min(char_limit, _SUMMARY_TARGET_CHARS)
     original_chars = len(content)
@@ -457,7 +457,7 @@ def _truncate_with_spill(content: str, char_limit: int) -> str:
     it) recovers the rest. Falls back to a bare notice if spill is disabled or
     the write fails.
     """
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
     head = content[:char_limit].rstrip()
     record = None
@@ -518,7 +518,7 @@ def _truncate_with_relevance(content: str, char_limit: int, query: str) -> str:
     regardless, so a bad ranking is recoverable, not a dead end: grep the
     named path for another term, or ``range=`` through it directly.
     """
-    from lemoncrow.core.capabilities.tool_supervision.relevance_ranking import rank_and_select
+    from lemoncrow.pro.capabilities.tool_supervision.relevance_ranking import rank_and_select
 
     chunks = _chunk_markdown(content)
     if not chunks:
@@ -527,7 +527,7 @@ def _truncate_with_relevance(content: str, char_limit: int, query: str) -> str:
 
     pointer = ""
     if _spill_enabled():
-        from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+        from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
         record = tool_output_spill.spill(content, tool_name="web_fetch", kind="original")
         if record is not None:
@@ -1264,7 +1264,7 @@ def _spill_original_pdf(body: bytes) -> Any:
     """
     if not _spill_enabled():
         return None
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
     return tool_output_spill.spill_bytes(body, tool_name="web_fetch", kind="original", suffix=".pdf")
 
@@ -1293,7 +1293,7 @@ def _spill_pdf_image(data: bytes, *, suffix: str) -> Any:
     """Persist one embedded PDF image and return its spill record (or None)."""
     if not _spill_enabled():
         return None
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
     normalized_suffix = suffix if suffix.lower() in _IMAGE_SUFFIXES else ".bin"
     return tool_output_spill.spill_bytes(data, tool_name="web_fetch", kind="pdf-image", suffix=normalized_suffix)

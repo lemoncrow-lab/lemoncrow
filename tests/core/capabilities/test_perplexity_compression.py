@@ -10,18 +10,18 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.budget_optimizer.optimizer import (
+from lemoncrow.infra.internal_llm import chunk_entropy, logprobs
+from lemoncrow.pro.capabilities.budget_optimizer.optimizer import (
     ContextBlock,
     PromptBudgetOptimizer,
 )
-from lemoncrow.core.capabilities.code_context.ppl_rank import (
+from lemoncrow.pro.capabilities.code_context.ppl_rank import (
     rank_code_chunks,
     split_code_chunks,
 )
-from lemoncrow.core.capabilities.context_compression.perplexity_pruning import (
+from lemoncrow.pro.capabilities.context_compression.perplexity_pruning import (
     prune_block,
 )
-from lemoncrow.infra.internal_llm import chunk_entropy, logprobs
 
 
 @pytest.fixture(autouse=True)
@@ -159,7 +159,7 @@ def test_pruning_noop_when_already_under_budget() -> None:
 
 def result_target(block: str) -> int:
     """Half the block's token budget — forces a real prune."""
-    from lemoncrow.core.capabilities.context_compression.perplexity_pruning import (
+    from lemoncrow.pro.capabilities.context_compression.perplexity_pruning import (
         _token_count,
     )
 

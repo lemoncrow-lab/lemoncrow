@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lemoncrow.core.capabilities.semantic_file_memory.search import SymbolIndex
+from lemoncrow.pro.capabilities.semantic_file_memory.search import SymbolIndex
 
 
 class _FakeIndex:

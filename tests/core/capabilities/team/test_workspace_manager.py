@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.team import (
+from lemoncrow.pro.capabilities.team import (
     TeamPermissionError,
     TeamWorkspaceError,
     TeamWorkspaceManager,

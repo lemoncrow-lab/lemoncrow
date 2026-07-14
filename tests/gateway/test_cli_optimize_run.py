@@ -10,7 +10,7 @@ from lemoncrow.gateway.cli import cli
 def test_optimize_run_blocks_open_pr_when_proposal_not_approved(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("lemoncrow.gateway.cli.commands.savings._load_store", lambda root: object())
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.optimization.run_optimization_cycle",
+        "lemoncrow.pro.capabilities.optimization.run_optimization_cycle",
         lambda **kwargs: {
             "repo_root": str(tmp_path),
             "advisor": {"current_policy": {"preset": "balanced"}, "weekly_savings_usd": 1.0, "confidence": "low"},

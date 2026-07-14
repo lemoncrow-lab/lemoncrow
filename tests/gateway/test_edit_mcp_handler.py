@@ -470,7 +470,7 @@ def test_hook_exception_does_not_fail_successful_edit(workspace: Path, monkeypat
         raise RuntimeError("hook toolchain not found")
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         exploding_hooks,
     )
 
@@ -495,7 +495,7 @@ def test_hook_exception_diff_still_recorded(workspace: Path, monkeypatch: pytest
     f.write_text("original\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 

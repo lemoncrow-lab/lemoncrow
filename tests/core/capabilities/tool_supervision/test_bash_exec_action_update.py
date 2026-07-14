@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-import lemoncrow.core.capabilities.tool_supervision.bash_exec as bx
+import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 
 
 def _poll_until_done(session_id: str, timeout_s: float = 10.0) -> dict[str, object]:

@@ -116,7 +116,9 @@ def _debug_log(tool_name: str, tool_response: Any) -> None:
     if os.environ.get("LEMONCROW_SHADOW_SHRINK_DEBUG", "0").strip().lower() not in {"1", "true", "yes", "on"}:
         return
     try:
-        root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+        root = Path(
+            os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+        )
         log_dir = root / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         shape = type(tool_response).__name__
@@ -131,8 +133,8 @@ def _shrink(tool_name: str, text: str, threshold: int) -> str | None:
     """Spill the full text and return a bounded head+tail summary + the
     canonical footer notice, or None if spilling failed (caller then fails
     open)."""
-    from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
-    from lemoncrow.core.capabilities.tool_supervision.compact_output import compress_tool_output
+    from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
+    from lemoncrow.pro.capabilities.tool_supervision.compact_output import compress_tool_output
 
     record = tool_output_spill.spill(text, tool_name=tool_name, kind="tool_output")
     if record is None:

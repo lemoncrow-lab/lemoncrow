@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.code_context import CodeContextEngine
-from lemoncrow.core.capabilities.tool_supervision.rich_edit import apply_rich_edits
 from lemoncrow.gateway.adapters.mcp_server import _memory_get_block
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
 
 def _write_symbol_fixture(root: Path) -> None:

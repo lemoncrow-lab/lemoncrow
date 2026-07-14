@@ -18,14 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.repo_map import graph as graph_mod
-from lemoncrow.core.capabilities.repo_map.graph import build_reference_graph
-from lemoncrow.core.capabilities.repo_map.tag_cache import (
+from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags
+from lemoncrow.pro.capabilities.repo_map import graph as graph_mod
+from lemoncrow.pro.capabilities.repo_map.graph import build_reference_graph
+from lemoncrow.pro.capabilities.repo_map.tag_cache import (
     TagCache,
     default_tag_cache_path,
     tag_cache_enabled,
 )
-from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags
 
 
 @pytest.fixture(autouse=True)
@@ -107,7 +107,7 @@ def test_unwritable_db_falls_back_to_memory(tmp_path: Path, monkeypatch: pytest.
     blocker = tmp_path / "blocked"
     blocker.write_text("not a dir", encoding="utf-8")
     monkeypatch.setattr(
-        "lemoncrow.core.capabilities.repo_map.tag_cache.default_tag_cache_path",
+        "lemoncrow.pro.capabilities.repo_map.tag_cache.default_tag_cache_path",
         lambda _root: blocker / "workspaces" / "x" / "repo_map_tags.sqlite",
     )
     src = tmp_path / "a.py"

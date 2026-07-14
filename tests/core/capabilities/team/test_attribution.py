@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lemoncrow.core.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
+from lemoncrow.pro.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
 
 
 def test_summarize_workspace_usage_rolls_up_by_user(tmp_path: Path) -> None:

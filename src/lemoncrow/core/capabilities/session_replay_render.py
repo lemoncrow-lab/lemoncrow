@@ -11,13 +11,13 @@ import html
 import re
 from typing import Any
 
-from lemoncrow.core.capabilities.prompt_compilation.tokens import approx_tokens
 from lemoncrow.core.capabilities.session_replay import (
     Episode,
     Replay,
     _tool_name,
     estimate_savings,
 )
+from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 
 # --------------------------------------------------------------------------- #
 # Shared helpers

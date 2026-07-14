@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.prompt_compilation.models import (
+from lemoncrow.pro.capabilities.prompt_compilation.models import (
     COUNTEREXAMPLE_METADATA_KEY,
     DEFAULT_STABILITY,
     BlockKind,

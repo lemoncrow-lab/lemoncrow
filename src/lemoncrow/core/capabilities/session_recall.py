@@ -146,9 +146,9 @@ def _make_recall_embedder(root: str | Path) -> Any:
 def _capability(root: str | Path) -> Any:
     # Recall indexes thousands of transcript passages; route them to a dedicated
     # global recall.db so the bulk writes never contend with the main lemoncrow.db.
-    from lemoncrow.core.capabilities.archival_recall import ArchivalRecallCapability
     from lemoncrow.core.foundation.redaction import redact
     from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
+    from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
 
     store = SqliteMemoryStore(Path(root), db_name="recall.db")
     return ArchivalRecallCapability(store, _make_recall_embedder(root), redactor=redact)

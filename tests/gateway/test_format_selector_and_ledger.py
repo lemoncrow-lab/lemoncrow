@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision.compact_output import columnar_decode
 from lemoncrow.core.capabilities.tool_token_ledger import load_tool_token_ledger
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import _handle
+from lemoncrow.pro.capabilities.tool_supervision.compact_output import columnar_decode
 from tests.helpers import init_store_at
 
 

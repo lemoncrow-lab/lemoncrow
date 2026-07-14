@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.tool_supervision import tool_output_spill
+from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
 
 @pytest.fixture(autouse=True)

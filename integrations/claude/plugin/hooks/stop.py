@@ -452,7 +452,7 @@ def _format_deferred_edits(transcript_path: str) -> None:
     if not paths:
         return
     try:
-        from lemoncrow.core.capabilities.tool_supervision.post_edit_hooks import (
+        from lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks import (
             HookConfig,
             run_post_edit_hooks,
         )
@@ -685,7 +685,6 @@ def _refresh_statusline_frames(session_id: str) -> None:
     """
     if not session_id:
         return
-    import time
 
     from lemoncrow.core.capabilities.savings_summary import savings_frames
     from lemoncrow.core.foundation.paths import find_session_dir
@@ -1042,7 +1041,7 @@ def _format_review_findings(session_id: str) -> str:
     if not session_id:
         return ""
     try:
-        from lemoncrow.core.capabilities.live_reviewer.sink import (
+        from lemoncrow.pro.capabilities.live_reviewer.sink import (
             latest_unconsumed,
             mark_consumed,
         )
