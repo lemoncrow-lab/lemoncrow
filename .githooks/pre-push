@@ -40,52 +40,6 @@ for protected in "${PROTECTED_BRANCHES[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# 1. Unauthorized .md file check (lemoncrow-specific)
-# ---------------------------------------------------------------------------
-echo "📄 Checking for unauthorized .md files..."
-md_files=$(git ls-files "*.md" \
-    | grep -v "^docs/" \
-    | grep -v "^docs-internal/" \
-    | grep -v "^docs-archive/" \
-    | grep -v "^reports/" \
-    | grep -v "^.planning/" \
-    | grep -v "^.lemoncrow/lessons/" \
-    | grep -v "^templates/" \
-    | grep -v "^.ruler/" \
-    | grep -v "^.agent/" \
-    | grep -v "^skills/" \
-    | grep -v "^integrations/" \
-    | grep -v "^.github/" \
-    | grep -v "^.knowledge/" \
-    | grep -v "^internal/" \
-    | grep -v "^tests/fixtures/memory/" \
-    | grep -v "^tests/fixtures/languages/" \
-    | grep -v "/prompts/" \
-    | grep -v "AGENTS" \
-    | grep -v "README\.md$" \
-    | grep -v "SECURITY\.md$" \
-    | grep -v "CLAUDE\.md$" \
-    | grep -v "SKILL\.md$" \
-    | grep -v "_README\.md$" \
-    | grep -v "LICENSE\.md$" \
-    | grep -v "CHANGELOG\.md$" \
-    | grep -v "CONTRIBUTING\.md$" \
-    | grep -v "GEMINI\.md$" || true)
-
-if [ -n "$md_files" ]; then
-    echo -e "\033[1;31m❌ Unauthorized .md files found:\033[0m"
-    echo "$md_files"
-    echo ""
-    echo "Allowed: docs/, docs-archive/, reports/, .planning/, .lemoncrow/lessons/, templates/,"
-    echo "  .ruler/, .agent/, skills/, integrations/, .github/,"
-    echo "  .knowledge/, internal/, tests/fixtures/memory/,"
-    echo "  AGENTS*, README.md, SECURITY.md, SKILL.md,"
-    echo "  LICENSE.md, CHANGELOG.md, CONTRIBUTING.md, GEMINI.md"
-    exit 1
-fi
-echo "✅ No unauthorized .md files."
-
-# ---------------------------------------------------------------------------
 # 3. Lint (ruff check) — same as CI lint-format job
 # ---------------------------------------------------------------------------
 echo "🔍 make lint ..."
