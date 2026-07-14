@@ -79,6 +79,16 @@ RESULTS_ROOT = REPO_ROOT / "benchmarks" / "codebench" / "results"
 CA_CERT = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
 
 EMPTY_MCP: dict[str, dict[str, object]] = {"mcpServers": {}}
+LEMONCROW_MCP: dict[str, dict[str, object]] = {
+    "mcpServers": {
+        "lc": {
+            "type": "stdio",
+            "command": "lemoncrow",
+            "args": ["mcp", "--host", "claude"],
+            "alwaysLoad": True,
+        }
+    }
+}
 
 
 @dataclass(frozen=True)
@@ -341,6 +351,18 @@ def _make_baseline_config(
         if creds.exists():
             shutil.copy(creds, cfg / ".credentials.json")
     return cfg
+
+
+def _enable_lemoncrow_mcp(config_dir: Path) -> None:
+    """Enable only LemonCrow's server in the isolated Claude user config.
+
+    ``alwaysLoad`` makes Claude wait for the server and include its tool schemas
+    before headless turn 1, while preserving the short ``mcp__lc__*`` namespace.
+    """
+    config_path = config_dir / ".claude.json"
+    data = json.loads(config_path.read_text())
+    data["mcpServers"] = LEMONCROW_MCP["mcpServers"]
+    config_path.write_text(json.dumps(data))
 
 
 def _mktemp(prefix: str) -> str:
@@ -1487,6 +1509,8 @@ def run_arm(
                 trust_workspace=ws,
             )
             env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+            if spec.plugin:
+                _enable_lemoncrow_mcp(config_dir)
             if row_state:
                 session_id = str(row_state["session_id"])
                 cmd += ["--resume" if should_resume_session else "--session-id", session_id]
@@ -3399,6 +3423,23 @@ def main() -> int:
     unknown_arms = [arm for arm in args.arms if arm not in VALID_ARMS]
     if unknown_arms:
         p.error(f"unknown arm(s): {', '.join(unknown_arms)}")
+    if args.cli_driver == "claude" and any(ARM_SPECS[arm].plugin for arm in args.arms):
+        executable = shutil.which("lemoncrow")
+        if executable is None:
+            print("LemonCrow MCP preflight failed: lemoncrow executable not found on PATH", flush=True)
+            return 1
+        preflight_env = {**os.environ, **agent_env, "LEMONCROW_WORKSPACE_ROOT": str(Path(args.repo).resolve())}
+        preflight = subprocess.run(
+            [executable, "mcp", "--host", "claude", "check"],
+            capture_output=True,
+            text=True,
+            env=preflight_env,
+            check=False,
+        )
+        if preflight.returncode != 0:
+            detail = preflight.stderr.strip() or preflight.stdout.strip() or f"exit {preflight.returncode}"
+            print(f"LemonCrow MCP preflight failed: {detail}", flush=True)
+            return 1
     if args.jobs < 1:
         p.error("--jobs must be >= 1")
     if args.retry_failed and not args.resume:

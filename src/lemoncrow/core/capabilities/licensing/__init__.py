@@ -1,6 +1,6 @@
 """LemonCrow licensing -- OAuth-backed Pro entitlements (open-core split).
 
-The open-source core ships every capability. This package is the *gate*: a
+The open core ships every capability. This package is the *gate*: a
 feature key is either free (always allowed) or Pro (allowed only when the
 signed-in account's plan is Pro/Enterprise). ``lc login`` creates the
 OAuth session; the plan comes from the auth server's ``/api/auth/me`` and is

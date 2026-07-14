@@ -186,7 +186,10 @@ def _run_bash_tool(
     max_output_tokens: int | None = None,
     background: bool = False,
     session_id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
+    action: Literal["run", "poll", "kill", "status", "update", "send"] = "run",
+    interactive: bool = False,
+    input_text: str | None = None,
+    idle_ttl: int | None = None,
 ) -> dict[str, Any] | _DeferredResult:
     """Execute a shell command and return compact structured output."""
     from lemoncrow.core.capabilities.tool_supervision.bash_exec import (
@@ -194,6 +197,7 @@ def _run_bash_tool(
         execute_inline_op,
         peek_managed_command,
         poll_managed_command,
+        send_managed_input,
         start_managed_command,
         update_managed_command,
     )
@@ -229,10 +233,19 @@ def _run_bash_tool(
         workspace = os.getcwd()
     effective_cwd = cwd or workspace
 
-    if action in {"poll", "cancel", "status", "update"}:
+    if action in {"poll", "kill", "status", "update", "send"}:
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
-        if action == "cancel":
+        if action == "send":
+            # Feed an interactive session's stdin and return the output delta.
+            # `timeout` here is only how long to wait for that delta -- the
+            # session itself lives on under its own idle-TTL.
+            return send_managed_input(
+                session_id,
+                input_text or "",
+                wait=float(timeout) if timeout is not None else 30.0,
+            )
+        if action == "kill":
             result = poll_managed_command(session_id, cancel=True)
             _forget_mcp_managed_bash(session_id)
             return result
@@ -271,6 +284,11 @@ def _run_bash_tool(
         raise ValueError("command is required for shell action=run")
     if timeout is None:
         timeout = _DEFAULT_BASH_SOFT_TIMEOUT
+
+    if interactive and background:
+        raise ValueError(
+            "interactive=true cannot be combined with bg=true: an interactive session's stdin dies with this MCP session"
+        )
 
     # Only the API's explicit bg=true flag grants permission to survive MCP
     # shutdown. A trailing ampersand still gets the fast managed-command path,
@@ -540,11 +558,18 @@ def _run_bash_tool(
         max_chars=max_output_tokens * 4 if max_output_tokens is not None else None,
         note=_pipeline_note,
         explicit_background=explicit_background,
+        interactive=interactive,
+        idle_ttl=float(idle_ttl) if idle_ttl is not None else None,
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:
         return started  # blocked by policy
     _record_mcp_managed_bash(started)
+
+    if interactive:
+        # An interactive session never finishes on its own -- hand the handle
+        # back immediately; the model feeds it with action="send".
+        return started
 
     # Phase 2: foreground deferral. For the block-until-done case (a foreground
     # run, where inline_wait covers the full timeout), hand the pool worker back
@@ -612,7 +637,7 @@ def _run_bash_tool(
             # response never blocks past `timeout` regardless of what the
             # command is doing. This never kills anything: the managed
             # session keeps running untouched; the model gets a session_id
-            # back and can poll again, keep working, or action="cancel" it.
+            # back and can poll again, keep working, or action="kill" it.
             timer = threading.Timer(float(timeout), _once)
             timer.daemon = True
             timer_box.append(timer)
@@ -687,6 +712,8 @@ def _render_bash_text(result: dict[str, Any]) -> str:
         over_budget = bool(result.get("over_budget"))
         if explicit_background:
             parts.append(f"background running id={session_id}")
+        elif result.get("interactive"):
+            parts.append(f"interactive session id={session_id}")
         elif over_budget:
             parts.append(f"still running id={session_id}")
         else:
@@ -791,8 +818,17 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "action": {
             "type": "string",
-            "enum": ["poll", "status", "cancel", "update"],
-            "description": "With id: poll (default) = wait; status = peek, no wait; cancel = kill now; update = install new timeout.",
+            "enum": ["poll", "status", "kill", "update", "send"],
+            "description": "With id: poll (default) = wait; status = peek, no wait; kill = kill now; update = install new timeout; send = feed input to an interactive session, get its new output.",
+        },
+        "interactive": {
+            "type": "boolean",
+            "default": False,
+            "description": "Keep the process alive as a REPL session (stdin stays open) -- e.g. one `python -u -i -q` keeps heavy imports loaded across calls. Feed it with action=send + input; killed after 300s idle (every send resets the clock).",
+        },
+        "input": {
+            "type": "string",
+            "description": "action=send: text written to the session's stdin (newline appended). Empty = wait for and drain new output only.",
         },
     },
     "additionalProperties": False,
@@ -807,7 +843,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "possible; bash = git, make, uv, npm, etc. cd doesn't persist — pass cwd= or "
         "absolute paths."
     ),
-    hidden_params=("max_lines", "max_output_tokens"),
+    hidden_params=("max_lines", "max_output_tokens", "idle_ttl"),
     param_aliases={"session_id": "id", "background": "bg"},
 )
 def tool_bash(
@@ -818,7 +854,10 @@ def tool_bash(
     max_output_tokens: int | None = None,
     bg: bool = False,
     id: str | None = None,
-    action: Literal["run", "poll", "cancel", "status", "update"] = "run",
+    action: Literal["run", "poll", "kill", "status", "update", "send"] = "run",
+    interactive: bool = False,
+    input: str | None = None,
+    idle_ttl: int | None = None,
 ) -> str | _DeferredResult:
     """Execute a shell command and return compact text output.
 
@@ -828,13 +867,22 @@ def tool_bash(
     bg=True starts the command in the background, returns its `id`, and is
     the only mode preserved across MCP shutdown. bash(id=x) alone waits for
     that run to finish (poll); action="status"
-    peeks without waiting (state + last 10 output lines); action="cancel"
+    peeks without waiting (state + last 10 output lines); action="kill"
     kills it now. `timeout` at start is only ever a soft response budget --
     it does not kill by itself (eventual internal ~1hr backstop still
     applies). action="update" with id= and a new timeout= installs an exact,
     enforced kill deadline for a running job (e.g. to kill something in 5
     minutes: start it, then update it with timeout=300).
+
+    interactive=True keeps the process alive as a REPL session: stdin stays
+    open, action="send" with input= feeds it and returns only the new output
+    (state persists across sends -- e.g. one `python -u -i -q` session keeps
+    heavy imports loaded). The session dies after `idle_ttl` seconds (default
+    300) without a send; every send resets the clock.
     """
+    if id and input is not None and action == "run":
+        # bash(id=x, input=...) with no explicit action = feed the session.
+        action = "send"
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
         action = "poll"
@@ -847,6 +895,9 @@ def tool_bash(
         background=bg,
         session_id=id,
         action=action,
+        interactive=interactive,
+        input_text=input,
+        idle_ttl=idle_ttl,
     )
     # Phase 2: a deferred foreground command flows straight through to _handle,
     # which returns a _Deferred sentinel and lets the watcher render the result.

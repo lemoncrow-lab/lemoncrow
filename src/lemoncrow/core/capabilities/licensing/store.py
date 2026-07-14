@@ -45,7 +45,40 @@ def save_auth_token(token: str) -> Path:
             fh.write(token.strip() + "\n")
     finally:
         os.chmod(path, 0o600)
+    clear_login_declined()
     return path
+
+
+# ── Explicit opt-out (`lc init --no-login`) ────────────────────────────────────────
+
+_LOGIN_DECLINED_FILENAME = "login_declined"
+
+
+def login_declined_path() -> Path:
+    return default_store_root() / _LOGIN_DECLINED_FILENAME
+
+
+def mark_login_declined() -> None:
+    """Record an explicit `lc init --no-login`.
+
+    Suppresses the MCP server's seamless background browser login
+    (``_try_seamless_login``) until the user activates explicitly via
+    ``lc login`` or ``lc init`` without ``--no-login`` -- cleared automatically
+    by ``save_auth_token`` the moment either succeeds.
+    """
+    path = login_declined_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+
+def is_login_declined() -> bool:
+    return login_declined_path().exists()
+
+
+def clear_login_declined() -> None:
+    path = login_declined_path()
+    if path.exists():
+        path.unlink()
 
 
 def delete_auth_token() -> bool:

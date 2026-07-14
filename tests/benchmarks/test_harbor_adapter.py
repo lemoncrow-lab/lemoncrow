@@ -79,9 +79,9 @@ def test_harbor_uses_shorter_bash_soft_timeout(agent: LemonCrowClaudeCodeHarborA
 
 def test_solve_persona_protects_mechanical_deliverable_gates() -> None:
     solve_prompt = (REPO_ROOT / "integrations/claude/plugin/agents/solve.md").read_text(encoding="utf-8")
-    assert "keep the hard gates green from the first checkpoint" in solve_prompt
-    assert "One slow proxy exceeds its time box" in solve_prompt
-    assert "reserve the final budget for literal path/size/format/build checks" in solve_prompt
+    assert "runnable candidate at the required location" in solve_prompt
+    assert "never sleep-loop polls" in solve_prompt
+    assert "A numeric bar is the deliverable" in solve_prompt
 
 
 def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborAgent) -> None:
@@ -108,6 +108,63 @@ def test_run_raises_on_truncated_output(agent: LemonCrowClaudeCodeHarborAgent) -
 
     agent.exec_as_root = fake_exec  # type: ignore[method-assign]
     with pytest.raises(lemoncrow_agent.TruncatedAgentOutputError):
+        asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
+
+
+def test_quota_error_class_never_falls_through_on_is_error() -> None:
+    """_quota_error_class must return SOME ApiError subclass for every
+    is_error result, never None -- caffe-cifar-10 scored a silent reward-0
+    because a 403 (org-disabled-access) matched neither the usage-limit text
+    nor the 429 check and fell through to None, undetected."""
+    from harbor.agents.installed.base import ApiRateLimitError, ApiUsageLimitError, UnknownApiError
+
+    assert lemoncrow_agent._quota_error_class(None) is None
+    assert lemoncrow_agent._quota_error_class({"is_error": False, "result": "ok"}) is None
+    assert (
+        lemoncrow_agent._quota_error_class({"is_error": True, "result": "You have hit your usage limit."})
+        is ApiUsageLimitError
+    )
+    assert (
+        lemoncrow_agent._quota_error_class({"is_error": True, "api_error_status": 429, "result": "rate limited"})
+        is ApiRateLimitError
+    )
+    # The exact caffe-cifar-10 shape: is_error true, an unrecognized status,
+    # text that matches neither known pattern -- must not be None.
+    assert (
+        lemoncrow_agent._quota_error_class(
+            {
+                "is_error": True,
+                "api_error_status": 403,
+                "result": "Your organization has disabled Claude subscription access",
+            }
+        )
+        is UnknownApiError
+    )
+
+
+def test_run_raises_on_unclassified_is_error_result(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    """End-to-end: an is_error result line with a status/text run() has never
+    seen before must still raise (UnknownApiError), not return normally and
+    let the trial score a clean-looking reward-0."""
+
+    class _UnclassifiedErrorResult:
+        stdout = json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "api_error_status": 403,
+                "result": "Your organization has disabled Claude subscription access",
+            },
+            separators=(",", ":"),
+        )
+
+    async def fake_exec(
+        environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any
+    ) -> _UnclassifiedErrorResult:
+        return _UnclassifiedErrorResult()
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    with pytest.raises(lemoncrow_agent.UnknownApiError):
         asyncio.run(LemonCrowClaudeCodeHarborAgent.run.__wrapped__(agent, "solve the task", None, _Ctx()))
 
 
@@ -258,3 +315,22 @@ def test_install_forwards_lemoncrow_auth_token_to_init(
     init_calls = [c for c in calls if "lemoncrow init" in c[0]]
     assert init_calls, "no `lemoncrow init` exec_as_root call captured"
     assert init_calls[0][1] == {"LEMONCROW_AUTH_TOKEN": "lc-faketoken"}
+
+
+def test_install_configures_and_probes_lemoncrow_mcp(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    calls: list[str] = []
+
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+        calls.append(command)
+
+    agent.exec_as_root = fake_exec  # type: ignore[method-assign]
+    asyncio.run(agent.install(None))  # type: ignore[arg-type]
+
+    config_call = next(command for command in calls if "/root/.claude-bench/.claude.json" in command)
+    assert '"mcpServers"' in config_call
+    assert '"command": "lemoncrow"' in config_call
+    assert '"alwaysLoad": true' in config_call
+    assert "lemoncrow mcp --host claude check" in calls

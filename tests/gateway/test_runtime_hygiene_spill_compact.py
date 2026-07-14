@@ -341,7 +341,7 @@ def test_auto_compact_code_is_ast_aware(monkeypatch: pytest.MonkeyPatch) -> None
     # Python source with lots of blank lines -> source_projection compact applies.
     src = "def f():\n" + "\n\n\n".join(f"    x{i} = {i}  " for i in range(2000)) + "\n"
     out = mcp_server._auto_compact_result_text(src, "read", {"path": "mod.py"})
-    assert "source_projection:python" in out  # AST/structure-aware method tag
+    assert "projection:python" in out  # AST/structure-aware method tag
     # Still reversible: a .txt spill path appears in the hint
     path_match = re.search(r"full: (\S+\.txt)", out)
     assert path_match is not None

@@ -68,7 +68,7 @@ def test_read_uses_source_projection_without_pro(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
     monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     out = mcp_server._auto_compact_result_text(_big_python_src(), "read", {"path": "mod.py"})
-    assert "source_projection:python" in out  # source_projection is free: AST projection applies
+    assert "projection:python" in out  # source_projection is free: AST projection applies
 
 
 def test_free_context_compression_is_passthrough() -> None:
