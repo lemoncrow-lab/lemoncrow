@@ -440,6 +440,19 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _is_dev_install(root: Path) -> bool:
+    """True for a ``make dev`` (source-checkout) install.
+
+    ``scripts/local.sh`` writes ``<root>/.dev_mode``; production installers never
+    do. Dev installs must NEVER auto-update: a git fetch/merge on the live
+    checkout fights an in-progress refactor and can clobber uncommitted work.
+    """
+    try:
+        return (root / ".dev_mode").exists()
+    except OSError:
+        return False
+
+
 def _detect_auto_update_method() -> tuple[str, str | None]:
     """Detect the install method for auto-update.
 
@@ -733,8 +746,9 @@ def _servicectl_tick(
         subprocess_timeouts[key] = subprocess_timeouts.get(key, 0) + 1
         return subprocess_timeouts[key] >= _TICK_TIMEOUT_BACKOFF_AFTER
 
-    # 0. Check for auto-updates
-    if auto_update:
+    # 0. Check for auto-updates (never on a dev/source checkout -- a git op on the
+    #    live tree would clobber uncommitted work mid-refactor).
+    if auto_update and not _is_dev_install(root):
         AUTO_UPDATE_KEY = "auto_update_check"
         last_update_raw = periodic.get(AUTO_UPDATE_KEY)
         last_update_at: datetime | None = None

@@ -43,3 +43,23 @@ def test_mcp_auto_update_records_installed_version_before_pull(monkeypatch, tmp_
 
     assert recorded["previous_version"] == "2.3.4"
     assert recorded["current_version"] == "9.9.9"
+
+
+def test_mcp_auto_update_skipped_for_dev_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`make dev` writes <root>/.dev_mode; auto-update must skip before any git
+    op so a live source checkout is never clobbered mid-refactor."""
+    root = tmp_path / ".lemoncrow"
+    root.mkdir()
+    (root / ".dev_mode").touch()
+    monkeypatch.setattr(mcp_server, "_lemoncrow_root", lambda: root)
+    monkeypatch.setattr(mcp_server, "lemoncrow_version", "0.2.1")
+
+    touched = {"subprocess": False}
+
+    def _run(command: list[str], **_kwargs: object) -> _Completed:
+        touched["subprocess"] = True
+        return _Completed()
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    mcp_server._check_auto_update()
+    assert touched["subprocess"] is False  # returned before any git/version call
