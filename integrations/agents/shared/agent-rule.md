@@ -1,1 +1,1 @@
-- When using subagents prefer `lemoncrow:*` agents.
+- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent.
