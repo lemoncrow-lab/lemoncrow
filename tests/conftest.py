@@ -125,6 +125,44 @@ def store(tmp_path: Path) -> StoreBundle:
 # --- Open-core boundary -----------------------------------------------------
 # The closed engine is the entire ``src/lemoncrow/pro/`` package. It ships as
 # compiled ``.so`` in the wheel and is excluded from the public source mirror
-# (release/public-paths.txt). There are no degraded shims, so in this (private)
-# repo every test runs against the real modules. Test selection for the public
-# source tree — which has no ``pro`` source — is handled by release CI, not here.
+# (release/public-paths.txt). There are no degraded shims.
+#
+# In this (private) repo the ``pro`` source is always present, so every test
+# runs against the real modules and nothing below fires. The public repo is a
+# source-readable mirror with no ``pro`` source; it depends on the compiled
+# engine wheel, and its CI installs that wheel so ``lemoncrow.pro`` imports and
+# the full suite runs. The guard below is a defensive net for a *source-only*
+# checkout (public source, no wheel): pro-importing test modules are deselected
+# at collection time so pytest reports skips instead of erroring on import.
+
+
+def _pro_importable() -> bool:
+    """True when the compiled engine (``lemoncrow.pro``) can be imported."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("lemoncrow.pro") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+_PRO_AVAILABLE = _pro_importable()
+
+
+def pytest_ignore_collect(collection_path: Path) -> bool | None:
+    """Skip collecting test modules that import the engine when it is absent.
+
+    No-op when ``lemoncrow.pro`` is importable (always, in this private repo).
+    On a source-only public checkout it prevents a wall of collection-time
+    ImportErrors by declining to collect any ``test_*.py`` that references
+    ``lemoncrow.pro``. Self-maintaining: no static file list to keep in sync.
+    """
+    if _PRO_AVAILABLE:
+        return None
+    if collection_path.suffix != ".py" or not collection_path.name.startswith("test_"):
+        return None
+    try:
+        source = collection_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return "lemoncrow.pro" in source or None
