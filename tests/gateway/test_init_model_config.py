@@ -126,8 +126,8 @@ def test_init_installs_project_agents_md_and_codex_agents(tmp_path: Path, monkey
     result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed", "--no-index"])
 
     assert result.exit_code == 0, result.output
-    assert "[agents_md] updated AGENTS.md" in result.output
-    assert "[codex] updated" in result.output
+    assert "agents_md updated AGENTS.md" in result.output
+    assert "codex updated" in result.output
     agents_md = (workspace / "AGENTS.md").read_text(encoding="utf-8")
     assert "tool_search" in agents_md
     assert (workspace / ".codex" / "agents" / "lemoncrow.code.toml").exists()

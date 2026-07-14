@@ -65,6 +65,27 @@ def test_arm_specs_resolve_persona_by_capability() -> None:
     assert CODEBENCH.HEAVY_ARMS == ("lemoncrow", "execute", "solve", "auto")
 
 
+def test_lemoncrow_mcp_is_written_to_isolated_user_config(tmp_path: Path) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    (config_dir / ".claude.json").write_text('{"mcpServers":{"ambient":{"command":"bad"}}}')
+
+    CODEBENCH._enable_lemoncrow_mcp(config_dir)
+
+    data = json.loads((config_dir / ".claude.json").read_text())
+    assert data["mcpServers"] == CODEBENCH.LEMONCROW_MCP["mcpServers"]
+    assert data["mcpServers"]["lc"]["args"] == ["mcp", "--host", "claude"]
+    assert data["mcpServers"]["lc"]["alwaysLoad"] is True
+
+
+def test_swe_entrypoint_fails_closed_on_mcp_preflight() -> None:
+    entrypoint = (ROOT / "benchmarks" / "codebench" / "incontainer_entry.sh").read_text()
+    assert "lemoncrow mcp --host claude check" in entrypoint
+    assert '"alwaysLoad":true' in entrypoint
+    assert "exit 6" in entrypoint
+    assert "--mcp-config" not in entrypoint.split('if [ "$ARM" = "lemoncrow" ]; then', 2)[-1].split("else", 1)[0]
+
+
 def test_rate_limiter_does_not_block_proxy_event_loop(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("CODEBENCH_RATE_LIMIT_RPM", "1200")
     limiter = RATE_LIMIT.ModelRequestRateLimiter()

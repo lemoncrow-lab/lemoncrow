@@ -606,29 +606,48 @@ def _parse_since_arg(value: str) -> datetime:
     default=None,
     help="Prompt for project-local role/host model settings when running inside a git repo.",
 )
+@click.option(
+    "--login/--no-login",
+    default=True,
+    help="Require an activated LemonCrow account, prompting an interactive browser login when "
+    "none is found (default: on). Use --no-login for unattended/scripted runs (e.g. benchmarks) "
+    "to skip the account check entirely instead of popping a browser tab.",
+)
 @click.pass_context
 def init(
     ctx: click.Context,
     seed: bool,
     index: bool,
     configure_models: bool | None,
+    login: bool,
 ) -> None:
     """Initialize the official runtime store at --root.
 
     Official activation requires a free LemonCrow account. Source builds can still
     be run independently; this check establishes the supported product boundary.
+    Pass --no-login to skip the account check (e.g. for unattended benchmark runs).
     """
-    from lemoncrow.core.capabilities.licensing.store import load_auth_token
+    if login:
+        from lemoncrow.core.capabilities.licensing.store import load_auth_token
 
-    if not load_auth_token():
-        if not _is_interactive_terminal():
-            raise click.ClickException(
-                "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
-            )
-        click.echo("No LemonCrow account found — starting login...")
-        _oauth_login(as_json=False)
         if not load_auth_token():
-            raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
+            if not _is_interactive_terminal():
+                raise click.ClickException(
+                    "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
+                )
+            click.echo("No LemonCrow account found — starting login...")
+            _oauth_login(as_json=False)
+            if not load_auth_token():
+                raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
+    else:
+        # Explicit --no-login: remember this so the MCP server's background
+        # seamless login (mcp_server._try_seamless_login) doesn't keep popping
+        # a browser tab every cooldown window in an unattended install.
+        # Cleared automatically the moment a token is next saved (lc login /
+        # lc init without --no-login).
+        from lemoncrow.core.capabilities.licensing.store import mark_login_declined
+
+        mark_login_declined()
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
@@ -647,35 +666,41 @@ def init(
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     store.init()
-    click.echo(f"initialized LemonCrow store at {store.knowledge.root}")
+    click.echo(
+        f"  {click.style('✓', fg='green')} {click.style('store', fg=(155, 117, 217))} {click.style(f'initialized at {store.knowledge.root}', dim=True)}"
+    )
     if seed:
         block_files, rubric_files = _seed_resources()
-        seeded_blocks: dict[str, Playbook] = {}
-        for path in block_files:
-            data = _load_yaml(path)
-            try:
-                if "id" not in data:
-                    data["id"] = Playbook.make_id(data["title"], data["domain"])
-                block = Playbook.model_validate(data)
-            except (KeyError, ValueError) as exc:
-                raise click.ClickException(f"invalid seed playbook {path}: {exc}") from exc
-            seeded_blocks[block.id] = block
-        for block in _load_domain_manager(root).all_playbooks():
-            seeded_blocks[block.id] = block
-        n_b = 0
-        for block in seeded_blocks.values():
-            store.knowledge.upsert_block(block)
-            n_b += 1
-        n_r = 0
-        for path in rubric_files:
-            data = _load_yaml(path)
-            try:
-                rubric = Rubric.model_validate(data)
-            except (KeyError, ValueError) as exc:
-                raise click.ClickException(f"invalid seed rubric {path}: {exc}") from exc
-            store.knowledge.upsert_rubric(rubric)
-            n_r += 1
-        click.echo(f"seeded {n_b} playbooks and {n_r} rubrics")
+        if block_files or rubric_files:
+            seeded_blocks: dict[str, Playbook] = {}
+            for path in block_files:
+                data = _load_yaml(path)
+                try:
+                    if "id" not in data:
+                        data["id"] = Playbook.make_id(data["title"], data["domain"])
+                    block = Playbook.model_validate(data)
+                except (KeyError, ValueError) as exc:
+                    raise click.ClickException(f"invalid seed playbook {path}: {exc}") from exc
+                seeded_blocks[block.id] = block
+            for block in _load_domain_manager(root).all_playbooks():
+                seeded_blocks[block.id] = block
+            n_b = 0
+            for block in seeded_blocks.values():
+                store.knowledge.upsert_block(block)
+                n_b += 1
+            n_r = 0
+            for path in rubric_files:
+                data = _load_yaml(path)
+                try:
+                    rubric = Rubric.model_validate(data)
+                except (KeyError, ValueError) as exc:
+                    raise click.ClickException(f"invalid seed rubric {path}: {exc}") from exc
+                store.knowledge.upsert_rubric(rubric)
+                n_r += 1
+            click.echo(
+                f"  {click.style('✓', fg='green')} {click.style('seed', fg=(155, 117, 217))} "
+                f"{click.style(f'seeded {n_b} playbooks and {n_r} rubrics', dim=True)}"
+            )
     if index:
         git_root = _detect_git_root(Path.cwd())
         if git_root is not None:
@@ -690,10 +715,12 @@ def init(
                 description="Bootstrapping code index",
                 success_description="Code index ready",
             )
+            fi = stats["files_indexed"]
+            si = stats["symbols_indexed"]
+            ii = stats["imports_indexed"]
             click.echo(
-                f"indexed {stats['files_indexed']} files, "
-                f"{stats['symbols_indexed']} symbols "
-                f"({stats['imports_indexed']} imports)"
+                f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
+                f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
             )
         else:
             click.echo("code index skipped (no git repository detected in current directory)")
@@ -702,7 +729,9 @@ def init(
         results = _project_init_setup(git_root)
         for section, messages in results.items():
             for msg in messages:
-                click.echo(f"  [{section}] {msg}")
+                click.echo(
+                    f"  {click.style('✓', fg='green')} {click.style(section, fg=(155, 117, 217))} {click.style(msg, dim=True)}"
+                )
     else:
         _ensure_gitignore(Path.cwd())
         click.echo(f"registered {Path.cwd()} as an LemonCrow workspace (no git repository detected)")
@@ -720,7 +749,9 @@ def init(
             )
             for section, messages in results.items():
                 for msg in messages:
-                    click.echo(f"  [{section}] {msg}")
+                    click.echo(
+                        f"  {click.style('✓', fg='green')} {click.style(section, fg=(155, 117, 217))} {click.style(msg, dim=True)}"
+                    )
 
 
 @click.command("doctor")
