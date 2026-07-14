@@ -41,40 +41,12 @@ MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
 DEFAULT_PUBLIC_REMOTE = "https://github.com/lemoncrowhq/lemoncrow.git"
 DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 
-# Files injected into the public repo that don't exist in the dev repo's public paths.
-# Each entry is (source_path_in_dev_repo, dest_path_in_public_tree).
-#
-# NOTE: the release build is NO LONGER injected into the public repo. Building the
-# wheel requires the full source, including the compiled-only IP modules that are
-# excluded from the public mirror (see the PRIVATE section of public-paths.txt).
-# The release now builds from this private repo (.github/workflows/release.yml)
-# and cross-publishes the prebuilt tarball to the public repo's Releases, so IP
-# source never lands on public and the public repo never runs a source build.
-# Public open-core shims: injected at the excluded IP module paths so the public
-# tree imports and runs degraded (real .py denied below; see release/shims/).
-_SHIM_BASE = "release/shims/lemoncrow/core/capabilities"
-_SHIM_DEST = "src/lemoncrow/core/capabilities"
-INJECTED_FILES: list[tuple[str, str]] = [
-    (f"{_SHIM_BASE}/{rel}", f"{_SHIM_DEST}/{rel}")
-    for rel in (
-        "source_projection/minify.py",
-        "source_projection/mapping.py",
-        "code_context/budget.py",
-        "code_context/rerank.py",
-        "code_context/search_verdict.py",
-        "code_context/renderer.py",
-        "code_context/ranking.py",
-        "code_context/embedding.py",
-        # Extended engine-IP closure:
-        "code_context/call_graph_centrality.py",
-        "code_context/edge_synthesis.py",
-        "code_context/edge_resolution.py",
-        "code_context/ann_symbol_index.py",
-        "source_projection/compact.py",
-        "source_projection/edit.py",
-        "prompt_compilation/compiler.py",
-    )
-]
+# The release wheel is built from this private repo (.github/workflows/release.yml)
+# with the full source, including the compiled-only `pro` engine (shipped as `.so`;
+# see hatch_build.py). The prebuilt wheel is cross-published to the public repo's
+# Releases, so IP source never lands on public and the public repo never runs a
+# source build. No shims are injected: the whole `pro` package is simply excluded
+# from the mirror (see the PRIVATE section of release/public-paths.txt).
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +188,6 @@ def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_
         mode, _obj_type, sha = meta.split()
         if is_public(path, public_prefixes):
             lines.append(f"{mode} {sha} 0\t{path}")
-    for src_path, dest_path in INJECTED_FILES:
-        blob_sha = get_blob_sha(commit_sha, src_path)
-        if blob_sha:
-            lines.append(f"100644 {blob_sha} 0\t{dest_path}")
     _update_index_info(index_path, lines)
     return _write_tree(index_path)
 
@@ -288,10 +256,6 @@ def update_filtered_tree(
     re-`mktree`'d the *entire* filtered tree regardless of diff size.
     """
     add_lines, remove_paths = _diff_add_remove(prev_dev_sha, curr_dev_sha, public_prefixes)
-    for src_path, dest_path in INJECTED_FILES:
-        blob_sha = get_blob_sha(curr_dev_sha, src_path)
-        if blob_sha:
-            add_lines.append(f"100644 {blob_sha} 0\t{dest_path}")
     _force_remove(index_path, remove_paths)
     _update_index_info(index_path, add_lines)
     return _write_tree(index_path)
