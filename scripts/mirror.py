@@ -65,6 +65,14 @@ INJECTED_FILES: list[tuple[str, str]] = [
         "code_context/renderer.py",
         "code_context/ranking.py",
         "code_context/embedding.py",
+        # Extended engine-IP closure:
+        "code_context/call_graph_centrality.py",
+        "code_context/edge_synthesis.py",
+        "code_context/edge_resolution.py",
+        "code_context/ann_symbol_index.py",
+        "source_projection/compact.py",
+        "source_projection/edit.py",
+        "prompt_compilation/compiler.py",
     )
 ]
 
