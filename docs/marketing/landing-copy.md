@@ -136,11 +136,14 @@ The trust is the audit trail, not the animation.
 ---
 
 ## Pricing
-## Pricing
 
-**Free — $0.** Create a free account, activate the official local install, and get better search/read/edit/bash tools, agent skills, and local savings estimates.
+**Free — $0.** Create a free account, activate the official local install, and get better search/read/edit/bash tools, agent skills, and local savings estimates. The engine saves up to **$20/mo**, then rests on your host's default tools.
 
-**Pro beta — $5/mo or $49/yr.** Existing gated capabilities for heavy users: large-repo search, session recall, savings optimization, model routing, and multi-worktree swarm.
+**Lite — $5/mo or $50/yr.** Same free engine, savings cap raised to **$200/mo**. For light users who just want it to keep saving longer.
+
+**Pro — $20/mo or $200/yr.** Uncapped, plus the gated capabilities for heavy users: large-repo search, session recall, savings optimization, model routing, and multi-worktree swarm.
+
+**Enterprise — custom.** Shared team context, governance, audit, SSO. Contact us.
 
 **[See the full plan matrix →](../pricing.md)**
 ---
