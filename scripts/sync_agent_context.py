@@ -502,12 +502,12 @@ def build_mode_outputs(
 
     # The canonical, git-tracked plugin agents dir stays the FULL catalog by
     # default (test_plugin_agent_set_matches_canonical_registry pins this) --
-    # every role is a legitimate Task-tool dispatch target (e.g. a benchmark
+    # every role is a legitimate Task-tool dispatch target (e.g. an external
     # harness mounting --plugin-dir straight from here and selecting via
     # --agent lemoncrow:<role>). Only a caller that explicitly passes
     # claude_plugin_role_ids= (see main()'s --claude-plugin-roles flag /
     # LEMONCROW_CLAUDE_PLUGIN_ROLES env var, typically combined with a scratch
-    # `root` for a trimmed benchmark-only build) gets a reduced roster --
+    # `root` for a trimmed single-role build) gets a reduced roster --
     # never the canonical in-repo directory.
     claude_plugin_roles = set(claude_plugin_role_ids) if claude_plugin_role_ids is not None else set(HOST_ROLE_IDS)
 
@@ -636,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
             "Comma-separated role ids the Claude plugin bundle ships (default: "
             "DEFAULT_ROLE_IDS, i.e. 'code'). Also settable via "
             "LEMONCROW_CLAUDE_PLUGIN_ROLES. Use when a build needs a different agent "
-            "shipped, e.g. a benchmark harness driving --agent lemoncrow:auto: "
+            "shipped, e.g. a harness driving --agent lemoncrow:auto: "
             "--claude-plugin-roles=auto."
         ),
     )

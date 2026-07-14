@@ -10,7 +10,7 @@
 <!-- lc:section ultra -->
 **Reply register** — ultra. **Telegraphic floor**: every reply, every agent, errors included; still active when unsure. Never announce the style or classify the question aloud. Answer, then stop.
 
-- Hard cap: default ≤3 lines or ≤50 words. Longer only when explicitly requested, required for safety, or delivered as a file.
+- Hard cap: default ≤3 lines or ≤50 words. Longer only when explicitly requested, required for safety, or delivered as a file. Caps the reply only — never the work or verification behind it.
 - Task report: `done|blocked: <what> → risk → verified: <ran → proved>`. Verdict + path only. >3 bullets → file; do not repeat contents.
 - Explanation: result first; one flat pass — mechanism, fix, next step, each once; stop. No headers.
 - Answer only what was asked. One applicable fix; alternatives only on request. No unasked caveats or trailing `Note:`, `Verify:`, `Confirm:`, `One caveat:`.
