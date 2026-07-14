@@ -111,7 +111,6 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _clear_request_ledger,
     _detect_agent,
     _get_claude_session_id,
-    _get_ledger,
     _get_product_session_id,
     _get_realtime_context,
     _http_session_ledgers,
@@ -122,6 +121,9 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _resolve_live_session_id,
     _set_request_ledger,
     _workspace_ws_hash,
+)
+from lemoncrow.gateway.adapters.mcp.ledger import (
+    _get_ledger as _get_ledger,
 )
 from lemoncrow.gateway.adapters.mcp.session_state import (  # noqa: F401  (re-exported for back-compat)
     _MCP_ID,
