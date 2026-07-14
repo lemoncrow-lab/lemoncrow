@@ -2522,7 +2522,7 @@ def test_shell_poll_timeout_returns_running_handle(tmp_path: Path, monkeypatch: 
         assert result["status"] == "running"
         assert result["session_id"] == started["session_id"]
     finally:
-        _run_bash_tool(session_id=started["session_id"], action="cancel")
+        _run_bash_tool(session_id=started["session_id"], action="kill")
 
 
 def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2542,7 +2542,7 @@ def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monke
         assert started["duration_ms"] >= 0
         assert 0 < started["timeout_remaining_ms"] <= 10_000
     finally:
-        _run_bash_tool(session_id=started["session_id"], action="cancel")
+        _run_bash_tool(session_id=started["session_id"], action="kill")
 
 
 def test_render_shell_text_running_ships_handle_and_logs() -> None:
@@ -2656,7 +2656,7 @@ def test_shell_background_session_can_be_cancelled(tmp_path: Path, monkeypatch: 
         timeout=10,
         background=True,
     )
-    cancelled = _run_bash_tool(session_id=started["session_id"], action="cancel")
+    cancelled = _run_bash_tool(session_id=started["session_id"], action="kill")
     time.sleep(0.1)
 
     assert cancelled["status"] == "cancelled"
@@ -2667,7 +2667,7 @@ def test_shell_background_session_can_be_cancelled(tmp_path: Path, monkeypatch: 
 def test_shell_background_session_survives_past_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A backgrounded session's `timeout` no longer triggers a kill -- the
     session survives past it and a blocking poll returns its real, completed
-    result. Explicit cancellation is still available via action="cancel" (see
+    result. Explicit cancellation is still available via action="kill" (see
     test_shell_background_session_can_be_cancelled) for callers that do want
     to give up on it."""
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
@@ -2742,7 +2742,7 @@ def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytes
         with pytest.raises(ValueError, match="timeout"):
             _run_bash_tool(session_id=started["session_id"], action="update")
     finally:
-        _run_bash_tool(session_id=started["session_id"], action="cancel")
+        _run_bash_tool(session_id=started["session_id"], action="kill")
 
 
 def test_render_shell_text_reports_update_confirmation() -> None:
@@ -2793,11 +2793,11 @@ def test_shell_status_action_is_nonblocking_and_reports_tail(tmp_path: Path, mon
         assert status["stdout"].splitlines() == [str(i) for i in range(10, 20)]
 
         # A status peek must not reap the session -- poll/cancel still work after.
-        cancelled = _run_bash_tool(session_id=started["session_id"], action="cancel")
+        cancelled = _run_bash_tool(session_id=started["session_id"], action="kill")
         assert cancelled["status"] == "cancelled"
     finally:
         with contextlib.suppress(Exception):
-            _run_bash_tool(session_id=started["session_id"], action="cancel")
+            _run_bash_tool(session_id=started["session_id"], action="kill")
 
 
 def test_shell_status_action_reports_finished_session_without_reaping(
@@ -2878,7 +2878,7 @@ def test_shell_mcp_call_returns_managed_session_for_background_command(
 
     assert "running" in text
     assert match is not None
-    cancelled = mcp_server._run_bash_tool(session_id=match.group(1), action="cancel")
+    cancelled = mcp_server._run_bash_tool(session_id=match.group(1), action="kill")
     assert cancelled["status"] == "cancelled"
 
 

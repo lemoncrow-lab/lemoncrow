@@ -355,7 +355,7 @@ def test_mcp_registration_tracks_only_bg_true_as_shutdown_persistent(
         assert records[0]["explicit_background"] is expected_explicit
     finally:
         if result is not None:
-            mcp_server._run_bash_tool(session_id=result["session_id"], action="cancel")
+            mcp_server._run_bash_tool(session_id=result["session_id"], action="kill")
         mcp_server._unregister_mcp_session()
 
 
@@ -375,7 +375,7 @@ def test_bare_trailing_ampersand_uses_fast_background_path(bash_env: Path, tmp_p
     assert result["session_id"]
 
     # Cleanup: cancel the managed wrapper (kills its process group).
-    mcp_server._run_bash_tool(session_id=result["session_id"], action="cancel")
+    mcp_server._run_bash_tool(session_id=result["session_id"], action="kill")
 
 
 def test_overrunning_foreground_command_does_not_block_another_run(bash_env: Path) -> None:
@@ -403,14 +403,14 @@ def test_overrunning_foreground_command_does_not_block_another_run(bash_env: Pat
         mcp_server._deferral_context.active = False
         if first_id:
             try:
-                mcp_server._run_bash_tool(session_id=first_id, action="cancel")
+                mcp_server._run_bash_tool(session_id=first_id, action="kill")
             except KeyError:
                 pass
 
 
 def test_soft_deadline_running_session_can_be_explicitly_cancelled(bash_env: Path) -> None:
     """The model's escape hatch for a soft-deadline 'running' handle: it can
-    action="cancel" by session_id, and the process actually dies -- 'don't
+    action="kill" by session_id, and the process actually dies -- 'don't
     kill automatically' does not mean 'can never be killed'."""
     mcp_server._deferral_context.active = True
     try:
@@ -430,7 +430,7 @@ def test_soft_deadline_running_session_can_be_explicitly_cancelled(bash_env: Pat
     assert managed is not None
     assert managed.proc.poll() is None  # confirmed still running before cancel
 
-    cancelled = mcp_server._run_bash_tool(session_id=sid, action="cancel")
+    cancelled = mcp_server._run_bash_tool(session_id=sid, action="kill")
     assert cancelled["status"] == "cancelled"
     time.sleep(0.2)
     assert managed.proc.poll() is not None  # actually dead now
