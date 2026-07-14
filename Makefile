@@ -27,7 +27,7 @@ FORCE_ARG := $(if $(f),--force,)
 #    * To build and install a local production binary:
 #         make prod
 
-dev: ## Install LemonCrow in editable/dev mode; run /mcp reconnect in Claude Code after
+dev: ## Install LemonCrow in dev mode (stable source COPY, no auto-update); re-run to pick up edits, then /mcp reconnect
 	bash scripts/local.sh
 
 build: ## Build and package for production distribution
