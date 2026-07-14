@@ -193,8 +193,9 @@
   .honest a { color: var(--accent); font-family: var(--mono); font-size: 13px; text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
 
   /* ---- pricing ---- */
-  .price { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
-  @media (max-width: 760px){ .price { grid-template-columns: 1fr; } }
+  .price { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+  @media (max-width: 980px){ .price { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 560px){ .price { grid-template-columns: 1fr; } }
   .tier { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 22px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; }
   .tier.mid { border-color: var(--accent); position: relative; }
   .tier.mid::after { content: "MOST LEVERAGE"; position: absolute; top: -10px; right: 16px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; background: var(--accent); color: var(--ground); padding: 3px 8px; border-radius: 3px; }
@@ -329,12 +330,17 @@
     <div class="price">
       <div class="tier">
         <span class="nm">Free</span><div class="pr">$0</div>
-        <ul><li>Local Claude Code setup</li><li>Better search/read/edit/bash tools</li><li>Agent skills</li><li>Headline savings estimates</li></ul>
+        <ul><li>Local Claude Code setup</li><li>Better search/read/edit/bash tools</li><li>Agent skills</li><li>Saves up to $20/mo</li></ul>
         <a class="btn ghost" href="#install">Start free</a>
       </div>
+      <div class="tier">
+        <span class="nm">Lite</span><div class="pr">$5<small>/mo</small></div>
+        <ul><li>Everything in Free</li><li>Savings cap raised to $200/mo</li><li>Engine keeps running longer</li><li>$50/yr · cancel anytime</li></ul>
+        <a class="btn ghost" href="#">lc login</a>
+      </div>
       <div class="tier mid">
-        <span class="nm">Pro</span><div class="pr">$19<small>/mo</small></div>
-        <ul><li>Large-repo search</li><li>Session recall</li><li>Full savings breakdown</li><li>Model routing · swarm</li></ul>
+        <span class="nm">Pro</span><div class="pr">$20<small>/mo</small></div>
+        <ul><li>Uncapped savings — never dormant</li><li>Large-repo search · session recall</li><li>Full savings breakdown</li><li>Model routing · swarm · $200/yr</li></ul>
         <a class="btn" href="#">lc login</a>
       </div>
       <div class="tier">
