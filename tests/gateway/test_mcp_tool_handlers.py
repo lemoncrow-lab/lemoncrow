@@ -165,8 +165,8 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Trace persistence tests exercise the local ledger path; an ambient
     # LEMONCROW_SERVICE_URL would force remote dispatch and skip _current_ledger.
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
-    mcp_server._current_ledger = None
-    mcp_server._realtime_ctx = None
+    mcp_server._ledger._current_ledger = None
+    mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = _mock_client(
         {
             "get_context": {"context": "Here are the relevant procedures.", "run_ledger": []},
@@ -687,7 +687,7 @@ def test_record_trace_accepts_monitor_event_payload(store_root: Path) -> None:
 def test_record_trace_persists_structured_workflow_progress(store_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
     monkeypatch.setattr(mcp_server, "_remote_client", None)
-    mcp_server._current_ledger = None
+    mcp_server._ledger._current_ledger = None
     payload = _result(
         _call(
             "trace",
@@ -707,8 +707,8 @@ def test_record_trace_persists_structured_workflow_progress(store_root: Path, mo
     )
     assert "trace_id" in payload
     assert payload["event_recorded"] is True
-    assert mcp_server._current_ledger is not None
-    snapshot = mcp_server._current_ledger.snapshot()
+    assert mcp_server._ledger._current_ledger is not None
+    snapshot = mcp_server._ledger._current_ledger.snapshot()
     assert snapshot["plan_review"] == {
         "workflow_step": "review",
         "review_decision": "revise",
@@ -722,7 +722,7 @@ def test_record_trace_preserves_plan_review_receipt_for_other_decisions(
 ) -> None:
     _ = store_root
     monkeypatch.setattr(mcp_server, "_remote_client", None)
-    mcp_server._current_ledger = None
+    mcp_server._ledger._current_ledger = None
     payload = _result(
         _call(
             "trace",
@@ -743,14 +743,14 @@ def test_record_trace_preserves_plan_review_receipt_for_other_decisions(
 
     assert "trace_id" in payload
     assert payload["event_recorded"] is True
-    assert mcp_server._current_ledger is not None
-    assert mcp_server._current_ledger.snapshot()["plan_review"]["review_decision"] == review_decision
+    assert mcp_server._ledger._current_ledger is not None
+    assert mcp_server._ledger._current_ledger.snapshot()["plan_review"]["review_decision"] == review_decision
 
 
 def test_record_trace_persists_task_progress_workflow_event(store_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = store_root
     monkeypatch.setattr(mcp_server, "_remote_client", None)
-    mcp_server._current_ledger = None
+    mcp_server._ledger._current_ledger = None
     payload = _result(
         _call(
             "trace",
@@ -772,8 +772,8 @@ def test_record_trace_persists_task_progress_workflow_event(store_root: Path, mo
 
     assert "trace_id" in payload
     assert payload["event_recorded"] is True
-    assert mcp_server._current_ledger is not None
-    assert mcp_server._current_ledger.snapshot()["task_progress"] == {
+    assert mcp_server._ledger._current_ledger is not None
+    assert mcp_server._ledger._current_ledger.snapshot()["task_progress"] == {
         "workflow_step": "execute",
         "task_id": "02-02/task-1",
         "completed_tasks": 2,
