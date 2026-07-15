@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
+
+from tests.helpers import python_script_with_development_cap
 
 HOOKS = Path(__file__).resolve().parents[2] / "integrations" / "claude" / "plugin" / "hooks"
 
@@ -25,7 +26,7 @@ def _run(hook: str, payload: dict, tmp_path: Path, env_extra: dict | None = None
         **(env_extra or {}),
     }
     proc = subprocess.run(
-        [sys.executable, str(HOOKS / hook)],
+        python_script_with_development_cap(HOOKS / hook),
         input=json.dumps(payload),
         capture_output=True,
         text=True,
