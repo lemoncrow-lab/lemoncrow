@@ -9,6 +9,13 @@ import pytest
 from lemoncrow.core.capabilities import plugin_runtime as pr
 
 
+@pytest.fixture(autouse=True)
+def _local_meter_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities import licensing_gate
+
+    monkeypatch.setattr(licensing_gate, "_public_key_hex", lambda: "")
+
+
 @pytest.mark.parametrize(
     ("plan", "expected"),
     [
@@ -19,17 +26,17 @@ from lemoncrow.core.capabilities import plugin_runtime as pr
         ("LITE", pr.LITE_SAVINGS_CAP_USD),
         ("pro", None),
         ("enterprise", None),
-        ("team", None),  # unknown paid key -> uncapped (fail-open)
+        ("team", pr.FREE_SAVINGS_CAP_USD),
     ],
 )
 def test_savings_cap_by_plan(plan: str, expected: float | None) -> None:
     assert pr._savings_cap_usd({"plan": plan}) == expected
 
 
-def test_server_override_wins_and_zero_means_uncapped() -> None:
+def test_server_override_wins_and_malformed_values_fail_closed() -> None:
     assert pr._savings_cap_usd({"plan": "free", "monthlySavingsCapInUsd": 55}) == 55.0
-    assert pr._savings_cap_usd({"plan": "free", "monthlySavingsCapInUsd": 0}) is None
-    assert pr._savings_cap_usd({"plan": "free", "monthlySavingsCapInUsd": "bad"}) is None
+    assert pr._savings_cap_usd({"plan": "free", "monthlySavingsCapInUsd": 0}) == pr.FREE_SAVINGS_CAP_USD
+    assert pr._savings_cap_usd({"plan": "free", "monthlySavingsCapInUsd": "bad"}) == pr.FREE_SAVINGS_CAP_USD
 
 
 def _patch_window(monkeypatch: pytest.MonkeyPatch, *, saved: float, spend: float = 0.0) -> None:
@@ -77,15 +84,11 @@ def test_cap_exhausted_fail_open_on_missing(tmp_path: Path) -> None:
     assert pr.cap_exhausted(tmp_path) is False
 
 
-def test_verified_pro_plan_overrides_stale_local_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_local_fallback_does_not_trust_unsigned_pro_state(tmp_path: Path) -> None:
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
 
     _write_json(subscription_state_path(tmp_path), {"plan": "LOCAL", "savingsOverCap": True})
-    monkeypatch.setattr(
-        "lemoncrow.core.capabilities.licensing.entitlements.current_license",
-        lambda: type("License", (), {"plan": "pro"})(),
-    )
-    assert pr.cap_exhausted(tmp_path) is False
+    assert pr.cap_exhausted(tmp_path) is True
 
 
 def test_server_meter_trusted_verbatim(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
