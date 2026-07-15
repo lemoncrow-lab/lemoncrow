@@ -1213,6 +1213,49 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
     return output
 
 
+def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant: bool) -> str:
+    """Stash (dormant) or restore (active) the LemonCrow agent files for Codex/
+    OpenCode so a dormant session degrades to the host's BUILTIN agent.
+
+    Layer-2 parity with Claude (which pops the ``agent`` host-setting): Codex and
+    OpenCode instead select their agent from files on disk
+    (``.codex/agents/lemoncrow.*.toml`` / ``.opencode/agents/lemoncrow.*.md`` —
+    the OpenCode ``code`` agent is ``mode: primary``). When dormant we move only
+    our ``lemoncrow.*`` files aside (a user's own agents are never touched) so
+    the host has no LemonCrow agent to load; when active we move them back.
+
+    Idempotent and best-effort: safe to call on every session start / prompt,
+    never raises. Effect is next-session (the host reads agents at start); the
+    MCP server hiding all tools (Layer 1) covers the current session.
+    """
+    rel = {"codex": (".codex", "agents"), "opencode": (".opencode", "agents")}.get(host)
+    if rel is None:
+        return "noop"
+    agents_dir = Path(workspace) / rel[0] / rel[1]
+    stash_dir = agents_dir.parent / f".{rel[1]}-lemoncrow-dormant"
+    try:
+        if dormant:
+            live = [p for p in agents_dir.glob("lemoncrow.*") if p.is_file()] if agents_dir.exists() else []
+            if not live:
+                return "noop"
+            stash_dir.mkdir(parents=True, exist_ok=True)
+            for p in live:
+                p.replace(stash_dir / p.name)
+            return f"stashed {len(live)}"
+        if not stash_dir.exists():
+            return "noop"
+        stashed = [p for p in stash_dir.iterdir() if p.is_file()]
+        if stashed:
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            for p in stashed:
+                p.replace(agents_dir / p.name)
+        with suppress(OSError):
+            stash_dir.rmdir()
+        return f"restored {len(stashed)}" if stashed else "noop"
+    except OSError:
+        return "error"
+
+
 def _codex_session_start_tool_policy(*, dormant: bool = False) -> dict[str, Any]:
     if dormant:
         # Layer 2 (codex): the savings cap is exhausted — stop steering Codex
@@ -1519,6 +1562,11 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, payload)
+    # Layer 2 (opencode): stash/restore our agent files by cap state so a dormant
+    # session degrades to the builtin agent (parity with Claude/Codex). Idempotent.
+    with suppress(Exception):
+        _ws = str(normalized.get("cwd") or normalized.get("workspace") or os.getcwd())
+        reset_host_agents_for_dormancy("opencode", _ws, dormant=cap_exhausted(root))
     _opencode_record_prompt(root, payload)
     update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)

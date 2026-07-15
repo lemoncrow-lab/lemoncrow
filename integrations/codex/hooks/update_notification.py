@@ -55,6 +55,17 @@ def main() -> int:
         cwd = str(payload.get("cwd") or "")
         if session_id:
             _write_session_state(session_id, cwd or None, str(payload.get("model") or ""))
+        # Layer 2 (codex): when the savings cap is exhausted, stash our agent
+        # files so Codex falls back to its builtin agent (parity with Claude).
+        try:
+            from lemoncrow.core.capabilities.plugin_runtime import (
+                cap_exhausted,
+                reset_host_agents_for_dormancy,
+            )
+
+            reset_host_agents_for_dormancy("codex", cwd or os.getcwd(), dormant=cap_exhausted(_lemoncrow_root()))
+        except Exception:  # noqa: BLE001 — best-effort; never break the hook
+            pass
 
         # Check for update notification from daemon/MCP auto-update
         state_path = _lemoncrow_root() / "update_state.json"
