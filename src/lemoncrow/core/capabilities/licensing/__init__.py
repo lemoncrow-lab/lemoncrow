@@ -27,7 +27,12 @@ from lemoncrow.core.capabilities.licensing.entitlements import (
     require,
     status,
 )
-from lemoncrow.core.capabilities.licensing.features import PRO_FEATURES
+from lemoncrow.core.capabilities.licensing.features import (
+    ENTERPRISE_FEATURES,
+    FREE_FEATURES,
+    LITE_FEATURES,
+    PRO_FEATURES,
+)
 from lemoncrow.core.capabilities.licensing.models import (
     FeatureLocked,
     License,
@@ -47,6 +52,9 @@ def pro_url() -> str:
 
 
 __all__ = [
+    "ENTERPRISE_FEATURES",
+    "FREE_FEATURES",
+    "LITE_FEATURES",
     "PRO_FEATURES",
     "FeatureLocked",
     "License",

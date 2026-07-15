@@ -1,28 +1,22 @@
-"""Data models for the LemonCrow licensing layer.
-
-Entitlement comes from the OAuth session created by ``lc account login``: the auth
-server reports the account's plan, and paid plans unlock the gated surfaces.
-There are no offline license tokens -- the account's plan (checked server-side,
-cached locally) plus the proprietary overlay is the whole contract.
-"""
+"""Data models for OAuth-backed LemonCrow entitlements."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-PRO_PLANS: frozenset[str] = frozenset({"pro", "enterprise"})
+from lemoncrow.core.capabilities.licensing.features import PAID_PLANS
+
+# Compatibility name used throughout the runtime. Lite is a paid plan, while
+# feature-level access is decided by the explicit matrix in features.py.
+PRO_PLANS: frozenset[str] = PAID_PLANS
 
 
 class FeatureLocked(Exception):
-    """Raised when a Pro-only feature is used without a Pro plan.
-
-    Carries the offending ``feature`` key so callers can render a precise
-    upgrade prompt.
-    """
+    """Raised when an entitlement does not grant a requested feature."""
 
     def __init__(self, feature: str, message: str | None = None) -> None:
         self.feature = feature
-        super().__init__(message or f"'{feature}' requires an LemonCrow Pro license")
+        super().__init__(message or f"'{feature}' requires a LemonCrow paid plan")
 
 
 @dataclass(frozen=True)
@@ -32,13 +26,17 @@ class License:
     license_id: str
     email: str
     plan: str
+    device_id: str = ""
     features: tuple[str, ...] = ()
 
     def grants(self, feature: str) -> bool:
-        """Whether this entitlement grants ``feature`` (empty ``features`` = all)."""
-        if not self.features:
-            return self.plan in PRO_PLANS
-        return feature in self.features
+        """Whether this entitlement explicitly grants a feature."""
+
+        if self.features:
+            return feature in self.features
+        from lemoncrow.core.capabilities.licensing.features import plan_grants
+
+        return plan_grants(self.plan, feature)
 
 
 @dataclass(frozen=True)
