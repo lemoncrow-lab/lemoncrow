@@ -4,6 +4,7 @@ import asyncio
 import csv
 import importlib
 import json
+import subprocess
 import sys
 import time
 import types
@@ -425,6 +426,11 @@ def test_main_resume_skips_existing_runs(tmp_path: Path, monkeypatch: MonkeyPatc
         )
 
     monkeypatch.setattr(CODEBENCH, "run_arm", fake_run_arm)
+    monkeypatch.setattr(
+        CODEBENCH.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
