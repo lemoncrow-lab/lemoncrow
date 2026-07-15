@@ -580,7 +580,9 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
+            else timedelta(hours=amount)
+            if unit == "h"
+            else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -602,6 +604,12 @@ def _parse_since_arg(value: str) -> datetime:
     help="Bootstrap the code index for the current git repo (default: on).",
 )
 @click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Force index rebuild even if another process holds the index lock.",
+)
+@click.option(
     "--configure-models/--no-configure-models",
     default=None,
     help="Prompt for project-local role/host model settings when running inside a git repo.",
@@ -618,6 +626,7 @@ def init(
     ctx: click.Context,
     seed: bool,
     index: bool,
+    force: bool,
     configure_models: bool | None,
     login: bool,
 ) -> None:
@@ -712,6 +721,7 @@ def init(
             engine = _code_context_engine(str(git_root))
             stats = _index_repo_with_progress(
                 engine,
+                steal=force,
                 description="Bootstrapping code index",
                 success_description="Code index ready",
             )
