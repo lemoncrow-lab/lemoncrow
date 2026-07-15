@@ -289,7 +289,7 @@ def test_handle_dispatch_spills_oversized_proxied_result(tmp_path: Path, monkeyp
     assert "[lc: shrunk" in text
     import re
 
-    spill_path = re.search(r"read (\S+\.txt)\]", text)
+    spill_path = re.search(r"full: (\S+\.txt)\]", text)
     assert spill_path is not None
     recovered = Path(spill_path.group(1)).read_text(encoding="utf-8")
     assert "q" * 50000 in recovered

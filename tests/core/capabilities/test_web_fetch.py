@@ -806,7 +806,7 @@ def test_finish_fetch_summary_returns_heuristic_gist_with_spill_path(
     assert "## Installation" in content
     assert "## Usage" in content
     assert "[lc: summarized:heuristic" in content
-    assert "full: read " in content
+    assert "full: " in content
     spilled = list(tmp_path.glob("web_fetch-*.txt"))
     assert len(spilled) == 1
     assert spilled[0].read_text(encoding="utf-8") == MD_PAGE
@@ -867,7 +867,7 @@ def test_finish_fetch_summary_spill_disabled_uses_pathless_footer(
     content = payload["content"]
     assert "[lc: truncated" in content
     assert "summarized:" not in content
-    assert "read " not in content
+    assert "full: " not in content
     assert not list(tmp_path.glob("web_fetch-*.txt"))
 
 
