@@ -266,7 +266,7 @@ def playbook_extract(ctx: click.Context, trace_id: str, save: bool, as_json: boo
     trace = store.history.get_trace(trace_id)
     if trace is None:
         raise click.ClickException(f"trace not found: {trace_id}")
-    from lemoncrow.core.foundation.extractor import extract_candidate
+    from lemoncrow.pro.foundation.extractor import extract_candidate
 
     candidate = extract_candidate(trace)
     if save:

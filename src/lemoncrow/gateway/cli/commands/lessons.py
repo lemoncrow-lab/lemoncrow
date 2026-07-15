@@ -90,8 +90,8 @@ def ledger_update(ctx: click.Context, session_id: str | None, field_name: str, v
 @click.option("--session-id", default=None)
 @click.pass_context
 def ledger_summarize(ctx: click.Context, session_id: str | None) -> None:
-    from lemoncrow.infra.runtime.context_compressor import ContextCompressor
     from lemoncrow.infra.runtime.run_ledger import RunLedger
+    from lemoncrow.pro.runtime.context_compressor import ContextCompressor
 
     path = _ledger_path(ctx.obj["root"], session_id)
     led = RunLedger.load(path)

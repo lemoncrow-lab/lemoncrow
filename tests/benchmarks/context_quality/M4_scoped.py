@@ -127,7 +127,7 @@ def _normalize_repo_path(path: str, *, repo_root: Path) -> str:
 
 
 def _collect_repo_history_queries(repo_root: Path, *, limit: int = 5) -> list[RepoHistoryQuery]:
-    from lemoncrow.infra.code_intel.git_history.walker import iter_commit_records
+    from lemoncrow.pro.code_intel.git_history.walker import iter_commit_records
 
     queries: list[RepoHistoryQuery] = []
     for record in iter_commit_records(repo_root, limit=80, since_sha=None):
@@ -185,12 +185,12 @@ def _ensure_commit_chunks(
     os.environ["LEMONCROW_CODE_EMBEDDER"] = "null"
     os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
     try:
-        from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
-        from lemoncrow.infra.code_intel.git_history.embedder import embed_summary
-        from lemoncrow.infra.code_intel.git_history.models import CommitSummary
-        from lemoncrow.infra.code_intel.git_history.walker import iter_commit_records
         from lemoncrow.infra.embeddings.factory import make_code_embedder
         from lemoncrow.pro.capabilities.code_context.engine import _LINEAGE_INDEX_VERSION
+        from lemoncrow.pro.code_intel.git_history import embedder as history_embedder_module
+        from lemoncrow.pro.code_intel.git_history.embedder import embed_summary
+        from lemoncrow.pro.code_intel.git_history.models import CommitSummary
+        from lemoncrow.pro.code_intel.git_history.walker import iter_commit_records
 
         history_embedder_module._embedder = None
         make_code_embedder.cache_clear()
@@ -243,8 +243,8 @@ def _ensure_commit_chunks(
             os.environ.pop("LEMONCROW_CODE_EMBED_MODEL", None)
         else:
             os.environ["LEMONCROW_CODE_EMBED_MODEL"] = previous_code_embed_model
-        from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
         from lemoncrow.infra.embeddings.factory import make_code_embedder
+        from lemoncrow.pro.code_intel.git_history import embedder as history_embedder_module
 
         history_embedder_module._embedder = None
         make_code_embedder.cache_clear()

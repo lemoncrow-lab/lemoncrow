@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.infra.code_intel.git_history.models import CommitSummary
+from lemoncrow.pro.code_intel.git_history.models import CommitSummary
 
 # Dummy embedding blob (4 float32s) so tests never depend on a live embedder.
 _DUMMY_EMBEDDING: bytes = struct.pack("4f", 0.1, 0.2, 0.3, 0.4)
@@ -32,7 +32,7 @@ def engine_with_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Create a minimal git repo with CodeContextEngine seeded with commit chunks."""
     # Mock embed_summary so tests never need a live embedding service.
     monkeypatch.setattr(
-        "lemoncrow.infra.code_intel.git_history.embedder.embed_summary",
+        "lemoncrow.pro.code_intel.git_history.embedder.embed_summary",
         lambda _s: _DUMMY_EMBEDDING,
     )
 

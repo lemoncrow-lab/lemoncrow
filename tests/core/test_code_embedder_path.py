@@ -149,11 +149,11 @@ def test_lineage_ready_preserves_old_chunks_until_full_rebuild_starts(
 
     monkeypatch.setattr(engine, "_safe_current_head_sha", lambda: "new-head")
     monkeypatch.setattr(
-        "lemoncrow.infra.code_intel.git_history.embedder.embedder_name",
+        "lemoncrow.pro.code_intel.git_history.embedder.embedder_name",
         lambda: "ollama:nomic-embed-text",
     )
     monkeypatch.setattr(
-        "lemoncrow.infra.code_intel.git_history.embedder.embedding_dim",
+        "lemoncrow.pro.code_intel.git_history.embedder.embedding_dim",
         lambda: 768,
     )
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.infra.runtime.outcome_capture import emit_typed_lesson_candidate
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+from lemoncrow.pro.runtime.outcome_capture import emit_typed_lesson_candidate
 
 
 def test_outcome_capture_emits_candidate_for_recurring_pattern(tmp_path) -> None:

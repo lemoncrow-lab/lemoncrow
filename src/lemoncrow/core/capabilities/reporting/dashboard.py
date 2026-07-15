@@ -122,8 +122,8 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
     design — the legacy ``_render_dashboard`` ANSI plumbing is intentionally not
     reused (that was the surface asking for a beauty treatment).
     """
-    from lemoncrow.infra.runtime.insights import _bar, build_insights
     from lemoncrow.infra.runtime.session_report import build_report, list_run_files
+    from lemoncrow.pro.runtime.insights import _bar, build_insights
 
     until = datetime.now(UTC)
     since = until - timedelta(days=days)

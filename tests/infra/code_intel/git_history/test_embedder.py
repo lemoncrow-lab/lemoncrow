@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.infra.code_intel.git_history import embedder as history_embedder_module
-from lemoncrow.infra.code_intel.git_history.embedder import (
+from lemoncrow.infra.embeddings.factory import get_code_embedder, make_code_embedder
+from lemoncrow.infra.embeddings.ollama_embedder import OllamaEmbedder
+from lemoncrow.pro.code_intel.git_history import embedder as history_embedder_module
+from lemoncrow.pro.code_intel.git_history.embedder import (
     decode_embedding,
     embed_summary,
     embedding_dim,
 )
-from lemoncrow.infra.code_intel.git_history.models import CommitSummary
-from lemoncrow.infra.embeddings.factory import get_code_embedder, make_code_embedder
-from lemoncrow.infra.embeddings.ollama_embedder import OllamaEmbedder
+from lemoncrow.pro.code_intel.git_history.models import CommitSummary
 
 
 def _make_summary(**kwargs) -> CommitSummary:  # type: ignore[no-untyped-def]

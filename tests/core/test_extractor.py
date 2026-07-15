@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lemoncrow.core.foundation.extractor import extract_candidate
 from lemoncrow.core.foundation.models import Trace, ValidationResult
+from lemoncrow.pro.foundation.extractor import extract_candidate
 
 
 def test_extract_minimal_trace_uses_fallback_procedure() -> None:

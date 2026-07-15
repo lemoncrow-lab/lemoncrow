@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.watchdogs import (
+from lemoncrow.pro.foundation.watchdogs import (
     builtin_watchdog_profiles,
     default_watchdog_profile_id,
     normalize_watchdog_weights,

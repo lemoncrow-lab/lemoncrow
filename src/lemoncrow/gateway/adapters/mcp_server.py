@@ -30,16 +30,6 @@ from lemoncrow import __version__ as lemoncrow_version
 from lemoncrow.core.capabilities.default_definitions import DefaultRegistry, build_default_registry
 from lemoncrow.core.capabilities.host_runners import resolve_swarm_runner_command
 from lemoncrow.core.capabilities.model_settings import normalize_model_for_host, resolve_host_model
-from lemoncrow.core.capabilities.owned_execution_lanes import (
-    OwnedExecutionError,
-    execute_owned_prompt,
-)
-from lemoncrow.core.capabilities.owned_execution_routing import (
-    NoFeasibleRouteError,
-    OwnedCachePolicy,
-    OwnedRouteRequest,
-    select_owned_route,
-)
 from lemoncrow.core.capabilities.workflow_runtime_state import (
     coerce_workflow_review_decision as _coerce_workflow_review_decision,
 )
@@ -159,6 +149,16 @@ from lemoncrow.infra.runtime.run_ledger import (
 )
 from lemoncrow.infra.storage.factory import make_memory_store
 from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError, MemorySidecarUnavailable
+from lemoncrow.pro.capabilities.owned_execution_lanes import (
+    OwnedExecutionError,
+    execute_owned_prompt,
+)
+from lemoncrow.pro.capabilities.owned_execution_routing import (
+    NoFeasibleRouteError,
+    OwnedCachePolicy,
+    OwnedRouteRequest,
+    select_owned_route,
+)
 
 if TYPE_CHECKING:
     from lemoncrow.gateway.adapters.runtime import ContextRuntime
@@ -335,7 +335,7 @@ class _MonitorSession:
 
     def __post_init__(self) -> None:
         if self.fsm is None:
-            from lemoncrow.core.capabilities.monitors.fsm import DifficultyFSM
+            from lemoncrow.pro.capabilities.monitors.fsm import DifficultyFSM
 
             self.fsm = DifficultyFSM()
 
@@ -362,8 +362,8 @@ def _advance_monitors(session_id: str, task: str, original_task: str) -> tuple[f
         if _bench_is_off():
             return 0.0, False
 
-        from lemoncrow.core.capabilities.monitors import evaluate_all
-        from lemoncrow.core.capabilities.monitors.fsm import score_step
+        from lemoncrow.pro.capabilities.monitors import evaluate_all
+        from lemoncrow.pro.capabilities.monitors.fsm import score_step
 
         with _MONITOR_LOCK:
             ms = _monitor_sessions.setdefault(session_id, _MonitorSession())
@@ -713,7 +713,7 @@ def _emit_playbook_retrieved(scored: list[Any], domain: str | None) -> None:
 def _make_outcome_writer(led: RunLedger) -> Any:
     """Return a FileStateWriter for outcomes alongside the run file, or None."""
     with contextlib.suppress(Exception):
-        from lemoncrow.infra.runtime.outcome_capture import FileStateWriter
+        from lemoncrow.pro.runtime.outcome_capture import FileStateWriter
 
         root = led._root
         if root is not None:
@@ -1227,7 +1227,8 @@ def _process_tool_accounting(name: str, args: dict[str, Any], result: Any, rid: 
     if not code_intel_on and not read_dedup_on:
         return
     try:
-        from lemoncrow.core.capabilities import code_intel_credit, context_dedup, read_baseline_credit
+        from lemoncrow.core.capabilities import code_intel_credit, read_baseline_credit
+        from lemoncrow.pro.capabilities import context_dedup
 
         is_read = name == "read"
         is_code_intel = code_intel_on and name in code_intel_credit.CODE_INTEL_TOOLS
@@ -1365,13 +1366,13 @@ def _default_workflow_agent_executor(
 ) -> Any:
     import subprocess
 
-    from lemoncrow.core.capabilities.owned_execution_cache_affinity import (
-        cache_affinity_hint,
-        latest_cache_affinity,
-    )
     from lemoncrow.core.capabilities.workflow_spawn import build_spawn_envelope, compile_prompt_text
     from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
     from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+    from lemoncrow.pro.capabilities.owned_execution_cache_affinity import (
+        cache_affinity_hint,
+        latest_cache_affinity,
+    )
 
     workspace = _workspace_root().resolve()
     defaults = build_default_registry()
@@ -4214,7 +4215,7 @@ def _compress_context(session_id: str | None = None) -> Any:
 
     Returns: {prompt_block, tokens_before, tokens_after_estimate, tokens_freed, cost_saved_usd}.
     """
-    from lemoncrow.infra.runtime.context_compressor import ContextCompressor
+    from lemoncrow.pro.runtime.context_compressor import ContextCompressor
 
     led = _get_ledger()
     if session_id:
@@ -4231,7 +4232,7 @@ def _compress_context(session_id: str | None = None) -> Any:
         _append_live_savings_event(compaction_savings)
 
     with contextlib.suppress(Exception):
-        from lemoncrow.infra.runtime import outcome_capture
+        from lemoncrow.pro.runtime import outcome_capture
 
         outcome_capture.schedule_compact(
             session_id=led.session_id,
@@ -7339,7 +7340,7 @@ def _context_lifecycle_decision(led: RunLedger) -> dict[str, Any]:
 
 def _write_handover_packet(led: RunLedger, state: Any) -> Path:
     from lemoncrow.core.foundation.paths import session_dir
-    from lemoncrow.infra.runtime.context_compressor import HandoverPacket
+    from lemoncrow.pro.runtime.context_compressor import HandoverPacket
 
     root = _lemoncrow_root()
     run_dir = session_dir(root, led.agent or _detect_agent(), led.session_id)
@@ -7366,7 +7367,7 @@ def _compact_advise(session_id: str | None = None) -> dict[str, Any]:
     - should_handover: bool (true if utilisation >= 95%)
     """
     try:
-        from lemoncrow.infra.runtime.context_compressor import ContextCompressor
+        from lemoncrow.pro.runtime.context_compressor import ContextCompressor
 
         led = _get_ledger()
         if session_id:
@@ -9755,7 +9756,7 @@ def tool_smart_search(
             line_range = (lo, hi or lo)
     if query is None:
         raise ValueError("query is required for semantic search; use grep for regex/glob/symbol search")
-    from lemoncrow.core.capabilities.grounded_loop.search_first import search_first
+    from lemoncrow.pro.capabilities.grounded_loop.search_first import search_first
 
     workspace_root = _workspace_root()
 
@@ -10156,7 +10157,7 @@ def _workflow_state_from_workspace() -> dict[str, Any]:
 
 
 def _route_outcome_calibration(tool_name: str, session_state: Mapping[str, Any], led: RunLedger) -> dict[str, Any]:
-    from lemoncrow.infra.runtime.outcome_capture import load_outcomes_from_state
+    from lemoncrow.pro.runtime.outcome_capture import load_outcomes_from_state
 
     root = led._root
     if root is None:
@@ -10489,7 +10490,7 @@ def _finalize_model_recommendation(
     _persist_legacy_route(workflow, finalized, current_step)
 
     if finalized.get("configured") is not False:
-        from lemoncrow.infra.runtime import outcome_capture
+        from lemoncrow.pro.runtime import outcome_capture
 
         outcome_capture.schedule_route(
             session_id=led.session_id,
@@ -10737,7 +10738,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             logging.exception("Recovered from broad exception handler")
             if not remote_routed:
                 with contextlib.suppress(Exception):
-                    from lemoncrow.infra.runtime import outcome_capture
+                    from lemoncrow.pro.runtime import outcome_capture
 
                     led = _get_ledger()
                     outcome_capture.advance(
@@ -10866,7 +10867,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                     )
 
                     with contextlib.suppress(Exception):
-                        from lemoncrow.infra.runtime import outcome_capture
+                        from lemoncrow.pro.runtime import outcome_capture
 
                         outcome_capture.advance(
                             led.session_id,
@@ -10967,7 +10968,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 dedup_stubbed = False
                 if name in _DEDUP_TOOLS and os.environ.get("LEMONCROW_CONTEXT_DEDUP", "1") != "0":
                     with contextlib.suppress(Exception):
-                        from lemoncrow.core.capabilities import context_dedup as _cdedup
+                        from lemoncrow.pro.capabilities import context_dedup as _cdedup
 
                         _dedup_sid = ""
                         with contextlib.suppress(Exception):

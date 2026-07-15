@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.infra.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
 from lemoncrow.pro.capabilities.swarm import (
     apply_wave_candidates,
     initialize_swarm_run,
@@ -32,6 +31,7 @@ from lemoncrow.pro.capabilities.swarm.models import (
     SwarmWaveEvaluation,
     SwarmWaveState,
 )
+from lemoncrow.pro.runtime.swarm_worktree import SwarmWorktreeManager, read_head_ref
 
 
 def _git(repo: Path, *args: str) -> None:

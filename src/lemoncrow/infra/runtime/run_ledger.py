@@ -330,7 +330,7 @@ class RunLedger:
         output: str | None = None,
         args_signature: str | None = None,
     ) -> LedgerEvent:
-        from lemoncrow.core.foundation.watchdogs import args_signature as _sig
+        from lemoncrow.pro.foundation.watchdogs import args_signature as _sig
 
         with self._lock:
             self.tool_count += 1
