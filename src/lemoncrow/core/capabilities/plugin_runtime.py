@@ -135,6 +135,13 @@ def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
     if not isinstance(token, str) or not token:
         return
     root_path = Path(root)
+    # Mark this machine as "established free": it has received a server cap token,
+    # so the compiled gate now ENFORCES the cap (fail-closed without a valid
+    # token) instead of the editable local meter. Written on every token receipt
+    # so deleting the marker only lasts until the next check-in.
+    with suppress(OSError):
+        root_path.mkdir(parents=True, exist_ok=True)
+        (root_path / ".cap_established").touch()
     auth = _read_json(auth_state_path(root_path), None)
     if isinstance(auth, dict):
         sub = auth.get("subscriptionStatus")
