@@ -10,7 +10,7 @@
 
 Keep using Claude Code normally — LemonCrow sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
 
-[![License](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache--2.0%20%2B%20proprietary%20engine-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow/releases)
 [![Stars](https://img.shields.io/github/stars/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow)
 
@@ -252,7 +252,7 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 - Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.
 - Runs locally by default.
-- Source-available runtime: FSL-1.1-ALv2 engine, Apache-2.0 SDKs/integrations/docs.
+- Open-source runtime (Apache-2.0); the compiled engine (`lemoncrow.pro`) is proprietary and required at runtime.
 - Free account required to activate the official install.
 - Live local stats for cost, tokens, and savings; anonymous remote telemetry is on by default (opt out anytime).
 - Lite: keeps the savings engine running (cap raised to $200/mo) for $5/month or $50/year.
@@ -282,5 +282,6 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 ## License
 
-Open-core. The engine (`src/lemoncrow/core`, `bench`, `infra`, `gateway` minus `gateway/sdk`, plus `tests/`, `benchmarks/`) is licensed under the [Functional Source License, v1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2) — free for internal use, non-commercial research, and professional services
-Converts to Apache-2.0 two years after each release. SDK bindings, host integrations, install scripts, and docs (`src/lemoncrow/sdk/`, `src/lemoncrow/gateway/sdk/`, `integrations/`, `scripts/`, `docs/`, `docs-site/`) are [Apache-2.0](LICENSE-APACHE).
+**Open-core.** All source published in this repository is [Apache-2.0](LICENSE-APACHE) — free to read, use, modify, and redistribute.
+
+The **engine** — the `lemoncrow.pro` package (the retrieval-quality and token-savings core) — is **proprietary**: it ships only as compiled binaries, its source is not published, and it is **required at runtime** (without it, LemonCrow falls back to a degraded built-in-only mode). See [LICENSE](LICENSE) for the exact terms.

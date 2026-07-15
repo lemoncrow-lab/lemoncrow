@@ -1,6 +1,6 @@
 # Licensing & Pro features
 
-LemonCrow is source-available and runs locally. Existing paid Pro control surfaces
+LemonCrow is open-core (Apache-2.0 source + a proprietary compiled engine) and runs locally. Existing paid Pro control surfaces
 are gated behind the signed-in account's plan. Free remains genuinely useful;
 Lite raises the savings cap; Pro and Enterprise cover the gated capabilities.
 

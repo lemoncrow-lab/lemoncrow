@@ -1,11 +1,8 @@
-This directory (`docs/` — user-facing documentation) is licensed under the
-Apache License, Version 2.0.
+This directory is part of the LemonCrow published source, licensed under the
+Apache License, Version 2.0. See `/LICENSE-APACHE` at the repository root for
+the full text, or http://www.apache.org/licenses/LICENSE-2.0
 
-See `/LICENSE-APACHE` at the repository root for the full text, or
-http://www.apache.org/licenses/LICENSE-2.0
+The LemonCrow engine (the `lemoncrow.pro` package) is proprietary and ships only
+as compiled binaries; see the root `/LICENSE`.
 
 Copyright 2026 Pankaj Kumar (d/b/a LemonCrow)
-
-The rest of this repository is licensed under the Functional Source License
-(FSL-1.1-ALv2) (see the root `LICENSE` file) unless another directory-level
-`LICENSE` file says otherwise.
