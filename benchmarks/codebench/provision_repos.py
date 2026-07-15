@@ -42,7 +42,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, "src")
-from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
 from benchmarks.codebench import swebench_data
 

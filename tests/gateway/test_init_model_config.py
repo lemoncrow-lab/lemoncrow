@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from lemoncrow.core.capabilities.code_context_contract import IndexLockTimeout
 from lemoncrow.gateway.cli import cli
 from lemoncrow.gateway.cli.commands import admin as admin_command
 from lemoncrow.gateway.cli.commands import code as code_command
@@ -109,6 +110,27 @@ def test_init_uses_progress_bootstrap_for_code_index(tmp_path: Path, monkeypatch
         "success_description": "Code index ready",
     }
     assert "indexed 3 files, 9 symbols (2 imports)" in result.output
+
+
+def test_init_continues_when_code_index_lock_times_out(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    monkeypatch.chdir(workspace)
+
+    monkeypatch.setattr(code_command, "_code_context_engine", lambda repo_root: object())
+
+    def fake_index_repo_with_progress(engine, **kwargs):
+        raise IndexLockTimeout(tmp_path / "code_context.sqlite")
+
+    monkeypatch.setattr(code_command, "_index_repo_with_progress", fake_index_repo_with_progress)
+
+    root = tmp_path / ".lemoncrow-store"
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed"])
+
+    assert result.exit_code == 0, result.output
+    assert "code index skipped (another LemonCrow process is indexing)" in result.output
+    assert (workspace / ".lemoncrow" / ".gitignore").exists()
 
 
 def test_init_installs_project_agents_md_and_codex_agents(tmp_path: Path, monkeypatch) -> None:

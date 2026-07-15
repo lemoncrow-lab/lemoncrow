@@ -42,7 +42,7 @@ def _disable_autosync_watcher() -> None:
     constructing a fresh autosync-enabled one.
     """
     import lemoncrow.gateway.adapters.mcp_server as mcp_server
-    from lemoncrow.core.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     resolved = mcp_server._workspace_root().resolve()
     mcp_server._code_engine_cache[str(resolved)] = CodeContextEngine(resolved, autosync_enabled=False)

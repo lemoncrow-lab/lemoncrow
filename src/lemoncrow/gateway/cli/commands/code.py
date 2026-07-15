@@ -483,7 +483,10 @@ def code_group() -> None:
 @click.option("--exclude", "exclude_globs", multiple=True)
 @click.option("--reindex", is_flag=True, help="Full rebuild from scratch (default: incremental).")
 @click.option(
-    "--force", "steal_lock", is_flag=True, help="Force index rebuild even if another process holds the index lock."
+    "--force",
+    "steal_lock",
+    is_flag=True,
+    help="Deprecated compatibility flag; a live SQLite writer is never bypassed.",
 )
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--frame-prefix", default="", hidden=True, help="Prefix for progress output (used by dev.sh)")
