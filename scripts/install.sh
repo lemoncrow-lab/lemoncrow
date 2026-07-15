@@ -391,7 +391,8 @@ if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lc >/dev/null 2>&1 ||
     echo ""
     echo "  Quick start:  ${cli} --help"
     echo "  Init runtime: ${cli} init"
-    echo "  Docs:         https://github.com/lemoncrowhq/lemoncrow"
+    echo "  Docs:         https://docs.lemoncrow.com"
+    echo "  Github:       https://github.com/lemoncrowhq/lemoncrow"
 else
     info "LemonCrow installed to ${LEMONCROW_BIN_DIR}"
     echo ""
