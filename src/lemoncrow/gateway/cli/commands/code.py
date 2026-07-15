@@ -482,6 +482,9 @@ def code_group() -> None:
 @click.option("--include", "include_globs", multiple=True)
 @click.option("--exclude", "exclude_globs", multiple=True)
 @click.option("--reindex", is_flag=True, help="Full rebuild from scratch (default: incremental).")
+@click.option(
+    "--force", "steal_lock", is_flag=True, help="Force index rebuild even if another process holds the index lock."
+)
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--frame-prefix", default="", hidden=True, help="Prefix for progress output (used by dev.sh)")
 @click.option("--no-stats", is_flag=True, help="Do not print indexing statistics.")
@@ -491,6 +494,7 @@ def code_index_cmd(
     include_globs: tuple[str, ...],
     exclude_globs: tuple[str, ...],
     reindex: bool,
+    steal_lock: bool,
     as_json: bool,
     no_stats: bool,
     frame_prefix: str,
@@ -514,6 +518,7 @@ def code_index_cmd(
         payload = engine.index_repo(
             force=force,
             require_lock=True,
+            steal=steal_lock,
             include_globs=list(include_globs) or None,
             exclude_globs=list(exclude_globs) or None,
         ).model_dump(mode="json")
@@ -531,6 +536,7 @@ def code_index_cmd(
     payload = _index_repo_with_progress(
         engine,
         force=force,
+        steal=steal_lock,
         include_globs=list(include_globs) or None,
         exclude_globs=list(exclude_globs) or None,
         description="Indexing code",
