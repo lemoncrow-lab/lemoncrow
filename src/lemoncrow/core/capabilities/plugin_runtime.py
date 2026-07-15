@@ -1238,8 +1238,14 @@ def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant:
     rel = {"codex": (".codex", "agents"), "opencode": (".opencode", "agents")}.get(host)
     if rel is None:
         return "noop"
-    agents_dir = Path(workspace) / rel[0] / rel[1]
-    stash_dir = agents_dir.parent / f".{rel[1]}-lemoncrow-dormant"
+    return _stash_agent_files(Path(workspace) / rel[0] / rel[1], dormant=dormant)
+
+
+def _stash_agent_files(agents_dir: Path, *, dormant: bool) -> str:
+    """Idempotently move ``lemoncrow.*`` agent files in *agents_dir* aside (dormant)
+    or back (active). Shared by the per-workspace and global-mode dormancy resets.
+    A user's own (non ``lemoncrow.*``) agents are never touched."""
+    stash_dir = agents_dir.parent / f".{agents_dir.name}-lemoncrow-dormant"
     try:
         if dormant:
             live = [p for p in agents_dir.glob("lemoncrow.*") if p.is_file()] if agents_dir.exists() else []
@@ -1260,6 +1266,115 @@ def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant:
             stash_dir.rmdir()
         return f"restored {len(stashed)}" if stashed else "noop"
     except OSError:
+        return "error"
+
+
+def _opencode_config_home() -> Path:
+    """Global OpenCode config dir, mirroring scripts/install_opencode.sh."""
+    env = os.environ.get("OPENCODE_CONFIG_HOME")
+    if env:
+        return Path(env)
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "opencode"
+
+
+def _swap_global_skills(skills_dir: Path, *, dormant: bool) -> str:
+    """Idempotently move a wholly-LemonCrow-owned skills dir aside (dormant) or
+    back (active) with an atomic rename. Never merges: if a stash already exists
+    we leave it as the source of truth for restore."""
+    stash = skills_dir.parent / f"{skills_dir.name}.lemoncrow-dormant"
+    try:
+        if dormant:
+            if skills_dir.is_dir() and not stash.exists():
+                skills_dir.replace(stash)
+                return "stashed"
+            return "noop"
+        if stash.is_dir() and not skills_dir.exists():
+            stash.replace(skills_dir)
+            return "restored"
+        return "noop"
+    except OSError:
+        return "error"
+
+
+def _swap_global_agents_md(agents_md: Path, *, dormant: bool) -> str:
+    """Idempotently strip (dormant) or re-upsert (active) the ``<!-- LEMONCROW -->``
+    managed block in a GLOBAL, LemonCrow-owned AGENTS.md. Regenerated from source
+    on restore (no stash to lose); writes only when the content actually changes.
+    Only acts on an existing file, so a workspace-only install is never given a
+    global AGENTS.md. A project's own AGENTS.md is handled by the soft gate, not
+    here."""
+    try:
+        import re
+
+        from lemoncrow.core.capabilities.workspace_host_overrides import (
+            LEMONCROW_CODE_BLOCK_END,
+            LEMONCROW_CODE_BLOCK_START,
+            _agents_md_source,
+            _upsert_managed_block,
+        )
+    except Exception:  # noqa: BLE001 — helpers unavailable -> skip AGENTS.md swap
+        return "noop"
+    pattern = re.compile(
+        rf"{re.escape(LEMONCROW_CODE_BLOCK_START)}.*?{re.escape(LEMONCROW_CODE_BLOCK_END)}\n?",
+        re.DOTALL,
+    )
+    try:
+        if not agents_md.is_file():
+            return "noop"
+        text = agents_md.read_text(encoding="utf-8")
+        if dormant:
+            if not pattern.search(text):
+                return "noop"
+            stripped = pattern.sub("", text).rstrip()
+            new = (stripped + "\n") if stripped else ""
+            if new == text:
+                return "noop"
+            agents_md.write_text(new, encoding="utf-8")
+            return "stripped"
+        if pattern.search(text):
+            return "noop"  # block already present
+        body = _agents_md_source(None).read_text(encoding="utf-8").strip()
+        managed = f"{LEMONCROW_CODE_BLOCK_START}\n{body}\n{LEMONCROW_CODE_BLOCK_END}"
+        new = _upsert_managed_block(text, body, managed).rstrip() + "\n"
+        if new == text:
+            return "noop"
+        agents_md.write_text(new, encoding="utf-8")
+        return "restored"
+    except OSError:
+        return "error"
+
+
+def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
+    """Reliably swap GLOBAL-mode LemonCrow surfaces in/out for dormancy.
+
+    Global installs write wholly-LemonCrow-owned files under the host CONFIG HOME
+    ($CODEX_HOME, $OPENCODE_CONFIG_HOME), so — unlike a project's own AGENTS.md,
+    which is soft-gated — we edit/move them directly. Each surface is idempotent
+    and independent, so a partial or crashed run self-heals on the next call:
+
+    - codex: $CODEX_HOME/agents/lemoncrow.* stash, plugin skills dir stash, and
+      the $CODEX_HOME/AGENTS.md managed block (regenerated from source).
+    - opencode: $OPENCODE_CONFIG_HOME/agents/lemoncrow.* stash (no global
+      AGENTS.md / skills bundle is installed for opencode).
+
+    Every step no-ops when its target is absent, so a workspace-only install is
+    untouched. Best-effort; never raises into a hook.
+    """
+    try:
+        if host == "codex":
+            home = _codex_home()
+            return " ".join(
+                (
+                    "agents:" + _stash_agent_files(home / "agents", dormant=dormant),
+                    "skills:" + _swap_global_skills(home / "plugins" / "lemoncrow" / "skills", dormant=dormant),
+                    "agents_md:" + _swap_global_agents_md(home / "AGENTS.md", dormant=dormant),
+                )
+            )
+        if host == "opencode":
+            return "agents:" + _stash_agent_files(_opencode_config_home() / "agents", dormant=dormant)
+        return "noop"
+    except Exception:  # noqa: BLE001 — dormancy reset must never break a hook
         return "error"
 
 
@@ -1561,7 +1676,9 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     # session degrades to the builtin agent (parity with Claude/Codex). Idempotent.
     with suppress(Exception):
         _ws = str(normalized.get("cwd") or normalized.get("workspace") or os.getcwd())
-        reset_host_agents_for_dormancy("opencode", _ws, dormant=cap_exhausted(root))
+        _oc_dormant = cap_exhausted(root)
+        reset_host_agents_for_dormancy("opencode", _ws, dormant=_oc_dormant)
+        reset_lemoncrow_global_dormancy("opencode", dormant=_oc_dormant)
     _opencode_record_prompt(root, payload)
     update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)
