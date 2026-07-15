@@ -177,6 +177,38 @@ def test_free_never_established_uses_local_meter(monkeypatch: pytest.MonkeyPatch
     assert pr.cap_exhausted(tmp_path) is False  # not established -> local meter -> active
 
 
+def test_free_grace_over_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Never established BUT session history older than the grace window -> the box
+    # has had time to check in -> fail CLOSED without a valid token. Ties the
+    # grace to session-file age, so faking "fresh" means deleting all sessions.
+    import os
+
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    sess = tmp_path / "sessions" / "s1"
+    sess.mkdir(parents=True)
+    f = sess / "savings.jsonl"
+    f.write_text("{}\n", encoding="utf-8")
+    old = _t.time() - (49 * 3600)  # older than the 48h grace
+    os.utime(f, (old, old))
+    assert pr.cap_exhausted(tmp_path) is True  # grace over + no token -> fail closed
+
+
+def test_free_recent_sessions_within_grace_active(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Recent session history (within grace), never established -> local meter.
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    sess = tmp_path / "sessions" / "s1"
+    sess.mkdir(parents=True)
+    (sess / "savings.jsonl").write_text("{}\n", encoding="utf-8")  # fresh mtime
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    assert pr.cap_exhausted(tmp_path) is False  # within grace -> local meter -> active
+
+
 def test_free_expired_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(entitlements, "is_pro", lambda: False)
     priv, pub = _keypair()
