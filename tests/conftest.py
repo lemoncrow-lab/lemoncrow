@@ -35,6 +35,10 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
     # the new read/projection workspace-confinement rejects files tests create
     # under tmp_path. Tests that need a specific workspace set it themselves.
     monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(tmp_path))
+    # The agent running pytest may itself be Codex/Cursor/etc. Pin ordinary
+    # tests to the product's documented fallback host; host-detection tests
+    # explicitly override or remove this value.
+    monkeypatch.setenv("LEMONCROW_AGENT", "claude")
     # Point host-transcript discovery at an isolated, empty dir. Savings/recall/
     # statusline code falls back to the developer's real ~/.claude/projects when
     # CLAUDE_CONFIG_DIR is unset, so an in-process test would replay every real

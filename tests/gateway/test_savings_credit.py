@@ -572,8 +572,10 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
 
     from lemoncrow.core.foundation import session_window as sw
     from lemoncrow.gateway.adapters import mcp_server as m
+    from lemoncrow.gateway.adapters.mcp import ledger as mcp_ledger
 
     monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
+    monkeypatch.setattr(mcp_ledger, "_lemoncrow_root", lambda: tmp_path)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
@@ -582,9 +584,9 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     # Anchor both resolvers to one fixed window and reset the MCP-side caches so
     # the monkeypatched window id / file are re-read.
     monkeypatch.setattr(sw, "host_window_id", lambda *a, **k: (4242, 99))
-    monkeypatch.setattr(m, "_MCP_WINDOW_ID", None, raising=False)
-    monkeypatch.setattr(m, "_MCP_WINDOW_ID_RESOLVED", False, raising=False)
-    monkeypatch.setattr(m, "_WINDOW_SID_CACHE", None, raising=False)
+    monkeypatch.setattr(mcp_ledger, "_MCP_WINDOW_ID", None)
+    monkeypatch.setattr(mcp_ledger, "_MCP_WINDOW_ID_RESOLVED", False)
+    monkeypatch.setattr(mcp_ledger, "_WINDOW_SID_CACHE", None)
 
     # MCP launched in 'launch-sid'; the user then /cleared into 'active-sid',
     # which SessionStart recorded in this window's own identity file.
@@ -602,7 +604,7 @@ def test_sidecar_and_identity_route_to_live_window_session_after_clear(
     # Before SessionStart writes this window's file (first calls / hookless
     # launchers), fall back to the launch env var so early savings still record.
     win_file.unlink()
-    monkeypatch.setattr(m, "_WINDOW_SID_CACHE", None, raising=False)
+    monkeypatch.setattr(mcp_ledger, "_WINDOW_SID_CACHE", None)
     monkeypatch.setattr(m, "_SAVINGS_SIDECAR_PATH_BY_SID", {}, raising=False)
     assert m._get_host_session_sidecar_path() == session_dir(tmp_path, "claude", "launch-sid") / "savings.jsonl"
 
