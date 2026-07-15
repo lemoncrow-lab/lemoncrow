@@ -18,20 +18,21 @@ def _write_lc(binary: Path, version: str) -> None:
 def test_installer_records_version_before_replacing_cli(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    binary = bin_dir / "lc"
+    binary = bin_dir / "lemoncrow"
     _write_lc(binary, "2.3.4")
 
     script = """
 set -euo pipefail
 source "$1/scripts/lib/common.sh"
 _capture_install_previous_version
-printf '#!/usr/bin/env bash\\nprintf "lc, version 9.9.9\\\\n"\\n' > "$LEMONCROW_BIN_DIR/lc"
-chmod +x "$LEMONCROW_BIN_DIR/lc"
+printf '#!/usr/bin/env bash\nprintf "lemoncrow, version 9.9.9\\n"\n' > "$LEMONCROW_BIN_DIR/lemoncrow"
+chmod +x "$LEMONCROW_BIN_DIR/lemoncrow"
 _write_install_update_state
 """
     env = {
         **os.environ,
         "HOME": str(tmp_path),
+        "LEMONCROW_ROOT": str(tmp_path / ".lemoncrow"),
         "LEMONCROW_BIN_DIR": str(bin_dir),
     }
     subprocess.run(["bash", "-c", script, "bash", str(_REPO_ROOT)], env=env, check=True)
