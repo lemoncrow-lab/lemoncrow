@@ -285,7 +285,7 @@ def test_agent_env_forwards_lemoncrow_auth_token(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`lemoncrow init` inside the container needs an activated account or it
-    blocks on an interactive `lc login` -- not viable headless. The host's
+    blocks on an interactive `lc account login` -- not viable headless. The host's
     already-activated token must ride along in _agent_env (used by run())."""
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
     assert agent._agent_env["LEMONCROW_AUTH_TOKEN"] == "lc-faketoken"

@@ -1,11 +1,11 @@
 """Shared browser OAuth login flow.
 
-Extracted from the ``lc login`` CLI command so it can also run from a
+Extracted from the ``lc account login`` CLI command so it can also run from a
 non-interactive context — e.g. a background daemon thread on the MCP server's
 stdio startup path — where there is no click/tty and stdout is the JSON-RPC
 channel (so it must never be written to directly).
 
-Callers that want CLI-style terminal output (``lc login``) should format
+Callers that want CLI-style terminal output (``lc account login``) should format
 the returned ``OAuthLoginResult`` themselves; this module only logs via the
 standard ``logging`` module.
 """

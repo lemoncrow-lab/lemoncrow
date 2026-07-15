@@ -63,7 +63,7 @@ def mark_login_declined() -> None:
 
     Suppresses the MCP server's seamless background browser login
     (``_try_seamless_login``) until the user activates explicitly via
-    ``lc login`` or ``lc init`` without ``--no-login`` -- cleared automatically
+    ``lc account login`` or ``lc init`` without ``--no-login`` -- cleared automatically
     by ``save_auth_token`` the moment either succeeds.
     """
     path = login_declined_path()

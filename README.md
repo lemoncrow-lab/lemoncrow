@@ -49,7 +49,7 @@ Run this once:
 Then create or sign in to a free LemonCrow account and activate it inside the project where you use Claude Code:
 
     cd your-project
-    lc login
+    lc account login
     lc init
 
 LemonCrow wires in better tools behind the scenes and starts tracking local savings as sessions finish. Remote telemetry is on by default; turn it off anytime with `lc telemetry remote off`.

@@ -241,18 +241,44 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
 
 def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
     root = tmp_path / "a"
-    token = json.dumps({"email": "dev@example.com", "userId": "u1", "refreshToken": "r1"})
+    token = json.dumps(
+        {
+            "email": "dev@example.com",
+            "userId": "u1",
+            "refreshToken": "r1",
+            "subscriptionStatus": {
+                "plan": "lite",
+                "monthlySavingsInUsd": 40.0,
+                "monthlySavingsCapInUsd": 200.0,
+                "savingsRemainingUsd": 160.0,
+                "savingsOverCap": False,
+            },
+        }
+    )
 
-    login = _invoke(root, "login", "--token", token, "--json")
+    login = _invoke(root, "account", "login", "--token", token, "--json")
     assert login.exit_code == 0, login.output
     login_payload = json.loads(login.output)
     assert login_payload["auth"]["email"] == "dev@example.com"
 
-    status = _invoke(root, "login", "--status", "--json")
+    status = _invoke(root, "account", "status", "--json")
     assert status.exit_code == 0, status.output
     status_payload = json.loads(status.output)
     assert status_payload["authenticated"] is True
     assert status_payload["email"] == "dev@example.com"
+
+    subscription = _invoke(root, "account", "subscription", "--json")
+    assert subscription.exit_code == 0, subscription.output
+    assert json.loads(subscription.output)["plan"] == "lite"
+
+    cap = _invoke(root, "account", "cap", "--json")
+    assert cap.exit_code == 0, cap.output
+    assert json.loads(cap.output) == {
+        "cap_usd": 200.0,
+        "over_cap": False,
+        "remaining_usd": 200.0,
+        "saved_usd": 0.0,
+    }
 
     share = _invoke(root, "share", "--json")
     assert share.exit_code == 0, share.output
@@ -269,12 +295,30 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
 
 def test_logout_starts_anonymous_trial_by_default(tmp_path: Path) -> None:
     root = tmp_path / "a"
-    res = _invoke(root, "logout", "--json")
+    res = _invoke(root, "account", "logout", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
     assert payload["logged_out"] is True
     assert payload["anonymous"]["isAnonymous"] is True
+
+
+def test_account_commands_have_no_top_level_compatibility_aliases(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    help_result = _invoke(root, "--help")
+
+    assert help_result.exit_code == 0, help_result.output
+    assert "  account " in help_result.output
+    assert "  login " not in help_result.output
+    assert "  logout " not in help_result.output
+
+    assert _invoke(root, "login", "--help").exit_code != 0
+    assert _invoke(root, "logout", "--help").exit_code != 0
+    assert _invoke(root, "account", "login", "--status").exit_code != 0
+
+    bare_account = _invoke(root, "account")
+    assert bare_account.exit_code == 0, bare_account.output
+    assert "Not logged in" in bare_account.output
 
 
 def test_worker_runs_consolidation_job_on_sqlite(

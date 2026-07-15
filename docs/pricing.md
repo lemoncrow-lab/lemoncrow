@@ -29,7 +29,7 @@ For developers trying LemonCrow and using its local runtime day to day.
 
 Free includes the local code-navigation tools, supported host packaging,
 normal-size repository context, benchmarks, and local savings estimates. Create
-a free account with lc login, then activate the official install with
+a free account with `lc account login`, then activate the official install with
 lc init.
 
 The local savings engine keeps working until it has saved you **$20 in a
@@ -88,9 +88,9 @@ local data remains untouched.
 
 ## How to activate
 
-    lc login          # create or sign in to a free account
+    lc account login  # create or sign in to a free account
     lc init           # activate the official install
-    lc login --status # show account and plan
+    lc account status # show account and plan
 
 In CI or containers, set LEMONCROW_AUTH_TOKEN to a session token.
 

@@ -16,7 +16,7 @@ Lite raises the savings cap; Pro and Enterprise cover the gated capabilities.
 
 ## How entitlement works
 
-`lc login` runs a browser OAuth flow against the auth server and stores a
+`lc account login` runs a browser OAuth flow against the auth server and stores a
 session token at `~/.lemoncrow/auth_token` (mode `0600`; override with the
 `LEMONCROW_AUTH_TOKEN` env var — handy for CI). Entitlement checks read the plan
 from `/api/auth/me`, cached on disk for 6 hours (`~/.lemoncrow/auth_user.json`),
@@ -24,7 +24,7 @@ so normal operation makes a handful of auth calls a day. If the server is
 unreachable and no fresh cache exists, gated surfaces stay locked and the check
 retries hourly; Free surfaces are never affected.
 
-`lc logout` deletes the session and reverts to Free. There are no offline
+`lc account logout` deletes the session and reverts to Free. There are no offline
 license keys, no device-bound leases, no local crypto, and no dev backdoor —
 the account's plan is the single source of truth, and every check fails closed
 to Free.
@@ -55,10 +55,12 @@ Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
 A free account is required to activate the official install:
 
 ```bash
-lc login          # browser OAuth; stores the session token
-lc init           # activates the official install
-lc login --status # show account and plan
-lc logout         # removes the local session
+lc account login        # browser OAuth; stores the session token
+lc init                 # activates the official install
+lc account status       # show account and authentication state
+lc account subscription # show subscription details
+lc account cap          # show monthly savings-cap usage
+lc account logout       # removes the local session
 ```
 A paid account supports up to **three active CLI devices**; the auth server
 tracks the slots. LEMONCROW_PRO_URL overrides the buy link shown in upsells.
