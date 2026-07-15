@@ -797,7 +797,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "timeout": {
             "type": "integer",
             "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Soft response budget (s) -- past it, returns a warned live handle while the command continues until cancelled or the MCP session exits. Only bg=true survives MCP shutdown. Every command has a fixed 1hr safety cap; action=update + id + timeout installs an exact deadline.",
+            "description": "Soft response budget (s); then returns a live handle while the command continues. Only bg survives shutdown. Fixed 1h safety cap; action=update sets an exact deadline.",
         },
         "bg": {
             "type": "boolean",
@@ -811,12 +811,12 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "action": {
             "type": "string",
             "enum": ["poll", "status", "kill", "update", "send"],
-            "description": "With id: poll (default) = wait; status = peek, no wait; kill = kill now; update = install new timeout; send = feed input to an interactive session, get its new output.",
+            "description": "With id: poll=wait; status=peek; kill=stop; update=set timeout; send=write input and get new output.",
         },
         "interactive": {
             "type": "boolean",
             "default": False,
-            "description": "Keep the process alive as a REPL session (stdin stays open) -- e.g. one `python -u -i -q` keeps heavy imports loaded across calls. Feed it with action=send + input; killed after 300s idle (every send resets the clock).",
+            "description": "Keep stdin open for a REPL. Use action=send + input; killed after 300s idle (each send resets it).",
         },
         "input": {
             "type": "string",
