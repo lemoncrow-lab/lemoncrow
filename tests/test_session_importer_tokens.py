@@ -42,12 +42,12 @@ def _assert_tool_tokens(trace: Trace, tool_name: str, input_t: int, output_t: in
     """Assert a specific tool has the expected token counts."""
     matches = [t for t in trace.tools_called if t.name == tool_name]
     assert len(matches) >= 1, f"Tool '{tool_name}' not found in trace.tools_called"
-    assert matches[0].input_tokens == input_t, (
-        f"Tool '{tool_name}'.input_tokens: expected {input_t}, got {matches[0].input_tokens}"
-    )
-    assert matches[0].output_tokens == output_t, (
-        f"Tool '{tool_name}'.output_tokens: expected {output_t}, got {matches[0].output_tokens}"
-    )
+    assert (
+        matches[0].input_tokens == input_t
+    ), f"Tool '{tool_name}'.input_tokens: expected {input_t}, got {matches[0].input_tokens}"
+    assert (
+        matches[0].output_tokens == output_t
+    ), f"Tool '{tool_name}'.output_tokens: expected {output_t}, got {matches[0].output_tokens}"
 
 
 # =========================================================================

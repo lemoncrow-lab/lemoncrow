@@ -93,7 +93,9 @@ class OpenMemoryClient:
         self.user_id = (user_id or _default_user_id()).strip() or "lemoncrow"
         self.timeout = max(
             1,
-            int(timeout or os.environ.get("LEMONCROW_OPENMEMORY_TIMEOUT_SECONDS", _DEFAULT_TIMEOUT) or _DEFAULT_TIMEOUT),
+            int(
+                timeout or os.environ.get("LEMONCROW_OPENMEMORY_TIMEOUT_SECONDS", _DEFAULT_TIMEOUT) or _DEFAULT_TIMEOUT
+            ),
         )
         self.protocol_version = (
             os.environ.get(

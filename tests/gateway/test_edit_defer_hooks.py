@@ -56,9 +56,7 @@ def test_stop_extracts_edited_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         {
             "type": "assistant",
             "message": {
-                "content": [
-                    {"type": "tool_use", "name": "mcp__lc__edit", "input": {"edits": [{"path": "foo.py"}]}}
-                ]
+                "content": [{"type": "tool_use", "name": "mcp__lc__edit", "input": {"edits": [{"path": "foo.py"}]}}]
             },
         },
         {

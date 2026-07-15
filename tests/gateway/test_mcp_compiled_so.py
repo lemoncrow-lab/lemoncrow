@@ -405,9 +405,9 @@ def test_compiled_tool_handles_stringified_args(compiled_server: _CompiledServer
         pytest.skip(f"{tool}: server did not return within timeout (likely real execution)")
 
     assert 2 in responses, f"{tool}: no response to native call (server died?).\nstderr:\n{proc.stderr[-1500:]}"
-    assert 3 in responses, (
-        f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
-    )
+    assert (
+        3 in responses
+    ), f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
     native_resp = responses[2]
     str_resp = responses[3]
 
@@ -442,9 +442,9 @@ def _assert_not_mypyc_error(label: str, response: dict[str, Any]) -> None:
     """A response may be a result or a graceful app error -- never a mypyc crash."""
     if "error" in response:
         message = str(response["error"].get("message", ""))
-        assert not _MYPYC_TYPE_ERROR.search(message), (
-            f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
-        )
+        assert not _MYPYC_TYPE_ERROR.search(
+            message
+        ), f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
 
 
 def test_compiled_server_accepts_arguments_as_json_string(
@@ -513,9 +513,9 @@ def test_compiled_server_unknown_tool_and_method_are_graceful(
             {"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}},
         ],
     )
-    assert {2, 3, 4} <= set(responses), (
-        f"missing responses {{2,3,4}} - {set(responses)}; stderr:\n{proc.stderr[-1500:]}"
-    )
+    assert {2, 3, 4} <= set(
+        responses
+    ), f"missing responses {{2,3,4}} - {set(responses)}; stderr:\n{proc.stderr[-1500:]}"
     assert responses[2]["error"]["code"] == -32601, responses[2]
     assert responses[3]["error"]["code"] == -32601, responses[3]
     assert "result" in responses[4], f"server unresponsive after bad calls: {responses[4]}"
@@ -537,9 +537,9 @@ def test_compiled_server_notification_does_not_break_session(
         ],
     )
     assert None not in responses, f"server wrongly responded to a notification: {responses.get(None)}"
-    assert 2 in responses and "result" in responses[2], (
-        f"session broken after notification; stderr:\n{proc.stderr[-1500:]}"
-    )
+    assert (
+        2 in responses and "result" in responses[2]
+    ), f"session broken after notification; stderr:\n{proc.stderr[-1500:]}"
 
 
 def test_compiled_server_handles_concurrent_calls(
