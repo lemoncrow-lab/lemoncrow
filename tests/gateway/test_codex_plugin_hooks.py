@@ -442,12 +442,12 @@ def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monke
         "tokens": {"input": "1000", "output": "10"},
     }
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert message.count("not signed in -- /lemoncrow login to unlock Pro") == 1
+    assert message.count("not signed in -- /lemoncrow account login to unlock Pro") == 1
 
     # Signed in: the selected dynamic frame disappears from the Stop summary.
     (root / "auth_token").write_text("tok")
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert "/lemoncrow login" not in message
+    assert "/lemoncrow account login" not in message
 
 
 def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_path: Path) -> None:

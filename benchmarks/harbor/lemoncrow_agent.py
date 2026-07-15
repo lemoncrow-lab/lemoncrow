@@ -46,7 +46,7 @@ def _host_lemoncrow_auth_token() -> str:
     """Host's activated LemonCrow account token (env wins, then ~/.lemoncrow/auth_token).
 
     `lemoncrow init` inside the container needs an activated free
-    account or it exits nonzero asking for an interactive `lemoncrow login` -- not
+    account or it exits nonzero asking for an interactive `lemoncrow account login` -- not
     viable in a headless container. Forwarding the host's already-activated
     token lets init succeed non-interactively, mirroring how
     CLAUDE_CODE_OAUTH_TOKEN is forwarded for Claude auth.
@@ -337,7 +337,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             if val:
                 env[key] = val
         # Forward the host's activated LemonCrow account token so `lemoncrow init`
-        # doesn't need an interactive `lemoncrow login` inside the container.
+        # doesn't need an interactive `lemoncrow account login` inside the container.
         lemoncrow_token = _host_lemoncrow_auth_token()
         if lemoncrow_token:
             env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
@@ -498,7 +498,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
         # Forward the host's activated LemonCrow account token so `lemoncrow init`
-        # doesn't need an interactive `lemoncrow login` inside the container.
+        # doesn't need an interactive `lemoncrow account login` inside the container.
         lemoncrow_token = _host_lemoncrow_auth_token()
         if lemoncrow_token:
             env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token

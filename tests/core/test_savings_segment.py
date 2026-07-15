@@ -186,7 +186,7 @@ def test_savings_frames_weighted_and_segment_consistent(lemoncrow_root: Path) ->
 
 
 def test_login_frame_only_for_unauthenticated(lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Free/unauthenticated users get a rotating '/lemoncrow login' frame; a
+    """Free/unauthenticated users get a rotating '/lemoncrow account login' frame; a
     signed-in user (auth_token present) does not."""
     from lemoncrow.core.capabilities.savings_summary import savings_frames
 
@@ -195,19 +195,19 @@ def test_login_frame_only_for_unauthenticated(lemoncrow_root: Path, monkeypatch:
 
     # Signed in (fixture wrote auth_token): no login frame.
     frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    assert not any("/lemoncrow login" in f for f in frames)
+    assert not any("/lemoncrow account login" in f for f in frames)
 
     # Free: remove the token -> login frame appears exactly once.
     (lemoncrow_root / "auth_token").unlink()
     frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    login = [f for f in frames if "/lemoncrow login" in f]
+    login = [f for f in frames if "/lemoncrow account login" in f]
     assert len(login) == 1, f"expected one login frame, got {login!r}"
     assert "not signed in" in login[0]
 
     # Env token also counts as signed in.
     monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "env-token")
     frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    assert not any("/lemoncrow login" in f for f in frames)
+    assert not any("/lemoncrow account login" in f for f in frames)
 
 
 def test_dynamic_status_lines_excludes_frame0_and_strips_separators(
@@ -220,13 +220,13 @@ def test_dynamic_status_lines_excludes_frame0_and_strips_separators(
 
     # Signed in (fixture wrote auth_token): no login nudge, no frame-0 leak.
     lines = dynamic_status_lines("", lemoncrow_root=lemoncrow_root)
-    assert not any("/lemoncrow login" in line for line in lines)
+    assert not any("/lemoncrow account login" in line for line in lines)
     assert not any("$0.00(I:" in line for line in lines)
 
     # Free: login nudge appears exactly once, as bare text (no "|", no ANSI).
     (lemoncrow_root / "auth_token").unlink()
     lines = dynamic_status_lines("", lemoncrow_root=lemoncrow_root)
-    assert lines.count("not signed in -- /lemoncrow login to unlock Pro") == 1
+    assert lines.count("not signed in -- /lemoncrow account login to unlock Pro") == 1
     assert all("|" not in line and "\033" not in line for line in lines)
 
 

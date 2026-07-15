@@ -336,7 +336,7 @@ fi
 
 # Scan live host session directories and print an aggregate potential-savings
 # report. This is intentionally read-only: live scans import into a temporary
-# store and do not require LemonCrow login or provider API keys.
+# store and do not require lemoncrow account login or provider API keys.
 # Realized savings (the "Savings" column) use compute_savings_summary() —
 # the exact same function the statusline relies on — so they are guaranteed
 # consistent with the plugin's real display.
