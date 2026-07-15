@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 
 from lemoncrow.core.capabilities.licensing.entitlements import (
+    current_identity,
     current_license,
     has_feature,
     is_pro,
@@ -59,6 +60,7 @@ __all__ = [
     "FeatureLocked",
     "License",
     "LicenseStatus",
+    "current_identity",
     "current_license",
     "has_feature",
     "is_pro",

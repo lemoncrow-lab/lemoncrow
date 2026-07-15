@@ -1,8 +1,4 @@
-"""Signed entitlement: pro is granted only by a valid signed plan token.
-
-Closes the forge-pro bypass (edit auth.json / `account login --dev` at a self-run
-localhost server) once _REQUIRE_SIGNED_PLAN is on.
-"""
+"""Versioned account/device-bound signed plan entitlement tests."""
 
 from __future__ import annotations
 
@@ -14,86 +10,184 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from lemoncrow.core.capabilities.licensing import cap_verdict as cv
 from lemoncrow.core.capabilities.licensing import entitlements as ent
-from lemoncrow.pro.capabilities import licensing_gate as g
+from lemoncrow.pro.capabilities import licensing_gate as gate
 
 
 def _keypair() -> tuple[str, str]:
-    priv = Ed25519PrivateKey.generate()
-    priv_hex = priv.private_bytes(
-        serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()
+    private = Ed25519PrivateKey.generate()
+    private_hex = private.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
     ).hex()
-    pub_hex = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
-    return priv_hex, pub_hex
+    public_hex = (
+        private.public_key()
+        .public_bytes(
+            serialization.Encoding.Raw,
+            serialization.PublicFormat.Raw,
+        )
+        .hex()
+    )
+    return private_hex, public_hex
 
 
-def _use_key(monkeypatch: pytest.MonkeyPatch, pub: str) -> None:
-    monkeypatch.setattr(g, "_public_key_hex", lambda: pub)
+def _use_key(monkeypatch: pytest.MonkeyPatch, public_hex: str) -> None:
+    monkeypatch.setattr(gate, "_public_key_hex", lambda: public_hex)
+    monkeypatch.setattr(ent.store, "load_or_create_device_id", lambda: "device_1")
 
 
-def _plan_token(priv: str, plan: str, *, expires: int) -> str:
-    return cv.sign_cap_token({"plan": plan, "account_id": "acct_1", "expires_at": expires}, private_key_hex=priv)
+def _plan_token(
+    private_hex: str,
+    plan: str,
+    *,
+    expires: int,
+    issued: int = 1000,
+    account_id: str = "acct_1",
+    device_id: str = "device_1",
+    token_type: str = "plan",
+    version: int = 2,
+) -> str:
+    return cv.sign_cap_token(
+        {
+            "v": version,
+            "typ": token_type,
+            "plan": plan,
+            "account_id": account_id,
+            "device_id": device_id,
+            "issued_at": issued,
+            "expires_at": expires,
+        },
+        private_key_hex=private_hex,
+    )
 
 
-# --- plan_from_token (compiled gate) ----------------------------------------
+def _verify(token: str | None, public_hex: str, *, now: int = 1500) -> str | None:
+    return gate.plan_from_token(
+        token,
+        now=now,
+        account_id="acct_1",
+        device_id="device_1",
+        public_key_hex=public_hex,
+    )
+
+
 def test_plan_from_token_valid() -> None:
-    priv, pub = _keypair()
-    tok = _plan_token(priv, "pro", expires=2000)
-    assert g.plan_from_token(tok, now=1500, public_key_hex=pub) == "pro"
+    private, public = _keypair()
+    assert _verify(_plan_token(private, "pro", expires=2000), public) == "pro"
 
 
 def test_plan_from_token_expired_is_none() -> None:
-    priv, pub = _keypair()
-    tok = _plan_token(priv, "pro", expires=2000)
-    assert g.plan_from_token(tok, now=2000, public_key_hex=pub) is None
+    private, public = _keypair()
+    assert _verify(_plan_token(private, "pro", expires=2000), public, now=2000) is None
 
 
 def test_plan_from_token_wrong_key_is_none() -> None:
-    priv, _ = _keypair()
-    _, other_pub = _keypair()
-    tok = _plan_token(priv, "pro", expires=2000)
-    assert g.plan_from_token(tok, now=1500, public_key_hex=other_pub) is None
+    private, _ = _keypair()
+    _, other_public = _keypair()
+    assert _verify(_plan_token(private, "pro", expires=2000), other_public) is None
 
 
 def test_plan_from_token_missing_is_none() -> None:
-    _, pub = _keypair()
-    assert g.plan_from_token(None, now=1, public_key_hex=pub) is None
-    assert g.plan_from_token("garbage", now=1, public_key_hex=pub) is None
+    _, public = _keypair()
+    assert _verify(None, public, now=1) is None
+    assert _verify("garbage", public, now=1) is None
 
 
-# --- _entitled_plan (rollout semantics) -------------------------------------
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"account_id": "acct_other"},
+        {"device_id": "device_other"},
+        {"token_type": "cap"},
+        {"version": 1},
+        {"plan": "attacker"},
+    ],
+)
+def test_plan_token_binding_and_schema_fail_closed(overrides: dict[str, object]) -> None:
+    private, public = _keypair()
+    kwargs: dict[str, object] = {"expires": 2000, **overrides}
+    token = _plan_token(private, str(kwargs.pop("plan", "pro")), **kwargs)  # type: ignore[arg-type]
+    assert _verify(token, public) is None
+
+
+def test_plan_token_rejects_excessive_lifetime() -> None:
+    private, public = _keypair()
+    token = _plan_token(private, "pro", issued=1000, expires=1000 + 25 * 3600 + 1)
+    assert _verify(token, public, now=1500) is None
+
+
 def test_signed_pro_overrides_unsigned_free(monkeypatch: pytest.MonkeyPatch) -> None:
-    priv, pub = _keypair()
-    _use_key(monkeypatch, pub)
-    tok = _plan_token(priv, "pro", expires=int(time.time()) + 3600)
-    # Even if the unsigned field lies "free", the SIGNED token wins.
-    assert ent._entitled_plan({"plan": "free", "plan_token": tok}) == "pro"
+    now = int(time.time())
+    private, public = _keypair()
+    _use_key(monkeypatch, public)
+    token = _plan_token(private, "pro", issued=now, expires=now + 3600)
+    assert (
+        ent._entitled_plan(
+            {
+                "user_id": "acct_1",
+                "device_id": "device_1",
+                "plan": "free",
+                "plan_token": token,
+            }
+        )
+        == "pro"
+    )
 
 
-def test_forged_pro_no_token_rollout_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Phase 1 (default): no signed token -> unsigned plan is still honoured, so a
-    # pre-rollout pro session keeps working (the bypass is NOT yet closed).
-    monkeypatch.setattr(ent, "_REQUIRE_SIGNED_PLAN", False)
-    assert ent._entitled_plan({"plan": "pro"}) == "pro"
+def test_forged_pro_without_token_is_free(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, public = _keypair()
+    _use_key(monkeypatch, public)
+    assert ent._entitled_plan({"user_id": "acct_1", "device_id": "device_1", "plan": "pro"}) == "free"
 
 
-def test_forged_pro_no_token_enforced_is_free(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Phase 2: signed-only. An unsigned "pro" (forged auth.json / --dev localhost)
-    # can no longer grant pro.
-    monkeypatch.setattr(ent, "_REQUIRE_SIGNED_PLAN", True)
-    assert ent._entitled_plan({"plan": "pro"}) == "free"
+def test_copied_plan_token_on_another_device_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = int(time.time())
+    private, public = _keypair()
+    _use_key(monkeypatch, public)
+    token = _plan_token(private, "pro", issued=now, expires=now + 3600)
+    assert (
+        ent._entitled_plan(
+            {
+                "user_id": "acct_1",
+                "device_id": "device_other",
+                "plan": "pro",
+                "plan_token": token,
+            }
+        )
+        == "free"
+    )
 
 
 def test_invalid_token_never_trusts_unsigned(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A token is present but doesn't verify (forged/expired) -> distrust and drop
-    # to free, regardless of the rollout switch or the unsigned claim.
-    _priv, pub = _keypair()
-    _use_key(monkeypatch, pub)
-    monkeypatch.setattr(ent, "_REQUIRE_SIGNED_PLAN", False)
-    assert ent._entitled_plan({"plan": "pro", "plan_token": "forged.token"}) == "free"
+    _, public = _keypair()
+    _use_key(monkeypatch, public)
+    assert (
+        ent._entitled_plan(
+            {
+                "user_id": "acct_1",
+                "device_id": "device_1",
+                "plan": "pro",
+                "plan_token": "forged.token",
+            }
+        )
+        == "free"
+    )
 
 
 def test_expired_signed_token_drops_to_free(monkeypatch: pytest.MonkeyPatch) -> None:
-    priv, pub = _keypair()
-    _use_key(monkeypatch, pub)
-    tok = _plan_token(priv, "pro", expires=1)  # long expired
-    assert ent._entitled_plan({"plan": "pro", "plan_token": tok}) == "free"
+    private, public = _keypair()
+    _use_key(monkeypatch, public)
+    token = _plan_token(private, "pro", issued=0, expires=1)
+    assert (
+        ent._entitled_plan(
+            {
+                "user_id": "acct_1",
+                "device_id": "device_1",
+                "plan": "pro",
+                "plan_token": token,
+            }
+        )
+        == "free"
+    )

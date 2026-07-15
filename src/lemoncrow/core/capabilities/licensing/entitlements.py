@@ -120,10 +120,25 @@ def _entitled_plan(data: dict[str, object]) -> str:
     """
     raw_token = data.get("plan_token")
     token = raw_token if isinstance(raw_token, str) and raw_token else None
+    account_id = data.get("user_id")
+    server_device_id = data.get("device_id")
     try:
+        local_device_id = store.load_or_create_device_id()
+        if (
+            not isinstance(account_id, str)
+            or not account_id
+            or not isinstance(server_device_id, str)
+            or server_device_id != local_device_id
+        ):
+            return "free"
         from lemoncrow.pro.capabilities.licensing_gate import plan_from_token
 
-        signed = plan_from_token(token, now=int(_now()))
+        signed = plan_from_token(
+            token,
+            now=int(_now()),
+            account_id=account_id,
+            device_id=local_device_id,
+        )
     except Exception:  # noqa: BLE001 — verification must never crash entitlement
         signed = None
     if signed is not None:
@@ -164,6 +179,7 @@ def _resolve() -> _Resolved:
         license_id=str(data.get("user_id") or ""),
         email=str(data.get("email") or ""),
         plan=plan,
+        device_id=str(data.get("device_id") or ""),
     )
     _cache = _Resolved(token=token, license=lic, reason="active", next_check_at=now + store.AUTH_USER_CACHE_TTL)
     return _cache
@@ -183,6 +199,26 @@ def refresh_plan() -> None:
 
 def current_license() -> License | None:
     return _resolve().license
+
+
+def current_identity() -> tuple[str, str, str] | None:
+    """Return the verified account, local device, and canonical plan."""
+
+    data = auth_user()
+    if data is None:
+        return None
+    plan = _entitled_plan(data)
+    account_id = data.get("user_id")
+    device_id = data.get("device_id")
+    if (
+        plan not in {"free", "lite", "pro", "enterprise"}
+        or not isinstance(account_id, str)
+        or not account_id
+        or not isinstance(device_id, str)
+        or not device_id
+    ):
+        return None
+    return account_id, device_id, plan
 
 
 def is_pro() -> bool:
