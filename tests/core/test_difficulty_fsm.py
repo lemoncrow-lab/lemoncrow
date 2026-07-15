@@ -13,7 +13,7 @@ Covers:
 
 import pytest
 
-from lemoncrow.core.capabilities.monitors.fsm import (
+from lemoncrow.pro.capabilities.monitors.fsm import (
     DifficultyFSM,
     FSMState,
     advance_many,

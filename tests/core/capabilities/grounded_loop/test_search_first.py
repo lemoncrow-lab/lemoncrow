@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lemoncrow.core.capabilities.grounded_loop import search_first
+from lemoncrow.pro.capabilities.grounded_loop import search_first
 
 
 def test_search_first_returns_ranked_matches_and_explicit_follow_ups(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +61,7 @@ def test_search_first_returns_ranked_matches_and_explicit_follow_ups(tmp_path, m
 
 
 def test_search_first_reuses_existing_search_primitive(monkeypatch: pytest.MonkeyPatch) -> None:
-    search_first_module = importlib.import_module("lemoncrow.core.capabilities.grounded_loop.search_first")
+    search_first_module = importlib.import_module("lemoncrow.pro.capabilities.grounded_loop.search_first")
     fake_search = MagicMock(
         return_value={
             "matches": [{"path": "src/orders.py", "snippets": [{"text": "OrderService"}]}],

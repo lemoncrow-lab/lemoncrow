@@ -580,9 +580,7 @@ def _parse_since_arg(value: str) -> datetime:
         delta = (
             timedelta(days=amount)
             if unit == "d"
-            else timedelta(hours=amount)
-            if unit == "h"
-            else timedelta(minutes=amount)
+            else timedelta(hours=amount) if unit == "h" else timedelta(minutes=amount)
         )
         return datetime.now(UTC) - delta
 
@@ -1894,7 +1892,7 @@ def insights_cmd(
     group_by: str,
 ) -> None:
     """Weekly AI-spend insights and savings opportunities."""
-    from lemoncrow.infra.runtime.insights import (
+    from lemoncrow.pro.runtime.insights import (
         InsightsWindow,
         build_insights,
         render_json,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lemoncrow.core.capabilities.knowledge_extract import (
+from lemoncrow.pro.capabilities.knowledge_extract import (
     extract_rules,
     gather_sources,
     merge_into_overlay,

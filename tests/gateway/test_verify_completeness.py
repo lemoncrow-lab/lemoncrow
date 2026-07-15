@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities import verify_gate as vbd
+from lemoncrow.pro.capabilities import verify_gate as vbd
 
 assert vbd.detector_a and vbd.detector_b  # detectors resolve from the shared core
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from lemoncrow.core.capabilities.context_dedup import ContextDedup, current_epoch
+from lemoncrow.pro.capabilities.context_dedup import ContextDedup, current_epoch
 
 _BIG = "x" * 5000  # above _MIN_DEDUP_CHARS
 _BIG2 = "y" * 5000

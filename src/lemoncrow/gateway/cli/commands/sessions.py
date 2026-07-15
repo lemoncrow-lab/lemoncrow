@@ -114,7 +114,7 @@ def outcomes_group() -> None:
 def outcomes_show(ctx: click.Context, session_id: str) -> None:
     """Print JSON outcome data for SESSION_ID."""
     from lemoncrow.core.foundation.paths import find_session_dir
-    from lemoncrow.infra.runtime.outcome_capture import load_outcomes_from_state
+    from lemoncrow.pro.runtime.outcome_capture import load_outcomes_from_state
 
     root: Path = ctx.obj["root"]
     session_path = find_session_dir(root, session_id)
@@ -132,7 +132,7 @@ def outcomes_show(ctx: click.Context, session_id: str) -> None:
 def outcomes_summary(ctx: click.Context, since: str) -> None:
     """Aggregate outcome_scores by (kind, tool) and print averages."""
 
-    from lemoncrow.infra.runtime.outcome_capture import (
+    from lemoncrow.pro.runtime.outcome_capture import (
         load_outcomes_from_state,
         summarise_outcomes,
     )

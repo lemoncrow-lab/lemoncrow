@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.foundation.watchdogs import (
+from lemoncrow.pro.foundation.watchdogs import (
     BudgetExhaustion,
     SecondGuessing,
     SessionState,

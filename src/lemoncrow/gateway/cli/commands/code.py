@@ -365,7 +365,7 @@ def _index_repo_with_progress(
 
 
 def _index_git_history_with_progress(engine: Any, frame_prefix: str = "") -> dict[str, int] | None:
-    from lemoncrow.infra.code_intel.git_history.adapter import history_indexing_enabled
+    from lemoncrow.pro.code_intel.git_history.adapter import history_indexing_enabled
 
     if not history_indexing_enabled():
         return None

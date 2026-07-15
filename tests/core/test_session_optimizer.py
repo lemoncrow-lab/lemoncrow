@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from lemoncrow.core.capabilities.session_optimizer import (
+from lemoncrow.core.foundation.models import ToolCall, Trace
+from lemoncrow.pro.capabilities.session_optimizer import (
     build_trace_optimization_report,
 )
-from lemoncrow.core.foundation.models import ToolCall, Trace
 
 
 def _trace(

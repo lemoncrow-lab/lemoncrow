@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lemoncrow.core.capabilities.verify_gate import VerifySignals
+    from lemoncrow.pro.capabilities.verify_gate import VerifySignals
 
 logger = logging.getLogger(__name__)
 
@@ -1524,7 +1524,7 @@ def _maybe_emit_ctx_notice(
     the agent can weigh compaction against real dollars instead of a bare
     percentage.
     """
-    from lemoncrow.core.capabilities.session_optimizer import mark_session_optimizer_notice
+    from lemoncrow.pro.capabilities.session_optimizer import mark_session_optimizer_notice
 
     if bool((stats.get("optimizer_notices") or {}).get("ctx_high")):
         return stats, {"no_output": True}
@@ -2305,8 +2305,8 @@ def build_opencode_verify_output(root: str | Path, payload: dict[str, Any]) -> d
     block's reason out as ``continuePrompt`` and the JS plugin re-drives the
     session with it on idle -- a block emulated by continuation.
     """
-    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
-    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+    from lemoncrow.pro.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.pro.capabilities.verify_gate import disabled as verify_disabled
 
     if verify_disabled():
         return {"no_output": True}
@@ -2667,7 +2667,7 @@ def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: s
     Shared by Codex and OpenCode -- both record ``file_edit`` / ``command_result``
     events into the same ledger shape, so the verify signals derive identically.
     """
-    from lemoncrow.core.capabilities.verify_gate import (
+    from lemoncrow.pro.capabilities.verify_gate import (
         _TEST_RUN,
         VerifySignals,
         is_code_path,
@@ -2728,8 +2728,8 @@ def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict
     "block"}`` is NOT emitted here until confirmed supported: it would error the
     Stop hook. Returns ``{"systemMessage": ...}`` or ``{"no_output": True}``.
     """
-    from lemoncrow.core.capabilities.verify_gate import decide as verify_decide
-    from lemoncrow.core.capabilities.verify_gate import disabled as verify_disabled
+    from lemoncrow.pro.capabilities.verify_gate import decide as verify_decide
+    from lemoncrow.pro.capabilities.verify_gate import disabled as verify_disabled
 
     event = str(payload.get("hook_event_name") or payload.get("event") or "")
     if event and event != "Stop":
@@ -4410,7 +4410,7 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
                 state["tools_used"] = tools_used
             _merge_raw_tool_count(tools_used, tool_name, 1)
         state["total_tool_calls"] = int(state.get("total_tool_calls", 0)) + 1
-        from lemoncrow.core.capabilities.session_optimizer import tool_is_edit
+        from lemoncrow.pro.capabilities.session_optimizer import tool_is_edit
 
         if tool_is_edit(tool_name):
             state["edit_tool_calls"] = int(state.get("edit_tool_calls", 0) or 0) + 1

@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.capabilities.retrieval import Retriever
-from lemoncrow.core.foundation.extractor import CandidateBlock
 from lemoncrow.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
@@ -36,9 +35,15 @@ from lemoncrow.core.foundation.models import (
     ValidationResult,
 )
 from lemoncrow.core.foundation.paths import default_store_root
-from lemoncrow.core.foundation.reflector import reflect
 from lemoncrow.core.foundation.renderer import render_context_for_agent
-from lemoncrow.core.foundation.retriever import (
+from lemoncrow.core.foundation.routing_models import RouteDecision, StepType, TaskType
+from lemoncrow.core.foundation.rubric_gate import run_rubric
+from lemoncrow.core.foundation.watchdog_profiles import active_watchdog_weights
+from lemoncrow.core.runtime import LemonCrowRuntimeCore
+from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.foundation.extractor import CandidateBlock
+from lemoncrow.pro.foundation.reflector import reflect
+from lemoncrow.pro.foundation.retriever import (
     ScoredBlock,
     TaskContext,
     deduplicate_scored_blocks,
@@ -46,10 +51,7 @@ from lemoncrow.core.foundation.retriever import (
     retrieve,
     score_block,
 )
-from lemoncrow.core.foundation.routing_models import RouteDecision, StepType, TaskType
-from lemoncrow.core.foundation.rubric_gate import run_rubric
-from lemoncrow.core.foundation.watchdog_profiles import active_watchdog_weights
-from lemoncrow.core.foundation.watchdogs import (
+from lemoncrow.pro.foundation.watchdogs import (
     SessionState,
     WatchdogAlert,
     args_signature,
@@ -57,8 +59,6 @@ from lemoncrow.core.foundation.watchdogs import (
     error_signature,
     run_watchdogs,
 )
-from lemoncrow.core.runtime import LemonCrowRuntimeCore
-from lemoncrow.infra.storage.bundle import StoreBundle
 
 
 def _load_domain_playbooks(store_root: Path) -> list[Playbook]:

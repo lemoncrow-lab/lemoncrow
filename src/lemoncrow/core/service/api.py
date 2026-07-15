@@ -1360,13 +1360,13 @@ def _trace_run_key(trace: Trace) -> str:
 
 
 def _trace_total_tokens(trace: Trace) -> int:
-    from lemoncrow.core.capabilities.session_optimizer import effective_input_tokens
+    from lemoncrow.pro.capabilities.session_optimizer import effective_input_tokens
 
     return effective_input_tokens(trace) + int(trace.output_tokens or 0)
 
 
 def _trace_cache_leverage(trace: Trace) -> float:
-    from lemoncrow.core.capabilities.session_optimizer import effective_input_tokens
+    from lemoncrow.pro.capabilities.session_optimizer import effective_input_tokens
 
     effective_input = effective_input_tokens(trace)
     if effective_input <= 0:
@@ -1409,7 +1409,7 @@ def _tracked_saved_tokens(store: StoreBundle, trace: Trace) -> tuple[int, int]:
 
 
 def _window_metrics(store: StoreBundle, traces: list[Trace]) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.session_optimizer import trace_cost_usd
+    from lemoncrow.pro.capabilities.session_optimizer import trace_cost_usd
 
     entries: list[dict[str, Any]] = []
     for trace in traces:
@@ -1988,7 +1988,7 @@ def _build_model_routing_simulation(
             continue
 
         from lemoncrow.core.capabilities.pricing import get_model_pricing
-        from lemoncrow.core.capabilities.session_optimizer import trace_cost_usd
+        from lemoncrow.pro.capabilities.session_optimizer import trace_cost_usd
 
         current_cost = trace_cost_usd(trace)
         simulated_cost = get_model_pricing(target_model).cost_usd(
@@ -2788,7 +2788,7 @@ def _optimization_lever_examples(
 def _implemented_optimization_catalog(
     savings_payload: dict[str, Any], live_events: list[dict[str, Any]], *, window_days: int
 ) -> list[dict[str, Any]]:
-    from lemoncrow.core.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
+    from lemoncrow.pro.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
 
     supported_hosts = list(SUPPORTED_OPTIMIZER_HOSTS)
     per_lever = {
@@ -2952,7 +2952,7 @@ def _implemented_optimization_catalog(
 
 
 def _optimization_implementation_gaps() -> list[dict[str, Any]]:
-    from lemoncrow.core.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
+    from lemoncrow.pro.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
 
     supported_hosts = list(SUPPORTED_OPTIMIZER_HOSTS)
     return [
@@ -3023,12 +3023,12 @@ def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candi
 
 
 def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_days: int) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
     from lemoncrow.pro.capabilities.optimization import (
         load_current_policy,
         load_history,
         optimize_from_traces,
     )
+    from lemoncrow.pro.capabilities.session_optimizer import build_trace_optimization_report
 
     savings = _savings_summary_payload(root, window_days=window_days)
     traces = store.history.list_traces(limit=5000)
@@ -6423,7 +6423,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     def _cached_insights(since_str: str, root_str: str) -> dict[str, Any]:
         from datetime import timedelta
 
-        from lemoncrow.infra.runtime.insights import build_insights
+        from lemoncrow.pro.runtime.insights import build_insights
 
         root = Path(root_str)
         days = 7
@@ -6495,8 +6495,8 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         """Aggregated route + compact outcome scores across all recent sessions."""
         from datetime import timedelta
 
-        from lemoncrow.infra.runtime.outcome_capture import load_outcomes_from_state
         from lemoncrow.infra.runtime.session_report import list_run_files
+        from lemoncrow.pro.runtime.outcome_capture import load_outcomes_from_state
 
         root = Path(cfg.lemoncrow_root)
         days = 7
@@ -6559,7 +6559,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         session opened.
         """
         from lemoncrow.core.foundation.paths import find_session_dir
-        from lemoncrow.infra.runtime.outcome_capture import load_outcomes_from_state
+        from lemoncrow.pro.runtime.outcome_capture import load_outcomes_from_state
 
         root = Path(cfg.lemoncrow_root)
         _session_root = find_session_dir(root, session_id)
