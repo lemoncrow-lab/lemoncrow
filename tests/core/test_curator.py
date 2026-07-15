@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from lemoncrow.core.foundation.curator import apply_curation, curate
 from lemoncrow.core.foundation.models import BlockTier, Playbook
+from lemoncrow.pro.foundation.curator import apply_curation, curate
 
 
 def _block(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.refine import grow_or_create, merge_blocks
+from lemoncrow.pro.foundation.refine import grow_or_create, merge_blocks
 
 
 def _block(

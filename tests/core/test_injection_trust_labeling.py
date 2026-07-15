@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
 from lemoncrow.core.foundation.redaction import is_prompt_injection
-from lemoncrow.core.foundation.retriever import (
+from lemoncrow.pro.foundation.retriever import (
     render_memory_for_agent,
     summarize_recalled_passages,
 )

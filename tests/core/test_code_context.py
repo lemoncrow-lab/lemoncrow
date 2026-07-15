@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
-from lemoncrow.infra.code_intel.cross_lang.runner import CrossLangRunner
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.code_context.budget import BudgetPacker
 from lemoncrow.pro.capabilities.code_context.models import SymbolRecord, TextMatch
 from lemoncrow.pro.capabilities.code_context.output_policy import TRUNCATION_MARKER
+from lemoncrow.pro.code_intel.cross_lang.runner import CrossLangRunner
 
 
 def _write_fixture_repo(root: Path) -> None:
@@ -1135,7 +1135,7 @@ def test_tool_search_deleted_scope_dispatches_via_git_history_adapter(
     _write_fixture_repo(tmp_path)
     engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
 
-    from lemoncrow.infra.code_intel.git_history.adapter import DeletedHistorySearchAdapter
+    from lemoncrow.pro.code_intel.git_history.adapter import DeletedHistorySearchAdapter
 
     def fake_search(
         self: object,

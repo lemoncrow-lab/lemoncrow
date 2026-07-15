@@ -167,7 +167,7 @@ class InteractiveRuntime:
         model: str,
     ) -> list[dict[str, Any]]:
         """Move the Anthropic cache boundary to the latest completed message."""
-        from lemoncrow.core.capabilities.owned_agent_session.phase_runner import _provider_cache_style
+        from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import _provider_cache_style
 
         if _provider_cache_style(self._provider_override or "", model) != "anthropic":
             return messages
@@ -305,11 +305,11 @@ class InteractiveRuntime:
             return
 
         try:
-            from lemoncrow.core.capabilities.owned_execution_routing import (
+            from lemoncrow.gateway.cli.commands.run import _resolve_litellm_model
+            from lemoncrow.pro.capabilities.owned_execution_routing import (
                 OwnedRouteRequest,
                 select_owned_route,
             )
-            from lemoncrow.gateway.cli.commands.run import _resolve_litellm_model
 
             decision = select_owned_route(
                 self._root,
@@ -336,7 +336,7 @@ class InteractiveRuntime:
         model: str,
         max_iterations: int = 100,
     ) -> AsyncIterator[LemonCrowEvent]:
-        from lemoncrow.core.capabilities.owned_agent_session.phase_runner import _system_message
+        from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import _system_message
 
         # Stable, immutable generic system prompt shared across ALL modes and turns.
         # The mode is injected as a user-message prefix (see handle_user_message),
@@ -639,8 +639,8 @@ class InteractiveRuntime:
                 cache_write_tokens=total_cache_write,
                 fresh_tokens=total_input,
             )
-            from lemoncrow.core.capabilities.owned_agent_session.stem_prompt import STEM_VERSION
             from lemoncrow.gateway.cli.events import ContextUsageUpdated
+            from lemoncrow.pro.capabilities.owned_agent_session.stem_prompt import STEM_VERSION
 
             yield ContextUsageUpdated(
                 type="context.usage.updated",
@@ -739,7 +739,7 @@ class InteractiveRuntime:
             # Try in-memory first; otherwise load from the JSONL run ledger.
             if target not in self._sessions:
                 try:
-                    from lemoncrow.core.capabilities.owned_agent_session.session import (
+                    from lemoncrow.pro.capabilities.owned_agent_session.session import (
                         OwnedAgentSession,
                     )
 
@@ -1046,7 +1046,7 @@ class InteractiveRuntime:
                 text="✓ New task started. Conversation cleared.",
             )
         elif name == "checkpoint":
-            from lemoncrow.core.capabilities.owned_agent_session.checkpoint import (
+            from lemoncrow.pro.capabilities.owned_agent_session.checkpoint import (
                 save_checkpoint,
             )
 
@@ -1060,7 +1060,7 @@ class InteractiveRuntime:
         elif name == "rewind":
             cp_id = args[0] if args else ""
             if not cp_id:
-                from lemoncrow.core.capabilities.owned_agent_session.checkpoint import (
+                from lemoncrow.pro.capabilities.owned_agent_session.checkpoint import (
                     list_checkpoints,
                 )
 
@@ -1078,7 +1078,7 @@ class InteractiveRuntime:
                     )
             else:
                 try:
-                    from lemoncrow.core.capabilities.owned_agent_session.checkpoint import (
+                    from lemoncrow.pro.capabilities.owned_agent_session.checkpoint import (
                         load_checkpoint,
                     )
 
@@ -1159,7 +1159,7 @@ class InteractiveRuntime:
                 },
                 {"role": "user", "content": question},
             ]
-            from lemoncrow.core.capabilities.owned_agent_session.phase_runner import (
+            from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import (
                 _call_llm,
             )
 
@@ -1310,7 +1310,7 @@ class InteractiveRuntime:
             yield RuntimeErrorEvent(type="error", message="Usage: /route <task description>")
             return
         try:
-            from lemoncrow.core.capabilities.owned_execution_routing import (
+            from lemoncrow.pro.capabilities.owned_execution_routing import (
                 OwnedRouteRequest,
                 select_owned_route,
             )
@@ -1464,7 +1464,7 @@ def _render_tool_result(name: str, result: Any, args: dict[str, Any], *, session
                 text = str(result)
     if session_id and name in _CLI_DEDUP_TOOLS and os.environ.get("LEMONCROW_CONTEXT_DEDUP", "1") != "0":
         with contextlib.suppress(Exception):
-            from lemoncrow.core.capabilities import context_dedup
+            from lemoncrow.pro.capabilities import context_dedup
 
             outcome = context_dedup.registry().stub_for(
                 session_id=session_id,

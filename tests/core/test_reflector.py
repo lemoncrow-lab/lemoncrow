@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.foundation import reflector
-from lemoncrow.core.foundation.extractor import extract_candidate
 from lemoncrow.core.foundation.models import Trace, ValidationResult
 from lemoncrow.infra.internal_llm import InternalLLMError
+from lemoncrow.pro.foundation import reflector
+from lemoncrow.pro.foundation.extractor import extract_candidate
 
 
 def _trace() -> Trace:

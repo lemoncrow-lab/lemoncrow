@@ -17,7 +17,8 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.infra.runtime.insights import (
+from lemoncrow.infra.runtime.session_report import SessionReport
+from lemoncrow.pro.runtime.insights import (
     InsightsWindow,
     Opportunity,
     OutcomesSummary,
@@ -34,7 +35,6 @@ from lemoncrow.infra.runtime.insights import (
     render_json,
     render_text,
 )
-from lemoncrow.infra.runtime.session_report import SessionReport
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #

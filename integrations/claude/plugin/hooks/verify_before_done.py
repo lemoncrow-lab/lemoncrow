@@ -1,6 +1,6 @@
 """Stop hook: verify-before-done (Claude Code).
 
-Thin host adapter over ``lemoncrow.core.capabilities.verify_gate``. This file
+Thin host adapter over ``lemoncrow.pro.capabilities.verify_gate``. This file
 owns only the Claude-Code-specific concern -- parsing the transcript JSONL into
 host-neutral :class:`VerifySignals` -- then delegates the decision to the shared
 core so Codex/OpenCode reuse identical logic off their own run ledgers.
@@ -18,14 +18,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.verify_gate import (
+from lemoncrow.pro.capabilities.verify_gate import (
     _TEST_RUN,
     VerifySignals,
     disabled,
     is_code_path,
     is_verifiable_path,
 )
-from lemoncrow.core.capabilities.verify_gate import decide as decide_signals
+from lemoncrow.pro.capabilities.verify_gate import decide as decide_signals
 
 
 def _is_edit_tool(name: str) -> bool:

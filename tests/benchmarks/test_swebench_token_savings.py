@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 import tiktoken
 
-from lemoncrow.core.capabilities.monitors import (
+from lemoncrow.pro.capabilities.monitors import (
     DifficultyFSM,
     evaluate_all,
     make_signals_fn,

@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.core.capabilities import plugin_runtime as pr
-from lemoncrow.core.capabilities import verify_gate
-from lemoncrow.core.capabilities.verify_gate import VerifySignals
+from lemoncrow.pro.capabilities import verify_gate
+from lemoncrow.pro.capabilities.verify_gate import VerifySignals
 
 
 @pytest.fixture(autouse=True)

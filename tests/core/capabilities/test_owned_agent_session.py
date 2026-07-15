@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.core.capabilities.owned_agent_session import (
+from lemoncrow.pro.capabilities.owned_agent_session import (
     OwnedAgentSession,
     PhaseTokens,
     SessionReceipt,

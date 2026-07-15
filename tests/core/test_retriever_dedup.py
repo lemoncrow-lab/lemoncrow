@@ -4,8 +4,8 @@ from collections.abc import Sequence
 
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.core.foundation.renderer import render_block_for_agent
-from lemoncrow.core.foundation.retriever import TaskContext, count_tokens, retrieve
 from lemoncrow.infra.storage.bundle import StoreBundle
+from lemoncrow.pro.foundation.retriever import TaskContext, count_tokens, retrieve
 
 
 def _block(

@@ -20,13 +20,6 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.core.foundation.models import Playbook
-from lemoncrow.core.foundation.retriever import (
-    WEIGHTS,
-    WEIGHTS_WITH_VECTOR,
-    TaskContext,
-    retrieve,
-    score_block,
-)
 from lemoncrow.infra.storage.vector import (
     cosine_similarity,
     generate_embedding,
@@ -35,6 +28,13 @@ from lemoncrow.infra.storage.vector import (
     is_vector_enabled,
     put_cached_embedding,
     vector_cache_key,
+)
+from lemoncrow.pro.foundation.retriever import (
+    WEIGHTS,
+    WEIGHTS_WITH_VECTOR,
+    TaskContext,
+    retrieve,
+    score_block,
 )
 
 # --------------------------------------------------------------------------- #

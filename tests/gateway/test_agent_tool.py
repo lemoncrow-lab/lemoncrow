@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from lemoncrow.core.capabilities.owned_execution_routing import NoFeasibleRouteError
 from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.pro.capabilities.owned_execution_routing import NoFeasibleRouteError
 
 
 def test_agent_tool_registered_but_hidden() -> None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lemoncrow.infra.runtime.context_compressor import ContextCompressor, HandoverPacket
 from lemoncrow.infra.runtime.run_ledger import RunLedger
+from lemoncrow.pro.runtime.context_compressor import ContextCompressor, HandoverPacket
 
 
 def test_compressor_preserves_latest_error_and_alerts() -> None:
