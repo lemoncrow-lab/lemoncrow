@@ -82,10 +82,21 @@ def _spawn(session_id: str, mode: str, path: str, root: Path) -> None:
     )
 
 
+def _dormant() -> bool:
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
+
+        return bool(cap_exhausted(_lemoncrow_root()))
+    except Exception:  # noqa: BLE001 — fail-open (active)
+        return False
+
+
 def main() -> int:
     # A reviewer's own activity must never trigger another reviewer.
     if os.environ.get("LEMONCROW_IN_REVIEW"):
         return 0
+    if _dormant():
+        return 0  # dormant: no live review (a Pro capability)
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, OSError):

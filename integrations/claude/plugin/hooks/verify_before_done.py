@@ -203,11 +203,32 @@ def decide(payload: dict[str, Any]) -> dict[str, str] | None:
     return decide_signals(signals, dedup_key=str(payload.get("transcript_path") or ""))
 
 
+def _dormant() -> bool:
+    """Cap exhausted -> LemonCrow steps aside (behavioral hooks emit nothing).
+    Fail-open: any error -> False so the hook stays active rather than wrongly
+    silencing. Measurement/reporting hooks are never gated by this."""
+    try:
+        import os
+
+        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
+
+        root = (
+            os.environ.get("LEMONCROW_ROOT")
+            or os.environ.get("LEMONCROW_STORE_ROOT")
+            or str(Path.home() / ".lemoncrow")
+        )
+        return bool(cap_exhausted(root))
+    except Exception:  # noqa: BLE001 — hooks must never crash; fail-open (active)
+        return False
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if not isinstance(payload, dict):
             return 0
+        if _dormant():
+            return 0  # dormant: no verify-before-done nudge
         result = decide(payload)
         if result is not None:
             print(json.dumps(result))

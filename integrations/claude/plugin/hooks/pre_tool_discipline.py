@@ -168,11 +168,27 @@ def _deny(reason: str) -> None:
     )
 
 
+def _dormant() -> bool:
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
+
+        root = (
+            os.environ.get("LEMONCROW_ROOT")
+            or os.environ.get("LEMONCROW_STORE_ROOT")
+            or str(Path.home() / ".lemoncrow")
+        )
+        return bool(cap_exhausted(root))
+    except Exception:  # noqa: BLE001 — fail-open (active)
+        return False
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, TypeError, OSError):
         return 0
+    if _dormant():
+        return 0  # dormant: no pre-tool discipline steering
     name = str(payload.get("tool_name") or "")
     ti = payload.get("tool_input") or {}
     if not isinstance(ti, dict):
