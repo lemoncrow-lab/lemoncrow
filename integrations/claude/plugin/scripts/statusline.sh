@@ -69,7 +69,7 @@ export LEMONCROW_STATUS_ROOT
 export LEMONCROW_ROOT="${LEMONCROW_STATUS_ROOT}"
 
 # --- Pro icon: rotate the leading glyph when the cached plan is pro/enterprise ---
-# Reads the cached `/api/auth/me` response (written by `lc login`;
+# Reads the cached `/api/auth/me` response (written by `lc account login`;
 # ~/.lemoncrow/auth_user.json, see licensing/store.py). Any staleness within its
 # normal cache TTL is fine here -- purely cosmetic, never a feature gate.
 _LEMONCROW_AUTH_USER="${LEMONCROW_STATUS_ROOT}/auth_user.json"

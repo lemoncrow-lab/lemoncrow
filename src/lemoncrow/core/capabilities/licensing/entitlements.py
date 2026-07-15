@@ -1,7 +1,7 @@
 """The entitlement contract every Pro gate calls.
 
 Single source of truth for "is this feature unlocked?". The only entitlement
-source is the OAuth session created by ``lc login``: the auth server
+source is the OAuth session created by ``lc account login``: the auth server
 reports the account's plan via ``/api/auth/me``, cached on disk for 6 h.
 Results are cached in-process until the next cache boundary. Fail-closed: no
 session, or no fresh server answer, means Free.
@@ -75,6 +75,14 @@ def _fetch_auth_user(auth_token: str) -> dict[str, object] | None:
     return data
 
 
+def auth_user() -> dict[str, object] | None:
+    """Return the current OAuth account, fetching it when the cache is stale."""
+    token = store.load_auth_token()
+    if token is None:
+        return None
+    return store.load_auth_user() or _fetch_auth_user(token)
+
+
 def _persist_cap_verdict_token(data: dict[str, object]) -> None:
     """Copy the server's signed cap verdict from /api/auth/me to the gate's store.
 
@@ -96,6 +104,40 @@ def _persist_cap_verdict_token(data: dict[str, object]) -> None:
         pass
 
 
+# Phase-2 enforcement switch. While False (rollout), an UNSIGNED plan from
+# /api/auth/me is still honoured when no signed plan token is present, so pro
+# sessions that predate plan-token issuance are not locked out. Flip to True once
+# the auth server issues a signed ``plan_token`` for every session: then only a
+# valid signed token can grant pro, closing the forge-pro bypass (editing
+# auth.json, or `account login --dev` against a self-run localhost server).
+_REQUIRE_SIGNED_PLAN = False
+
+
+def _entitled_plan(data: dict[str, object]) -> str:
+    """Resolve the account plan, preferring the server-SIGNED plan token over the
+    forgeable unsigned ``plan`` field (see licensing_gate.plan_from_token).
+
+    - valid signed token -> its plan (authoritative, tamper-resistant).
+    - token present but invalid/expired -> ``free`` (distrust a bad/forged token).
+    - no token -> unsigned ``plan`` during rollout, or ``free`` once
+      ``_REQUIRE_SIGNED_PLAN`` is on.
+    """
+    unsigned = str(data.get("plan") or "free")
+    raw_token = data.get("plan_token")
+    token = raw_token if isinstance(raw_token, str) and raw_token else None
+    try:
+        from lemoncrow.pro.capabilities.licensing_gate import plan_from_token
+
+        signed = plan_from_token(token, now=int(_now()))
+    except Exception:  # noqa: BLE001 — verification must never crash entitlement
+        signed = None
+    if signed is not None:
+        return signed
+    if token is not None:
+        return "free"  # a token was issued but did not verify -> never trust unsigned
+    return "free" if _REQUIRE_SIGNED_PLAN else unsigned
+
+
 def _resolve() -> _Resolved:
     global _cache
     token = store.load_auth_token()
@@ -105,9 +147,7 @@ def _resolve() -> _Resolved:
     if token is None:
         _cache = _Resolved(token=None, license=None, reason="not signed in")
         return _cache
-    data = store.load_auth_user()
-    if data is None:
-        data = _fetch_auth_user(token)
+    data = auth_user()
     if data is None:
         _cache = _Resolved(
             token=token,
@@ -116,7 +156,7 @@ def _resolve() -> _Resolved:
             next_check_at=now + _OFFLINE_RETRY_SECONDS,
         )
         return _cache
-    plan = str(data.get("plan") or "free")
+    plan = _entitled_plan(data)
     if plan not in PRO_PLANS:
         _cache = _Resolved(
             token=token,

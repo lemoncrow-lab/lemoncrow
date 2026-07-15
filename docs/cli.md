@@ -271,15 +271,18 @@ The internal/dev suites are `lc benchmark {codebench,swe}` and
 
 ## Configuration and Account State
 
-| Command                 | Purpose                                                 |
-| ----------------------- | ------------------------------------------------------- |
-| `lc settings ...`  | Manage local plugin settings.                           |
-| `lc telemetry ...` | Enable, disable, or inspect product telemetry settings. |
-| `lc login`         | Create local auth state for plugin operations.          |
-| `lc logout`        | Remove local auth state.                                |
-| `lc share`         | Render referral or share text.                          |
-| `lc domain ...`    | Manage internal domain bundles.                         |
-| `lc letta ...`     | Manage the self-hosted Letta sidecar.                   |
+| Command                   | Purpose                                                 |
+| ------------------------- | ------------------------------------------------------- |
+| `lc settings ...`         | Manage local plugin settings.                           |
+| `lc telemetry ...`        | Enable, disable, or inspect product telemetry settings. |
+| `lc account login`        | Create local auth state for plugin operations.          |
+| `lc account logout`       | Remove local auth state.                                |
+| `lc account status`       | Show account and authentication status.                 |
+| `lc account subscription` | Show subscription details.                              |
+| `lc account cap`          | Show monthly savings-cap usage.                         |
+| `lc share`                | Render referral or share text.                          |
+| `lc domain ...`           | Manage internal domain bundles.                         |
+| `lc letta ...`            | Manage the self-hosted Letta sidecar.                   |
 
 ## JSON Output
 

@@ -137,7 +137,7 @@ def test_login_declined_marker_round_trips() -> None:
 
 
 def test_save_auth_token_clears_declined_marker() -> None:
-    """`lc login` / `lc init` (without --no-login) un-declines a prior --no-login."""
+    """`lc account login` / `lc init` (without --no-login) un-declines a prior --no-login."""
     store.mark_login_declined()
     assert store.is_login_declined() is True
     store.save_auth_token("a-token")
