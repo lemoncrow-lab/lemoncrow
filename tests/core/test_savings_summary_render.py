@@ -97,3 +97,48 @@ def test_cap_line_pro_is_uncapped() -> None:
     out = _with_sub({"plan": "pro", "monthlySavingsCapInUsd": None, "savingsMeterSource": "server"})
     assert "Cap   uncapped" in out
     assert "CAP REACHED" not in out
+
+
+GREEN = "\033[1;38;2;72;199;116m"
+RED = "\033[1;38;2;255;99;71m"
+
+
+def test_cap_line_green_when_under_cap(monkeypatch: Any) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
+    out = _with_sub(
+        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 14.2, "savingsOverCap": False}
+    )
+    assert f"{GREEN}  Cap" in out  # cap line is green
+    assert RED not in out
+
+
+def test_cap_line_red_when_over_cap(monkeypatch: Any) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
+    out = _with_sub(
+        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 559.71, "savingsOverCap": True}
+    )
+    assert f"{RED}  Cap" in out  # cap line is red
+    assert GREEN not in out.split("  Cap")[1]  # nothing green in the cap line
+
+
+def test_cap_colour_boundary_at_exactly_cap(monkeypatch: Any) -> None:
+    # savings == cap: the dormancy flag is >= (savingsOverCap True), so the line
+    # must render RED, matching the machine actually going dormant at the boundary.
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
+    out = _with_sub(
+        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 20.0, "savingsOverCap": True}
+    )
+    assert f"{RED}  Cap" in out
+    assert "CAP REACHED" in out
+
+
+def test_cap_no_colour_env_strips_ansi(monkeypatch: Any) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    out = _with_sub(
+        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 14.2, "savingsOverCap": False}
+    )
+    assert "\033[" not in out  # no ANSI at all
+    assert "Cap   $14.20 of $20.00" in out  # text still present

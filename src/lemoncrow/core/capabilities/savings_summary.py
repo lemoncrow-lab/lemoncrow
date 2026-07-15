@@ -2032,17 +2032,27 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
         # monthly cap window (windowDays), NOT the ad-hoc 1/7/30d windows above, and
         # taken from the server meter when present (else a local estimate) so this
         # line can't disagree with the actual cap decision.
+        # Colour the cap status: RED when over cap (dormant), GREEN otherwise. The
+        # red/green boundary is keyed on ``savingsOverCap`` — the SAME flag (server
+        # ``savings >= cap`` / local ``compute_usage_meter``) that drives dormancy —
+        # so the colour flips at exactly the point the machine goes dormant, never
+        # off by one. click.echo strips ANSI when stdout is not a TTY; NO_COLOR /
+        # LEMONCROW_NO_COLOR force it off too. The [source] tag stays uncoloured.
+        _no_color = bool(os.environ.get("NO_COLOR") or os.environ.get("LEMONCROW_NO_COLOR"))
+        c_green = "" if _no_color else "\033[1;38;2;72;199;116m"
+        c_red = "" if _no_color else "\033[1;38;2;255;99;71m"
+        c_reset = "" if _no_color else "\033[0m"
         cap = sub.get("monthlySavingsCapInUsd")
         if cap is None:
-            lines.append(f"  Cap   uncapped   [{source}]")
+            lines.append(f"{c_green}  Cap   uncapped{c_reset}   [{source}]")
         else:
             cap_usd = float(cap)
             saved_cycle = float(sub.get("monthlySavingsInUsd") or 0.0)
             window_days = int(sub.get("windowDays") or 30)
             if sub.get("savingsOverCap"):
                 lines.append(
-                    f"  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
-                    f"  — CAP REACHED · LemonCrow dormant   [{source}]"
+                    f"{c_red}  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
+                    f"  — CAP REACHED · LemonCrow dormant{c_reset}   [{source}]"
                 )
             else:
                 remaining = sub.get("savingsRemainingUsd")
@@ -2050,8 +2060,8 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
                 frac = sub.get("savingsCapFraction")
                 pct = float(frac) * 100 if frac is not None else (saved_cycle / cap_usd * 100 if cap_usd > 0 else 0.0)
                 lines.append(
-                    f"  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
-                    f"  · {_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left   [{source}]"
+                    f"{c_green}  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
+                    f"  · {_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left{c_reset}   [{source}]"
                 )
 
     note = str(payload.get("local_note") or "").strip()
