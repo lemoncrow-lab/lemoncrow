@@ -59,6 +59,28 @@ def _write_watermark(root: str | Path, data: dict[str, Any]) -> None:
         pass
 
 
+def _anon_token_path(root: str | Path) -> Path:
+    return Path(root) / "cap_anon_token"
+
+
+def _read_anon_token(root: str | Path) -> str | None:
+    """The server-issued signed anon-id token, presented on each anon report."""
+    p = _anon_token_path(root)
+    try:
+        return (p.read_text("utf-8").strip() or None) if p.exists() else None
+    except OSError:
+        return None
+
+
+def _write_anon_token(root: str | Path, token: str) -> None:
+    p = _anon_token_path(root)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(token, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _default_post(url: str, payload: dict[str, Any], token: str) -> dict[str, Any] | None:
     """POST the payload; return the parsed JSON response, or None on failure.
 
@@ -67,16 +89,12 @@ def _default_post(url: str, payload: dict[str, Any], token: str) -> dict[str, An
     JSON body still counts as success — returns ``{}`` so the watermark advances.
     """
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    # Anonymous reports (no account) pass an empty token -> no Authorization header;
+    # identity travels in the body as the server-issued signed anon token instead.
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             if not (200 <= resp.status < 300):
@@ -99,12 +117,19 @@ def report_usage_once(
 ) -> bool:
     """Report the usage delta since the last watermark. Returns True if posted.
 
-    No signed-in token, or no new data since last report -> returns False without
-    posting. On a successful post, advances the watermark to the current totals.
+    Signed in -> POST /api/usage/report (Bearer). Anonymous -> POST
+    /api/usage/report-anon presenting the server-issued signed anon token (and
+    bootstrapping one on first contact, even at zero usage, so the free gate has
+    a verdict to trust). No new data since last report -> returns False without
+    posting, unless an anon bootstrap is still needed. On a successful post,
+    advances the watermark and persists the returned signed verdict token.
     """
     token = store.load_auth_token()
-    if not token:
-        return False
+    is_anon = not token
+    anon_token = _read_anon_token(root) if is_anon else None
+    # First anonymous check-in: fetch a verdict even at zero usage, else a
+    # brand-new free machine would have no token and fail closed forever.
+    need_bootstrap = is_anon and not anon_token
     try:
         from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
 
@@ -126,11 +151,11 @@ def report_usage_once(
     prior_spend = float(wm.get("reported_spend_usd") or 0.0)
     delta_saved = round(saved_usd - prior_saved, 4)
     delta_spend = round(spend_usd - prior_spend, 4)
-    if delta_saved <= 0.0 and delta_spend <= 0.0:
-        return False  # no new data -> nothing to report
+    if delta_saved <= 0.0 and delta_spend <= 0.0 and not need_bootstrap:
+        return False  # no new data (and no anon bootstrap owed) -> nothing to report
 
     stamp = int(time.time()) if now is None else now
-    payload = {
+    payload: dict[str, Any] = {
         # Lifetime cumulative totals (monotonic); kept under these wire names
         # for compatibility. The server accumulates the deltas, not these.
         "window_saved_usd": saved_usd,
@@ -140,16 +165,26 @@ def report_usage_once(
         "reported_at": stamp,
     }
     post = http_post or _default_post
-    result = post(f"{store.load_auth_base()}/api/usage/report", payload, token)
+    base = store.load_auth_base()
+    if is_anon:
+        payload["anon_token"] = anon_token or ""
+        result = post(f"{base}/api/usage/report-anon", payload, "")
+    else:
+        result = post(f"{base}/api/usage/report", payload, token or "")
     if result is None or result is False:
         return False  # network/HTTP failure -> leave watermark for a retry
     # Success (a response body, or a legacy True). Persist the fresh signed
-    # verdict so the compiled gate can enforce the cap offline.
+    # verdict so the compiled gate can enforce the cap offline, and cache a
+    # freshly minted anon token for the next report.
     if isinstance(result, dict):
         with suppress(Exception):
             from lemoncrow.core.capabilities.plugin_runtime import persist_cap_verdict_token
 
             persist_cap_verdict_token(root, result.get("capVerdictToken"))
+        if is_anon:
+            minted = result.get("anonToken")
+            if isinstance(minted, str) and minted:
+                _write_anon_token(root, minted)
     _write_watermark(root, {"reported_saved_usd": saved_usd, "reported_spend_usd": spend_usd, "at": stamp})
     return True
 
