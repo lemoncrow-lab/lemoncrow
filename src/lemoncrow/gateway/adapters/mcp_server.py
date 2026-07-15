@@ -11271,7 +11271,7 @@ def _feature_locked_response(rid: str | int | None, exc: Exception) -> dict[str,
     else:
         msg = (
             f"This feature ({exc.feature}) requires LemonCrow Pro and you're not signed in. "
-            "Run `lc login` in your terminal to sign in, then try again."
+            "Run `lc account login` in your terminal to sign in, then try again."
         )
     return _ok(rid, {"content": [{"type": "text", "text": msg}]})
 
@@ -12108,7 +12108,7 @@ def _try_seamless_login(lemoncrow_root: Path) -> bool:
     browser tab on every workspace/session start.
 
     Never fires after an explicit `lc init --no-login` (``store.is_login_declined``)
-    -- that opt-out persists until the next successful `lc login` / `lc init`
+    -- that opt-out persists until the next successful `lc account login` / `lc init`
     without --no-login, so an unattended install never gets a surprise browser tab.
     """
     from lemoncrow.core.capabilities.licensing import store as _licensing_store
@@ -12196,7 +12196,9 @@ def _auto_init_workspace() -> None:
             return
 
         if not _ensure_account_activated(lemoncrow_root):
-            _log.info("LemonCrow account required for workspace auto-init; skipping until `lc login` completes.")
+            _log.info(
+                "LemonCrow account required for workspace auto-init; skipping until `lc account login` completes."
+            )
             return
 
         # --- Seed playbooks and rubrics ---
@@ -12259,7 +12261,7 @@ def _warm_stdio_code_index() -> None:
         _log.debug("skipping stdio code-index warm: %s is not a recognized workspace", ws_root)
         return
     if not _ensure_account_activated(_lemoncrow_root()):
-        _log.info("LemonCrow account required for code-index warm; skipping until `lc login` completes.")
+        _log.info("LemonCrow account required for code-index warm; skipping until `lc account login` completes.")
         return
     try:
         from lemoncrow.core.service.code_warm import warm_stdio_workspace
