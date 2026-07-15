@@ -18,7 +18,7 @@ import pytest
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
-_PATH_RE = re.compile(r"read (\S+\.txt)\]")
+_PATH_RE = re.compile(r"full: (\S+\.txt)\]")
 
 
 def _extract_path(text: str) -> Path:
@@ -89,7 +89,7 @@ def test_spill_helper_spills_and_returns_recoverable_ref(monkeypatch: pytest.Mon
     assert out.startswith("HEAD-MARKER")  # head preserved in summary
     assert "TAIL-MARKER" in out  # tail preserved in summary
     assert "[lc: shrunk" in out  # canonical footer present
-    assert "read " in out  # recovery hint present
+    assert "full: " in out  # recovery hint present
     assert _extract_path(out).read_text(encoding="utf-8") == text  # full original preserved
 
 

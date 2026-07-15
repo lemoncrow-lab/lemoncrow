@@ -41,7 +41,7 @@ def _run(
 
 
 def _spill_path_from_notice(text: str) -> Path:
-    match = re.search(r"read (\S+\.txt)\]", text)
+    match = re.search(r"full: (\S+\.txt)\]", text)
     assert match is not None, text
     return Path(match.group(1))
 

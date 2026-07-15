@@ -65,7 +65,7 @@ def test_compact_result_text_spills_full_text_when_enabled(tmp_path: Path, monke
 
     assert middle_marker not in out  # the summary still drops the middle
     assert "[lc: compacted" in out
-    match = re.search(r"read (\S+\.txt)\]", out)
+    match = re.search(r"full: (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
     assert recovered == text

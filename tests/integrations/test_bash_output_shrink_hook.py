@@ -126,7 +126,7 @@ def test_spill_hint_names_recovery_path(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     updated = _updated(proc)
     assert "[lc: shrunk" in updated["stdout"]
-    assert "read " in updated["stdout"]
+    assert "full: " in updated["stdout"]
 
 
 def test_kill_switch_disables_hook(tmp_path: Path) -> None:
