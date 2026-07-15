@@ -12,10 +12,12 @@ standard ``logging`` module.
 
 from __future__ import annotations
 
+import hmac
 import http.server
 import json
 import logging
 import platform
+import secrets
 import socket
 import threading
 import time
@@ -37,6 +39,7 @@ from lemoncrow.core.capabilities.licensing.store import (
 class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     received: dict[str, str]
     shutdown_event: threading.Event
+    expected_state: str
 
     def __init__(
         self,
@@ -46,23 +49,29 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         *,
         received: dict[str, str],
         shutdown_event: threading.Event,
+        expected_state: str,
     ) -> None:
         self.received = received
         self.shutdown_event = shutdown_event
+        self.expected_state = expected_state
         super().__init__(request, client_address, server)
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/callback":
             qs = urllib.parse.parse_qs(parsed.query)
+            state = qs.get("state", [""])[0]
+            if not hmac.compare_digest(state, self.expected_state):
+                self.send_response(400)
+                self.end_headers()
+                return
             self.received["token"] = qs.get("token", [""])[0]
             self.received["email"] = qs.get("email", [""])[0]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(
-                b"<html><body><p>Logged in. You can close this tab.</p>"
-                b"<script>window.close()</script></body></html>"
+                b"<html><body><p>Logged in. You can close this tab.</p><script>window.close()</script></body></html>"
             )
         else:
             self.send_response(404)
@@ -112,34 +121,36 @@ def run_oauth_login(
 
     base = "http://localhost:4321" if dev_mode else "https://lemoncrow.com"
 
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    hostname = platform.node() or "cli"
+    hostname = (platform.node() or "cli")[:100]
     stable_device_id = load_or_create_device_id()
-    cli_redirect = f"http://localhost:{port}/callback"
-    oauth_url = (
-        f"{base}/account"
-        f"?cli_redirect={urllib.parse.quote(cli_redirect, safe='')}"
-        f"&device_name={urllib.parse.quote(hostname, safe='')}"
-        f"&stable_device_id={urllib.parse.quote(stable_device_id, safe='')}"
-    )
-
+    callback_state = secrets.token_urlsafe(32)
     received: dict[str, str] = {}
     server_ready = threading.Event()
     shutdown_event = threading.Event()
 
+    # Bind port 0 directly on the callback server. Keeping the listening socket
+    # open removes the discover-port/close/rebind race where another local
+    # process could seize the selected port.
     httpd = http.server.HTTPServer(
-        ("127.0.0.1", port),
+        ("127.0.0.1", 0),
         lambda req, addr, srv: _OAuthCallbackHandler(
             req,
             addr,
             srv,
             received=received,
             shutdown_event=shutdown_event,
+            expected_state=callback_state,
         ),
     )
+    port = int(httpd.server_address[1])
+    cli_redirect = f"http://localhost:{port}/callback?" + urllib.parse.urlencode(
+        {
+            "state": callback_state,
+            "device_id": stable_device_id,
+            "device_name": hostname,
+        }
+    )
+    oauth_url = f"{base}/account?cli_redirect={urllib.parse.quote(cli_redirect, safe='')}"
     httpd.timeout = 1
 
     def _serve() -> None:
