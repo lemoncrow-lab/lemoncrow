@@ -2022,11 +2022,37 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
             lines.append(row)
 
     sub = payload.get("subscription") or {}
-    plan = str(sub.get("plan") or "").strip()
-    if plan:
+    if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
+        plan = str(sub.get("plan") or "free").strip() or "free"
         status = str(sub.get("status") or "").strip().lower()
+        source = "server" if sub.get("savingsMeterSource") == "server" else "local est."
         lines.append("")
         lines.append(f"  Plan  {plan}" + (f" ({status})" if status else ""))
+        # Savings cap — the monetization ceiling that drives dormancy. Keyed to the
+        # monthly cap window (windowDays), NOT the ad-hoc 1/7/30d windows above, and
+        # taken from the server meter when present (else a local estimate) so this
+        # line can't disagree with the actual cap decision.
+        cap = sub.get("monthlySavingsCapInUsd")
+        if cap is None:
+            lines.append(f"  Cap   uncapped   [{source}]")
+        else:
+            cap_usd = float(cap)
+            saved_cycle = float(sub.get("monthlySavingsInUsd") or 0.0)
+            window_days = int(sub.get("windowDays") or 30)
+            if sub.get("savingsOverCap"):
+                lines.append(
+                    f"  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
+                    f"  — CAP REACHED · LemonCrow dormant   [{source}]"
+                )
+            else:
+                remaining = sub.get("savingsRemainingUsd")
+                remaining_usd = float(remaining) if remaining is not None else max(0.0, cap_usd - saved_cycle)
+                frac = sub.get("savingsCapFraction")
+                pct = float(frac) * 100 if frac is not None else (saved_cycle / cap_usd * 100 if cap_usd > 0 else 0.0)
+                lines.append(
+                    f"  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
+                    f"  · {_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left   [{source}]"
+                )
 
     note = str(payload.get("local_note") or "").strip()
     if note:

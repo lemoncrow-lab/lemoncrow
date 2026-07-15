@@ -37,3 +37,63 @@ def test_headline_no_pct_without_30d_spend() -> None:
     out = render_savings_summary(_payload(lifetime_saved=100.0, saved_30d=10.0, spend_30d=0.0))
     assert "spend · 30d" not in out
     assert "Saved            $100.00" in out
+
+
+def _with_sub(sub: dict[str, Any]) -> str:
+    payload = _payload(lifetime_saved=14.2, saved_30d=14.2, spend_30d=20.0)
+    payload["subscription"] = sub
+    return render_savings_summary(payload)
+
+
+def test_cap_line_free_under_cap() -> None:
+    out = _with_sub(
+        {
+            "plan": "free",
+            "monthlySavingsCapInUsd": 20.0,
+            "monthlySavingsInUsd": 14.2,
+            "savingsRemainingUsd": 5.8,
+            "savingsCapFraction": 0.71,
+            "savingsOverCap": False,
+            "windowDays": 30,
+        }
+    )
+    assert "Cap   $14.20 of $20.00 (30d)" in out
+    assert "71.0% used, $5.80 left" in out
+    assert "[local est.]" in out
+    assert "CAP REACHED" not in out
+
+
+def test_cap_line_over_cap_shows_dormant_and_server_source() -> None:
+    out = _with_sub(
+        {
+            "plan": "free",
+            "monthlySavingsCapInUsd": 20.0,
+            "monthlySavingsInUsd": 22.9,
+            "savingsOverCap": True,
+            "windowDays": 30,
+            "savingsMeterSource": "server",
+        }
+    )
+    assert "CAP REACHED · LemonCrow dormant" in out
+    assert "[server]" in out
+
+
+def test_cap_line_lite_uses_its_own_cap() -> None:
+    out = _with_sub(
+        {
+            "plan": "lite",
+            "monthlySavingsCapInUsd": 200.0,
+            "monthlySavingsInUsd": 40.0,
+            "savingsRemainingUsd": 160.0,
+            "savingsOverCap": False,
+            "windowDays": 30,
+        }
+    )
+    assert "of $200.00" in out  # lite's $200 cap, not free's $20
+    assert "$160.00 left" in out
+
+
+def test_cap_line_pro_is_uncapped() -> None:
+    out = _with_sub({"plan": "pro", "monthlySavingsCapInUsd": None, "savingsMeterSource": "server"})
+    assert "Cap   uncapped" in out
+    assert "CAP REACHED" not in out
