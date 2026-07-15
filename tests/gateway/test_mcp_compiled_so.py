@@ -31,11 +31,13 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,7 @@ _COPY_IGNORE = shutil.ignore_patterns(
     "venv",
     "node_modules",
     "__pycache__",
+    "benchmarks",
     "build",
     "dist",
     "bundle",
@@ -74,6 +77,12 @@ _COPY_IGNORE = shutil.ignore_patterns(
     ".ruff_cache",
     "*.egg-info",
 )
+
+
+@dataclasses.dataclass(frozen=True)
+class _CompiledWheel:
+    path: Path
+    private_key_hex: str
 
 
 @dataclasses.dataclass
@@ -89,7 +98,7 @@ class _CompiledServer:
 
 
 @pytest.fixture(scope="session")
-def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> _CompiledWheel:
     """Build the mypyc-compiled wheel from a throwaway copy of the repo.
 
     The hatch build hook mutates ``src/`` in place (deletes ``.py`` for each
@@ -103,6 +112,37 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     build_base = tmp_path_factory.mktemp("lemoncrow_build")
     repo_copy = build_base / "src"
     shutil.copytree(REPO_ROOT, repo_copy, ignore=_COPY_IGNORE, ignore_dangling_symlinks=True)
+
+    # The isolated compiled process cannot inherit pytest monkeypatches. Give
+    # this temporary wheel a generated pinned key, then seed a genuinely signed
+    # verdict below. Production source and keys are never changed.
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    private_key = Ed25519PrivateKey.generate()
+    private_key_hex = private_key.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    ).hex()
+    public_key_hex = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.Raw,
+            serialization.PublicFormat.Raw,
+        )
+        .hex()
+    )
+    gate_path = repo_copy / "src/lemoncrow/pro/capabilities/licensing_gate.py"
+    original_gate_source = gate_path.read_text(encoding="utf-8")
+    gate_source = re.sub(
+        r'_DEFAULT_PUBLIC_KEY_HEX = "[0-9a-f]{64}"',
+        f'_DEFAULT_PUBLIC_KEY_HEX = "{public_key_hex}"',
+        original_gate_source,
+        count=1,
+    )
+    assert gate_source != original_gate_source, "compiled gate key constant not found"
+    gate_path.write_text(gate_source, encoding="utf-8")
     out_dir = build_base / "wheel"
 
     # Must NOT skip mypyc -- a pure-python wheel cannot exercise the .so path.
@@ -133,11 +173,14 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     # assurance, so skip instead.
     if wheel.name.endswith("-py3-none-any.whl"):
         pytest.skip(f"wheel is pure-python ({wheel.name}); mypyc compilation did not run")
-    return wheel
+    return _CompiledWheel(path=wheel, private_key_hex=private_key_hex)
 
 
 @pytest.fixture(scope="session")
-def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> _CompiledServer:
+def compiled_server(
+    compiled_wheel: _CompiledWheel,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> _CompiledServer:
     """Install the compiled wheel into an isolated venv and prepare its runtime."""
     venv_dir = tmp_path_factory.mktemp("lemoncrow_venv") / "venv"
     create = subprocess.run(
@@ -162,7 +205,7 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
             "install",
             "--python",
             str(venv_python),
-            f"{compiled_wheel}[mcp,smart,memory]",
+            f"{compiled_wheel.path}[mcp,smart,memory]",
         ],
         capture_output=True,
         text=True,
@@ -179,6 +222,32 @@ def compiled_server(compiled_wheel: Path, tmp_path_factory: pytest.TempPathFacto
         pytest.skip("installed wheel has no mcp_server .so; not a compiled build")
 
     root = tmp_path_factory.mktemp("lemoncrow_root") / ".lemoncrow"
+    from lemoncrow.core.capabilities.licensing import cap_verdict, store
+
+    device_hash = hashlib.sha256(
+        store.load_or_create_device_id().encode("utf-8"),
+    ).hexdigest()
+    now = int(time.time())
+    cap_token = cap_verdict.sign_cap_token(
+        {
+            "v": 2,
+            "typ": "cap",
+            "account_id": "anon:compiled-test",
+            "device_id": device_hash,
+            "plan": "free",
+            "savings_over_cap": False,
+            "monthly_savings_usd": 0.0,
+            "cap_usd": 20.0,
+            "issued_at": now,
+            "expires_at": now + 3600,
+        },
+        private_key_hex=compiled_wheel.private_key_hex,
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "subscription.json").write_text(
+        json.dumps({"capVerdictToken": cap_token}),
+        encoding="utf-8",
+    )
     config_dir = tmp_path_factory.mktemp("lemoncrow_cfg") / ".claude"
     config_dir.mkdir(parents=True, exist_ok=True)
     workspace = tmp_path_factory.mktemp("lemoncrow_ws")
