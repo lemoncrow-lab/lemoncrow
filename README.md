@@ -139,9 +139,6 @@ Packaged in [integrations/skills/](integrations/skills/):
 
 ## Check your own savings
 
-
-### Check all savings after install
-
 After LemonCrow is installed, inspect all savings and missed opportunities in
 your local session history:
 
@@ -162,17 +159,6 @@ lemoncrow session replay
 ```
 
 Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `lc benchmark local`.
-
-## Why trust the numbers?
-
-A live badge alone proves little — anyone can fake a counter. Four checks instead:
-
-1. **Raw benchmark receipts:** headline numbers link to committed per-task runs, costs, and reproduction commands.
-2. **Your own scan:** the savings command checks your machine, not our marketing page.
-3. **Labeled live badges:** aggregate usage counters — never the source of the 30% claim.
-4. **Rows where LemonCrow does not win:** Terminal-Bench 2.1 is flat on accuracy (-0.2pp); it stays in the table.
-
-The trust is the audit trail, not the animation.
 
 ## Results
 
@@ -269,11 +255,11 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=lemoncrowhq%2Flemoncrow">
+<a href="https://www.star-history.com/?repos=lemoncrowhq%2Flemoncrow&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=Rn2b6rT3ghX0sl1jSS4wFIX77UahxINbyd-AgVtDAgV7BVA7aIINml5rE7v5bjzY82nrlzsmEASna5oYdS-JdGPZryfB2SRqgi8jNQY8VQl0Ra6W8QEVE6Bwn2Kd9bQzeEp03p3upVa48_1mbFJUhLQRp5lbXS8sEsNeQ_DK7_DfIRefJbXyjB27dHQN" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
  </picture>
 </a>
 
