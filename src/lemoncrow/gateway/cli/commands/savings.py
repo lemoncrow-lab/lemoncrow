@@ -106,7 +106,7 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         sys.stdout.flush()
         return
     from lemoncrow.core.capabilities.plugin_runtime import build_savings_report
-    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
+    from lemoncrow.pro.capabilities.session_optimizer import build_trace_optimization_report
 
     runs = _ledger_dir(ctx.obj["root"])
     bad_plans_blocked = 0
@@ -143,7 +143,7 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
 
 
 def _legacy_optimize_report(ctx: click.Context, host: str | None, days: int, limit: int) -> dict[str, Any]:
-    from lemoncrow.core.capabilities.session_optimizer import build_trace_optimization_report
+    from lemoncrow.pro.capabilities.session_optimizer import build_trace_optimization_report
 
     store = _load_store(ctx.obj["root"])
     return build_trace_optimization_report(store.history.list_traces(limit=5000), days=days, host=host, limit=limit)

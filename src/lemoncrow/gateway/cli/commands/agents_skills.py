@@ -31,8 +31,8 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     write_workspace_opencode_agents,
 )
 from lemoncrow.core.environment import skill_visible
-from lemoncrow.core.foundation.retriever import count_tokens
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
+from lemoncrow.pro.foundation.retriever import count_tokens
 
 # Hosts that support on-demand agent roles vs. skills are not identical:
 # OpenCode has no skills concept; Antigravity has no per-role agent concept.

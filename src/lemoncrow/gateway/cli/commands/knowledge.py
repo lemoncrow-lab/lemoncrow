@@ -55,7 +55,7 @@ def knowledge_extract_cmd(
     """Distil durable review rules from .lessons into the review overlay."""
     require_pro("reasoning_library", "The review knowledge base")
 
-    from lemoncrow.core.capabilities.knowledge_extract import extract_rules
+    from lemoncrow.pro.capabilities.knowledge_extract import extract_rules
 
     repo_root = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     result = extract_rules(

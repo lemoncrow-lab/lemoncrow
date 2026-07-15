@@ -12,8 +12,8 @@ from lemoncrow.core.capabilities.providers.config import LITELLM_PREFIX
 from lemoncrow.gateway.cli.commands._shared import _emit
 
 if TYPE_CHECKING:
-    from lemoncrow.core.capabilities.owned_agent_session import OwnedAgentSession
-    from lemoncrow.core.capabilities.owned_agent_session.receipt import SessionReceipt
+    from lemoncrow.pro.capabilities.owned_agent_session import OwnedAgentSession
+    from lemoncrow.pro.capabilities.owned_agent_session.receipt import SessionReceipt
 
 
 def _resolve_litellm_model(provider: str, model: str) -> str:
@@ -53,11 +53,11 @@ def _execute_owned_tool_session(
     """Execute one real model/tool loop shared with the TUI and HTTP gateway."""
     import asyncio
 
-    from lemoncrow.core.capabilities.owned_agent_session import OwnedAgentSession
-    from lemoncrow.core.capabilities.owned_agent_session.receipt import PhaseTokens, SessionReceipt
-    from lemoncrow.core.capabilities.owned_agent_session.task_primer import build_task_primer
     from lemoncrow.gateway.cli.events import AssistantMessage, ContextUsageUpdated, RuntimeErrorEvent
     from lemoncrow.gateway.cli.runtime import InteractiveRuntime
+    from lemoncrow.pro.capabilities.owned_agent_session import OwnedAgentSession
+    from lemoncrow.pro.capabilities.owned_agent_session.receipt import PhaseTokens, SessionReceipt
+    from lemoncrow.pro.capabilities.owned_agent_session.task_primer import build_task_primer
 
     session = OwnedAgentSession.new(
         provider=provider,
@@ -123,21 +123,21 @@ def _run_owned_session(
     dry_run: bool,
     root: Path,
 ) -> None:
-    from lemoncrow.core.capabilities.owned_agent_session import (
+    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
+        detect_api_key_vendors,
+    )
+    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
+    from lemoncrow.pro.capabilities.owned_agent_session import (
         OwnedAgentSession,
         run_phase_linear,
         run_single_shot,
     )
-    from lemoncrow.core.capabilities.owned_execution_routing import (
+    from lemoncrow.pro.capabilities.owned_execution_routing import (
         OwnedCachePolicy,
         OwnedRouteBudget,
         OwnedRouteRequest,
         select_owned_route,
     )
-    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
-        detect_api_key_vendors,
-    )
-    from lemoncrow.pro.capabilities.cross_vendor_routing.router import NoFeasibleRouteError
 
     # Credential check — fail fast with actionable message
     vendors = detect_api_key_vendors()
@@ -236,17 +236,17 @@ def _select_print_route(
     root: Path,
 ) -> tuple[str, str, str, str]:
     """Return provider, litellm model, transport, and normalized cache policy for one-shot runs."""
-    from lemoncrow.core.capabilities.owned_execution_routing import (
-        OwnedCachePolicy,
-        OwnedRouteBudget,
-        OwnedRouteRequest,
-        select_owned_route,
-    )
     from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
         detect_api_key_vendors,
     )
     from lemoncrow.pro.capabilities.cross_vendor_routing.router import (
         NoFeasibleRouteError,
+    )
+    from lemoncrow.pro.capabilities.owned_execution_routing import (
+        OwnedCachePolicy,
+        OwnedRouteBudget,
+        OwnedRouteRequest,
+        select_owned_route,
     )
 
     vendors = detect_api_key_vendors()
@@ -456,7 +456,7 @@ def run_start(
 @click.pass_obj
 def run_resume(obj: dict[str, Any], session_id: str, task: str) -> None:
     """Resume a session with its warm prefix intact."""
-    from lemoncrow.core.capabilities.owned_agent_session import OwnedAgentSession, run_phase_linear
+    from lemoncrow.pro.capabilities.owned_agent_session import OwnedAgentSession, run_phase_linear
 
     root = _root_from_obj(obj)
 
@@ -485,8 +485,8 @@ def run_resume(obj: dict[str, Any], session_id: str, task: str) -> None:
 @click.pass_obj
 def run_report(obj: dict[str, Any], session_id: str, as_json: bool) -> None:
     """Display the cache-economics receipt for a past session."""
-    from lemoncrow.core.capabilities.owned_agent_session import OwnedAgentSession
-    from lemoncrow.core.capabilities.owned_agent_session.receipt import SessionReceipt
+    from lemoncrow.pro.capabilities.owned_agent_session import OwnedAgentSession
+    from lemoncrow.pro.capabilities.owned_agent_session.receipt import SessionReceipt
 
     root = _root_from_obj(obj)
 
@@ -509,7 +509,7 @@ def run_report(obj: dict[str, Any], session_id: str, as_json: bool) -> None:
 
 
 def _print_receipt_from_session(session: OwnedAgentSession) -> None:
-    from lemoncrow.core.capabilities.owned_agent_session.receipt import SessionReceipt
+    from lemoncrow.pro.capabilities.owned_agent_session.receipt import SessionReceipt
 
     receipt = SessionReceipt(
         session_id=session.session_id,
