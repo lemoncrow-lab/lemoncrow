@@ -24,9 +24,42 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+from setuptools.command.build_ext import build_ext
+
+
+class _ParallelSourceBuildExt(build_ext):
+    """Compile a multi-file mypyc extension across all configured CPUs."""
+
+    def build_extensions(self) -> None:
+        compiler = self.compiler
+        if compiler is None:
+            super().build_extensions()
+            return
+        jobs = max(1, int(os.environ.get("LEMONCROW_BUILD_JOBS", "1")))
+        original_compile = compiler.compile
+
+        def parallel_compile(sources: list[str], *args: Any, **kwargs: Any) -> list[str]:
+            if jobs == 1 or len(sources) < 2:
+                return original_compile(sources, *args, **kwargs)
+            output_dir = kwargs.get("output_dir")
+            for obj in compiler.object_filenames(sources, output_dir=output_dir):
+                pathlib.Path(obj).parent.mkdir(parents=True, exist_ok=True)
+            with ThreadPoolExecutor(max_workers=min(jobs, len(sources))) as executor:
+                futures = [executor.submit(original_compile, [source], *args, **kwargs) for source in sources]
+                return [obj for future in futures for obj in future.result()]
+
+        compiler.compile = parallel_compile  # type: ignore[method-assign]
+        try:
+            # Keep extension linking serial; the expensive shared extension's
+            # source objects already consume the full worker budget above.
+            self.parallel = None
+            super().build_extensions()
+        finally:
+            compiler.compile = original_compile  # type: ignore[method-assign]
 
 
 def _mypyc_importable() -> bool:
@@ -231,14 +264,25 @@ def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list
 
 
 def _run_mypyc(files: list[str], cwd: pathlib.Path) -> None:
-    # Disable parallel compilation (NPROC/MAX_JOBS) to prevent race conditions on macOS
-    # during intermediate directory creation and file renaming.
+    # Use all available cores for mypyc compilation.
     env = os.environ.copy()
-    env["NPROC"] = "1"
-    env["MAX_JOBS"] = "1"
-    # Pre-create directories so gcc can write __native_*.o there.
-    # mypyc places build/__native_*.c at the build/ root (not in a subdir), and
-    # setuptools may not create build/temp.{plat}-cpython-{ver}/build/ in time.
+    configured_jobs = env.get("LEMONCROW_BUILD_JOBS", "").strip()
+    if configured_jobs:
+        try:
+            jobs = int(configured_jobs)
+        except ValueError as exc:
+            raise RuntimeError("LEMONCROW_BUILD_JOBS must be a positive integer") from exc
+        if jobs < 1:
+            raise RuntimeError("LEMONCROW_BUILD_JOBS must be a positive integer")
+    else:
+        jobs = os.process_cpu_count() or 1
+    env["LEMONCROW_BUILD_JOBS"] = str(jobs)
+    env["NPROC"] = str(jobs)
+    env["MAX_JOBS"] = str(jobs)
+    env["PYTHONPATH"] = str(cwd.parent) + os.pathsep + env.get("PYTHONPATH", "")
+
+    # Pre-create directories so parallel build_ext workers never race while
+    # creating mypyc's shared intermediate directory (including on macOS).
     import sysconfig
 
     _plat = sysconfig.get_platform()
@@ -247,12 +291,34 @@ def _run_mypyc(files: list[str], cwd: pathlib.Path) -> None:
     _temp_build = _build_root / f"temp.{_plat}-cpython-{_ver}" / "build"
     _build_root.mkdir(parents=True, exist_ok=True)
     _temp_build.mkdir(parents=True, exist_ok=True)
+
+    # mypyc's CLI always invokes `build_ext` serially. Generate the equivalent
+    # documented mypycify/setuptools setup and pass build_ext's real parallel
+    # option so native extensions compile concurrently on every platform.
+    mypyc_args = ["--ignore-missing-imports", "--allow-untyped-decorators", *files]
+    opt_level = env.get("MYPYC_OPT_LEVEL", "3")
+    debug_level = env.get("MYPYC_DEBUG_LEVEL", "1")
+    strict_dunder_typing = bool(int(env.get("MYPYC_STRICT_DUNDER_TYPING", "0")))
+    log_trace = bool(int(env.get("MYPYC_LOG_TRACE", "0")))
+    setup_file = _build_root / "setup.py"
+    setup_file.write_text(
+        "from setuptools import setup\n"
+        "from mypyc.build import mypycify\n"
+        "from hatch_build import _ParallelSourceBuildExt\n"
+        "setup(name='mypyc_output', ext_modules=mypycify("
+        f"{mypyc_args!r}, opt_level={opt_level!r}, debug_level={debug_level!r}, "
+        f"strict_dunder_typing={strict_dunder_typing!r}, log_trace={log_trace!r}, "
+        f"multi_file={jobs > 1!r}), cmdclass={{'build_ext': _ParallelSourceBuildExt}})\n",
+        encoding="utf-8",
+    )
+
     print(f"[hatch-mypyc] cwd={cwd}", flush=True)
+    print(f"[hatch-mypyc] parallel_jobs={jobs}", flush=True)
     print(f"[hatch-mypyc] build_root={_build_root} exists={_build_root.exists()}", flush=True)
     print(f"[hatch-mypyc] temp_build={_temp_build} exists={_temp_build.exists()}", flush=True)
 
     result = subprocess.run(
-        [sys.executable, "-m", "mypyc", "--ignore-missing-imports", "--allow-untyped-decorators", *files],
+        [sys.executable, str(setup_file), "build_ext", "--inplace"],
         cwd=str(cwd),
         env=env,
     )

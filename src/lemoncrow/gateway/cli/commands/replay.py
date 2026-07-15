@@ -99,7 +99,7 @@ def replay_cmd(
                 err=True,
             )
             ctx.exit(1)
-        if detected != host:
+        elif detected != host:
             click.echo(f"Detected a {detected} transcript — parsing as {detected}.", err=True)
             host = detected
 

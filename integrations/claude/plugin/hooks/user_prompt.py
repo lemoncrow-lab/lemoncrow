@@ -66,7 +66,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -699,7 +701,7 @@ def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
     old_handler = signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(_FRONTLOAD_TIMEOUT_S)
     try:
-        from lemoncrow.core.capabilities.code_context.engine import (
+        from lemoncrow.pro.capabilities.code_context.engine import (
             CodeContextEngine,
             _default_db_path,
         )
