@@ -29,7 +29,16 @@ def _plan_token(plan: str) -> str:
     import time
 
     return cv.sign_cap_token(
-        {"plan": plan, "account_id": "u_1", "expires_at": int(time.time()) + 3600}, private_key_hex=_PRIV_HEX
+        {
+            "v": 2,
+            "typ": "plan",
+            "plan": plan,
+            "account_id": "u_1",
+            "device_id": "device_1",
+            "issued_at": int(time.time()),
+            "expires_at": int(time.time()) + 3600,
+        },
+        private_key_hex=_PRIV_HEX,
     )
 
 
@@ -37,7 +46,8 @@ def _plan_token(plan: str) -> str:
 def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(_gate, "_public_key_hex", lambda: _PUB_HEX)  # verify test plan tokens
+    monkeypatch.setattr(_gate, "_public_key_hex", lambda: _PUB_HEX)
+    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "device_1")
     entitlements.reload()
     yield
     entitlements.reload()
@@ -45,7 +55,15 @@ def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
 def _sign_in(monkeypatch: pytest.MonkeyPatch, *, plan: str, email: str = "dev@example.com") -> None:
     monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "session-token")
-    store.save_auth_user({"user_id": "u_1", "email": email, "plan": plan, "plan_token": _plan_token(plan)})
+    store.save_auth_user(
+        {
+            "user_id": "u_1",
+            "device_id": "device_1",
+            "email": email,
+            "plan": plan,
+            "plan_token": _plan_token(plan),
+        }
+    )
     entitlements.reload()
 
 
@@ -112,7 +130,13 @@ def test_fetch_populates_cache_when_stale(monkeypatch: pytest.MonkeyPatch) -> No
     class _Resp:
         def read(self) -> bytes:
             return json.dumps(
-                {"user_id": "u_1", "email": "d@e.com", "plan": "pro", "plan_token": _plan_token("pro")}
+                {
+                    "user_id": "u_1",
+                    "device_id": "device_1",
+                    "email": "d@e.com",
+                    "plan": "pro",
+                    "plan_token": _plan_token("pro"),
+                }
             ).encode()
 
         def __enter__(self) -> _Resp:
@@ -149,7 +173,13 @@ def test_refresh_plan_picks_up_fresh_purchase(monkeypatch: pytest.MonkeyPatch) -
     class _Resp:
         def read(self) -> bytes:
             return json.dumps(
-                {"user_id": "u_1", "email": "dev@example.com", "plan": "pro", "plan_token": _plan_token("pro")}
+                {
+                    "user_id": "u_1",
+                    "device_id": "device_1",
+                    "email": "dev@example.com",
+                    "plan": "pro",
+                    "plan_token": _plan_token("pro"),
+                }
             ).encode()
 
         def __enter__(self) -> _Resp:
