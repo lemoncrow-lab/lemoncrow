@@ -1509,7 +1509,7 @@ def test_smart_edit_rejects_protected_paths(store_root: Path, tmp_path: Path) ->
     )
 
     assert payload["rolled_back"] is True
-    assert "Protected path denied" in payload["failed"][0]["error"]
+    assert "protected path denied" in payload["failed"][0]["error"]
     assert protected.read_text(encoding="utf-8") == "hello world"
 
 
@@ -2915,7 +2915,7 @@ def test_truncate_result_text_spills_full_text_when_tool_name_given(
 
     assert len(out.encode("utf-8")) <= 1024
     assert "[lc: truncated" in out
-    match = re.search(r"read (\S+\.txt)\]", out)
+    match = re.search(r"full: (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
     assert recovered == text
