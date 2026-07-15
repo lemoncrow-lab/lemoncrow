@@ -17,6 +17,7 @@ import json
 import time
 import urllib.request
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,9 @@ REPORT_INTERVAL_SECONDS = 30 * 60
 # report_usage_once for why monotonicity matters).
 _LIFETIME_DAYS = 36_500
 
-_HttpPost = Callable[[str, dict[str, Any], str], bool]
+# Returns the parsed JSON response body on success (may be empty), or None on
+# failure. A bool is also accepted (legacy/tests): True == success, no body.
+_HttpPost = Callable[[str, dict[str, Any], str], "dict[str, Any] | bool | None"]
 
 
 def _watermark_path(root: str | Path) -> Path:
@@ -56,7 +59,13 @@ def _write_watermark(root: str | Path, data: dict[str, Any]) -> None:
         pass
 
 
-def _default_post(url: str, payload: dict[str, Any], token: str) -> bool:
+def _default_post(url: str, payload: dict[str, Any], token: str) -> dict[str, Any] | None:
+    """POST the payload; return the parsed JSON response, or None on failure.
+
+    The response carries the freshly signed ``capVerdictToken`` (server-computed
+    from the accumulated meter); the caller persists it. A 2xx with no/invalid
+    JSON body still counts as success — returns ``{}`` so the watermark advances.
+    """
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -70,9 +79,15 @@ def _default_post(url: str, payload: dict[str, Any], token: str) -> bool:
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
-            return 200 <= resp.status < 300
+            if not (200 <= resp.status < 300):
+                return None
+            try:
+                parsed = json.loads(resp.read())
+            except (ValueError, OSError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
     except Exception:  # noqa: BLE001 — network failure = retry next tick
-        return False
+        return None
 
 
 def report_usage_once(
@@ -125,8 +140,16 @@ def report_usage_once(
         "reported_at": stamp,
     }
     post = http_post or _default_post
-    if not post(f"{store.load_auth_base()}/api/usage/report", payload, token):
-        return False
+    result = post(f"{store.load_auth_base()}/api/usage/report", payload, token)
+    if result is None or result is False:
+        return False  # network/HTTP failure -> leave watermark for a retry
+    # Success (a response body, or a legacy True). Persist the fresh signed
+    # verdict so the compiled gate can enforce the cap offline.
+    if isinstance(result, dict):
+        with suppress(Exception):
+            from lemoncrow.core.capabilities.plugin_runtime import persist_cap_verdict_token
+
+            persist_cap_verdict_token(root, result.get("capVerdictToken"))
     _write_watermark(root, {"reported_saved_usd": saved_usd, "reported_spend_usd": spend_usd, "at": stamp})
     return True
 
