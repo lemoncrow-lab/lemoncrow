@@ -1012,7 +1012,6 @@ def _reset_runtime_cache_for_testing() -> None:
     _last_blocked_plan_hash_by_session.clear()
     _code_engine_cache.clear()
     _scoped_context_cache.clear()
-    _DORMANT_SNAPSHOT_BY_SESSION.clear()
 
 
 def _live_savings_events_path() -> Path:
@@ -10641,13 +10640,6 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
     params = request.get("params") or {}
 
     if method == "initialize":
-        # Freeze the cap decision for THIS session (grandfather while the session
-        # is alive; a new process still re-snapshots and hard-blocks if over cap).
-        # Keyed per session id (see _dormant_session_key), so concurrent HTTP
-        # clients sharing this process never share (or bleed) a verdict, and a
-        # /clear (which rotates the workspace bridge session id) re-snapshots
-        # instead of silently carrying the old verdict across the reset.
-        _freeze_dormant_snapshot()
         _emit_mcp_session_start()
         return _ok(
             rid,
@@ -10669,8 +10661,6 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             # NO tools. The model never sees them, so there is nothing to call and
             # no user-editable settings file can re-expose them. The session
             # degrades to the host's built-in tools (the lemoncrow:free agent).
-            # Grandfathered: a session that connected under the cap keeps its
-            # tools for its lifetime (the dormant snapshot is read at connect).
             return _ok(rid, {"tools": []})
         tools = [
             {
@@ -10688,10 +10678,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
         if name == "run":
             name = "bash"
         if _savings_dormant() and name in TOOLS:
-            # Frozen-dormant: the lc tools are absent for this connection. A call
-            # (e.g. from a stale client cache or model memory) fails hard as
-            # unavailable — not silently degraded. Grandfathered connections are
-            # never dormant, so this only fires on a capped new process.
+            # A stale client may still call a formerly advertised tool. Recheck
+            # live and reject it rather than grandfathering the connection.
             return _err(
                 rid,
                 -32601,
@@ -11680,89 +11668,24 @@ def _auto_compact_output_enabled() -> bool:
     return os.environ.get("LEMONCROW_AUTO_COMPACT_OUTPUT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
-# Frozen per-process dormant state. Snapshotted ONCE at `initialize` (connection
-# start) and held for the server's lifetime, so a running server never flips
-# mid-session (grandfather — the client already has its tool list and we can't
-# cleanly yank it). A new server process (resume / restart / new window)
-# re-snapshots at its own `initialize` and hard-blocks if over cap. None = not
-# yet snapshotted (lazy fallback for tests / direct calls).
-# Per-session frozen cap decisions (bounded LRU), replacing a single process
-# global. Keyed by session id (see _dormant_session_key), so an uninterrupted
-# session stays grandfathered, a /clear re-snapshots, and concurrent HTTP clients
-# sharing this one process never share (or bleed) a verdict.
-_DORMANT_SNAPSHOT_BY_SESSION: OrderedDict[str, bool] = OrderedDict()
-_DORMANT_SNAPSHOT_LOCK = threading.Lock()
-_MAX_DORMANT_SNAPSHOTS = 64
-
-
 def _snapshot_dormant() -> bool:
-    """Read the cap state once. Fail-open: any error -> not dormant."""
+    """Read the compiled cap authority; enforcement failures are dormant."""
     try:
-        # Import the COMPILED authority directly (ships as .so), not the open
-        # plugin_runtime re-export — the tool-hiding decision must not be
-        # editable out of an install with a text editor.
         from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
 
         return cap_exhausted(_lemoncrow_root())
-    except Exception:  # noqa: BLE001 — fail-open: dormancy must never break the server
-        return False
-
-
-def _dormant_session_key() -> str:
-    """Identity the frozen cap decision is scoped to.
-
-    Prefers the workspace bridge ``session_id`` (rotated by the SessionStart hook
-    on every /clear) so a /clear is detected and re-snapshotted; falls back to the
-    launch-frozen Claude session id, then a process-global sentinel (stdio, single
-    client). Fail-safe: any error collapses to the sentinel.
-    """
-    try:
-        sid = str(_read_workspace_session_state().get("session_id") or "").strip()
-    except Exception:  # noqa: BLE001 — identity resolution must never break the gate
-        sid = ""
-    return sid or _claude_session_id() or "_global"
-
-
-def _freeze_dormant_snapshot() -> bool:
-    """Snapshot and freeze the cap decision for the current session, as
-    ``initialize`` does. Bounded LRU across sessions."""
-    key = _dormant_session_key()
-    value = _snapshot_dormant()
-    with _DORMANT_SNAPSHOT_LOCK:
-        _DORMANT_SNAPSHOT_BY_SESSION[key] = value
-        _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
-        while len(_DORMANT_SNAPSHOT_BY_SESSION) > _MAX_DORMANT_SNAPSHOTS:
-            _DORMANT_SNAPSHOT_BY_SESSION.popitem(last=False)
-    return value
+    except Exception:  # noqa: BLE001 — a broken gate must never expose paid tools
+        _log.exception("Cap authority failed; hiding LemonCrow tools")
+        return True
 
 
 def _savings_dormant() -> bool:
-    """Frozen cap gate for the current session.
+    """Re-evaluate the cap on every tool-list and tool-call boundary.
 
-    When dormant the server advertises no tools (``tools/list`` -> []) and
-    rejects any lc ``tools/call`` as unavailable. Tool *behavior* is never
-    changed — a tool is either present (and runs identically) or absent. The
-    decision is frozen per session at `initialize`, so a live session is
-    grandfathered while a /clear re-snapshots and concurrent HTTP clients never
-    share a verdict.
-
-    Fail-open: the lazy path (no frozen entry yet) returns whatever
-    ``_snapshot_dormant`` yields (False on error), so tools stay visible if the
-    meter can't be read.
+    A verdict that changes while an MCP connection is alive takes effect on the
+    next request, so crossing the cap cannot be grandfathered until restart.
     """
-    key = _dormant_session_key()
-    with _DORMANT_SNAPSHOT_LOCK:
-        cached = _DORMANT_SNAPSHOT_BY_SESSION.get(key)
-        if cached is not None:
-            _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
-            return cached
-    value = _snapshot_dormant()
-    with _DORMANT_SNAPSHOT_LOCK:
-        stored = _DORMANT_SNAPSHOT_BY_SESSION.setdefault(key, value)
-        _DORMANT_SNAPSHOT_BY_SESSION.move_to_end(key)
-        while len(_DORMANT_SNAPSHOT_BY_SESSION) > _MAX_DORMANT_SNAPSHOTS:
-            _DORMANT_SNAPSHOT_BY_SESSION.popitem(last=False)
-    return stored
+    return _snapshot_dormant()
 
 
 def _read_path_arg(args: dict[str, Any]) -> str:

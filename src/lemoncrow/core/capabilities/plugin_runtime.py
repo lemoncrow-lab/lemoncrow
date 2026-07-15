@@ -123,25 +123,15 @@ def subscription_state_path(root: str | Path) -> Path:
 def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
     """Persist the server's signed cap-verdict token where the gate reads it.
 
-    The compiled gate (:func:`licensing_gate._cap_verdict_token`) prefers
-    ``auth.json``'s ``subscriptionStatus.capVerdictToken`` and falls back to
-    ``subscription.json``. We write into ``auth.json`` when it exists (the
-    canonical plan blob, and the copy that survives
-    :func:`refresh_subscription_meter`), else into ``subscription.json``.
+    The compiled gate reads the token from the canonical auth subscription,
+    falling back to the display-only subscription cache.
 
-    Idempotent and best-effort: an empty/unchanged token, or any write error,
-    is a no-op — this is called from network paths that must never raise.
+    Idempotent and best-effort: an empty or unchanged token is a no-op, and
+    network callers never receive a persistence exception.
     """
     if not isinstance(token, str) or not token:
         return
     root_path = Path(root)
-    # Mark this machine as "established free": it has received a server cap token,
-    # so the compiled gate now ENFORCES the cap (fail-closed without a valid
-    # token) instead of the editable local meter. Written on every token receipt
-    # so deleting the marker only lasts until the next check-in.
-    with suppress(OSError):
-        root_path.mkdir(parents=True, exist_ok=True)
-        (root_path / ".cap_established").touch()
     auth = _read_json(auth_state_path(root_path), None)
     if isinstance(auth, dict):
         sub = auth.get("subscriptionStatus")
@@ -459,19 +449,17 @@ def _plan_key(subscription: dict[str, Any]) -> str:
 def _savings_cap_usd(subscription: dict[str, Any]) -> float | None:
     """Resolve the monthly savings cap ($) for this plan; ``None`` = uncapped.
 
-    A server-set ``monthlySavingsCapInUsd`` wins (lets the hosted plan tune the
-    ceiling per account). Otherwise fall back to the per-plan default. Fail
-    *open*: an unknown/paid plan key defaults to ``None`` (uncapped) so a paying
-    user is never made dormant by accident; only known free keys carry the cap.
+    A valid server cap wins. Otherwise fall back to the canonical per-plan
+    default; malformed overrides and unknown plan names receive the Free cap.
     """
     raw = subscription.get("monthlySavingsCapInUsd")
     if raw is not None:
         try:
             cap = float(raw)
         except (TypeError, ValueError):
-            return None
-        return cap if cap > 0.0 else None
-    return SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription))
+            return FREE_SAVINGS_CAP_USD
+        return cap if cap > 0.0 else FREE_SAVINGS_CAP_USD
+    return SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription), FREE_SAVINGS_CAP_USD)
 
 
 def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None = None) -> dict[str, Any]:
