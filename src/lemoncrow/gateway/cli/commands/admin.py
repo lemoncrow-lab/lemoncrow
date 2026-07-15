@@ -640,17 +640,17 @@ def init(
         if not load_auth_token():
             if not _is_interactive_terminal():
                 raise click.ClickException(
-                    "A free LemonCrow account is required to activate this install. Run lc login, then retry lc init."
+                    "A free LemonCrow account is required to activate this install. Run lc account login, then retry lc init."
                 )
             click.echo("No LemonCrow account found — starting login...")
             _oauth_login(as_json=False)
             if not load_auth_token():
-                raise click.ClickException("Login did not complete. Run lc login, then retry lc init.")
+                raise click.ClickException("Login did not complete. Run lc account login, then retry lc init.")
     else:
         # Explicit --no-login: remember this so the MCP server's background
         # seamless login (mcp_server._try_seamless_login) doesn't keep popping
         # a browser tab every cooldown window in an unattended install.
-        # Cleared automatically the moment a token is next saved (lc login /
+        # Cleared automatically the moment a token is next saved (lc account login /
         # lc init without --no-login).
         from lemoncrow.core.capabilities.licensing.store import mark_login_declined
 
@@ -1262,8 +1262,8 @@ def quarantine(ctx: click.Context, block_id: str) -> None:
     click.echo(f"quarantined {block_id}")
 
 
-def _auth_status(root: Path, as_json: bool) -> None:
-    """Show auth/subscription status: email, plan, and device slots."""
+def _load_oauth_account() -> tuple[str | None, dict[str, object] | None]:
+    """Fetch the current OAuth account, falling back to its disk cache."""
     from lemoncrow.core.capabilities.licensing.store import (
         load_auth_base,
         load_auth_token,
@@ -1272,9 +1272,6 @@ def _auth_status(root: Path, as_json: bool) -> None:
     )
 
     auth_token = load_auth_token()
-
-    # Always fetch live for status — disk cache is for background entitlement
-    # checks, not explicit status queries.
     cached: dict[str, object] | None = None
     if auth_token:
         import json as _json
@@ -1293,6 +1290,12 @@ def _auth_status(root: Path, as_json: bool) -> None:
             save_auth_user({**cached, "_base": _base_url})
         except Exception:  # noqa: BLE001
             cached = load_auth_user()  # fall back to disk if offline
+    return auth_token, cached
+
+
+def _auth_status(root: Path, as_json: bool) -> None:
+    """Show auth/subscription status: email, plan, and device slots."""
+    auth_token, cached = _load_oauth_account()
 
     if auth_token and cached:
         # OAuth session — show cached user info
@@ -1349,32 +1352,30 @@ def _auth_status(root: Path, as_json: bool) -> None:
             if as_json:
                 _emit({"mode": "none", "status": "not logged in"}, as_json=True)
                 return
-            click.secho("✗ Not logged in — run: lc login", fg="red")
+            click.secho("✗ Not logged in — run: lc account login", fg="red")
 
 
-@click.command("login")
+@click.group("account", invoke_without_command=True)
+@click.pass_context
+def account_group(ctx: click.Context) -> None:
+    """Manage login, subscription, and savings-cap state."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(account_status_cmd, as_json=False)
+
+
+@account_group.command("login")
 @click.option("--token", default=None, help="Credentials JSON, base64 payload, or refresh token.")
 @click.option("--anonymous", "anonymous", is_flag=True, help="Start a local anonymous trial.")
-@click.option("--status", "status_mode", is_flag=True, help="Show auth/subscription status and exit.")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option("--dev", "dev_mode", is_flag=True, help="Login against local dev server (http://localhost:4321).")
 @click.pass_context
-def login_cmd(
-    ctx: click.Context, token: str | None, anonymous: bool, status_mode: bool, as_json: bool, dev_mode: bool
-) -> None:
-    """Create local LemonCrow auth state for plugin operations.
-
-    Use --status to show the current auth/subscription state instead.
-    """
+def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: bool, dev_mode: bool) -> None:
+    """Create local LemonCrow auth state for plugin operations."""
     from lemoncrow.core.capabilities.plugin_runtime import (
         claim_anonymous_trial,
         parse_login_token,
         write_auth_state,
     )
-
-    if status_mode:
-        _auth_status(ctx.obj["root"], as_json)
-        return
 
     if anonymous:
         payload = {"auth": claim_anonymous_trial(ctx.obj["root"]), "mode": "anonymous"}
@@ -1409,7 +1410,7 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
 
     if result is None:
         click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
-        click.echo("  Fallback: lc login --token <token> (from your account page).", err=True)
+        click.echo("  Fallback: lc account login --token <token> (from your account page).", err=True)
         raise SystemExit(1)
 
     plan_label = result.plan if result.plan_verified else "unknown (could not verify)"
@@ -1452,7 +1453,7 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
         )
 
 
-@click.command("logout")
+@account_group.command("logout")
 @click.option("--no-trial", is_flag=True, help="Do not create a local anonymous trial after logout.")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
@@ -1469,6 +1470,68 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
         _emit(payload, as_json=True)
         return
     click.secho("✓ Logged out", fg="green")
+
+
+def _account_subscription(root: Path) -> dict[str, Any]:
+    """Return display-safe, metered subscription state for the active account."""
+    from lemoncrow.core.capabilities.plugin_runtime import auth_status, compute_usage_meter
+
+    raw: object = None
+    auth_token, user = _load_oauth_account()
+    if auth_token and isinstance(user, dict):
+        raw = user.get("subscriptionStatus") or user.get("subscription_status")
+        if not isinstance(raw, dict) and user.get("plan"):
+            raw = {"plan": user["plan"]}
+    if not isinstance(raw, dict):
+        account = auth_status(root)
+        raw = account.get("subscription")
+    subscription = compute_usage_meter(root, subscription=raw if isinstance(raw, dict) else {})
+    return {key: value for key, value in subscription.items() if "token" not in key.lower()}
+
+
+@account_group.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
+@click.pass_context
+def account_status_cmd(ctx: click.Context, as_json: bool) -> None:
+    """Show the current account and authentication status."""
+    _auth_status(ctx.obj["root"], as_json)
+
+
+@account_group.command("subscription")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
+@click.pass_context
+def account_subscription_cmd(ctx: click.Context, as_json: bool) -> None:
+    """Show subscription details."""
+    subscription = _account_subscription(ctx.obj["root"])
+    if as_json:
+        _emit(subscription, as_json=True)
+        return
+    click.echo(f"plan: {subscription.get('plan') or subscription.get('status') or 'free'}")
+    if subscription.get("message"):
+        click.echo(f"status: {subscription['message']}")
+
+
+@account_group.command("cap")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
+@click.pass_context
+def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
+    """Show monthly savings-cap usage."""
+    subscription = _account_subscription(ctx.obj["root"])
+    payload = {
+        "cap_usd": subscription.get("monthlySavingsCapInUsd"),
+        "over_cap": bool(subscription.get("savingsOverCap")),
+        "remaining_usd": subscription.get("savingsRemainingUsd"),
+        "saved_usd": subscription.get("monthlySavingsInUsd", 0.0),
+    }
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    cap = payload["cap_usd"]
+    click.echo("cap: uncapped" if cap is None else f"cap: ${float(cap):.2f}/month")
+    click.echo(f"saved: ${float(payload['saved_usd'] or 0.0):.2f}")
+    if payload["remaining_usd"] is not None:
+        click.echo(f"remaining: ${float(payload['remaining_usd']):.2f}")
+    click.echo(f"status: {'reached' if payload['over_cap'] else 'active'}")
 
 
 @click.command("status")
@@ -1495,7 +1558,7 @@ def status_cmd(
 
     Default view: runs dashboard (overview of recent runs, totals, savings).
 
-    Use --index for index stats; `lc login --status` for auth status.
+    Use --index for index stats; `lc account status` for account status.
     """
     root: Path = ctx.obj["root"]
 
@@ -1953,6 +2016,7 @@ def insights_cmd(
 
 __all__ = [
     "_project_root",
+    "account_group",
     "audit_group",
     "deprecate",
     "doctor_cmd",
