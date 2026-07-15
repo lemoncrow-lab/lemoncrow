@@ -14,7 +14,13 @@ import time
 from dataclasses import dataclass
 
 from lemoncrow.core.capabilities.licensing import store
-from lemoncrow.core.capabilities.licensing.features import PRO_FEATURES, describe
+from lemoncrow.core.capabilities.licensing.features import (
+    FREE_FEATURES,
+    PRO_FEATURES,
+    describe,
+    features_for_plan,
+    minimum_plan,
+)
 from lemoncrow.core.capabilities.licensing.models import (
     PRO_PLANS,
     FeatureLocked,
@@ -185,22 +191,24 @@ def is_pro() -> bool:
 
 
 def has_feature(feature: str) -> bool:
-    """True if ``feature`` is unlocked. Non-Pro features are always allowed.
+    """Return whether a registered feature is unlocked.
 
-    There is deliberately NO dev backdoor: the only unlock path is the OAuth
-    session plan. Developer machines get Pro the same way customers do — sign
-    in with an account whose plan is pro (fail-closed by construction).
+    Free names are explicit. Unknown names fail closed so adding a gate with a
+    typo cannot accidentally make a paid surface public.
     """
-    if feature not in PRO_FEATURES:
+    if feature in FREE_FEATURES:
         return True
+    if feature not in PRO_FEATURES:
+        return False
     lic = current_license()
     return lic is not None and lic.grants(feature)
 
 
 def require(feature: str) -> None:
-    """Raise :class:`FeatureLocked` unless ``feature`` is unlocked."""
+    """Raise FeatureLocked unless the registered feature is unlocked."""
     if not has_feature(feature):
-        raise FeatureLocked(feature, f"{describe(feature)} requires LemonCrow Pro")
+        tier = minimum_plan(feature)
+        raise FeatureLocked(feature, f"{describe(feature)} requires LemonCrow {tier}")
 
 
 def status() -> LicenseStatus:
@@ -218,7 +226,7 @@ def status() -> LicenseStatus:
             valid=True,
             plan=lic.plan,
             email=lic.email,
-            features=lic.features or tuple(PRO_FEATURES),
+            features=lic.features or tuple(sorted(features_for_plan(lic.plan))),
             reason="active",
             source=source,
         )

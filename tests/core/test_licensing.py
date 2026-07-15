@@ -74,7 +74,30 @@ def test_free_plan_stays_locked(monkeypatch: pytest.MonkeyPatch) -> None:
     _sign_in(monkeypatch, plan="free")
     assert licensing.is_pro() is False
     assert licensing.has_feature("optimizer") is False
+    assert licensing.has_feature("source_projection") is True
+    assert licensing.has_feature("unknown_paid_typo") is False
     assert licensing.status().reason == "signed in on the free plan"
+
+
+def test_lite_plan_has_only_lite_features(monkeypatch: pytest.MonkeyPatch) -> None:
+    _sign_in(monkeypatch, plan="lite")
+    assert licensing.is_pro() is True
+    assert licensing.has_feature("code_search") is True
+    assert licensing.has_feature("session_recall") is True
+    assert licensing.has_feature("optimizer") is True
+    assert licensing.has_feature("context_engine") is False
+    assert licensing.has_feature("cross_vendor_memory") is False
+    assert licensing.has_feature("savings_dashboard") is False
+    assert licensing.has_feature("governance") is False
+
+
+def test_pro_does_not_inherit_enterprise_features(monkeypatch: pytest.MonkeyPatch) -> None:
+    _sign_in(monkeypatch, plan="pro")
+    assert licensing.has_feature("model_routing") is True
+    assert licensing.has_feature("swarm") is True
+    assert licensing.has_feature("large_repo") is False
+    assert licensing.has_feature("shared_context") is False
+    assert licensing.has_feature("governance") is False
 
 
 def test_enterprise_plan_unlocks(monkeypatch: pytest.MonkeyPatch) -> None:
