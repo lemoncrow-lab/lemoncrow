@@ -48,17 +48,17 @@ def mcp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     save_route_config(root, RouteConfig(enabled_vendors=["anthropic", "openai", "google"]))
 
-    import lemoncrow.gateway.adapters.mcp_server as m
+    from lemoncrow.gateway.adapters.mcp import ledger
 
-    m._current_ledger = None
+    ledger._current_ledger = None
     return root
 
 
 def _last_model_recommendation_payload() -> dict[str, Any]:
-    import lemoncrow.gateway.adapters.mcp_server as m
+    from lemoncrow.gateway.adapters.mcp import ledger
 
-    assert m._current_ledger is not None
-    matches = [event.payload for event in m._current_ledger.events if event.kind == "model_recommendation"]
+    assert ledger._current_ledger is not None
+    matches = [event.payload for event in ledger._current_ledger.events if event.kind == "model_recommendation"]
     assert matches
     return matches[-1]
 
