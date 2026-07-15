@@ -266,6 +266,7 @@ def _index_repo_with_progress(
     engine: Any,
     *,
     force: bool = False,
+    steal: bool = False,
     include_globs: list[str] | None = None,
     exclude_globs: list[str] | None = None,
     description: str = "Indexing code",
@@ -341,6 +342,7 @@ def _index_repo_with_progress(
             payload = engine.index_repo(
                 force=force,
                 require_lock=True,
+                steal=steal,
                 include_globs=include_globs,
                 exclude_globs=exclude_globs,
                 progress_callback=_on_progress,
@@ -356,6 +358,7 @@ def _index_repo_with_progress(
         return engine.index_repo(
             force=force,
             require_lock=True,
+            steal=steal,
             include_globs=include_globs,
             exclude_globs=exclude_globs,
         ).model_dump(mode="json")
