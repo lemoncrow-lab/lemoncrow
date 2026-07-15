@@ -61,9 +61,12 @@ def main() -> int:
             from lemoncrow.core.capabilities.plugin_runtime import (
                 cap_exhausted,
                 reset_host_agents_for_dormancy,
+                reset_lemoncrow_global_dormancy,
             )
 
-            reset_host_agents_for_dormancy("codex", cwd or os.getcwd(), dormant=cap_exhausted(_lemoncrow_root()))
+            _dormant = cap_exhausted(_lemoncrow_root())
+            reset_host_agents_for_dormancy("codex", cwd or os.getcwd(), dormant=_dormant)
+            reset_lemoncrow_global_dormancy("codex", dormant=_dormant)
         except Exception:  # noqa: BLE001 — best-effort; never break the hook
             pass
 
