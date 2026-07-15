@@ -90,6 +90,13 @@ def _seed_token(root: Path, token: str) -> None:
     _write_json(
         auth_state_path(root), {"authenticated": True, "subscriptionStatus": {"plan": "pro", "capVerdictToken": token}}
     )
+    _establish(root)  # having a token means the machine is established
+
+
+def _establish(root: Path) -> None:
+    # Mark the machine as "established free" (has received a server token before),
+    # so the gate token-gates it instead of using the local meter.
+    (root / ".cap_established").touch()
 
 
 def _use_key(monkeypatch: pytest.MonkeyPatch, pub: str) -> None:
@@ -147,13 +154,27 @@ def test_free_over_cap_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert pr.cap_exhausted(tmp_path) is True  # signed over-cap -> dormant
 
 
-def test_free_no_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Free + pinned key + no token (offline / never checked in) -> fail CLOSED
-    # (built-in only). Enforcement is always on; no local-meter free ride.
+def test_free_established_no_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Established free machine (has checked in before) + no valid token now
+    # (offline / expired-away) -> fail CLOSED (built-in only).
     monkeypatch.setattr(entitlements, "is_pro", lambda: False)
     _priv, pub = _keypair()
     _use_key(monkeypatch, pub)
+    _establish(tmp_path)
     assert pr.cap_exhausted(tmp_path) is True
+
+
+def test_free_never_established_uses_local_meter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A fresh machine that has NEVER received a token (new install / dev / CI) is
+    # NOT bricked: it falls to the local meter (active under cap), never fail-
+    # closed. This is what keeps un-provisioned environments working.
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    assert pr.cap_exhausted(tmp_path) is False  # not established -> local meter -> active
 
 
 def test_free_expired_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
