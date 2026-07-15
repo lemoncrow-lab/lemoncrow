@@ -8,15 +8,36 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from lemoncrow.core.capabilities import licensing
+from lemoncrow.core.capabilities.licensing import cap_verdict as cv
 from lemoncrow.core.capabilities.licensing import entitlements, store
+from lemoncrow.pro.capabilities import licensing_gate as _gate
+
+# Test signing keypair — the gate's pinned public key is patched to _PUB_HEX in
+# the autouse fixture, so plan tokens signed here verify. Pro is signed-only now.
+_PRIV = Ed25519PrivateKey.generate()
+_PRIV_HEX = _PRIV.private_bytes(
+    serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()
+).hex()
+_PUB_HEX = _PRIV.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
+
+
+def _plan_token(plan: str) -> str:
+    import time
+
+    return cv.sign_cap_token(
+        {"plan": plan, "account_id": "u_1", "expires_at": int(time.time()) + 3600}, private_key_hex=_PRIV_HEX
+    )
 
 
 @pytest.fixture(autouse=True)
 def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(_gate, "_public_key_hex", lambda: _PUB_HEX)  # verify test plan tokens
     entitlements.reload()
     yield
     entitlements.reload()
@@ -24,7 +45,7 @@ def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
 def _sign_in(monkeypatch: pytest.MonkeyPatch, *, plan: str, email: str = "dev@example.com") -> None:
     monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "session-token")
-    store.save_auth_user({"user_id": "u_1", "email": email, "plan": plan})
+    store.save_auth_user({"user_id": "u_1", "email": email, "plan": plan, "plan_token": _plan_token(plan)})
     entitlements.reload()
 
 
@@ -67,7 +88,9 @@ def test_fetch_populates_cache_when_stale(monkeypatch: pytest.MonkeyPatch) -> No
 
     class _Resp:
         def read(self) -> bytes:
-            return json.dumps({"user_id": "u_1", "email": "d@e.com", "plan": "pro"}).encode()
+            return json.dumps(
+                {"user_id": "u_1", "email": "d@e.com", "plan": "pro", "plan_token": _plan_token("pro")}
+            ).encode()
 
         def __enter__(self) -> _Resp:
             return self
@@ -102,7 +125,9 @@ def test_refresh_plan_picks_up_fresh_purchase(monkeypatch: pytest.MonkeyPatch) -
     # The purchase lands server-side while the fresh disk cache still says free.
     class _Resp:
         def read(self) -> bytes:
-            return json.dumps({"user_id": "u_1", "email": "dev@example.com", "plan": "pro"}).encode()
+            return json.dumps(
+                {"user_id": "u_1", "email": "dev@example.com", "plan": "pro", "plan_token": _plan_token("pro")}
+            ).encode()
 
         def __enter__(self) -> _Resp:
             return self

@@ -104,13 +104,14 @@ def _persist_cap_verdict_token(data: dict[str, object]) -> None:
         pass
 
 
-# Phase-2 enforcement switch. While False (rollout), an UNSIGNED plan from
-# /api/auth/me is still honoured when no signed plan token is present, so pro
-# sessions that predate plan-token issuance are not locked out. Flip to True once
-# the auth server issues a signed ``plan_token`` for every session: then only a
-# valid signed token can grant pro, closing the forge-pro bypass (editing
-# auth.json, or `account login --dev` against a self-run localhost server).
-_REQUIRE_SIGNED_PLAN = False
+# Signed-only entitlement (ON). Only a valid server-signed ``plan_token`` (issued
+# by /api/auth/me, verified against the pinned public key) can grant pro; an
+# UNSIGNED plan is never trusted. This closes the forge-pro bypass: editing
+# auth.json, or `account login --dev` against a self-run localhost server that
+# returns {plan:"pro"}, no longer works (no valid token -> free). Safe to enable
+# because there are no pre-token pro sessions to lock out; the auth server issues
+# plan_token whenever CAP_SIGNING_KEY is set (see landing handleAuthMe).
+_REQUIRE_SIGNED_PLAN = True
 
 
 def _entitled_plan(data: dict[str, object]) -> str:
