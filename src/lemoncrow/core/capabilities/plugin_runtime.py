@@ -1391,17 +1391,8 @@ def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[
         state["native_tool_nudges"] = nudged
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    replacement_tool, rationale = replacement
-    return {
-        "message": f"LemonCrow policy: native tool '{tool_name}' was used where {replacement_tool} should be preferred.",
-        "additionalContext": "\n".join(
-            [
-                rationale,
-                "For coding tasks, call lc.context first if you have not already.",
-                "Keep native Codex tools as fallback only when the LemonCrow equivalent is hidden, unavailable, or returned noop.",
-            ]
-        ),
-    }
+    replacement_tool, _rationale = replacement
+    return {"message": f"Policy: native tool '{tool_name}' was used where {replacement_tool} should be preferred."}
 
 
 _CTX_NUDGE_DEFAULT_TOKENS = 160_000
@@ -1475,10 +1466,7 @@ def _maybe_emit_ctx_notice(
         detail.append("Compact at the next natural boundary to cut the per-turn re-read tax.")
 
     updated = mark_session_optimizer_notice(stats, "ctx_high")
-    return updated, {
-        "message": f"LemonCrow context guard: high context (~{ctx_k}k) — consider compacting",
-        "additionalContext": " ".join(detail),
-    }
+    return updated, {"message": f"LemonCrow context guard: high context (~{ctx_k}k) — consider compacting"}
 
 
 def build_codex_user_prompt_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
