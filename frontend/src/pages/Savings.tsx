@@ -291,8 +291,8 @@ export default function Savings() {
           description={
             <>
               Run any task with{" "}
-              <code className="bg-neutral-900 px-1">lc mcp</code> enabled
-              to start collecting savings telemetry.
+              <code className="bg-neutral-900 px-1">lc mcp</code> enabled to
+              start collecting savings telemetry.
             </>
           }
         />
@@ -358,7 +358,7 @@ export default function Savings() {
               <p className="mt-3 text-xs text-neutral-400">
                 Real paired command run: baseline{" "}
                 {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
-                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lemoncrow)}{" "}
+                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lc)}{" "}
                 tokens.
               </p>
             </section>
