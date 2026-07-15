@@ -20,10 +20,11 @@ version = "0.4.2"
 description = "Agent runtime for coding agents — reusable procedures, code intelligence, cost tracking, and model routing."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = { text = "FSL-1.1-ALv2" }
+license = { text = "Apache-2.0 (source) with a proprietary compiled engine (lemoncrow.pro); see LICENSE" }
 authors = [{ name = "LemonCrow" }]
 
-# FSL-1.1-ALv2 has no OSI-approved trove classifier; omit rather than misstate.
+# Mixed distribution: Apache-2.0 source + a proprietary compiled engine, so no
+# single OSI trove classifier applies; omit rather than misstate.
 classifiers = []
 
 dependencies = [
