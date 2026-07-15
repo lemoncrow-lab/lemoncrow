@@ -81,7 +81,7 @@ def test_solve_persona_protects_mechanical_deliverable_gates() -> None:
     solve_prompt = (REPO_ROOT / "integrations/claude/plugin/agents/solve.md").read_text(encoding="utf-8")
     assert "runnable candidate at the required location" in solve_prompt
     assert "never sleep-loop polls" in solve_prompt
-    assert "A numeric bar is the deliverable" in solve_prompt
+    assert "A threshold is the deliverable" in solve_prompt
 
 
 def test_run_keeps_token_out_of_logged_command(agent: LemonCrowClaudeCodeHarborAgent) -> None:
