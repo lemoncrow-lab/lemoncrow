@@ -112,7 +112,7 @@ def test_plan_token_binding_and_schema_fail_closed(overrides: dict[str, object])
 
 def test_plan_token_rejects_excessive_lifetime() -> None:
     private, public = _keypair()
-    token = _plan_token(private, "pro", issued=1000, expires=1000 + 25 * 3600 + 1)
+    token = _plan_token(private, "pro", issued=1000, expires=1000 + 9 * 3600 + 1)
     assert _verify(token, public, now=1500) is None
 
 
