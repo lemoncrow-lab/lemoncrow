@@ -1,6 +1,6 @@
 """Data models for the LemonCrow licensing layer.
 
-Entitlement comes from the OAuth session created by ``lc login``: the auth
+Entitlement comes from the OAuth session created by ``lc account login``: the auth
 server reports the account's plan, and paid plans unlock the gated surfaces.
 There are no offline license tokens -- the account's plan (checked server-side,
 cached locally) plus the proprietary overlay is the whole contract.

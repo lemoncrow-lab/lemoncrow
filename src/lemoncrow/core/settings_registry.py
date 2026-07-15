@@ -1799,7 +1799,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "licensing",
-        "OAuth session token created by `lc login`; used for plan checks.",
+        "OAuth session token created by `lc account login`; used for plan checks.",
     ),
     SettingSpec(
         "licensing.pro_url",

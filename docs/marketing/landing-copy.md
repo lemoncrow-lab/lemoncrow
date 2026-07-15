@@ -52,7 +52,7 @@ _Caption:_ Live badges are not the benchmark. They show real usage adding up. Th
 curl -fsSL https://install.lemoncrow.com | bash
     curl -fsSL https://install.lemoncrow.com | bash
     cd your-project
-    lc login
+    lc account login
     lc init
 
 Create a free account to activate the official install. Then open Claude Code like usual. LemonCrow adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).

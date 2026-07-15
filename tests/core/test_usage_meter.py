@@ -19,7 +19,8 @@ from lemoncrow.core.capabilities.savings_summary import _find_savings_sidecar, _
 
 
 @pytest.fixture()
-def lemoncrow_root(tmp_path: Path) -> Path:
+def lemoncrow_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.entitlements.auth_user", lambda: None)
     root = tmp_path / ".lemoncrow"
     root.mkdir()
     return root
@@ -192,6 +193,38 @@ def test_auth_status_enrichment_is_additive_and_live(lemoncrow_root: Path) -> No
     # ...and live meter fields added (monthlySavingsInUsd no longer hardcoded 0).
     assert sub["overLimit"] is True
     assert sub["monthlySavingsInUsd"] == pytest.approx(2.0)
+
+
+def test_oauth_subscription_overrides_stale_local_trial(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pr.claim_anonymous_trial(lemoncrow_root)
+    stale = pr.compute_usage_meter(lemoncrow_root)
+    pr._write_json(pr.subscription_state_path(lemoncrow_root), stale)
+    assert stale["plan"] == "LOCAL"
+    assert stale["monthlySavingsCapInUsd"] == 20.0
+
+    monkeypatch.setattr(
+        "lemoncrow.core.capabilities.licensing.entitlements.auth_user",
+        lambda: {
+            "plan": "pro",
+            "subscriptionStatus": {
+                "plan": "pro",
+                "monthlySavingsCapInUsd": None,
+                "monthlySavingsInUsd": 42.0,
+                "savingsMeterSource": "server",
+                "savingsOverCap": False,
+            },
+        },
+    )
+
+    resolved = pr.resolve_subscription(lemoncrow_root)
+    assert resolved["plan"] == "pro"
+    assert resolved["monthlySavingsCapInUsd"] is None
+
+    report = pr.build_savings_report(lemoncrow_root)
+    assert report["subscription"]["plan"] == "pro"
+    assert report["subscription"]["monthlySavingsCapInUsd"] is None
 
 
 def test_stop_event_refreshes_meter(lemoncrow_root: Path) -> None:

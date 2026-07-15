@@ -2,7 +2,7 @@
 
 The open core ships every capability. This package is the *gate*: a
 feature key is either free (always allowed) or Pro (allowed only when the
-signed-in account's plan is Pro/Enterprise). ``lc login`` creates the
+signed-in account's plan is Pro/Enterprise). ``lc account login`` creates the
 OAuth session; the plan comes from the auth server's ``/api/auth/me`` and is
 cached on disk for 6 h. Fail-closed: without a session or a fresh server
 answer, gated surfaces stay Free. There is no dev backdoor.

@@ -36,8 +36,7 @@ def register(cli: click.Group) -> None:
         cli.add_command(admin_commands.uninstall)
         _h(admin_commands.env_group)  # internal validation
         cli.add_command(admin_commands.env_group)
-        cli.add_command(admin_commands.login_cmd)
-        cli.add_command(admin_commands.logout_cmd)
+        cli.add_command(admin_commands.account_group)
         # status_cmd is registered as 'dashboard' later (with 'status' as hidden alias)
         _h(admin_commands.share_cmd)
         cli.add_command(admin_commands.share_cmd)

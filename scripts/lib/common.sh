@@ -2745,7 +2745,7 @@ run_setup() {
     # opens an interactive browser login when none is found. Running it earlier
     # under `spin` (which captures stdout via command substitution) breaks TTY
     # detection, so login could never actually open — it just failed straight
-    # to the "run lemoncrow login" error. Installation succeeds independent of this;
+    # to the "run lemoncrow account loginnt login" error. Installation succeeds independent of this;
     # only project activation needs it, so it only runs when a repo was
     # detected, after the install is already reported complete.
     #
