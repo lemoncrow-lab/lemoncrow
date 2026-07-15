@@ -36,3 +36,9 @@ def test_plain_allowlist_unchanged() -> None:
     assert mirror.is_public("docs/x.md", prefixes) is True
     assert mirror.is_public("src/a.py", prefixes) is True
     assert mirror.is_public("deploy/x", prefixes) is False
+
+
+def test_public_workflows_are_rewritten_to_github_workflows() -> None:
+    assert mirror.public_output_path(".github/public-workflows/tests.yml") == ".github/workflows/tests.yml"
+    assert mirror.public_output_path(".github/public-workflows") == ".github/workflows"
+    assert mirror.public_output_path("src/lemoncrow/__init__.py") == "src/lemoncrow/__init__.py"
