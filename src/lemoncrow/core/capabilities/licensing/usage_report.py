@@ -13,6 +13,7 @@ the Stop hook. Requires a signed-in account (anonymous/local reports nothing).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.request
@@ -57,6 +58,16 @@ def _write_watermark(root: str | Path, data: dict[str, Any]) -> None:
         p.write_text(json.dumps(data), encoding="utf-8")
     except OSError:
         pass
+
+
+def _machine_hash() -> str:
+    """Stable, non-reversible machine fingerprint for server-side anon-id
+    derivation. Hash of the OS machine id (``/etc/machine-id``, else a cached
+    UUID); only the hash ever leaves the machine. Empty on any failure."""
+    try:
+        return hashlib.sha256(store.load_or_create_device_id().encode("utf-8")).hexdigest()
+    except Exception:  # noqa: BLE001 — identity is best-effort; empty -> server falls back to random
+        return ""
 
 
 def _anon_token_path(root: str | Path) -> Path:
@@ -168,6 +179,10 @@ def report_usage_once(
     base = store.load_auth_base()
     if is_anon:
         payload["anon_token"] = anon_token or ""
+        # A stable, non-reversible machine hash so the server derives a STABLE
+        # anon-id (deleting the local anon token can't reset savings). We send
+        # only the hash, never the raw machine id.
+        payload["machine_id"] = _machine_hash()
         result = post(f"{base}/api/usage/report-anon", payload, "")
     else:
         result = post(f"{base}/api/usage/report", payload, token or "")
