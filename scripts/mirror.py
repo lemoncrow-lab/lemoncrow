@@ -41,6 +41,11 @@ MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
 DEFAULT_PUBLIC_REMOTE = "https://github.com/lemoncrowhq/lemoncrow.git"
 DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 
+# Public-only GitHub Actions live outside `.github/workflows` in the private
+# source repo so GitHub cannot run them there. The mirror publishes them at the
+# standard workflow path in the public repo.
+PUBLIC_PATH_REWRITES = ((".github/public-workflows", ".github/workflows"),)
+
 # The release wheel is built from this private repo (.github/workflows/release.yml)
 # with the full source, including the compiled-only `pro` engine (shipped as `.so`;
 # see hatch_build.py). The prebuilt wheel is cross-published to the public repo's
@@ -100,6 +105,16 @@ def is_public(path: str, prefixes: list[str]) -> bool:
         elif path == prefix or path.startswith(prefix + "/"):
             matched = True
     return matched
+
+
+def public_output_path(path: str) -> str:
+    """Translate a private source path to its location in the public mirror."""
+    for source, target in PUBLIC_PATH_REWRITES:
+        if path == source:
+            return target
+        if path.startswith(source + "/"):
+            return target + path[len(source) :]
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +202,7 @@ def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_
         meta, _, path = line.partition("\t")
         mode, _obj_type, sha = meta.split()
         if is_public(path, public_prefixes):
-            lines.append(f"{mode} {sha} 0\t{path}")
+            lines.append(f"{mode} {sha} 0\t{public_output_path(path)}")
     _update_index_info(index_path, lines)
     return _write_tree(index_path)
 
@@ -229,16 +244,17 @@ def _diff_add_remove(prev_dev_sha: str, curr_dev_sha: str, public_prefixes: list
         status_code = status[0]  # R100 -> R, etc.
         paths = rest.split("\t")
         if status_code == "D":
-            remove_paths.append(paths[0])
+            remove_paths.append(public_output_path(paths[0]))
             continue
         # A / M / T, and R / C (rename/copy target is the last field).
         target_path = paths[-1]
+        output_path = public_output_path(target_path)
         if is_public(target_path, public_prefixes):
-            add_lines.append(f"{new_mode} {new_sha} 0\t{target_path}")
+            add_lines.append(f"{new_mode} {new_sha} 0\t{output_path}")
         else:
-            remove_paths.append(target_path)
+            remove_paths.append(output_path)
         if status_code in ("R", "C") and len(paths) > 1:
-            remove_paths.append(paths[0])
+            remove_paths.append(public_output_path(paths[0]))
     return add_lines, remove_paths
 
 
