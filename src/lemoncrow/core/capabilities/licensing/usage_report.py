@@ -158,7 +158,8 @@ def report_usage_once(
     last_verdict = float(wm.get("verdict_at") or 0.0)
     need_refresh = is_anon and stamp - last_verdict >= VERDICT_REFRESH_SECONDS
     has_new_usage = saved_usd > prior_saved or spend_usd > prior_spend
-    if not has_new_usage and not need_bootstrap and not need_refresh:
+    counter_regressed = saved_usd < prior_saved or spend_usd < prior_spend
+    if not has_new_usage and not counter_regressed and not need_bootstrap and not need_refresh:
         return False
 
     payload: dict[str, Any] = {

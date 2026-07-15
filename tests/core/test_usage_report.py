@@ -64,6 +64,24 @@ def test_incremental_report_still_sends_monotonic_total(monkeypatch: pytest.Monk
     assert posted[-1]["payload"]["cumulative_saved_usd"] == 18.0
 
 
+def test_regressed_counter_is_reported_for_server_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    posted, post = _patch(monkeypatch, token="tok", saved=25.0)
+    assert ur.report_usage_once(tmp_path, http_post=post) is True  # type: ignore[arg-type]
+
+    from lemoncrow.core.capabilities import savings_summary
+
+    monkeypatch.setattr(
+        savings_summary,
+        "aggregate_window_savings",
+        lambda *a, **k: _Win(10.0),
+    )
+    assert ur.report_usage_once(tmp_path, http_post=post) is True  # type: ignore[arg-type]
+    assert posted[-1]["payload"]["cumulative_saved_usd"] == 10.0
+
+
 def test_deleted_local_watermark_replays_same_report_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     posted, post = _patch(monkeypatch, token="tok", saved=25.0)
     assert ur.report_usage_once(tmp_path, http_post=post) is True  # type: ignore[arg-type]
