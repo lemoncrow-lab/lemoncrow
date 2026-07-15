@@ -42,13 +42,6 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
     # scans short-circuit on `projects.is_dir()`; tests needing transcripts set
     # CLAUDE_CONFIG_DIR to their own fixture dir, which overrides this.
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "_isolated_claude_home"))
-    # Same isolation for the other host CLI stores the cap grace anchor consults
-    # (session_recall.host_session_activity_before): without this, a dev/CI box
-    # with a real ~/.codex or opencode DB would make fresh tmp roots look
-    # long-lived and flip cap tests to fail-closed. Point them at absent dirs so
-    # discovery short-circuits; tests needing them set their own value.
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "_isolated_codex_home"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "_isolated_xdg_data"))
     yield
 
 

@@ -209,11 +209,13 @@ def test_free_recent_sessions_within_grace_active(monkeypatch: pytest.MonkeyPatc
     assert pr.cap_exhausted(tmp_path) is False  # within grace -> local meter -> active
 
 
-def test_free_grace_over_from_host_claude_transcript(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Never established AND no LemonCrow sessions/ ledger at all -- but the machine's
-    # OWN Claude history (~/.claude/projects) holds a transcript older than the
-    # grace window. Deleting LemonCrow's local ledger must NOT reset the clock: the
-    # real host session file still proves the box is long-lived -> fail CLOSED.
+def test_free_fresh_install_with_old_claude_history_not_bricked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # REGRESSION: a fresh LemonCrow install (no sessions/ ledger) on a box with a
+    # long pre-existing ~/.claude history must NOT be treated as long-lived and
+    # bricked. Grace is keyed to LemonCrow's own install age, not host CLI history
+    # (essentially every real free user has old host transcripts).
     import os
 
     monkeypatch.setattr(entitlements, "is_pro", lambda: False)
@@ -223,14 +225,17 @@ def test_free_grace_over_from_host_claude_transcript(monkeypatch: pytest.MonkeyP
     proj.mkdir(parents=True)
     tr = proj / "11111111-2222-3333-4444-555555555555.jsonl"
     tr.write_text('{"type":"user"}\n', encoding="utf-8")
-    old = _t.time() - (49 * 3600)  # older than the 48h grace
+    old = _t.time() - (49 * 3600)  # old host history, but NOT LemonCrow's
     os.utime(tr, (old, old))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude_home"))
-    assert pr.cap_exhausted(tmp_path) is True  # host history past grace + no token -> fail closed
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    assert pr.cap_exhausted(tmp_path) is False  # fresh lc install -> local meter -> active
 
 
-def test_free_grace_over_from_host_codex_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Same, anchored to real Codex session state under $CODEX_HOME/sessions.
+def test_free_fresh_install_with_old_codex_history_not_bricked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Same regression, with old Codex history under $CODEX_HOME.
     import os
 
     monkeypatch.setattr(entitlements, "is_pro", lambda: False)
@@ -243,23 +248,27 @@ def test_free_grace_over_from_host_codex_session(monkeypatch: pytest.MonkeyPatch
     old = _t.time() - (49 * 3600)
     os.utime(f, (old, old))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
-    assert pr.cap_exhausted(tmp_path) is True
-
-
-def test_free_recent_host_transcript_within_grace_active(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Host history exists but is all within the grace window -> genuinely-recent
-    # machine -> local meter (fail-open), not bricked.
-    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
-    _priv, pub = _keypair()
-    _use_key(monkeypatch, pub)
-    proj = tmp_path / "claude_home" / "projects" / "-home-user-proj"
-    proj.mkdir(parents=True)
-    (proj / "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl").write_text('{"type":"user"}\n', encoding="utf-8")  # fresh mtime
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude_home"))
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
 
     _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
-    assert pr.cap_exhausted(tmp_path) is False  # within grace -> local meter -> active
+    assert pr.cap_exhausted(tmp_path) is False  # fresh lc install -> local meter -> active
+
+
+def test_free_grace_over_from_lemoncrow_sessions_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Grace IS over once LemonCrow's OWN ledger is older than the window (this
+    # install has run >48h without a server token) -> fail CLOSED.
+    import os
+
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    sess = tmp_path / "sessions" / "s1"
+    sess.mkdir(parents=True)
+    ledger = sess / "savings.jsonl"
+    ledger.write_text("{}\n", encoding="utf-8")
+    old = _t.time() - (49 * 3600)
+    os.utime(ledger, (old, old))
+    assert pr.cap_exhausted(tmp_path) is True  # own ledger past grace + no token -> fail closed
 
 
 def test_free_expired_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
