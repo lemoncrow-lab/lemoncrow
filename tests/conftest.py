@@ -46,6 +46,20 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
 
 
 @pytest.fixture(autouse=True)
+def _development_cap_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use the compiled gate's documented no-key development mode in unit tests.
+
+    Production wheels keep their pinned key. Tests that exercise signatures
+    explicitly replace this mock with their own generated keypair; ordinary
+    tool-handler tests remain hermetic and never need a network-issued token.
+    """
+
+    from lemoncrow.pro.capabilities import licensing_gate
+
+    monkeypatch.setattr(licensing_gate, "_public_key_hex", lambda: "")
+
+
+@pytest.fixture(autouse=True)
 def _no_network_sync() -> Iterator[None]:
     """Block all outbound sync_usage calls so no test ever hits lemoncrow.beseam.com."""
     with patch("lemoncrow.core.service.sync.sync_usage", return_value=True):
