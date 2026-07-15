@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 
 from lemoncrow.core.capabilities.session_replay import (
-    _is_lemoncrow_search,
     _is_grep,
+    _is_lemoncrow_search,
     _is_whole_file_read,
     build_replay,
     detect_episodes,
