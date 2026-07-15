@@ -3,8 +3,8 @@
 The client sends monotonic cumulative totals. The server owns the per-device
 watermark and derives the delta transactionally, so local watermark deletion,
 concurrent reporters, and lost-response retries cannot reset or double-count
-usage. Anonymous clients also refresh their signed verdict before its 24-hour
-expiry even when no new usage was recorded.
+usage. Anonymous clients also refresh their signed verdict every two hours,
+well before its eight-hour expiry, even when no new usage was recorded.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from lemoncrow.core.capabilities.licensing import store
 from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
 
 REPORT_INTERVAL_SECONDS = 30 * 60
-VERDICT_REFRESH_SECONDS = 6 * 60 * 60
+VERDICT_REFRESH_SECONDS = 2 * 60 * 60
 _LIFETIME_DAYS = 36_500
 
 _HttpPost = Callable[[str, dict[str, Any], str], "dict[str, Any] | None"]
