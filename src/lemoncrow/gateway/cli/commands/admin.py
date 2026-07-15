@@ -69,6 +69,18 @@ def _detect_git_root(search_path: Path) -> Path | None:
 
 from lemoncrow.core.foundation.paths import ensure_gitignore as _ensure_gitignore  # noqa: E402
 
+
+def _bootstrap_anonymous_verdict(root: Path) -> bool:
+    """Best-effort first signed verdict for an explicit anonymous transition."""
+
+    try:
+        from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
+
+        return maybe_report_usage(root)
+    except Exception:  # noqa: BLE001 — offline init/logout remains usable but fail-closed
+        return False
+
+
 _RUNTIME_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "general", "explore", "plan", "research", "review")
 _HOST_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "explore", "plan", "research", "review")
 _CUSTOM_MODEL_OPTION = "Others (Enter model)"
@@ -673,6 +685,11 @@ def init(
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     store.init()
+    if not login:
+        # Anonymous enforcement needs a server-signed, stable machine identity.
+        # Bootstrap it during the explicit transition instead of waiting for the
+        # background reconciler; an offline request simply leaves the gate closed.
+        _bootstrap_anonymous_verdict(root)
     click.echo(
         f"  {click.style('✓', fg='green')} {click.style('store', fg=(155, 117, 217))} {click.style(f'initialized at {store.knowledge.root}', dim=True)}"
     )
@@ -1379,6 +1396,7 @@ def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: b
 
     if anonymous:
         payload = {"auth": claim_anonymous_trial(ctx.obj["root"]), "mode": "anonymous"}
+        _bootstrap_anonymous_verdict(ctx.obj["root"])
         if as_json:
             _emit(payload, as_json=True)
             return
@@ -1466,6 +1484,8 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
     delete_auth_user()
     delete_auth_base()
     payload = logout_local(ctx.obj["root"], claim_trial=not no_trial)
+    if not no_trial:
+        _bootstrap_anonymous_verdict(ctx.obj["root"])
     if as_json:
         _emit(payload, as_json=True)
         return
