@@ -34,7 +34,7 @@ def _make_fake_install(root: Path, marker: str) -> Path:
     )
     python_path.chmod(python_path.stat().st_mode | stat.S_IEXEC)
 
-    lemoncrow_path = bin_dir / "lc"
+    lemoncrow_path = bin_dir / "lemoncrow"
     lemoncrow_path.write_text(f"#!{python_path}\n", encoding="utf-8")
     lemoncrow_path.chmod(lemoncrow_path.stat().st_mode | stat.S_IEXEC)
     return bin_dir
