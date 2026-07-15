@@ -1551,14 +1551,23 @@ ensure_lc_alias() {
     local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
     [[ -x "${lemoncrow_bin}" ]] || return 0
 
-    local found resolved dabs
+    local found resolved dabs lemoncrow_real
+    lemoncrow_real="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && realpath lemoncrow 2>/dev/null || readlink -f "${lemoncrow_bin}" 2>/dev/null || echo "${lemoncrow_bin}")"
     found="$(command -v lc 2>/dev/null || true)"
     if [[ -n "${found}" ]]; then
-        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found}")" 2>/dev/null || resolved="${found}"
+        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found})" 2>/dev/null || resolved="${found}"
         dabs="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && pwd -P || echo "${LEMONCROW_BIN_DIR}")"
         case "${resolved}" in
             "${dabs}"/*) ;;  # already ours (a prior lc symlink here) -- fine to (re)link
             *)
+                # Check if existing lc already resolves to lemoncrow
+                local existing_real
+                existing_real="$(cd "$(dirname "${found}")" 2>/dev/null && realpath "$(basename "${found}")" 2>/dev/null || readlink -f "${found}" 2>/dev/null || echo "${found}")"
+                if [[ "${existing_real}" == "${lemoncrow_real}" ]]; then
+                    verbose "'lc' already resolves to lemoncrow at ${found}"
+                    LC_ALIAS_AVAILABLE=1
+                    return 0
+                fi
                 verbose "Skipping 'lc' alias -- a different 'lc' is already on PATH: ${found}"
                 return 0
                 ;;
