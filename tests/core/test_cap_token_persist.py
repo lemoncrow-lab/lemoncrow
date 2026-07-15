@@ -79,8 +79,8 @@ def test_usage_report_persists_token_from_response(monkeypatch: pytest.MonkeyPat
     assert sub["capVerdictToken"] == "server.signed.tok"
 
 
-def test_usage_report_success_without_body_still_advances(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # A 2xx with an empty body ({}) is success: watermark advances, no token.
+def test_usage_report_without_verdict_does_not_advance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A 2xx without the required signed verdict is incomplete and must retry.
     from lemoncrow.core.capabilities import savings_summary
     from lemoncrow.core.capabilities.licensing import store
     from lemoncrow.core.capabilities.licensing import usage_report as ur
@@ -93,9 +93,9 @@ def test_usage_report_success_without_body_still_advances(monkeypatch: pytest.Mo
     monkeypatch.setattr(store, "load_auth_base", lambda: "https://api.test")
     monkeypatch.setattr(savings_summary, "aggregate_window_savings", lambda *a, **k: _Win())
 
-    assert ur.report_usage_once(tmp_path, http_post=lambda *a: {}) is True  # type: ignore[arg-type]
+    assert ur.report_usage_once(tmp_path, http_post=lambda *a: {}) is False  # type: ignore[arg-type]
     assert not pr.subscription_state_path(tmp_path).exists()
-    # second call: no new delta -> no post
+    # The watermark did not advance, so the same cumulative report retries.
     assert ur.report_usage_once(tmp_path, http_post=lambda *a: {}) is False  # type: ignore[arg-type]
 
 
