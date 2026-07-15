@@ -25,10 +25,11 @@ logger = logging.getLogger(__name__)
 _POLL_SECONDS = 300.0
 _DISABLED_VALUES = {"0", "false", "no", "off"}
 
-# Day buckets older than this are pruned from savings_aggregate.json so the
-# file cannot grow without bound. Override via LEMONCROW_SAVINGS_RETENTION_DAYS;
-# <= 0 disables pruning.
-_DEFAULT_RETENTION_DAYS = 365
+# The usage reporter treats this aggregate as a monotonic cumulative counter.
+# Keep its day buckets for the same 100-year horizon the reporter requests;
+# shortening retention would look like a local reset and correctly lock capped
+# plans. Override only for development; <= 0 disables pruning.
+_DEFAULT_RETENTION_DAYS = 36_500
 
 
 def _reconcile_enabled() -> bool:
