@@ -261,9 +261,9 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     assert data["compact_session_history"][0]["tokens_freed"] == 3_200
 
     assert data["context_audit"]["always_on_tokens"] > 0
-    # Note: component_count varies with bundled seed_playbooks / rubrics presence.
-    # Post-launch, the bundled-seed directory ships empty by default.
-    assert data["context_audit"]["component_count"] >= 2
+    # Repo guidance is the only guaranteed always-on component; post-launch
+    # bundled seed playbooks and rubrics are intentionally empty.
+    assert data["context_audit"]["component_count"] >= 1
     assert any(item["id"] == "repo_guidance" for item in data["context_audit"]["components"])
 
     assert data["quality_score"]["trace_count"] == 3

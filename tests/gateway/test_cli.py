@@ -70,13 +70,13 @@ def _seed_rescue_block(root: Path) -> None:
     )
 
 
-def test_init_seeds_blocks_and_rubrics(tmp_path: Path, monkeypatch) -> None:
+def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "free-account-token")
     res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
-    assert "seeded" in res.output
-    assert "playbooks and" in res.output
-    assert "rubrics" in res.output
+    assert "store initialized" in res.output
+    assert "Code index ready" in res.output
+    assert "seeded" not in res.output
 
 
 def test_init_requires_a_free_account(tmp_path: Path, monkeypatch) -> None:
