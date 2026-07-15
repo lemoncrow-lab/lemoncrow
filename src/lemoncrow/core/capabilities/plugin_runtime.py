@@ -402,12 +402,34 @@ def logout_local(root: str | Path, *, claim_trial: bool = True) -> dict[str, Any
     return {"logged_out": True, "anonymous": None}
 
 
+def resolve_subscription(root: str | Path) -> dict[str, Any]:
+    """Resolve subscription state with OAuth as the canonical source."""
+    from lemoncrow.core.capabilities.licensing import entitlements
+
+    account = entitlements.auth_user()
+    if isinstance(account, dict):
+        nested = account.get("subscriptionStatus") or account.get("subscription_status")
+        subscription = dict(nested) if isinstance(nested, dict) else {}
+        if account.get("plan"):
+            subscription["plan"] = account["plan"]
+        if subscription:
+            return subscription
+
+    auth = _read_json(auth_state_path(root), None)
+    if isinstance(auth, dict):
+        nested = auth.get("subscriptionStatus")
+        if isinstance(nested, dict) and nested:
+            return dict(nested)
+    subscription = _read_json(subscription_state_path(root), {})
+    return dict(subscription) if isinstance(subscription, dict) else {}
+
+
 def auth_status(root: str | Path) -> dict[str, Any]:
     auth = _read_json(auth_state_path(root), None)
     if not isinstance(auth, dict):
         return {"authenticated": False, "isAnonymous": False, "root": str(Path(root))}
     normalized = normalize_auth_credentials(auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous")))
-    subscription = normalized.get("subscriptionStatus") or _read_json(subscription_state_path(root), {})
+    subscription = resolve_subscription(root)
     subscription = compute_usage_meter(root, subscription=subscription)
     return {
         "authenticated": bool(normalized.get("authenticated")),
@@ -468,11 +490,7 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     """
     root_path = Path(root)
     if subscription is None:
-        # The canonical plan blob lives in auth.json under subscriptionStatus;
-        # fall back to a standalone subscription.json when auth has none.
-        auth = _read_json(auth_state_path(root_path), {})
-        raw_sub = auth.get("subscriptionStatus") if isinstance(auth, dict) else None
-        subscription = raw_sub or _read_json(subscription_state_path(root_path), {})
+        subscription = resolve_subscription(root_path)
     subscription = dict(subscription) if isinstance(subscription, dict) else {}
     # Server-authoritative meter: when the auth server (/api/auth/me) computes
     # the savings meter it stamps ``savingsMeterSource="server"`` and a real
@@ -4808,10 +4826,7 @@ def build_savings_report(
     lifetime.setdefault("calls_saved", calls_avoided)
     lifetime.setdefault("tokens_saved", tokens_saved)
     lifetime.setdefault("saved_usd", saved_usd)
-    auth = auth_status(root_path)
-    subscription = _read_json(subscription_state_path(root_path), auth.get("subscription") or {})
-    if not isinstance(subscription, dict):
-        subscription = {}
+    subscription = resolve_subscription(root_path)
     subscription = compute_usage_meter(root_path, subscription=subscription)
     ab_calibration = _summarize_ab_calibration(root_path)
 
