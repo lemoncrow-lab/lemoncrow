@@ -71,7 +71,29 @@ def _fetch_auth_user(auth_token: str) -> dict[str, object] | None:
     if not isinstance(data, dict):
         return None
     store.save_auth_user(data)
+    _persist_cap_verdict_token(data)
     return data
+
+
+def _persist_cap_verdict_token(data: dict[str, object]) -> None:
+    """Copy the server's signed cap verdict from /api/auth/me to the gate's store.
+
+    The compiled gate reads ``capVerdictToken`` from ``auth.json`` /
+    ``subscription.json``; ``/api/auth/me`` delivers it (top-level, or nested
+    under ``subscriptionStatus``). Best-effort — never raises into the fetch.
+    """
+    try:
+        tok = data.get("capVerdictToken")
+        if not isinstance(tok, str) or not tok:
+            sub = data.get("subscriptionStatus")
+            tok = sub.get("capVerdictToken") if isinstance(sub, dict) else None
+        if isinstance(tok, str) and tok:
+            from lemoncrow.core.capabilities.plugin_runtime import persist_cap_verdict_token
+            from lemoncrow.core.foundation.paths import default_store_root
+
+            persist_cap_verdict_token(default_store_root(), tok)
+    except Exception:  # noqa: BLE001 — token persistence must never break auth
+        pass
 
 
 def _resolve() -> _Resolved:

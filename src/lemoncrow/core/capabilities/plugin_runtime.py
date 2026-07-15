@@ -120,6 +120,43 @@ def subscription_state_path(root: str | Path) -> Path:
     return Path(root) / "subscription.json"
 
 
+def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
+    """Persist the server's signed cap-verdict token where the gate reads it.
+
+    The compiled gate (:func:`licensing_gate._cap_verdict_token`) prefers
+    ``auth.json``'s ``subscriptionStatus.capVerdictToken`` and falls back to
+    ``subscription.json``. We write into ``auth.json`` when it exists (the
+    canonical plan blob, and the copy that survives
+    :func:`refresh_subscription_meter`), else into ``subscription.json``.
+
+    Idempotent and best-effort: an empty/unchanged token, or any write error,
+    is a no-op — this is called from network paths that must never raise.
+    """
+    if not isinstance(token, str) or not token:
+        return
+    root_path = Path(root)
+    auth = _read_json(auth_state_path(root_path), None)
+    if isinstance(auth, dict):
+        sub = auth.get("subscriptionStatus")
+        if not isinstance(sub, dict):
+            sub = {}
+        if sub.get("capVerdictToken") == token:
+            return  # unchanged -> skip the write
+        sub["capVerdictToken"] = token
+        auth["subscriptionStatus"] = sub
+        with suppress(OSError, ValueError):
+            _write_json(auth_state_path(root_path), auth, mode=0o600)
+        return
+    sub = _read_json(subscription_state_path(root_path), {})
+    if not isinstance(sub, dict):
+        sub = {}
+    if sub.get("capVerdictToken") == token:
+        return
+    sub["capVerdictToken"] = token
+    with suppress(OSError, ValueError):
+        _write_json(subscription_state_path(root_path), sub)
+
+
 def _summarize_ab_calibration(root: str | Path) -> dict[str, Any]:
     """Summarise rolling A/B measurements from ``savings_calibration.jsonl``.
 
