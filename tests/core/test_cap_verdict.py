@@ -143,6 +143,71 @@ def test_free_machine_gets_no_signed_token_grace(monkeypatch: pytest.MonkeyPatch
     assert pr.cap_exhausted(tmp_path) is True  # local meter used, token grace NOT applied
 
 
+# --- free-tier token enforcement (rollout flag LEMONCROW_FREE_ENFORCED) ------
+def test_free_enforced_under_cap_active(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.setenv("LEMONCROW_FREE_ENFORCED", "1")
+    priv, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    tok = cv.sign_cap_token(_payload(over=False, expires=int(_t.time()) + 3600), private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    assert pr.cap_exhausted(tmp_path) is False  # valid under-cap free verdict -> active
+
+
+def test_free_enforced_over_cap_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.setenv("LEMONCROW_FREE_ENFORCED", "1")
+    priv, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    tok = cv.sign_cap_token(_payload(over=True, expires=int(_t.time()) + 3600), private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    assert pr.cap_exhausted(tmp_path) is True  # signed over-cap -> dormant
+
+
+def test_free_enforced_no_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.setenv("LEMONCROW_FREE_ENFORCED", "1")
+    _priv, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    # No token seeded: offline / never-checked-in free machine -> built-in only.
+    assert pr.cap_exhausted(tmp_path) is True
+
+
+def test_free_enforced_expired_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.setenv("LEMONCROW_FREE_ENFORCED", "1")
+    priv, pub = _keypair()
+    monkeypatch.setenv("LEMONCROW_CAP_PUBLIC_KEY", pub)
+    tok = cv.sign_cap_token(_payload(over=False, expires=1), private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    assert pr.cap_exhausted(tmp_path) is True  # expired -> untrusted -> fail-CLOSED
+
+
+def test_free_enforced_off_by_default_uses_local_meter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Default (flag unset): a no-token free machine uses the local meter and is
+    # NOT bricked. This is the pre-rollout safety net.
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.delenv("LEMONCROW_FREE_ENFORCED", raising=False)
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    assert pr.cap_exhausted(tmp_path) is False  # local meter, under cap -> active
+
+
+def test_free_enforced_but_not_configured_uses_local_meter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Flag ON but no pinned key -> cannot verify -> local meter (never brick when
+    # verification is impossible).
+    from lemoncrow.pro.capabilities import licensing_gate as _gate
+
+    monkeypatch.setattr(entitlements, "is_pro", lambda: False)
+    monkeypatch.setenv("LEMONCROW_FREE_ENFORCED", "1")
+    monkeypatch.setattr(_gate, "_public_key_hex", lambda: "")
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    assert pr.cap_exhausted(tmp_path) is False
+
+
 # --- Compiled-gate wiring: the .so is the single authority -------------------
 from lemoncrow.pro.capabilities import licensing_gate as _gate  # noqa: E402
 
