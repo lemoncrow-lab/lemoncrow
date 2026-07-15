@@ -195,9 +195,7 @@ def test_auth_status_enrichment_is_additive_and_live(lemoncrow_root: Path) -> No
     assert sub["monthlySavingsInUsd"] == pytest.approx(2.0)
 
 
-def test_oauth_subscription_overrides_stale_local_trial(
-    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_oauth_subscription_overrides_stale_local_trial(lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pr.claim_anonymous_trial(lemoncrow_root)
     stale = pr.compute_usage_meter(lemoncrow_root)
     pr._write_json(pr.subscription_state_path(lemoncrow_root), stale)

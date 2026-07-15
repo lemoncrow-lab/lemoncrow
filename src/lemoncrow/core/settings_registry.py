@@ -93,7 +93,12 @@ SETTINGS: list[SettingSpec] = [
     ),
     # -- service: local HTTP service (lcd) --
     SettingSpec(
-        "service.enabled", "LEMONCROW_SERVICE_ENABLED", "bool", False, "service", "Enable the local LemonCrow HTTP service."
+        "service.enabled",
+        "LEMONCROW_SERVICE_ENABLED",
+        "bool",
+        False,
+        "service",
+        "Enable the local LemonCrow HTTP service.",
     ),
     SettingSpec(
         "service.require_auth",
@@ -120,7 +125,12 @@ SETTINGS: list[SettingSpec] = [
         "Bind host for the local LemonCrow HTTP service.",
     ),
     SettingSpec(
-        "service.port", "LEMONCROW_SERVICE_PORT", "int", 8787, "service", "Bind port for the local LemonCrow HTTP service."
+        "service.port",
+        "LEMONCROW_SERVICE_PORT",
+        "int",
+        8787,
+        "service",
+        "Bind port for the local LemonCrow HTTP service.",
     ),
     SettingSpec(
         "service.storage_backend",
@@ -1154,7 +1164,12 @@ SETTINGS: list[SettingSpec] = [
         "Time-to-live (seconds) for spilled tool-output files.",
     ),
     SettingSpec(
-        "mcp.http", "LEMONCROW_MCP_HTTP", "bool", False, "mcp", "Expose the MCP server over HTTP (in addition to stdio)."
+        "mcp.http",
+        "LEMONCROW_MCP_HTTP",
+        "bool",
+        False,
+        "mcp",
+        "Expose the MCP server over HTTP (in addition to stdio).",
     ),
     SettingSpec(
         "mcp.http_max_body_bytes",
@@ -1604,7 +1619,9 @@ SETTINGS: list[SettingSpec] = [
         "zoekt",
         "Expected SHA-256 of the zoekt binary (integrity pin for a custom binary).",
     ),
-    SettingSpec("zoekt.mode", "LEMONCROW_ZOEKT_MODE", "str", "", "zoekt", "zoekt integration mode override (e.g. off)."),
+    SettingSpec(
+        "zoekt.mode", "LEMONCROW_ZOEKT_MODE", "str", "", "zoekt", "zoekt integration mode override (e.g. off)."
+    ),
     SettingSpec(
         "zoekt.loc_threshold",
         "LEMONCROW_ZOEKT_LOC_THRESHOLD",
@@ -1919,7 +1936,13 @@ SETTINGS: list[SettingSpec] = [
         settable=False,
     ),
     SettingSpec(
-        "core.store_root", "LEMONCROW_STORE_ROOT", "str", None, "core", "Legacy alias for LEMONCROW_ROOT.", settable=False
+        "core.store_root",
+        "LEMONCROW_STORE_ROOT",
+        "str",
+        None,
+        "core",
+        "Legacy alias for LEMONCROW_ROOT.",
+        settable=False,
     ),
     SettingSpec(
         "core.workspace_root",

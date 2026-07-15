@@ -27,7 +27,9 @@ def test_tips_can_be_disabled(tmp_path: Path) -> None:
 
 def test_tips_disabled_via_nested_lemoncrow_block(tmp_path: Path) -> None:
     _authed(tmp_path)
-    (tmp_path / "plugin_settings.json").write_text(json.dumps({"lemoncrow": {"statusLineTips": False}}), encoding="utf-8")
+    (tmp_path / "plugin_settings.json").write_text(
+        json.dumps({"lemoncrow": {"statusLineTips": False}}), encoding="utf-8"
+    )
     assert _resolve_status_text(tmp_path) == ""
 
 
