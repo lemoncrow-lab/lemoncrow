@@ -38,7 +38,7 @@ const config: Config = {
     ],
   ],
   themeConfig: {
-    image: "img/lemoncrow-logo.svg",
+    image: "img/og.png",
     colorMode: {
       defaultMode: "light",
       respectPrefersColorScheme: false,
