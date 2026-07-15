@@ -104,26 +104,14 @@ def _persist_cap_verdict_token(data: dict[str, object]) -> None:
         pass
 
 
-# Signed-only entitlement (ON). Only a valid server-signed ``plan_token`` (issued
-# by /api/auth/me, verified against the pinned public key) can grant pro; an
-# UNSIGNED plan is never trusted. This closes the forge-pro bypass: editing
-# auth.json, or `account login --dev` against a self-run localhost server that
-# returns {plan:"pro"}, no longer works (no valid token -> free). Safe to enable
-# because there are no pre-token pro sessions to lock out; the auth server issues
-# plan_token whenever CAP_SIGNING_KEY is set (see landing handleAuthMe).
-_REQUIRE_SIGNED_PLAN = True
-
-
 def _entitled_plan(data: dict[str, object]) -> str:
     """Resolve the account plan, preferring the server-SIGNED plan token over the
     forgeable unsigned ``plan`` field (see licensing_gate.plan_from_token).
 
     - valid signed token -> its plan (authoritative, tamper-resistant).
     - token present but invalid/expired -> ``free`` (distrust a bad/forged token).
-    - no token -> unsigned ``plan`` during rollout, or ``free`` once
-      ``_REQUIRE_SIGNED_PLAN`` is on.
+    - no token -> ``free``.
     """
-    unsigned = str(data.get("plan") or "free")
     raw_token = data.get("plan_token")
     token = raw_token if isinstance(raw_token, str) and raw_token else None
     try:
@@ -136,7 +124,7 @@ def _entitled_plan(data: dict[str, object]) -> str:
         return signed
     if token is not None:
         return "free"  # a token was issued but did not verify -> never trust unsigned
-    return "free" if _REQUIRE_SIGNED_PLAN else unsigned
+    return "free"
 
 
 def _resolve() -> _Resolved:
