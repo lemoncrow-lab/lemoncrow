@@ -14,6 +14,7 @@ from typing import Any
 import click
 import yaml
 
+from lemoncrow.core.capabilities.code_context_contract import IndexLockTimeout
 from lemoncrow.core.capabilities.model_settings import (
     TOP_MODEL_CHOICES,
     build_runtime_settings_payload,
@@ -617,7 +618,7 @@ def _parse_since_arg(value: str) -> datetime:
     "--force",
     is_flag=True,
     default=False,
-    help="Force index rebuild even if another process holds the index lock.",
+    help="Deprecated compatibility flag; a live SQLite writer is never bypassed.",
 )
 @click.option(
     "--configure-models/--no-configure-models",
@@ -734,19 +735,25 @@ def init(
             )
 
             engine = _code_context_engine(str(git_root))
-            stats = _index_repo_with_progress(
-                engine,
-                steal=force,
-                description="Bootstrapping code index",
-                success_description="Code index ready",
-            )
-            fi = stats["files_indexed"]
-            si = stats["symbols_indexed"]
-            ii = stats["imports_indexed"]
-            click.echo(
-                f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
-                f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
-            )
+            try:
+                stats = _index_repo_with_progress(
+                    engine,
+                    steal=force,
+                    description="Bootstrapping code index",
+                    success_description="Code index ready",
+                )
+            except IndexLockTimeout:
+                if force:
+                    raise
+                click.echo("code index skipped (another LemonCrow process is indexing); retry when it finishes")
+            else:
+                fi = stats["files_indexed"]
+                si = stats["symbols_indexed"]
+                ii = stats["imports_indexed"]
+                click.echo(
+                    f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
+                    f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
+                )
         else:
             click.echo("code index skipped (no git repository detected in current directory)")
     git_root = _detect_git_root(Path.cwd())

@@ -667,7 +667,7 @@ def _fmt_hms(seconds: float) -> str:
 _EXPLORE_WARMUP_SCRIPT = """
 import sys
 from pathlib import Path
-from lemoncrow.core.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
 ws_path, query = sys.argv[1], sys.argv[2]
 engine = CodeContextEngine(Path(ws_path))
