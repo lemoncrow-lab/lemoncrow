@@ -139,27 +139,26 @@ Packaged in [integrations/skills/](integrations/skills/):
 
 ## Check your own savings
 
-Do not take our 30% claim on faith — scan your own local agent history before installing:
+
+### Check all savings after install
+
+After LemonCrow is installed, inspect all savings and missed opportunities in
+your local session history:
 
 ```bash
-curl -fsSL https://savings.lemoncrow.com | bash
+lemoncrow session stats
 ```
 
-It reads local Claude/Codex session files, estimates where LemonCrow would have used fewer tokens or cheaper tool calls, and prints savings from your own history. Temporary local store — no account, no API keys.
-
-Useful variants:
-
-```bash
-curl -fsSL https://savings.lemoncrow.com | bash -s -- --since 30d --top 10
-curl -fsSL https://savings.lemoncrow.com | bash -s -- --host codex --limit 20
-```
+The report is read-only. It counts wasted tool calls and round-trips in your
+Claude Code, Codex, and opencode sessions, then shows the associated token,
+cost, and time opportunity.
 
 ### Replay a past session
 
-`lc session replay` plays back a recorded session and, for each native call, **runs the real LemonCrow tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** LemonCrow would have saved. No model re-run, nothing written; opens a shareable HTML page.
+`lemoncrow session replay` plays back a recorded session and, for each native call, **runs the real LemonCrow tool that would have replaced it** — grep/read loops collapse into one `code_search`, whole-file reads become budgeted outlines, `bash` logs get capped. It then estimates — from that session alone — the **cost, savings opportunity, and time** LemonCrow would have saved. No model re-run, nothing written; opens a shareable HTML page.
 
 ```bash
-lc session replay --last 1
+lemoncrow session replay
 ```
 
 Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; the live re-measured A/B is `lc benchmark local`.
