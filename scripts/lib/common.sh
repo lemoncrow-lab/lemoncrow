@@ -1555,7 +1555,7 @@ ensure_lc_alias() {
     lemoncrow_real="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && realpath lemoncrow 2>/dev/null || readlink -f "${lemoncrow_bin}" 2>/dev/null || echo "${lemoncrow_bin}")"
     found="$(command -v lc 2>/dev/null || true)"
     if [[ -n "${found}" ]]; then
-        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found})" 2>/dev/null || resolved="${found}"
+        resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found}")" 2>/dev/null || resolved="${found}"
         dabs="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && pwd -P || echo "${LEMONCROW_BIN_DIR}")"
         case "${resolved}" in
             "${dabs}"/*) ;;  # already ours (a prior lc symlink here) -- fine to (re)link
@@ -1576,6 +1576,17 @@ ensure_lc_alias() {
 
     ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/lc"
     LC_ALIAS_AVAILABLE=1
+
+    # Mirror into ~/.local/bin too: MCP host configs (Claude Code, opencode)
+    # spawn the bare `lc` command, and ~/.local/bin is on PATH far more
+    # reliably across non-login/GUI-spawned shells than LEMONCROW_BIN_DIR,
+    # whose PATH export only takes effect for shells started after the rc
+    # edit ran. Skip if something else already occupies the name there.
+    local local_bin="${HOME}/.local/bin"
+    if [[ ! -e "${local_bin}/lc" ]]; then
+        mkdir -p "${local_bin}" 2>/dev/null || true
+        ln -sf "${LEMONCROW_BIN_DIR}/lc" "${local_bin}/lc" 2>/dev/null || true
+    fi
 }
 
 # Install uv (Python package/tool manager) via the official installer.

@@ -371,6 +371,16 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
         ln -sf "${LEMONCROW_BIN_DIR}/lemoncrow" "$LOCAL_BIN/lemoncrow"
         info "Symlinked lemoncrow -> ${LOCAL_BIN}/lemoncrow"
     fi
+    # Same for the short `lc` alias and the `lcd` daemon entrypoint -- MCP
+    # host configs (e.g. Claude Code's mcpServers) invoke the bare `lc`
+    # command, so it needs the same non-login-shell fallback as `lemoncrow`.
+    for short_bin in lc lcd; do
+        if [[ -e "${LEMONCROW_BIN_DIR}/${short_bin}" && ! -e "$LOCAL_BIN/${short_bin}" ]]; then
+            mkdir -p "$LOCAL_BIN" 2>/dev/null || true
+            ln -sf "${LEMONCROW_BIN_DIR}/${short_bin}" "$LOCAL_BIN/${short_bin}"
+            info "Symlinked ${short_bin} -> ${LOCAL_BIN}/${short_bin}"
+        fi
+    done
     if [[ -f "$PROFILE" ]] && ! grep -q "lemoncrow.*PATH" "$PROFILE" 2>/dev/null; then
         {
             echo ""
