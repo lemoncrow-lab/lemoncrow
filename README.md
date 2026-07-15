@@ -257,9 +257,9 @@ Claude is strong; the loop around it is wasteful — grep, read a whole file, gr
 
 <a href="https://www.star-history.com/?repos=lemoncrowhq%2Flemoncrow&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=A500p2bAqlkfs0K4g9rX_zHlSipx_3KWOk9n3Viw-GSH6Mvrznt6l4AVXLMxxmwcXpkG6ZW3snOo4AyQDepRDzhJ91wakNufaq2j9t37mwRieQGKmBBArC73AB0LC4kc0nVFjAE4J0p2bnMPcxAOjETTKv7SsYpyxYuiHtKauxkJ1l0pol0-iAJGGjSY" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
  </picture>
 </a>
 
