@@ -3121,7 +3121,9 @@ def savings_frames(
     except OSError:
         _signed_in = True  # unknown auth state -> never nag
     if not _signed_in:
-        frames.append((False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow login{C_DIM} to unlock Pro{C_RESET}"))
+        frames.append(
+            (False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow account login{C_DIM} to unlock Pro{C_RESET}")
+        )
 
     # Frame 0 (cost+savings+carry) gets 3 slots at 5s each = ~15s; others get 5s
     # each. Weighting frame 0 higher than this made the line feel static — the
