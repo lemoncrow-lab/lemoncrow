@@ -119,9 +119,9 @@ class _SavingsReconciler:
             except Exception:
                 logger.exception("savings reconciler: pass failed")
             try:
-                # Feed the server-side meter (throttled to 30 min, only on new
-                # data, signed-in accounts only). Best-effort; the cap tolerates
-                # a missed report (client fails closed only past the grace TTL).
+                # Feed the server-side meter. Reports are identity-bound,
+                # cumulative, server-idempotent, and throttled; anonymous clients
+                # also refresh their signed verdict before its expiry.
                 from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
 
                 maybe_report_usage(self._root)

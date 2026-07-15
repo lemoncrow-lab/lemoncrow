@@ -1,20 +1,17 @@
-"""Client-side usage reporter — feeds the server-side meter (the cap's source of truth).
+"""Identity-bound, retry-safe client usage reporting.
 
-Batched + watermarked: reports only the delta since the last successful report,
-throttled to :data:`REPORT_INTERVAL_SECONDS` (30 min), and skips entirely when
-there is no new data — an idle process posts nothing. The client sends RAW usage
-(token counts + its own estimate); the SERVER prices it authoritatively, so the
-client can't lower the cap by faking dollars. Fail-open: any error leaves the
-watermark unmoved so the delta retries next tick.
-
-Wiring: call :func:`maybe_report_usage` from the background reconciler loop and
-the Stop hook. Requires a signed-in account (anonymous/local reports nothing).
+The client sends monotonic cumulative totals. The server owns the per-device
+watermark and derives the delta transactionally, so local watermark deletion,
+concurrent reporters, and lost-response retries cannot reset or double-count
+usage. Anonymous clients also refresh their signed verdict before its 24-hour
+expiry even when no new usage was recorded.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import urllib.request
 from collections.abc import Callable
@@ -26,48 +23,60 @@ from lemoncrow.core.capabilities.licensing import store
 from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
 
 REPORT_INTERVAL_SECONDS = 30 * 60
-# ~100 years: large enough that aggregate_window_savings clamps its day cutoff
-# to the epoch, summing EVERY day bucket -> a monotonic lifetime total (see
-# report_usage_once for why monotonicity matters).
+VERDICT_REFRESH_SECONDS = 6 * 60 * 60
 _LIFETIME_DAYS = 36_500
 
-# Returns the parsed JSON response body on success (may be empty), or None on
-# failure. A bool is also accepted (legacy/tests): True == success, no body.
-_HttpPost = Callable[[str, dict[str, Any], str], "dict[str, Any] | bool | None"]
+_HttpPost = Callable[[str, dict[str, Any], str], "dict[str, Any] | None"]
 
 
-def _watermark_path(root: str | Path) -> Path:
-    return Path(root) / "usage_report_watermark.json"
+def _machine_hash() -> str:
+    """Hash the stable OS-backed device id; the raw id never leaves the client."""
+    try:
+        return hashlib.sha256(store.load_or_create_device_id().encode("utf-8")).hexdigest()
+    except Exception:  # noqa: BLE001 — without a stable identity the server must reject the report
+        return ""
 
 
-def _read_watermark(root: str | Path) -> dict[str, Any]:
-    p = _watermark_path(root)
-    if not p.exists():
+def _reporting_identity(token: str | None, machine_hash: str) -> str:
+    subject = f"auth:{hashlib.sha256(token.encode()).hexdigest()}" if token else "anonymous"
+    return hashlib.sha256(f"usage:v2:{subject}:{machine_hash}".encode()).hexdigest()
+
+
+def _watermark_path(root: str | Path, identity: str) -> Path:
+    return Path(root) / "usage_report_watermarks" / f"{identity}.json"
+
+
+def _read_watermark(root: str | Path, identity: str) -> dict[str, Any]:
+    path = _watermark_path(root, identity)
+    if not path.exists():
         return {}
     try:
-        data = json.loads(p.read_text("utf-8"))
+        data = json.loads(path.read_text("utf-8"))
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, OSError):
         return {}
 
 
-def _write_watermark(root: str | Path, data: dict[str, Any]) -> None:
-    p = _watermark_path(root)
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(data), encoding="utf-8")
-    except OSError:
-        pass
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    finally:
+        with suppress(OSError):
+            tmp.unlink()
 
 
-def _machine_hash() -> str:
-    """Stable, non-reversible machine fingerprint for server-side anon-id
-    derivation. Hash of the OS machine id (``/etc/machine-id``, else a cached
-    UUID); only the hash ever leaves the machine. Empty on any failure."""
-    try:
-        return hashlib.sha256(store.load_or_create_device_id().encode("utf-8")).hexdigest()
-    except Exception:  # noqa: BLE001 — identity is best-effort; empty -> server falls back to random
-        return ""
+def _write_watermark(root: str | Path, identity: str, data: dict[str, Any]) -> None:
+    with suppress(OSError, ValueError):
+        _atomic_write(
+            _watermark_path(root, identity),
+            json.dumps(data, separators=(",", ":"), sort_keys=True),
+        )
 
 
 def _anon_token_path(root: str | Path) -> Path:
@@ -75,48 +84,45 @@ def _anon_token_path(root: str | Path) -> Path:
 
 
 def _read_anon_token(root: str | Path) -> str | None:
-    """The server-issued signed anon-id token, presented on each anon report."""
-    p = _anon_token_path(root)
+    path = _anon_token_path(root)
     try:
-        return (p.read_text("utf-8").strip() or None) if p.exists() else None
+        return (path.read_text("utf-8").strip() or None) if path.exists() else None
     except OSError:
         return None
 
 
 def _write_anon_token(root: str | Path, token: str) -> None:
-    p = _anon_token_path(root)
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(token, encoding="utf-8")
-    except OSError:
-        pass
+    with suppress(OSError, ValueError):
+        _atomic_write(_anon_token_path(root), token)
 
 
 def _default_post(url: str, payload: dict[str, Any], token: str) -> dict[str, Any] | None:
-    """POST the payload; return the parsed JSON response, or None on failure.
-
-    The response carries the freshly signed ``capVerdictToken`` (server-computed
-    from the accumulated meter); the caller persists it. A 2xx with no/invalid
-    JSON body still counts as success — returns ``{}`` so the watermark advances.
-    """
     body = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
-    # Anonymous reports (no account) pass an empty token -> no Authorization header;
-    # identity travels in the body as the server-issued signed anon token instead.
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+    request = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            if not (200 <= resp.status < 300):
+        with urllib.request.urlopen(request, timeout=5) as response:
+            if not (200 <= response.status < 300):
                 return None
-            try:
-                parsed = json.loads(resp.read())
-            except (ValueError, OSError):
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
-    except Exception:  # noqa: BLE001 — network failure = retry next tick
+            parsed = json.loads(response.read())
+            return parsed if isinstance(parsed, dict) else None
+    except Exception:  # noqa: BLE001 — leave the watermark unmoved for retry
         return None
+
+
+def _report_id(
+    identity: str,
+    machine_hash: str,
+    saved_usd: float,
+    spend_usd: float,
+) -> str:
+    canonical = json.dumps(
+        ["usage-v2", identity, machine_hash, saved_usd, spend_usd],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def report_usage_once(
@@ -126,90 +132,92 @@ def report_usage_once(
     now: int | None = None,
     watermark: dict[str, Any] | None = None,
 ) -> bool:
-    """Report the usage delta since the last watermark. Returns True if posted.
-
-    Signed in -> POST /api/usage/report (Bearer). Anonymous -> POST
-    /api/usage/report-anon presenting the server-issued signed anon token (and
-    bootstrapping one on first contact, even at zero usage, so the free gate has
-    a verdict to trust). No new data since last report -> returns False without
-    posting, unless an anon bootstrap is still needed. On a successful post,
-    advances the watermark and persists the returned signed verdict token.
-    """
+    """Post a cumulative device total and persist a fresh signed verdict."""
     token = store.load_auth_token()
     is_anon = not token
+    machine_hash = _machine_hash()
+    if len(machine_hash) != 64:
+        return False
+    identity = _reporting_identity(token, machine_hash)
     anon_token = _read_anon_token(root) if is_anon else None
-    # First anonymous check-in: fetch a verdict even at zero usage, else a
-    # brand-new free machine would have no token and fail closed forever.
-    need_bootstrap = is_anon and not anon_token
+    stamp = int(time.time()) if now is None else now
+    wm = _read_watermark(root, identity) if watermark is None else watermark
+
     try:
         from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
 
-        # Report deltas of a MONOTONIC lifetime total, never a trailing window:
-        # a rolling window shrinks as old days age out, so diffing it against a
-        # monotonic watermark drops re-grown savings and the server under-meters
-        # (the cap silently stops enforcing). _LIFETIME_DAYS makes the aggregate
-        # clamp its cutoff to the epoch -> every day bucket summed -> a
-        # non-decreasing cumulative total. The server buckets these positive
-        # deltas by receipt-day into its own rolling 30-day window.
         lifetime = aggregate_window_savings(Path(root), days=_LIFETIME_DAYS)
         saved_usd = round(max(0.0, float(getattr(lifetime, "saved_usd", 0.0))), 4)
         spend_usd = round(max(0.0, float(getattr(lifetime, "spend_usd", 0.0))), 4)
     except Exception:  # noqa: BLE001
         return False
 
-    wm = _read_watermark(root) if watermark is None else watermark
     prior_saved = float(wm.get("reported_saved_usd") or 0.0)
     prior_spend = float(wm.get("reported_spend_usd") or 0.0)
-    delta_saved = round(saved_usd - prior_saved, 4)
-    delta_spend = round(spend_usd - prior_spend, 4)
-    if delta_saved <= 0.0 and delta_spend <= 0.0 and not need_bootstrap:
-        return False  # no new data (and no anon bootstrap owed) -> nothing to report
+    need_bootstrap = is_anon and not anon_token
+    last_verdict = float(wm.get("verdict_at") or 0.0)
+    need_refresh = is_anon and stamp - last_verdict >= VERDICT_REFRESH_SECONDS
+    has_new_usage = saved_usd > prior_saved or spend_usd > prior_spend
+    if not has_new_usage and not need_bootstrap and not need_refresh:
+        return False
 
-    stamp = int(time.time()) if now is None else now
     payload: dict[str, Any] = {
-        # Lifetime cumulative totals (monotonic); kept under these wire names
-        # for compatibility. The server accumulates the deltas, not these.
-        "window_saved_usd": saved_usd,
-        "window_spend_usd": spend_usd,
-        "delta_saved_usd": max(0.0, delta_saved),
-        "delta_spend_usd": max(0.0, delta_spend),
+        "report_id": _report_id(identity, machine_hash, saved_usd, spend_usd),
+        "cumulative_saved_usd": saved_usd,
+        "cumulative_spend_usd": spend_usd,
         "reported_at": stamp,
     }
     post = http_post or _default_post
     base = store.load_auth_base()
     if is_anon:
         payload["anon_token"] = anon_token or ""
-        # A stable, non-reversible machine hash so the server derives a STABLE
-        # anon-id (deleting the local anon token can't reset savings). We send
-        # only the hash, never the raw machine id.
-        payload["machine_id"] = _machine_hash()
+        payload["machine_id"] = machine_hash
         result = post(f"{base}/api/usage/report-anon", payload, "")
     else:
         result = post(f"{base}/api/usage/report", payload, token or "")
-    if result is None or result is False:
-        return False  # network/HTTP failure -> leave watermark for a retry
-    # Success (a response body, or a legacy True). Persist the fresh signed
-    # verdict so the compiled gate can enforce the cap offline, and cache a
-    # freshly minted anon token for the next report.
-    if isinstance(result, dict):
-        with suppress(Exception):
-            from lemoncrow.core.capabilities.plugin_runtime import persist_cap_verdict_token
 
-            persist_cap_verdict_token(root, result.get("capVerdictToken"))
-        if is_anon:
-            minted = result.get("anonToken")
-            if isinstance(minted, str) and minted:
-                _write_anon_token(root, minted)
-    _write_watermark(root, {"reported_saved_usd": saved_usd, "reported_spend_usd": spend_usd, "at": stamp})
+    if not isinstance(result, dict):
+        return False
+    cap_token = result.get("capVerdictToken")
+    if not isinstance(cap_token, str) or not cap_token:
+        return False
+
+    with suppress(Exception):
+        from lemoncrow.core.capabilities.plugin_runtime import persist_cap_verdict_token
+
+        persist_cap_verdict_token(root, cap_token)
+    if is_anon:
+        minted = result.get("anonToken")
+        if isinstance(minted, str) and minted:
+            _write_anon_token(root, minted)
+
+    _write_watermark(
+        root,
+        identity,
+        {
+            "reported_saved_usd": saved_usd,
+            "reported_spend_usd": spend_usd,
+            "verdict_at": stamp,
+            "at": stamp,
+        },
+    )
     return True
 
 
-def maybe_report_usage(root: str | Path, *, http_post: _HttpPost | None = None, now: int | None = None) -> bool:
-    """Throttled entry point for the daemon/Stop hook: report at most every
-    :data:`REPORT_INTERVAL_SECONDS`, and only when there is new data.
-    """
+def maybe_report_usage(
+    root: str | Path,
+    *,
+    http_post: _HttpPost | None = None,
+    now: int | None = None,
+) -> bool:
+    """Throttle reporting per authenticated identity and device."""
     stamp = int(time.time()) if now is None else now
-    wm = _read_watermark(root)
+    token = store.load_auth_token()
+    machine_hash = _machine_hash()
+    if len(machine_hash) != 64:
+        return False
+    identity = _reporting_identity(token, machine_hash)
+    wm = _read_watermark(root, identity)
     last = float(wm.get("at") or 0.0)
     if stamp - last < REPORT_INTERVAL_SECONDS:
         return False
