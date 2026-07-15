@@ -1174,6 +1174,34 @@ def apply_session_start_files(
     return result
 
 
+def clear_dormant_agent_override(path: str | Path, *, dormant: bool) -> bool:
+    """Mirror the Layer-2 ``agent`` pop into a settings.json that isn't the
+    host's global config — e.g. a project-local ``.claude/settings.json``
+    written by ``install_claude.sh --workspace``, which the global-config
+    write in :func:`apply_session_start_files` never touches (it only reads
+    ``CLAUDE_CONFIG_DIR``/``~/.claude``).
+
+    No-ops unless *path* already exists and its ``agent`` key is a value we
+    own (``lemoncrow:*``) — never clobbers a user's own custom agent. Returns
+    whether the file was rewritten.
+    """
+    path = Path(path)
+    data = _read_json(path, None)
+    if not isinstance(data, dict):
+        return False
+    current = data.get("agent")
+    if not isinstance(current, str) or not current.startswith("lemoncrow:"):
+        return False
+    if dormant:
+        data.pop("agent", None)
+    elif current == "lemoncrow:free":
+        data.pop("agent", None)
+    else:
+        return False
+    _write_json(path, data)
+    return True
+
+
 def update_notification(current_version: str, flag: dict[str, Any] | None) -> dict[str, Any]:
     """Check for available update; return hook metadata for the plugin system.
 

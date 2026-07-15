@@ -119,22 +119,51 @@ def _claude_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
+def _project_settings_path() -> Path | None:
+    """A workspace-local ``.claude/settings.json``, if this session has one.
+
+    ``install_claude.sh --workspace`` writes the ``agent`` override there
+    instead of the global ``~/.claude/settings.json`` — a separate file that
+    ``_claude_settings_path()`` never resolves to. Returns None when it
+    doesn't exist (nothing to reconcile) or matches the global path already
+    handled by ``apply_session_start_files``.
+    """
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    p = Path(workspace) / ".claude" / "settings.json"
+    if not p.exists():
+        return None
+    with suppress(OSError):
+        if p.resolve() == _claude_settings_path().resolve():
+            return None
+    return p
+
+
 def _apply_session_bootstrap(payload: dict[str, Any]) -> bool:
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if not plugin_root:
         return False
     try:
-        from lemoncrow.core.capabilities.plugin_runtime import apply_session_start_files
+        from lemoncrow.core.capabilities.plugin_runtime import (
+            apply_session_start_files,
+            clear_dormant_agent_override,
+        )
     except (ImportError, AttributeError):
         return False
     with suppress(Exception):
-        apply_session_start_files(
+        result = apply_session_start_files(
             _lemoncrow_root(),
             plugin_root,
             config_dir=_claude_settings_path().parent,
             payload=payload,
             current_version=os.environ.get("LEMONCROW_VERSION", "0.0.0"),
         )
+        # Layer-2 parity for workspace-scoped installs: the dormant `agent`
+        # pop above only ever touches the global config file. Mirror the
+        # same pop into a project-local settings.json when this session has
+        # one and it isn't the same file.
+        project_settings = _project_settings_path()
+        if project_settings is not None:
+            clear_dormant_agent_override(project_settings, dormant=bool(result.get("dormant")))
         return True
     return False
 

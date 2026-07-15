@@ -66,3 +66,43 @@ def test_active_preserves_user_custom_agent(monkeypatch: pytest.MonkeyPatch, tmp
     (config / "settings.json").write_text(json.dumps({"agent": "my:custom"}), encoding="utf-8")
     pr.apply_session_start_files(root, plugin, config_dir=config)
     assert _host_agent(config) == "my:custom"  # never clobber a user's own choice
+
+
+# clear_dormant_agent_override: mirrors the same Layer-2 pop into a settings.json
+# that isn't the host's global config (e.g. a project-local .claude/settings.json
+# written by `install_claude.sh --workspace`, which apply_session_start_files's
+# config_dir write never touches).
+
+
+def test_clear_dormant_agent_override_pops_lemoncrow_agent(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"agent": "lemoncrow:code", "other": True}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=True) is True
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "agent" not in data
+    assert data["other"] is True
+
+
+def test_clear_dormant_agent_override_active_clears_only_stale_free(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"agent": "lemoncrow:free"}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=False) is True
+    assert "agent" not in json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_clear_dormant_agent_override_active_leaves_non_free_agent(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"agent": "lemoncrow:code"}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=False) is False
+    assert json.loads(path.read_text(encoding="utf-8"))["agent"] == "lemoncrow:code"
+
+
+def test_clear_dormant_agent_override_never_touches_custom_agent(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"agent": "my:custom"}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=True) is False
+    assert json.loads(path.read_text(encoding="utf-8"))["agent"] == "my:custom"
+
+
+def test_clear_dormant_agent_override_missing_file_is_noop(tmp_path: Path) -> None:
+    assert pr.clear_dormant_agent_override(tmp_path / "nope.json", dormant=True) is False
