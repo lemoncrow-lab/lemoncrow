@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+from tests.helpers import python_script_with_development_cap
+
 HOOK = Path("integrations/claude/plugin/hooks/live_review.py")
 
 _STUB = (
@@ -48,7 +50,7 @@ def _env(root: Path, ws: Path, marker: Path, stub: Path, **extra: str) -> dict:
 def _run(env: dict) -> subprocess.CompletedProcess[str]:
     payload = {"session_id": "sid1", "tool_name": "Edit", "tool_input": {"file_path": "x.py"}}
     result = subprocess.run(
-        [sys.executable, str(HOOK)],
+        python_script_with_development_cap(HOOK),
         input=json.dumps(payload),
         text=True,
         capture_output=True,

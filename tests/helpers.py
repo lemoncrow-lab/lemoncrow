@@ -83,6 +83,21 @@ def grant_oauth_pro(
     entitlements.reload()
 
 
+def python_script_with_development_cap(script: Path) -> list[str]:
+    """Run a hook script with the compiled gate mocked to no-key dev mode."""
+
+    import sys
+
+    bootstrap = (
+        "import runpy,sys;"
+        "from lemoncrow.pro.capabilities import licensing_gate;"
+        "licensing_gate._public_key_hex=lambda:'';"
+        "script=sys.argv[1];sys.argv=[script,*sys.argv[2:]];"
+        "runpy.run_path(script,run_name='__main__')"
+    )
+    return [sys.executable, "-c", bootstrap, str(script)]
+
+
 def deny_oauth(monkeypatch: object) -> None:
     """Force the signed-out state regardless of the developer's real ~/.lemoncrow."""
     from lemoncrow.core.capabilities.licensing import entitlements, store

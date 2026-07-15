@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
+
+from tests.helpers import python_script_with_development_cap
 
 HOOK = Path("integrations/claude/plugin/hooks/verify_before_done.py")
 
@@ -42,7 +43,7 @@ def _run(transcript: Path, *, stop_active: bool = False, env_extra: dict | None 
     if env_extra:
         env.update(env_extra)
     result = subprocess.run(
-        [sys.executable, str(HOOK)],
+        python_script_with_development_cap(HOOK),
         input=json.dumps(payload),
         text=True,
         capture_output=True,
