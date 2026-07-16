@@ -289,7 +289,7 @@ _LINUX_DB = Path("/tmp/idx_linux_core.db")
 _LINUX_CORE_SUBTREES = ["kernel", "mm", "fs", "block", "ipc", "lib", "security", "crypto", "init", "virt", "include"]
 _LINUX_URL = "https://github.com/torvalds/linux.git"
 
-_LEMONCROW_URL = "https://github.com/lemoncrowhq/lemoncrow.git"
+_LEMONCROW_URL = "https://github.com/lemoncrow-lab/lemoncrow.git"
 _LINUX_MULTI = Path("/tmp/bench_pairs_linux.json")
 _LINUX_GOLD = Path("/tmp/bench_pairs_linux_def_gold.json")
 

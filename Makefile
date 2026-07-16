@@ -64,7 +64,7 @@ release: ## Bump version, commit, push, mirror, tag public repo: make release ta
 	 echo "Mirroring to public repo..."; \
 	 LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
 	 PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
-	 git push --no-verify $$PUSH_FLAG https://github.com/lemoncrowhq/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
+	 git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
 	 echo "✓ Released $$TAG (dev + public)"
 
 prod: ## Build and install from local production build (includes mypyc compilation; expects ~2-3 min build time)

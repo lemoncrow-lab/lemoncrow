@@ -86,7 +86,7 @@ function HomepageHeader() {
           </Link>
           <Link
             className="button button--outline button--lg"
-            href="https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md"
+            href="https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md"
             style={{ borderColor: "#9B75D9", color: "#9B75D9" }}
           >
             Matched benchmarks

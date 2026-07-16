@@ -278,9 +278,9 @@ else
     # If TAG is "latest", resolve the actual version tag from GitHub API
     if [[ "$TAG" == "latest" ]]; then
         if command -v curl >/dev/null 2>&1; then
-            REAL_TAG=$(curl -sI https://github.com/lemoncrowhq/lemoncrow/releases/latest | grep -i location | awk -F/ '{print $NF}' | tr -d '\r')
+            REAL_TAG=$(curl -sI https://github.com/lemoncrow-lab/lemoncrow/releases/latest | grep -i location | awk -F/ '{print $NF}' | tr -d '\r')
         elif command -v wget >/dev/null 2>&1; then
-            REAL_TAG=$(wget --server-response --spider -q https://github.com/lemoncrowhq/lemoncrow/releases/latest 2>&1 | grep -i 'Location:' | awk -F/ '{print $NF}' | tr -d '\r' | tail -1)
+            REAL_TAG=$(wget --server-response --spider -q https://github.com/lemoncrow-lab/lemoncrow/releases/latest 2>&1 | grep -i 'Location:' | awk -F/ '{print $NF}' | tr -d '\r' | tail -1)
         else
             REAL_TAG=""
         fi
@@ -293,7 +293,7 @@ else
 
     SUFFIX="${OS}-${ARCH}"
     ASSET="lemoncrow-distribution-${SUFFIX}.tar.gz"
-    URL="https://github.com/lemoncrowhq/lemoncrow/releases/download/${TAG}/${ASSET}"
+    URL="https://github.com/lemoncrow-lab/lemoncrow/releases/download/${TAG}/${ASSET}"
 
     CACHE_DIR="${CACHE_ROOT}/${TAG}/${SUFFIX}"
     VENV="${CACHE_DIR}/venv"

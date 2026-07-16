@@ -2,7 +2,7 @@
 #   harbor leaderboard submit --leaderboard terminal-bench/terminal-bench-2-1 \
 #     --job-id <JOB_UUID> --metadata benchmarks/harbor/metadata.yaml \
 #     --output validation-report.json
-agent_url: https://github.com/lemoncrowhq/lemoncrow
+agent_url: https://github.com/lemoncrow-lab/lemoncrow
 agent_display_name: Claude Code + LemonCrow
 agent_org_display_name: LemonCrow
 

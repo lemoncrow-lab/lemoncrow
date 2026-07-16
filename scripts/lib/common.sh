@@ -12,7 +12,7 @@
 # installers, and the run_setup() post-install orchestrator.
 #
 # Optional environment variables:
-#   LEMONCROW_REPO_URL   Git URL (default: https://github.com/lemoncrowhq/lemoncrow.git)
+#   LEMONCROW_REPO_URL   Git URL (default: https://github.com/lemoncrow-lab/lemoncrow.git)
 #   LEMONCROW_REF        Git ref to install (default: main)
 #   LEMONCROW_INSTALL_DIR Install location (default: current directory)
 #   LEMONCROW_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
@@ -123,7 +123,7 @@ LEMONCROW_RTK_TAG="${LEMONCROW_RTK_TAG-v0.43.0}"
 OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 BINARY_SUFFIX="${OS_NAME}-${ARCH}"
-LEMONCROW_REPO_URL="${LEMONCROW_REPO_URL:-https://github.com/lemoncrowhq/lemoncrow.git}"
+LEMONCROW_REPO_URL="${LEMONCROW_REPO_URL:-https://github.com/lemoncrow-lab/lemoncrow.git}"
 LEMONCROW_REF="${LEMONCROW_REF:-main}"
 LEMONCROW_STRICT="${LEMONCROW_STRICT:-0}"
 LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
@@ -2737,8 +2737,8 @@ run_setup() {
 
     if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
         printf "%b📊 Visualization stack:%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  frontend: %bhttp://localhost:3125%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  service:  %bhttp://localhost:8787%b\n\n" "$C_PURPLE" "$C_RESET"
+        printf "  frontend: %bhttp://localhost:${LEMONCROW_FRONTEND_PORT:-3125}%b\n" "$C_PURPLE" "$C_RESET"
+        printf "  service:  %bhttp://localhost:${LEMONCROW_SERVICE_PORT:-8787}%b\n\n" "$C_PURPLE" "$C_RESET"
     fi
     
     # Deferred, un-spun on purpose: `lemoncrow init` requires a LemonCrow account and

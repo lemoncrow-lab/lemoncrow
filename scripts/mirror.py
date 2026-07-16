@@ -38,7 +38,7 @@ PUBLIC_PATHS_FILE = REPO_ROOT / "release" / "public-paths.txt"
 DEFAULT_SOURCE_REF = "HEAD"
 MIRROR_DEV_TAG = "refs/mirror/last"  # watermark: last mirrored source SHA
 MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
-DEFAULT_PUBLIC_REMOTE = "https://github.com/lemoncrowhq/lemoncrow.git"
+DEFAULT_PUBLIC_REMOTE = "https://github.com/lemoncrow-lab/lemoncrow.git"
 DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 
 # Public-only GitHub Actions live outside `.github/workflows` in the private

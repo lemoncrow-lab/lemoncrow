@@ -6,7 +6,7 @@
 # Cursor, Codex, etc.).
 #
 # Usage:
-#   curl -fsSL https://github.com/lemoncrowhq/lemoncrow/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 #
 # For a comprehensive developer install (with uv, git, node, etc.) use
 # scripts/local.sh from the repo checkout.
@@ -72,9 +72,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$LEMONCROW_RELEASE_TAG" == "latest" ]]; then
-    RELEASE_BASE_URL="https://github.com/lemoncrowhq/lemoncrow/releases/latest/download"
+    RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download"
 else
-    RELEASE_BASE_URL="https://github.com/lemoncrowhq/lemoncrow/releases/download/${LEMONCROW_RELEASE_TAG}"
+    RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/download/${LEMONCROW_RELEASE_TAG}"
 fi
 ASSET_NAME="lemoncrow-distribution-${BINARY_SUFFIX}.tar.gz"
 RELEASE_URL="${RELEASE_BASE_URL}/${ASSET_NAME}"
@@ -402,7 +402,7 @@ if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lc >/dev/null 2>&1 ||
     echo "  Quick start:  ${cli} --help"
     echo "  Init runtime: ${cli} init"
     echo "  Docs:         https://docs.lemoncrow.com"
-    echo "  Github:       https://github.com/lemoncrowhq/lemoncrow"
+    echo "  Github:       https://github.com/lemoncrow-lab/lemoncrow"
 else
     info "LemonCrow installed to ${LEMONCROW_BIN_DIR}"
     echo ""

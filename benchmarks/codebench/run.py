@@ -69,6 +69,7 @@ from lemoncrow.core.capabilities.host_runners import (
 )
 from lemoncrow.core.capabilities.pricing import usage_cost_breakdown_usd, usage_cost_usd
 
+from benchmarks.codebench import competitor as competitor_mod
 from benchmarks.codebench import local as local_mode
 from benchmarks.codebench.tasks import BY_ID, TASKS, Task
 from benchmarks.flowlib.report import aggregate, flow_records
@@ -105,6 +106,14 @@ class ArmSpec:
     plugin: bool = False  # inject --plugin-dir LEMONCROW_CLAUDE_PLUGIN_ROOT
     strip_mcp: bool = True  # inject --mcp-config EMPTY_MCP --strict-mcp-config
     heavy: bool = False  # counts toward the HEAVY_ARMS rate-limit warning
+    # --- BYO-competitor arms (see benchmarks/codebench/competitor.py) ---------
+    # A competitor arm is vanilla Claude Code with an external GitHub tool wired
+    # in; these fields carry that wiring. All None/empty for the built-in arms,
+    # so their behavior is unchanged.
+    mcp_config: Mapping[str, object] | None = None  # inject via --mcp-config (+ --strict-mcp-config)
+    competitor_plugin_dir: str | None = None  # inject via --plugin-dir (an external plugin)
+    append_system_prompt: str | None = None  # inject via --append-system-prompt
+    competitor_env: Mapping[str, str] | None = None  # extra agent-subprocess env
 
 
 # Persona is resolved by arm (every task is a ``code`` task): the baseline arm
@@ -1525,7 +1534,19 @@ def run_arm(
                 # / "Plan") for baseline, or "lemoncrow:<x>" for the candidate. None
                 # leaves Claude Code's default persona (the vanilla code baseline).
                 cmd += ["--agent", persona]
-            if spec.strip_mcp:
+            if spec.competitor_plugin_dir:
+                # BYO-competitor: load the external tool's own Claude Code plugin.
+                cmd += ["--plugin-dir", spec.competitor_plugin_dir]
+            if spec.append_system_prompt:
+                # BYO-competitor: append the tool's skill / system prompt verbatim.
+                cmd += ["--append-system-prompt", spec.append_system_prompt]
+            if spec.competitor_env:
+                env.update(spec.competitor_env)
+            if spec.mcp_config is not None:
+                # BYO-competitor with its own MCP server(s): load exactly those,
+                # strictly (no ambient host MCP), so the delta is the tool alone.
+                cmd.extend(["--mcp-config", json.dumps(spec.mcp_config), "--strict-mcp-config"])
+            elif spec.strip_mcp:
                 # Built-in / bare arms get no MCP servers, so the comparison is the
                 # arm's native stack, not ambient host MCP.
                 cmd.extend(["--mcp-config", json.dumps(EMPTY_MCP), "--strict-mcp-config"])
@@ -3266,6 +3287,17 @@ def main() -> int:
     )
     p.add_argument("--repo", default=".", help="Repo path to copy per run in ad-hoc mode (default: cwd).")
     p.add_argument(
+        "--competitor",
+        action="append",
+        default=[],
+        metavar="MANIFEST.json",
+        help=(
+            "Path to a competitor manifest JSON: a GitHub tool cloned/installed and "
+            "run as an extra arm (baseline vs lemoncrow vs <tool>) on the same model. "
+            "Repeatable. See benchmarks/codebench/competitor.py."
+        ),
+    )
+    p.add_argument(
         "--setup",
         action="append",
         default=[],
@@ -3287,6 +3319,13 @@ def main() -> int:
         ),
     )
     args = p.parse_args()
+    # BYO-competitor arms: load manifests (cheap, no clone) and add their names to
+    # the arm list so the cost estimate below counts them. The actual clone+install
+    # is deferred until we know we are really spending (past --estimate-only).
+    competitor_specs = [competitor_mod.load_competitor_spec(path) for path in args.competitor]
+    for spec in competitor_specs:
+        if spec.name not in args.arms:
+            args.arms = [*args.arms, spec.name]
     if args.list:
         print(f"{len(TASKS)} CodeBench tasks (id / capability / language / weight / source):")
         for t in TASKS:
@@ -3417,6 +3456,24 @@ def main() -> int:
         # uses (CODEBENCH_MAX_TURNS=50) to keep both runners consistent.
         if args.cli_driver == "claude" and "--max-turns" not in args.cli_extra_arg:
             args.cli_extra_arg = [*args.cli_extra_arg, "--max-turns", "50"]
+    # Now that any --estimate-only path has returned, clone + install each
+    # competitor once and register it as a first-class arm before validation.
+    if competitor_specs:
+        global VALID_ARMS, HEAVY_ARMS
+        for spec in competitor_specs:
+            print(f"[competitor] preparing {spec.name!r} from {spec.repo} ...", flush=True)
+            prepared = competitor_mod.prepare_competitor(spec)
+            ARM_SPECS[spec.name] = ArmSpec(
+                {"code": prepared.agent},
+                strip_mcp=True,
+                heavy=True,
+                mcp_config=prepared.mcp_config,
+                competitor_plugin_dir=prepared.plugin_dir,
+                append_system_prompt=prepared.system_prompt,
+                competitor_env=prepared.env or None,
+            )
+        VALID_ARMS = tuple(ARM_SPECS)
+        HEAVY_ARMS = tuple(name for name, spec in ARM_SPECS.items() if spec.heavy)
     run_dir = args.out if args.out is not None else RESULTS_ROOT / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Results: {run_dir.resolve()}", flush=True)
