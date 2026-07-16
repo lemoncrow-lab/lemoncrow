@@ -19,11 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
 claude.ai Google Calendar
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -65,15 +72,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Object prop = new reference each parent render → `React.memo`/shallow compare sees "changed" → child re-renders.
+[assistant] Object prop = new reference every parent render → `===` fails → child re-renders even if contents identical.
 
 Fixes:
-- `React.memo` alone won't help — object identity differs every time.
-- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])` in parent.
-- Then wrap child in `React.memo`.
+- `useMemo` the object: `const cfg = useMemo(() => ({a, b}), [a, b])` → stable ref.
+- Wrap child in `React.memo` (shallow-compares props; needs stable refs to help).
+- Inline literals `prop={{a:1}}` / arrow fns → hoist or memoize (`useCallback`).
 - Or pass primitives instead of the object.
 
-Inline `<Child data={{a,b}} />` recreates on every render — hoist + `useMemo`. Same trap for arrays, inline functions (`useCallback`), and inline styles.
-
-Note: without `React.memo`, a child always re-renders when its parent does regardless of props — props equality only matters once memoized.
-[usage] input=3311 cache_read=8969 cache_write=0 output=280
+Same applies to array/function props. Without stable ref, `React.memo` alone won't stop it.
+[usage] input=3484 cache_read=8969 cache_write=0 output=201

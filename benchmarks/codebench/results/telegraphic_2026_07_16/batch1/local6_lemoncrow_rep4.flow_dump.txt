@@ -89,12 +89,14 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - security-review: Complete a security review of the pending changes on the current branch
 [assistant] Two main strategies:
 
-**Chaining** — each bucket holds a list (or tree). Colliding keys append to the bucket's list. Lookup: hash → bucket → scan list. Java `HashMap` treeifies long chains to O(log n).
+**Chaining** — each bucket holds a list (or tree). Collisions append to the bucket's list. Lookup: hash → bucket → scan list. Simple; degrades to O(n) per bucket if many collisions.
 
-**Open addressing** — store entry in the array itself; on collision, probe for another slot by a fixed sequence:
-- linear probing: next slot (i+1) → cache-friendly, clusters
-- quadratic probing: i+k² → less clustering
-- double hashing: step = second hash → best spread
+**Open addressing** — store entry in the array itself; on collision, probe for another slot:
+- Linear probing → next slot (`i+1`), cache-friendly, clustering.
+- Quadratic probing → `i+k²`, less clustering.
+- Double hashing → step = second hash, best spread.
 
-Load factor (n/capacity) drives resizing; exceed threshold (~0.75) → grow + rehash to keep operations near O(1). Deletions in open addressing need tombstones so probe chains stay intact.
-[usage] input=3795 cache_read=8944 cache_write=0 output=278
+Lookup follows the same probe sequence until match or empty slot. Needs load factor < 1; resize/rehash when full.
+
+Deletion in open addressing uses tombstones so probe chains stay intact. Good hash function + low load factor keep collisions rare and ops ~O(1) amortized.
+[usage] input=3795 cache_read=8944 cache_write=0 output=312

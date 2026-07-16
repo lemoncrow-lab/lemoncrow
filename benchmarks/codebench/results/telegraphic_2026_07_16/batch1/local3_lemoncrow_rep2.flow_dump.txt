@@ -19,9 +19,21 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
 claude.ai Google Drive
 
@@ -65,7 +77,9 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] TCP: connection-oriented, reliable — handshake, ordered delivery, retransmits lost packets, flow/congestion control. Higher overhead. → web, file transfer, email.
+[assistant] **TCP** — connection-oriented, reliable. Handshake, ordered delivery, retransmission, flow/congestion control. Slower, higher overhead. Use: web (HTTP), email, file transfer.
 
-UDP: connectionless, no guarantees — no ordering, no retransmit, just fire packets. Low latency/overhead. → video/voice, gaming, DNS.
-[usage] input=3311 cache_read=8946 cache_write=0 output=118
+**UDP** — connectionless, best-effort. No handshake, no ordering, no retransmit. Fast, low overhead, may drop/reorder. Use: DNS, video/voice streaming, gaming, VoIP.
+
+Core tradeoff → reliability (TCP) vs latency/simplicity (UDP).
+[usage] input=3579 cache_read=8946 cache_write=0 output=245

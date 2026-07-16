@@ -19,30 +19,11 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
 claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -84,17 +65,18 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL injection — `req.params.id` interpolated raw into query. Attacker: `GET /api/users/1 OR 1=1` dumps all rows; `; DROP`/UNION → data theft/destruction.
+[assistant] SQL injection — `req.params.id` interpolated raw into the query.
 
 Fix — parameterized query:
 
 ```js
 app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
+  const query = 'SELECT * FROM users WHERE id = ?';
+  db.query(query, [req.params.id])
     .then(user => res.json(user))
-    .catch(() => res.sendStatus(500));
+    .catch(() => res.status(500).json({ error: 'internal error' }));
 });
 ```
 
-Also: no error `.catch` → unhandled rejection; `SELECT *` may leak password/hash columns → select explicit fields.
-[usage] input=3752 cache_read=8731 cache_write=285 output=229
+Also: unhandled promise rejection (added `.catch`) → prevents crash/leaking stack traces.
+[usage] input=3311 cache_read=8731 cache_write=285 output=179

@@ -20,6 +20,13 @@ TaskStop
 TaskUpdate
 WebSearch
 
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
@@ -58,13 +65,14 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Parent re-renders → children re-render by default. React re-renders the whole subtree; props changing isn't required.
+[assistant] Common causes, most→least likely:
 
-Fixes:
-- `React.memo(Child)` → skips re-render when props shallow-equal.
-- Memo alone fails if you pass **new references** each render: inline `{}`/`[]`, arrow fns, `.map` results. Wrap in `useMemo`/`useCallback`.
-- `children` as props → parent-rendered children don't re-render from parent state.
-- Move state down / split components so the update localizes.
+1. **New object/array/function props each render** — `<Child data={{...}} />`, `onClick={() => …}`, `style={{…}}`. New reference every time. Fix: `useMemo`/`useCallback`, or hoist constants out.
+2. **Not memoized** — child re-renders with parent by default. Wrap in `React.memo(Child)`.
+3. **`children` / context** — new JSX children reference, or context value object recreated each render.
+4. **Actual prop changes** — then re-render is correct.
 
-Note: re-render ≠ DOM update — React still diffs; often harmless. Profile before optimizing.
-[usage] input=3149 cache_read=8949 cache_write=0 output=234
+`React.memo` only helps if props are referentially stable → so 1 and 2 go together.
+
+Share the component + how parent passes props → exact cause.
+[usage] input=3311 cache_read=8949 cache_write=0 output=229

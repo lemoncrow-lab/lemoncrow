@@ -37,7 +37,7 @@ def codebench_tasks_dir() -> Path:
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LEMONCROW_BIN = _REPO_ROOT / ".venv" / "bin" / "lemoncrow"
 _INDEX_ON_LEMONCROW_REP: tuple[str, ...] = (
-    f'case "$(pwd)" in *_lemoncrow_rep*) {_LEMONCROW_BIN} code index --repo-root . || true ;; esac',
+    f'case "$(pwd)" in *_lemoncrow_rep*) {_LEMONCROW_BIN} code index --repo-root "$(pwd)" || true ;; esac',
 )
 
 

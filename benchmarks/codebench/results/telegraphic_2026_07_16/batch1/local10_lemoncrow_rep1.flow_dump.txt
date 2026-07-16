@@ -32,22 +32,12 @@ mcp__claude_ai_Gmail__list_labels
 mcp__claude_ai_Gmail__search_threads
 mcp__claude_ai_Gmail__unlabel_message
 mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,14 +77,11 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Queue** — point-to-point, one consumer processes each message. Use for work distribution: task offloading, load balancing across workers, jobs that must run exactly once.
+[assistant] Queue → point-to-point, one consumer processes each message (competing consumers). Use for: work distribution, task/job processing, load balancing, exactly-one handling, retries/ordering per worker.
 
-**Topic** — pub/sub, every subscriber gets a copy. Use for broadcasting events to N independent consumers: order placed → billing + inventory + email all react.
+Topic → pub/sub, every subscriber gets its own copy. Use for: broadcast, event fan-out, multiple independent reactions to one event, decoupling producers from N consumers.
 
-Decision:
-- One logical handler, competing workers → **queue**
-- Multiple independent systems each need the event → **topic**
-- Need fan-out but also durable per-consumer processing → topic + per-subscriber queues (e.g. Kafka consumer groups, SNS→SQS, JMS durable subscriptions)
+Rule of thumb → "one job done once" = queue; "notify everyone who cares" = topic.
 
-Rule of thumb: *command* (do this work, once) → queue; *event* (this happened, whoever cares) → topic.
-[usage] input=3795 cache_read=8951 cache_write=0 output=276
+Hybrid → topic + per-subscriber queue (e.g. Kafka consumer groups, SNS→SQS) when you want fan-out to groups *and* competing consumers within each group.
+[usage] input=3579 cache_read=8951 cache_write=0 output=241

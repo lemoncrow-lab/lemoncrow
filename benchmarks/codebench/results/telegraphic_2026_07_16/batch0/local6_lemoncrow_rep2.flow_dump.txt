@@ -19,18 +19,11 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
 claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -72,19 +65,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Key factors before splitting:
+[assistant] **Measure before you split — slowness is rarely a monolith problem.** Profile first (Django Debug Toolbar, silk, APM). Most Django slowness = N+1 queries, missing indexes, no caching, sync work that should be async. Microservices fix none of these and add network latency.
 
-**Is the problem actually architectural?** Slow Django is usually N+1 queries, missing indexes, no caching, sync work that should be async (Celery), undersized DB. Profile first (django-silk, APM) → microservices add network latency, won't fix a bad query. Most "slow monolith" cases are fixed in-place.
+Key factors before splitting:
 
-**Domain boundaries.** Can you draw clean seams (bounded contexts) where data + logic separate with few cross-calls? No clear seams → distributed monolith: all the ops cost, none of the decoupling. Modular monolith (split into Django apps with enforced boundaries) is the cheaper intermediate step.
+- **Root cause** → is it CPU, DB, I/O, or code? Microservices don't fix a slow query.
+- **Bottleneck isolation** → does one component (e.g. reporting, image processing) have genuinely different scaling/resource needs? That's the real case for extraction.
+- **Team & ownership** → Conway's law. Split makes sense when separate teams need independent deploy cadence. One team → coordination cost usually outweighs gains.
+- **Data boundaries** → can you cleanly separate the data? Cross-service joins, distributed transactions, and eventual consistency are the hardest cost. If tables are tightly coupled, don't.
+- **Operational maturity** → CI/CD, observability (tracing across services), on-call, service discovery, network security. Missing these → distributed monolith = worse.
+- **Latency budget** → in-process call → network hop (ms + failure modes: retries, timeouts, partial failure).
+- **Transaction integrity** → losing ACID across boundaries; saga/compensation complexity.
 
-**Data ownership.** Each service owns its DB. Shared tables, cross-service joins, and distributed transactions are the hardest part — you trade ACID for eventual consistency, sagas, dual writes.
+Cheaper intermediate steps first:
+- Fix N+1 (`select_related`/`prefetch_related`), add indexes, `EXPLAIN ANALYZE` hot queries.
+- Caching layer (Redis), read replicas.
+- Async offload (Celery) for slow/background work.
+- Modular monolith → clean app boundaries + interfaces in-process; extract later only if proven.
 
-**Team & ops maturity.** Microservices need CI/CD per service, containers/orchestration, service discovery, distributed tracing, centralized logging, on-call. Conway's law: split by team ownership or it won't hold. Small team → overhead dominates.
-
-**Independent scaling need.** Real win when components scale/deploy on different axes (one hot endpoint, one heavy job). If everything scales together, splitting buys little.
-
-**Cost:** latency, debugging across services, versioning, eventual-consistency bugs, more infra.
-
-Recommended path → profile & optimize → extract to modular monolith → split only the proven hotspot with a clean boundary. Don't split for its own sake.
-[usage] input=3484 cache_read=8977 cache_write=0 output=559
+Rule of thumb: extract a service when a bounded context has a distinct scaling profile, owner, and clean data boundary — not to fix performance.
+[usage] input=3311 cache_read=8977 cache_write=0 output=746

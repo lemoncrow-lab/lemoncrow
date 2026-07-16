@@ -32,12 +32,22 @@ mcp__claude_ai_Gmail__list_labels
 mcp__claude_ai_Gmail__search_threads
 mcp__claude_ai_Gmail__unlabel_message
 mcp__claude_ai_Gmail__unlabel_thread
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Calendar
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -77,7 +87,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL injection: `req.params.id` interpolated into query string. Attacker → `/api/users/1;DROP TABLE users--` or `1 OR 1=1` → data exfil/destruction.
+[assistant] SQL injection — `req.params.id` interpolated raw into query. Also unhandled promise rejection (`.catch` missing) → crash/leak.
 
 Fix — parameterized query:
 
@@ -85,9 +95,11 @@ Fix — parameterized query:
 app.get('/api/users/:id', (req, res) => {
   db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
     .then(user => res.json(user))
-    .catch(() => res.sendStatus(500));
+    .catch(() => res.status(500).json({ error: 'internal' }));
 });
 ```
 
-Also: no error handling (rejected promise → unhandled), and `SELECT *` leaks all columns (e.g. password hashes) → select explicit fields.
-[usage] input=3579 cache_read=9016 cache_write=0 output=232
+- `?` placeholder → driver escapes input, injection closed.
+- `.catch` → no unhandled rejection, no stack/DB-error leak to client.
+- Optional: validate `id` numeric before query.
+[usage] input=3795 cache_read=9016 cache_write=0 output=241

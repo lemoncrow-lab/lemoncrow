@@ -19,35 +19,13 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,17 +65,19 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Queue** — point-to-point, one consumer processes each message. Work distribution.
-- Each message delivered to exactly one receiver (competing consumers).
-- Load-balance tasks across workers; scale by adding consumers.
-- Use for: job/task processing, order fulfillment, commands that must run once.
+[assistant] **Queue** — point-to-point, one consumer processes each message. Work distribution, task offloading, load leveling.
 
-**Topic** — publish/subscribe, every subscriber gets its own copy. Event broadcast.
-- One message fanned out to N independent subscribers.
-- Decouple producer from many reactors; each acts independently.
-- Use for: events others react to (`OrderPlaced` → email + inventory + analytics), notifications.
+- Each message → exactly one consumer (competing consumers)
+- Add workers to scale throughput; order/exactly-once easier
+- Use: job processing, commands, RPC, buffering spikes
 
-Decide by: "does exactly one worker handle this?" → queue. "Do multiple independent parties each need to know?" → topic.
+**Topic** — pub/sub, each subscriber gets its own copy. Event broadcast, fan-out.
 
-Note: Kafka blurs this — a topic with consumer groups gives queue-like distribution *within* a group and pub/sub *across* groups.
-[usage] input=3795 cache_read=8951 cache_write=0 output=342
+- Each message → all interested subscribers independently
+- Producers decoupled from N consumers; add subscribers without touching producer
+- Use: event notifications, cache invalidation, multiple systems reacting to one event
+
+Decide by: **"who processes this?"** One of N interchangeable workers → queue. Several distinct systems each needing it → topic.
+
+Note: Kafka "topic" = durable partitioned log (replayable, consumer groups give queue-like competing consumers too), blurring the line vs classic JMS/AMQP semantics.
+[usage] input=3311 cache_read=8951 cache_write=0 output=336

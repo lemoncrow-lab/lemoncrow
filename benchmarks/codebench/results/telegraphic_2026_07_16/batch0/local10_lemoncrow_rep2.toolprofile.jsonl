@@ -1,6 +1,5 @@
-{"handler_ms": 43, "overhead_ms": 23, "response_size": 29, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "bash", "total_ms": 66, "ts": 1784206166.9198072}
-{"handler_ms": 244, "overhead_ms": 3, "response_size": 2, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "edit", "total_ms": 247, "ts": 1784206179.4440494}
-{"handler_ms": 2, "overhead_ms": 118, "response_size": 15, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "bash", "total_ms": 120, "ts": 1784206190.0604432}
-{"handler_ms": 3, "overhead_ms": 1217, "response_size": 25, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "bash", "total_ms": 1220, "ts": 1784206196.4862077}
-{"handler_ms": 4, "overhead_ms": 1319, "response_size": 542, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "bash", "total_ms": 1323, "ts": 1784206213.7182002}
-{"handler_ms": 39, "overhead_ms": 567, "response_size": 152, "session_id": "d9939302-5c03-4415-ae55-b6f1c2cbf04e", "status": "ok", "tool": "bash", "total_ms": 606, "ts": 1784206217.4136136}
+{"handler_ms": 59, "overhead_ms": 24, "response_size": 21, "session_id": "5e9ef5e4-9f09-4f85-9523-a6b916a6074c", "status": "ok", "tool": "bash", "total_ms": 83, "ts": 1784192895.9406111}
+{"handler_ms": 263, "overhead_ms": 3, "response_size": 2, "session_id": "5e9ef5e4-9f09-4f85-9523-a6b916a6074c", "status": "ok", "tool": "edit", "total_ms": 266, "ts": 1784192905.9522567}
+{"handler_ms": 5, "overhead_ms": 11, "response_size": 63, "session_id": "5e9ef5e4-9f09-4f85-9523-a6b916a6074c", "status": "ok", "tool": "bash", "total_ms": 16, "ts": 1784192915.931457}
+{"handler_ms": 6, "overhead_ms": 1770, "response_size": 22, "session_id": "5e9ef5e4-9f09-4f85-9523-a6b916a6074c", "status": "ok", "tool": "bash", "total_ms": 1776, "ts": 1784192921.7852666}
+{"handler_ms": 4, "overhead_ms": 820, "response_size": 739, "session_id": "5e9ef5e4-9f09-4f85-9523-a6b916a6074c", "status": "ok", "tool": "bash", "total_ms": 824, "ts": 1784192930.566743}

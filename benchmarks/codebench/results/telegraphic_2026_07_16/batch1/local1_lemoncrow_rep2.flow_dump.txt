@@ -67,13 +67,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - security-review: Complete a security review of the pending changes on the current branch
 [assistant] Common causes, most likely first:
 
-1. **Default React behavior** — parent renders → all children re-render, props changed or not. Expected.
+**1. No memoization** — parent re-render re-runs child by default. Wrap child in `React.memo`.
 
-2. **Not memoized** → wrap child in `React.memo(Child)`.
+**2. New reference props each render** — object/array/function literals break `memo`:
+```jsx
+<Child data={{x:1}} onClick={()=>f()} />  // new ref every render
+```
+Fix → `useMemo`/`useCallback`, stable refs.
 
-3. **New reference props each render** — `memo` still breaks when you pass `{}`, `[]`, or inline `() => {}`. Fix: `useMemo`/`useCallback` the values.
+**3. New `children` / context value** — same reference problem via context `value={{...}}`.
 
-4. **New `children` / JSX element props** — same reference problem.
-
-`memo` + stable props → child skips re-render. Re-render ≠ slow; only optimize if profiled.
-[usage] input=3311 cache_read=8949 cache_write=0 output=195
+Diagnose → React DevTools Profiler → "why did this render". Need specifics? Paste parent+child + how props pass.
+[usage] input=3311 cache_read=8949 cache_write=0 output=205

@@ -19,9 +19,21 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
 claude.ai Google Drive
 
@@ -66,30 +78,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
 [assistant] [tool_use: mcp__lc__bash] {"command": "ls; echo \"---\"; cat package.json 2>/dev/null | head -40"}
-[usage] input=3311 cache_read=8970 cache_write=0 output=115
+[usage] input=3579 cache_read=8970 cache_write=0 output=112
 
 === Turn 2 ===
 [user] [tool_result] README.md
 reports
 ---
-[assistant] [tool_use: mcp__lc__bash] {"command": "ls -la; echo ---; ls reports 2>/dev/null | head"}
-[usage] input=2 cache_read=8970 cache_write=3437 output=100
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path":"ErrorBoundary.tsx","replace":true,"new":"import { Component, ErrorInfo, ReactNode } from 'react';\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Optional custom fallback. Receives the error and a retry callback. */\n  fallback?: (error: Error, retry: () => void) => ReactNode;\n  /** Optional external logger; defaults to console.error. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\nexport class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    if (this.props.onError) {\n      this.props.onError(error, info);\n    } else {\n      console.error('ErrorBoundary caught an error:', error, info.componentStack);\n    }\n  }\n\n  retry = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.retry);\n      }\n\n      return (\n        <div role=\"alert\" style={{ padding: 16, border: '1px solid #e00', borderRadius: 8 }}>\n          <h2>Something went wrong.</h2>\n          <pre style={{ whiteSpace: 'pre-wrap', color: '#a00' }}>{error.message}</pre>\n          <button type=\"button\" onClick={this.retry}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n"}]}
+[usage] input=2 cache_read=8970 cache_write=3702 output=847
 
 === Turn 3 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
 mcp__claude_ai_Google_Calendar__create_event
 mcp__claude_ai_Google_Calendar__delete_event
 mcp__claude_ai_Google_Calendar__get_event
@@ -106,288 +105,104 @@ mcp__claude_ai_Google_Drive__get_file_permissions
 mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
-[assistant] No existing project scaffold → creating standalone TSX component.[tool_use: mcp__lc__edit] {"edits": [{"path": "src/ErrorBoundary.tsx", "replace": true, "new": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback renderer; receives the error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Optional external logger (e.g. Sentry). Defaults to console.error. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render/lifecycle errors in the subtree, renders a fallback UI with a\n * retry button, and logs the error details.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    if (this.props.onError) {\n      this.props.onError(error, info);\n    } else {\n      console.error(\"ErrorBoundary caught an error:\", error, info.componentStack);\n    }\n  }\n\n  reset = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.title}>Something went wrong.</h2>\n          <pre style={styles.message}>{error.message}</pre>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles: Record<string, React.CSSProperties> = {\n  container: {\n    padding: \"1.5rem\",\n    margin: \"1rem\",\n    border: \"1px solid #f0b4b4\",\n    borderRadius: \"8px\",\n    background: \"#fff5f5\",\n    color: \"#611a15\",\n    fontFamily: \"system-ui, sans-serif\",\n  },\n  title: { margin: \"0 0 0.5rem\" },\n  message: {\n    whiteSpace: \"pre-wrap\",\n    wordBreak: \"break-word\",\n    margin: \"0 0 1rem\",\n  },\n  button: {\n    padding: \"0.5rem 1rem\",\n    border: \"none\",\n    borderRadius: \"6px\",\n    background: \"#611a15\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n  },\n};\n\nexport default ErrorBoundary;\n"}]}
-[usage] input=733 cache_read=12407 cache_write=341 output=1263
+[assistant] done: `ErrorBoundary.tsx` → class boundary, `getDerivedStateFromError`+`componentDidCatch`, default fallback UI w/ Retry button, `console.error` log (overridable `onError`), optional custom `fallback`.
+
+assumption: TSX, no repo toolchain present → not compile-verified (no `package.json`/tsconfig).
+
+Usage: `<ErrorBoundary><App/></ErrorBoundary>`.
+[usage] input=455 cache_read=12672 cache_write=855 output=188
 
 === Turn 4 ===
-[user] [tool_result] ok
-[assistant] Fix: `React.CSSProperties` referenced but React namespace not imported.[tool_use: mcp__lc__edit] {"edits": [{"path": "src/ErrorBoundary.tsx:1", "new": "import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from \"react\";"}, {"path": "src/ErrorBoundary.tsx", "old": "const styles: Record<string, React.CSSProperties> = {", "new": "const styles: Record<string, CSSProperties> = {"}]}
-[usage] input=2 cache_read=12748 cache_write=2001 output=389
-
-=== Turn 5 ===
-[user] [tool_result] {"applied":[],"failed":[{"edit_file":"src/ErrorBoundary.tsx:1","edit_index":0,"error":"blind range edit rejected: 'src/ErrorBoundary.tsx' was not served by read/code_search in this window, so its line numbers may point at different content now -- read the exact range first, or pass old to anchor the edit"}],"rolled_back":true}
-[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "src/ErrorBoundary.tsx", "old": "import { Component, type ErrorInfo, type ReactNode } from \"react\";", "new": "import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from \"react\";"}, {"path": "src/ErrorBoundary.tsx", "old": "const styles: Record<string, React.CSSProperties> = {", "new": "const styles: Record<string, CSSProperties> = {"}]}
-[usage] input=2 cache_read=14749 cache_write=525 output=218
-
-=== Turn 6 ===
-[user] [tool_result] applied src/ErrorBoundary.tsx:1,68
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /home/pankaj 2>/dev/null; command -v tsc npx node; node -e \"require('@babel/core')\" 2>&1 | head -1"}
-[usage] input=2 cache_read=15274 cache_write=243 output=164
-
-=== Turn 7 ===
-[user] [tool_result] /home/pankaj/.lemoncrow/node/bin/tsc
-/usr/bin/npx
-/usr/bin/node
-node:internal/modules/cjs/loader:1424
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd \"$(git rev-parse --show-toplevel)\"; tsc --strict --jsx react-jsx --noEmit --skipLibCheck --moduleResolution bundler --target ES2020 src/ErrorBoundary.tsx 2>&1 | head -30"}
-[usage] input=2 cache_read=15517 cache_write=230 output=142
-
-=== Turn 8 ===
-[user] [tool_result] stderr:
-fatal: not a git repository (or any of the parent directories): .git
-bash: line 1: cd: null directory
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /home/pankaj/*/  2>/dev/null; pwd; find / -maxdepth 6 -name ErrorBoundary.tsx 2>/dev/null | head"}
-[usage] input=2 cache_read=15747 cache_write=187 output=112
-
-=== Turn 9 ===
-[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
-
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1; ls node_modules/react 2>/dev/null && echo REACT_PRESENT || echo NO_REACT"}
-[usage] input=131 cache_read=15934 cache_write=628 output=277
-
-=== Turn 10 ===
-[user] [tool_result] NO_REACT
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1\nmkdir -p /tmp/eb-tc/react\ncat > /tmp/eb-tc/react/index.d.ts <<'EOF'\nexport type ReactNode = any;\nexport interface ErrorInfo { componentStack: string; }\nexport interface CSSProperties { [k: string]: any; }\nexport class Component<P = {}, S = {}> {\n  constructor(props: P);\n  props: Readonly<P>;\n  state: S;\n  setState(s: Partial<S>): void;\n  render(): ReactNode;\n}\nexport namespace JSX { interface IntrinsicElements { [e: string]: any; } }\nEOF\ncat > /tmp/eb-tc/tsconfig.json <<'EOF'\n{\n  \"compilerOptions\": {\n    \"strict\": true, \"noEmit\": true, \"jsx\": \"react-jsx\",\n    \"target\": \"ES2020\", \"module\": \"ESNext\", \"moduleResolution\": \"bundler\",\n    \"skipLibCheck\": true, \"jsxImportSource\": \"@dummy\",\n    \"baseUrl\": \".\", \"paths\": { \"react\": [\"react/index.d.ts\"] },\n    \"types\": []\n  },\n  \"files\": [\"src/ErrorBoundary.tsx\", \"jsx.d.ts\"]\n}\nEOF\ncat > /tmp/eb-tc/jsx.d.ts <<'EOF'\ndeclare namespace JSX { interface IntrinsicElements { [e: string]: any; } interface Element {} }\nEOF\nmkdir -p /tmp/eb-tc/src\ncp src/ErrorBoundary.tsx /tmp/eb-tc/src/\ncd /tmp/eb-tc && tsc -p tsconfig.json 2>&1 | head -40; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=16562 cache_write=417 output=745
-
-=== Turn 11 ===
-[user] [tool_result] tsconfig.json(6,5): error TS5102: Option 'baseUrl' has been removed. Please remove it from your configuration.
-  Use '"paths": {"*": ["./*"]}' instead.
-tsconfig.json(6,42): error TS5090: Non-relative paths are not allowed. Did you forget a leading './'?
-exit=1
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/eb-tc\nsed -i 's#\"baseUrl\": \".\", ##; s#\"react/index.d.ts\"#\"./react/index.d.ts\"#' tsconfig.json\ntsc -p tsconfig.json 2>&1 | head -40; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=16979 cache_write=866 output=162
-
-=== Turn 12 ===
-[user] [tool_result] src/ErrorBoundary.tsx(59,9): error TS2875: This JSX tag requires the module path '@dummy/jsx-runtime' to exist, but none could be found. Make sure you have types for the appropriate package installed.
-exit=1
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/eb-tc\nmkdir -p '@dummy'\ncat > '@dummy/jsx-runtime.d.ts' <<'EOF'\nexport namespace JSX { interface Element {} interface IntrinsicElements { [e: string]: any; } }\nexport function jsx(...a: any[]): any;\nexport function jsxs(...a: any[]): any;\nexport const Fragment: any;\nEOF\nsed -i 's#\"jsxImportSource\": \"@dummy\"#\"jsxImportSource\": \".\"#' tsconfig.json\n# point jsxImportSource to a dir containing jsx-runtime\nmkdir -p jsxsrc/jsx-runtime.d.ts 2>/dev/null; rm -rf jsxsrc\nsed -i 's#\"paths\": {#\"paths\": { \"@dummy/jsx-runtime\": [\"./@dummy/jsx-runtime.d.ts\"], #' tsconfig.json\nsed -i 's#\"jsxImportSource\": \".\"#\"jsxImportSource\": \"@dummy\"#' tsconfig.json\ncat tsconfig.json\ntsc -p tsconfig.json 2>&1 | head -40; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=17845 cache_write=249 output=465
-
-=== Turn 13 ===
-[user] [tool_result] {
-  "compilerOptions": {
-    "strict": true, "noEmit": true, "jsx": "react-jsx",
-    "target": "ES2020", "module": "ESNext", "moduleResolution": "bundler",
-    "skipLibCheck": true, "jsxImportSource": "@dummy",
-    "paths": { "@dummy/jsx-runtime": ["./@dummy/jsx-runtime.d.ts"],  "react": ["./react/index.d.ts"] },
-    "types": []
-  },
-  "files": ["src/ErrorBoundary.tsx", "jsx.d.ts"]
-}
-exit=0
-[assistant] done: `src/ErrorBoundary.tsx` → class ErrorBoundary; `getDerivedStateFromError`+`componentDidCatch` catch render errors, default fallback UI with Retry (`reset`→clears error), logs via `onError` or `console.error`; optional `fallback`/`onError` props → verified: `tsc --strict --jsx react-jsx` (stub react types, no deps in repo) → exit 0.
-
-assumption: no project scaffold present → standalone TSX, inline styles, no test runner.
-[usage] input=2 cache_read=18094 cache_write=681 output=220
-
-=== Turn 14 ===
 [user] Stop hook feedback:
 FIXME (verify): edited ErrorBoundary.tsx, run test/verification.
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && mkdir -p eb-run && cd eb-run && timeout 90 npm i react@18 react-dom@18 typescript tsx --no-save --loglevel=error 2>&1 | tail -5; echo \"exit=$?\"; ls node_modules/react >/dev/null 2>&1 && echo REACT_OK"}
-[usage] input=2 cache_read=18775 cache_write=261 output=291
+[assistant] [tool_use: mcp__lc__bash] {"command": "node -v; npm -v; which tsc npx 2>/dev/null"}
+[usage] input=2 cache_read=13527 cache_write=682 output=205
 
-=== Turn 15 ===
+=== Turn 5 ===
+[user] [tool_result] v24.12.0
+11.6.2
+/home/pankaj/.lemoncrow/node/bin/tsc
+/usr/bin/npx
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && rm -rf ebverify && mkdir ebverify && cd ebverify && npm init -y >/dev/null 2>&1 && npm i -D typescript@5 @types/react@18 react@18 >/dev/null 2>&1 && cp /home/pankaj/*/ErrorBoundary.tsx . 2>/dev/null; cp \"$OLDPWD/ErrorBoundary.tsx\" . 2>/dev/null; ls"}
+[usage] input=2 cache_read=14209 cache_write=257 output=208
+
+=== Turn 6 ===
+[user] [tool_result] node_modules
+package-lock.json
+package.json
+[assistant] [tool_use: mcp__lc__bash] {"command": "find / -name ErrorBoundary.tsx 2>/dev/null"}
+[usage] input=2 cache_read=14466 cache_write=228 output=106
+
+=== Turn 7 ===
+[user] [tool_result] still running id=805ff09490ab419ca4d10db634c95759
+[logs: /tmp/lemoncrow-bash/805ff09490ab419ca4d10db634c95759.{stdout.txt, stderr.txt}]
+[tail: last 10 lines; full: /tmp/lemoncrow-bash/805ff09490ab419ca4d10db634c95759.{stdout.txt, stderr.txt}]
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-e01184f27288acfe/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-e01184f27288acfe/frontend/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-5e4598e8d07ca47f/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-5e4598e8d07ca47f/frontend/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-a27c0d725575cfc8/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/mcp_tools/results/mcp-cache/snapshots/public-mcp-repo-a27c0d725575cfc8/frontend/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/leanchain/lemoncrow-dev/frontend/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/Fieson/ad-landing/src/components/ErrorBoundary.tsx
+/home/pankaj/Projects/pic/ai-toolkit/ui/src/components/ErrorBoundary.tsx
+[assistant] [tool_use: mcp__lc__bash] {"command": "pwd; ls -la ErrorBoundary.tsx"}
+[usage] input=2 cache_read=14694 cache_write=989 output=157
+
+=== Turn 8 ===
+[user] [tool_result] /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1
+-rw------- 1 pankaj pankaj 1620 Jul 16 11:06 ErrorBoundary.tsx
+[assistant] [tool_use: mcp__lc__bash] {"command": "cp /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1/ErrorBoundary.tsx /tmp/ebverify/ && cd /tmp/ebverify && npx tsc --jsx react-jsx --strict --noEmit --esModuleInterop ErrorBoundary.tsx && echo \"TYPECHECK_OK\""}
+[usage] input=2 cache_read=15683 cache_write=243 output=186
+
+=== Turn 9 ===
 [user] [tool_result] exit_code=2
+node_modules/@types/prop-types/index.d.ts(16,38): error TS2304: Cannot find name 'Iterable'.
+node_modules/@types/react/index.d.ts(448,26): error TS2304: Cannot find name 'Iterable'.
+node_modules/@types/react/index.d.ts(486,10): error TS2456: Type alias 'ReactNode' circularly references itself.
+node_modules/@types/react/index.d.ts(490,11): error TS2304: Cannot find name 'Iterable'.
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebverify && npx tsc --jsx react-jsx --strict --noEmit --esModuleInterop --lib es2020,dom --skipLibCheck ErrorBoundary.tsx && echo \"TYPECHECK_OK\""}
+[usage] input=2 cache_read=15926 cache_write=373 output=171
 
-added 5 packages, changed 3 packages, and audited 13 packages in 767ms
+=== Turn 10 ===
+[user] [tool_result] TYPECHECK_OK
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebverify && npm i react-dom@18 >/dev/null 2>&1 && cat > eb.test.tsx <<'EOF'\nimport { createElement as h } from 'react';\nimport { renderToString } from 'react-dom/server';\nimport { ErrorBoundary } from './ErrorBoundary';\n\nfunction Boom(): JSX.Element { throw new Error('kaboom'); }\n\nlet logged = '';\nconst html = renderToString(\n  h(ErrorBoundary, { onError: (e) => { logged = e.message; } }, h(Boom))\n);\n\nconst ok = html.includes('Something went wrong')\n  && html.includes('kaboom')\n  && html.includes('Retry')\n  && logged === 'kaboom';\nconsole.log(ok ? 'RUNTIME_OK' : 'RUNTIME_FAIL', JSON.stringify({ html, logged }));\nprocess.exit(ok ? 0 : 1);\nEOF\nnpx tsc --jsx react-jsx --strict --esModuleInterop --lib es2020,dom --skipLibCheck --module commonjs --moduleResolution node --outDir out eb.test.tsx ErrorBoundary.tsx && node out/eb.test.js"}
+[usage] input=2 cache_read=16299 cache_write=186 output=602
 
-found 0 vulnerabilities
-exit=0
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/eb-run && ls node_modules/react >/dev/null 2>&1 && echo REACT_OK; ls node_modules/.bin/tsx >/dev/null 2>&1 && echo TSX_OK"}
-[usage] input=2 cache_read=19036 cache_write=348 output=129
-
-=== Turn 16 ===
-[user] [tool_result] exit_code=2
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/eb-run && ls node_modules | tr '\\n' ' '; echo; ls node_modules/.bin 2>/dev/null | tr '\\n' ' '"}
-[usage] input=2 cache_read=19384 cache_write=140 output=112
-
-=== Turn 17 ===
-[user] [tool_result] stderr:
-ls: cannot access 'node_modules': No such file or directory
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/eb-run && npm root; find /tmp -maxdepth 3 -name react -type d 2>/dev/null | grep node_modules | head; find / -maxdepth 5 -path '*/node_modules/react-dom/server*' 2>/dev/null | head"}
-[usage] input=2 cache_read=19524 cache_write=142 output=230
-
-=== Turn 18 ===
-[user] [tool_result] /tmp/node_modules
-/tmp/ebverify/node_modules/react
-/tmp/eb-verify/node_modules/react
-/tmp/eb/node_modules/react
-/tmp/fe-iso/node_modules/react
-/tmp/fe-mine/node_modules/react
-/tmp/node_modules/@types/react
-/tmp/node_modules/react
-/tmp/ebverify/node_modules/react-dom/server.node.js
-/tmp/ebverify/node_modules/react-dom/server.browser.js
-/tmp/ebverify/node_modules/react-dom/server.js
-/tmp/eb-verify/node_modules/react-dom/server.node.js
-/tmp/eb-verify/node_modules/react-dom/server.react-server.js
-/tmp/eb-verify/node_modules/react-dom/server.browser.js
-/tmp/eb-verify/node_modules/react-dom/server.edge.js
-/tmp/eb-verify/node_modules/react-dom/server.js
-/tmp/eb-verify/node_modules/react-dom/server.bun.js
-/tmp/eb/node_modules/react-dom/server.node.js
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp; ls node_modules | grep -E '^(jsdom|@types|typescript|tsx|esbuild)' | tr '\\n' ' '; echo; node -e \"console.log(require('react').version)\""}
-[usage] input=2 cache_read=19666 cache_write=623 output=342
-
-=== Turn 19 ===
+=== Turn 11 ===
 [system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
 
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1\ncp src/ErrorBoundary.tsx /tmp/ErrorBoundary.test-src.tsx\ncat > /tmp/eb.test.tsx <<'EOF'\nimport { renderToStaticMarkup } from \"react-dom/server\";\nimport { createElement as h } from \"react\";\nimport { ErrorBoundary } from \"./ErrorBoundary.test-src\";\n\nfunction Boom(): never { throw new Error(\"kaboom\"); }\nfunction Ok() { return h(\"span\", null, \"child-ok\"); }\n\nlet pass = 0, fail = 0;\nconst ok = (c: boolean, m: string) => { c ? pass++ : (fail++, console.error(\"FAIL:\", m)); };\n\n// 1. happy path renders children\nok(renderToStaticMarkup(h(ErrorBoundary, null, h(Ok))).includes(\"child-ok\"), \"renders children\");\n\n// 2. default fallback catches error, shows message + Retry, logs\nconst logs: any[] = [];\nconst orig = console.error; console.error = (...a: any[]) => logs.push(a);\nconst html = renderToStaticMarkup(h(ErrorBoundary, null, h(Boom)));\nconsole.error = orig;\nok(html.includes(\"Something went wrong\"), \"fallback title\");\nok(html.includes(\"kaboom\"), \"error message shown\");\nok(/<button[^>]*>Retry<\\/button>/.test(html), \"retry button\");\nok(logs.some(l => String(l[0]).includes(\"ErrorBoundary caught\")), \"logs via console.error\");\n\n// 3. custom fallback receives error + reset; onError invoked\nlet captured: Error | null = null, resetType = \"\";\nlet onErr: Error | null = null;\nconst html2 = renderToStaticMarkup(\n  h(ErrorBoundary, {\n    onError: (e: Error) => { onErr = e; },\n    fallback: (e: Error, reset: () => void) => { captured = e; resetType = typeof reset; return h(\"div\", null, \"custom:\" + e.message); },\n  }, h(Boom))\n);\nok(html2.includes(\"custom:kaboom\"), \"custom fallback rendered\");\nok(captured !== null && (captured as Error).message === \"kaboom\", \"fallback got error\");\nok(resetType === \"function\", \"fallback got reset fn\");\nok(onErr !== null && (onErr as Error).message === \"kaboom\", \"onError invoked\");\n\n// 4. reset() clears error state (retry behavior)\nconst inst: any = new (ErrorBoundary as any)({ children: null });\ninst.updater = null;\nlet newState: any = { error: new Error(\"x\") };\ninst.state = newState;\ninst.setState = (s: any) => { newState = { ...newState, ...s }; };\nconst derived = (ErrorBoundary as any).getDerivedStateFromError(new Error(\"y\"));\nok(derived.error instanceof Error, \"getDerivedStateFromError sets error\");\ninst.reset();\nok(newState.error === null, \"reset clears error\");\n\nconsole.log(`\\n${pass} passed, ${fail} failed`);\nprocess.exit(fail ? 1 : 0);\nEOF\ncd /tmp && node --import tsx /tmp/eb.test.tsx 2>&1 | tail -20; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=131 cache_read=20289 cache_write=370 output=1439
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebverify && npx tsc --jsx react-jsx --esModuleInterop --lib es2020,dom --skipLibCheck --module commonjs --moduleResolution node --outDir out ErrorBoundary.tsx && cat > out/run.js <<'EOF'\nconst { createElement: h } = require('react');\nconst { renderToString } = require('react-dom/server');\nconst { ErrorBoundary } = require('./ErrorBoundary');\nfunction Boom(){ throw new Error('kaboom'); }\nlet logged='';\nconst html = renderToString(h(ErrorBoundary,{onError:e=>{logged=e.message;}},h(Boom)));\nconst ok = html.includes('Something went wrong') && html.includes('kaboom') && html.includes('Retry') && logged==='kaboom';\nconsole.log(ok?'RUNTIME_OK':'RUNTIME_FAIL', JSON.stringify({html,logged}));\nprocess.exit(ok?0:1);\nEOF\nnode out/run.js"}
+[usage] input=131 cache_read=16485 cache_write=952 output=482
 
-=== Turn 20 ===
-[user] [tool_result] /tmp/eb.test.tsx:5
-function Boom(): never { throw new Error("kaboom"); }
-                               ^
+=== Turn 12 ===
+[user] [tool_result] exit_code=1
+/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:6995
+    throw fatalError;
+    ^
 
 Error: kaboom
-    at Boom (/tmp/eb.test.tsx:5:32)
-    at renderWithHooks (/tmp/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5662:16)
-    at renderIndeterminateComponent (/tmp/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5736:15)
-... (10 lines omitted) ...
-[assistant] SSR doesn't run boundaries → need DOM. Installing jsdom.[tool_use: mcp__lc__bash] {"command": "cd /tmp && timeout 120 npm i jsdom --no-save --loglevel=error 2>&1 | tail -3; node -e \"require('jsdom');console.log('JSDOM_OK')\" 2>&1 | tail -1"}
-[usage] input=2 cache_read=20659 cache_write=1769 output=303
-
-=== Turn 21 ===
-[user] [tool_result] run `npm fund` for details
-
-found 0 vulnerabilities
-JSDOM_OK
-[assistant] [tool_use: mcp__lc__bash] {"command": "cat > /tmp/eb.test.tsx <<'EOF'\nimport { JSDOM } from \"jsdom\";\nconst dom = new JSDOM(\"<!doctype html><html><body><div id='root'></div></body></html>\", { url: \"http://localhost\" });\n(globalThis as any).window = dom.window;\n(globalThis as any).document = dom.window.document;\n(globalThis as any).navigator = dom.window.navigator;\n(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;\n\nimport { createElement as h, useState } from \"react\";\nimport { act } from \"react-dom/test-utils\";\nimport { createRoot } from \"react-dom/client\";\nimport { ErrorBoundary } from \"./ErrorBoundary.test-src\";\n\nconst root = createRoot(document.getElementById(\"root\")!);\nconst T = (m: string): void => { console.log(\"case:\", m); };\nlet pass = 0, fail = 0;\nconst ok = (c: boolean, m: string) => { c ? (pass++, console.log(\"  ok -\", m)) : (fail++, console.error(\"  FAIL -\", m)); };\nconst q = () => document.getElementById(\"root\")!.innerHTML;\n\n// Child that throws when its prop says so; lets us toggle for retry test.\nlet shouldThrow = true;\nfunction Boom() { if (shouldThrow) throw new Error(\"kaboom\"); return h(\"span\", null, \"recovered\"); }\n\n// suppress React's error console noise but capture our own log\nconst realErr = console.error;\nconst logs: any[] = [];\nconsole.error = (...a: any[]) => { logs.push(a); };\n\nT(\"default fallback catches render error + logs + Retry\");\nact(() => { root.render(h(ErrorBoundary, null, h(Boom))); });\nconsole.error = realErr;\nok(q().includes(\"Something went wrong\"), \"fallback title shown\");\nok(q().includes(\"kaboom\"), \"error message shown\");\nok(/<button[^>]*>Retry<\\/button>/.test(q()), \"Retry button present\");\nok(logs.some(l => String(l[0]).includes(\"ErrorBoundary caught\")), \"logged via console.error\");\n\nT(\"Retry recovers when child no longer throws\");\nshouldThrow = false;\nconst btn = document.querySelector(\"button\")!;\nact(() => { btn.dispatchEvent(new dom.window.MouseEvent(\"click\", { bubbles: true })); });\nok(q().includes(\"recovered\"), \"children re-rendered after Retry\");\nok(!q().includes(\"Something went wrong\"), \"fallback cleared\");\n\nT(\"custom fallback + onError\");\nshouldThrow = true;\nlet onErrMsg = \"\", cbType = \"\";\nconsole.error = (...a: any[]) => {};\nact(() => {\n  root.render(h(ErrorBoundary, {\n    onError: (e: Error) => { onErrMsg = e.message; },\n    fallback: (e: Error, reset: () => void) => { cbType = typeof reset; return h(\"p\", null, \"custom:\" + e.message); },\n  }, h(Boom)));\n});\nconsole.error = realErr;\nok(q().includes(\"custom:kaboom\"), \"custom fallback rendered\");\nok(onErrMsg === \"kaboom\", \"onError received error\");\nok(cbType === \"function\", \"fallback received reset fn\");\n\nconsole.log(`\\n${pass} passed, ${fail} failed`);\nact(() => root.unmount());\nprocess.exit(fail ? 1 : 0);\nEOF\ncd /tmp && node --import tsx /tmp/eb.test.tsx 2>&1 | tail -30; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=22428 cache_write=338 output=1261
-
-=== Turn 22 ===
-[user] [tool_result] ... (1 lines omitted) ...
-  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
-        ^
-
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from /tmp/
-    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:316:9)
-    at packageResolve (node:internal/modules/esm/resolve:768:81)
-    at moduleResolve (node:internal/modules/esm/resolve:858:18)
-... (12 lines omitted) ...
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && timeout 120 npm i jsdom tsx typescript react@18 react-dom@18 --no-save --loglevel=error 2>&1 | tail -2; node -e \"require.resolve('tsx');console.log('TSX_OK')\" 2>&1 | tail -1\nnode --import tsx /tmp/eb.test.tsx 2>&1 | tail -30; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=22766 cache_write=1469 output=299
-
-=== Turn 23 ===
-[user] [tool_result] found 0 vulnerabilities
-TSX_OK
-case: default fallback catches render error + logs + Retry
-/tmp/ErrorBoundary.test-src.tsx:58
-      return (
-      ^
-... (15 lines omitted) ...
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && node --import tsx /tmp/eb.test.tsx 2>&1 | sed -n '1,40p'; echo \"exit=${PIPESTATUS[0]}\""}
-[usage] input=2 cache_read=24235 cache_write=385 output=116
-
-=== Turn 24 ===
-[user] [tool_result] case: default fallback catches render error + logs + Retry
-/tmp/ErrorBoundary.test-src.tsx:58
-      return (
-      ^
-... (15 lines omitted) ...
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && node --import tsx /tmp/eb.test.tsx > /tmp/out.txt 2>&1; echo \"exit=$?\"; cat /tmp/out.txt"}
-[usage] input=2 cache_read=24620 cache_write=183 output=143
-
-=== Turn 25 ===
-[user] [tool_result] ... (2 lines omitted) ...
-  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
-        ^
-
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from /tmp/
-    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:316:9)
-    at packageResolve (node:internal/modules/esm/resolve:768:81)
-    at moduleResolve (node:internal/modules/esm/resolve:858:18)
-... (11 lines omitted) ...
-[assistant] [tool_use: mcp__lc__bash] {"command": "rm -rf /tmp/ebx && mkdir -p /tmp/ebx && cd /tmp/ebx\ncat > package.json <<'EOF'\n{ \"name\": \"ebx\", \"private\": true, \"type\": \"module\" }\nEOF\ntimeout 150 npm i react@18 react-dom@18 jsdom tsx typescript --loglevel=error 2>&1 | tail -2\ncp /tmp/codebench_workspaces/batch0-227c5e985c25/local10_lemoncrow_rep1/src/ErrorBoundary.tsx ./ErrorBoundary.test-src.tsx\ncp /tmp/eb.test.tsx ./eb.test.tsx\nnode -e \"require.resolve('tsx');require.resolve('jsdom');console.log('DEPS_OK')\""}
-[usage] input=2 cache_read=24803 cache_write=351 output=614
-
-=== Turn 26 ===
-[user] [tool_result] found 0 vulnerabilities
-DEPS_OK
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebx && node --import tsx ./eb.test.tsx > out.txt 2>&1; echo \"exit=$?\"; cat out.txt"}
-[usage] input=2 cache_read=25154 cache_write=638 output=106
-
-=== Turn 27 ===
-[user] [tool_result] ... (2 lines omitted) ...
-(globalThis as any).navigator = dom.window.navigator;
-                    ^
-
-TypeError: Cannot set property navigator of #<Object> which has only a getter
-    at <anonymous> (/tmp/ebx/eb.test.tsx:5:21)
-    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
-... (3 lines omitted) ...
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebx && sed -i \"/globalThis as any).navigator = dom.window.navigator;/d\" eb.test.tsx\nnode --import tsx ./eb.test.tsx > out.txt 2>&1; echo \"exit=$?\"; cat out.txt"}
-[usage] input=2 cache_read=25792 cache_write=291 output=203
-
-=== Turn 28 ===
-[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
-
-[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebx && wc -l out.txt && sed -n '1,60p' out.txt"}
-[usage] input=131 cache_read=26083 cache_write=279 output=166
-
-=== Turn 29 ===
-[user] [tool_result] 18 out.txt
-case: default fallback catches render error + logs + Retry
-/tmp/ebx/ErrorBoundary.test-src.tsx:58
-      return (
-      ^
-... (14 lines omitted) ...
-[assistant] [tool_use: mcp__lc__read] {"files": ["/tmp/ebx/out.txt"]}
-[usage] input=2 cache_read=26362 cache_write=373 output=108
-
-=== Turn 30 ===
-[user] [tool_result] ## /tmp/ebx/out.txt
-case: default fallback catches render error + logs + Retry
-/tmp/ebx/ErrorBoundary.test-src.tsx:58
-      return (
-      ^
-
-ReferenceError: React is not defined
-    at ErrorBoundary.render (/tmp/ebx/ErrorBoundary.test-src.tsx:58:7)
-    at finishClassComponent (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:19781:31)
-    at updateClassComponent (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:19727:24)
-    at beginWork (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:21650:16)
-    at beginWork$1 (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:27465:14)
-    at performUnitOfWork (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:26599:12)
-    at workLoopSync (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:26505:5)
-    at renderRootSync (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:26473:7)
-    at recoverFromConcurrentError (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:25889:20)
-    at performConcurrentWorkOnRoot (/tmp/ebx/node_modules/react-dom/cjs/react-dom.development.js:25789:22)
+    at Boom (/tmp/ebverify/out/run.js:4:24)
+    at renderWithHooks (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5662:16)
+    at renderIndeterminateComponent (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5736:15)
+    at renderElement (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5961:7)
+    at renderNodeDestructiveImpl (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:6119:11)
+    at renderNodeDestructive (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:6091:14)
+    at finishClassComponent (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5692:3)
+    at renderClassComponent (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5700:3)
+    at renderElement (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:5958:7)
+    at renderNodeDestructiveImpl (/tmp/ebverify/node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js:6119:11)
 
 Node.js v24.12.0
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp/ebverify && npm i jsdom >/dev/null 2>&1 && cat > out/run.js <<'EOF'\nconst { JSDOM } = require('jsdom');\nconst dom = new JSDOM('<!doctype html><html><body><div id=\"root\"></div></body></html>');\nglobal.window = dom.window; global.document = dom.window.document;\nglobal.navigator = dom.window.navigator; global.IS_REACT_ACT_ENVIRONMENT = true;\nconst React = require('react');\nconst { createElement: h, useState } = React;\nconst { createRoot } = require('react-dom/client');\nconst { act } = require('react');\nconst { ErrorBoundary } = require('./ErrorBoundary');\n\nlet boom = true;\nfunction Boom(){ if(boom) throw new Error('kaboom'); return h('span',null,'recovered'); }\nlet logged = null;\nconst root = createRoot(document.getElementById('root'));\nconst origErr = console.error; console.error = ()=>{}; // silence React's error log noise\n\nact(()=>{ root.render(h(ErrorBoundary,{onError:e=>{logged=e.message;}}, h(Boom))); });\nconst html1 = document.getElementById('root').innerHTML;\n\n// click Retry after fixing the child\nboom = false;\nconst btn = document.querySelector('button');\nact(()=>{ btn.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true})); });\nconst html2 = document.getElementById('root').innerHTML;\nconsole.error = origErr;\n\nconst fallbackOK = html1.includes('Something went wrong') && html1.includes('kaboom') && html1.includes('Retry') && logged==='kaboom';\nconst retryOK = html2.includes('recovered');\nconst ok = fallbackOK && retryOK;\nconsole.log(ok?'RUNTIME_OK':'RUNTIME_FAIL', JSON.stringify({fallbackOK,retryOK,logged}));\nprocess.exit(ok?0:1);\nEOF\nnode out/run.js"}
+[usage] input=2 cache_read=17437 cache_write=1250 output=885
 
-[assistant] Real bug surfaced: component targets automatic JSX runtime (verified earlier via `--jsx react-jsx`); tsx defaulted to classic → configure test to match the component's contract.[tool_use: mcp__lc__bash] {"command": "cd /tmp/ebx\ncat > tsconfig.json <<'EOF'\n{ \"compilerOptions\": { \"jsx\": \"react-jsx\", \"module\": \"ESNext\", \"moduleResolution\": \"bundler\", \"target\": \"ES2020\", \"strict\": true, \"esModuleInterop\": true, \"skipLibCheck\": true } }\nEOF\nnode --import tsx ./eb.test.tsx > out.txt 2>&1; echo \"exit=$?\""}
-[usage] input=2 cache_read=26735 cache_write=689 output=1035
+=== Turn 13 ===
+[user] [tool_result] RUNTIME_OK {"fallbackOK":true,"retryOK":true,"logged":"kaboom"}
+[assistant] done: `ErrorBoundary.tsx` verified.
+- typecheck: `tsc --strict --jsx react-jsx --noEmit` → clean
+- runtime (jsdom + react-dom/client + act): throw → fallback shows "Something went wrong"/error msg/Retry, `onError` logged `kaboom`; fix child + click Retry → renders `recovered`. → RUNTIME_OK
 
-=== Turn 31 ===
-[user] [tool_result] exit=0
-[assistant] [tool_use: mcp__lc__read] {"files": ["/tmp/ebx/out.txt"]}
-[usage] input=2 cache_read=27424 cache_write=1044 output=67
-
-=== Turn 32 ===
-[user] [tool_result] ## /tmp/ebx/out.txt
-case: default fallback catches render error + logs + Retry
-  ok - fallback title shown
-  ok - error message shown
-  ok - Retry button present
-  ok - logged via console.error
-case: Retry recovers when child no longer throws
-  ok - children re-rendered after Retry
-  ok - fallback cleared
-case: custom fallback + onError
-  ok - custom fallback rendered
-  ok - onError received error
-  ok - fallback received reset fn
-
-9 passed, 0 failed
-
-[assistant] done: verified end-to-end, no code change needed → real React 18 + jsdom client render, `node --import tsx eb.test.tsx` → 9/9 passed:
-- default fallback catches render error, shows message + Retry, logs via `console.error`
-- Retry clears error → children re-render/recover
-- custom `fallback(error, reset)` + `onError` both invoked
-
-note: component uses automatic JSX runtime (no `import React`) — correct for Vite/Next/CRA5/`tsc --jsx react-jsx`; a classic-transform setup would need `import React`.
-[usage] input=2 cache_read=28468 cache_write=245 output=254
+Note: error boundaries are client-only; SSR `renderToString` rethrows by design (React limitation, not a bug in the component).
+[usage] input=2 cache_read=18687 cache_write=929 output=181

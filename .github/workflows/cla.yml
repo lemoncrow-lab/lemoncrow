@@ -26,11 +26,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: signatures/version1/cla.json
-          path-to-document: https://github.com/lemoncrowhq/lemoncrow/blob/main/CLA.md
+          path-to-document: https://github.com/lemoncrow-lab/lemoncrow/blob/main/CLA.md
           branch: main
           # Accounts that never need to sign (bots, and add the maintainer's
           # GitHub username here to skip self-signing on direct PRs).
           allowlist: lemoncrow,dependabot[bot]
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
-          custom-notsigned-prcomment: "Thanks for your pull request! Before it can be merged, please read our [Contributor License Agreement](https://github.com/lemoncrowhq/lemoncrow/blob/main/CLA.md) and sign it by posting the exact comment below."
+          custom-notsigned-prcomment: "Thanks for your pull request! Before it can be merged, please read our [Contributor License Agreement](https://github.com/lemoncrow-lab/lemoncrow/blob/main/CLA.md) and sign it by posting the exact comment below."
           custom-allsigned-prcomment: "All contributors have signed the CLA. ✅"

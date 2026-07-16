@@ -65,21 +65,21 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Unit mismatch. `exp` = seconds since epoch; `Date.now()` = milliseconds. So `Date.now() > exp` is always true-scale-skewed — ms value dwarfs the seconds `exp`, comparison logic breaks, expired tokens slip through.
+[assistant] Bug: `exp` is Unix **seconds**; `Date.now()` is **milliseconds**. `Date.now() > token.exp` is always true-scaled wrong — you compare ms against s, so `exp` (~1.7e9) is dwarfed by `Date.now()` (~1.7e12)... actually that makes everything look expired. If your check is inverted (`exp > Date.now()` → "still valid"), expired tokens pass because `exp` in seconds never exceeds ms now. Unit mismatch either way.
 
-Fix — compare in same unit:
-
-```js
-if (Date.now() >= decoded.exp * 1000) return res.status(401).json({ error: 'token expired' });
-```
-
-Better: stop hand-rolling. `jwt.verify()` checks `exp` itself and throws `TokenExpiredError`:
+Fix — normalize units:
 
 ```js
-try {
-  req.user = jwt.verify(token, SECRET);
-} catch (e) {
-  return res.status(401).json({ error: 'invalid or expired token' });
+if (Date.now() >= token.exp * 1000) {
+  throw new Error('token expired');
 }
 ```
-[usage] input=3311 cache_read=8731 cache_write=257 output=356
+
+Better: don't hand-roll. `jwt.verify()` checks `exp` for you and throws `TokenExpiredError`:
+
+```js
+jwt.verify(raw, secret); // throws on expiry; wrap in try/catch → 401
+```
+
+Also confirm you're reading `exp` from the **verified** payload, not a decode of the raw token.
+[usage] input=3311 cache_read=8988 cache_write=0 output=411

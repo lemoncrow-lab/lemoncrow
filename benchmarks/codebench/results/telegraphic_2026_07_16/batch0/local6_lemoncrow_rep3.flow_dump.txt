@@ -19,35 +19,13 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,27 +65,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Splitting isn't the first lever — profile before you architect. Key factors:
+[assistant] Splitting rarely fixes slowness — and it adds network, ops, and data-consistency cost. Verify the monolith is actually the bottleneck first.
 
-**Is the monolith actually the bottleneck?**
-- Slowness usually = DB/query issues (N+1, missing indexes), not code topology. Profile first (django-silk, APM). Microservices add network latency — often *slower*.
-- Cheaper fixes first: query optimization, caching (Redis), read replicas, `select_related`/`prefetch_related`, async tasks (Celery), horizontal scaling of the monolith itself.
+**Before splitting, exhaust cheaper wins:**
+- Profile real bottlenecks — `django-silk`/APM. Usually N+1 queries, missing indexes, no caching, sync work that should be async.
+- `select_related`/`prefetch_related`, DB indexes, query caching (Redis), read replicas.
+- Offload slow work to Celery; add a cache layer; scale horizontally (more gunicorn/app instances behind LB). A monolith scales out fine.
 
-**Domain boundaries**
-- Can you draw clean seams? Bounded contexts with few cross-calls split well; a tangled model doesn't.
-- Shared DB tables + foreign keys across proposed services = you'll pay in distributed joins and data duplication.
+**If splitting is still on the table, weigh:**
+- **Bounded contexts** — clear domain seams with low coupling? No clean seam → distributed monolith (worst of both).
+- **Data ownership** — each service owns its data; cross-service joins become API calls + eventual consistency. Django ORM joins/transactions don't cross the boundary.
+- **Team + ops maturity** — CI/CD, observability (tracing, centralized logs), on-call, service discovery. Microservices trade code complexity for operational complexity.
+- **Team topology** — Conway's law: split makes sense when independent teams own independent deploy cadences.
+- **Transaction boundaries** — anything needing atomicity across the seam is a red flag.
+- **Latency budget** — in-process calls become network hops; chatty boundaries kill p99.
 
-**Data & consistency**
-- Losing ACID transactions across service boundaries → eventual consistency, sagas, distributed-txn pain. Real cost.
+**Middle path:** modular monolith — enforce domain boundaries in-code (separate apps, no cross-import), extract one high-value service later only if a real scaling/team need proves out. Cheaper, reversible.
 
-**Team & operational readiness**
-- Conway's law: split makes sense when *teams* need independent deploy cadence. One team → one deploy usually wins.
-- Ops burden: CI/CD per service, service discovery, observability/tracing, network security, versioned APIs. Do you have the platform/on-call maturity?
-
-**Coupling of the split itself**
-- If services must deploy together or chatter constantly, you built a distributed monolith — worst of both.
-
-Recommended path: profile → fix DB/caching → modularize *inside* the monolith (clear app boundaries, no cross-imports) → extract one high-value service only if a concrete driver (independent scaling, team autonomy) justifies it.
-
-What's the actual symptom — slow requests, slow deploys, or team contention? Determines the answer.
-[usage] input=3795 cache_read=8977 cache_write=0 output=680
+Bottom line: split for team autonomy and independent scaling of a proven-isolated hotspot — not for raw speed. Profile first.
+[usage] input=3311 cache_read=8977 cache_write=0 output=720

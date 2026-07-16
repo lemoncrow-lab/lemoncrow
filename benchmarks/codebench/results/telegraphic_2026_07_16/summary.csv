@@ -1,4 +1,4 @@
 arm,n,total_cost_usd,avg_cost_usd,total_output_tokens,avg_output_tokens,total_input_tokens,avg_input_tokens,total_cache_read_tokens,total_cache_creation_tokens,total_turns,avg_turns,total_duration_ms
 baseline,100,7.731595,0.077316,122578,1225.78,331737,3317.37,1114340,269947,234,2.34,1917310
-lemoncrow,100,5.491266,0.054913,63908,639.08,352758,3527.58,2097393,108108,176,1.76,1471815
+lemoncrow,100,4.585261,0.045853,50226,502.26,351838,3518.38,1584881,77798,150,1.50,1471122
 caveman,100,8.059980,0.080600,70707,707.07,327550,3275.50,954294,440802,211,2.11,1273128

@@ -19,6 +19,14 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -30,7 +38,6 @@ mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
-claude.ai Google Calendar
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -72,21 +79,20 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Diagnose first, then fix the leak class:
+[assistant] Diagnose first, then fix the specific leak — common causes/fixes:
 
 **Find it**
-- Run with `node --inspect`, open Chrome DevTools → Memory → take heap snapshots at intervals, compare retained size (diff two snapshots to see what's growing).
-- Or `node --heapsnapshot-signal=SIGUSR2`, send signal over time, load `.heapsnapshot` files.
-- Watch trend: `process.memoryUsage().heapUsed` logged periodically; leak = monotonic rise across GC.
+- Run with `node --inspect`, take heap snapshots in Chrome DevTools at intervals → compare, look for growing retained objects.
+- Or `node --expose-gc` + `process.memoryUsage().heapUsed` logged over time; `--heapsnapshot-signal=SIGUSR2` for live procs.
 
-**Common causes → fix**
-- Unbounded growth: module-level `Map`/`Array`/cache never evicted → cap size / use `lru-cache` / `WeakMap` for object keys.
-- Listeners: `emitter.on()` in a hot path without `off()` → `MaxListenersExceededWarning` is the tell → remove listeners; reuse emitters.
-- Closures/timers: `setInterval`, pending promises, or callbacks capturing large scope → `clearInterval`, bound lifetimes.
-- Globals: data attached to `global`, or per-request state stored on a long-lived singleton.
+**Usual culprits → fix**
+- Unbounded growth: arrays/Maps/caches never evicted → cap size or use `LRU`/`WeakMap`/`WeakRef`.
+- Listeners: `emitter.on` in a loop without `removeListener` → the `MaxListenersExceededWarning` is the tell. Remove or use `once`.
+- Timers: `setInterval`/`setTimeout` never cleared → `clearInterval` on teardown.
+- Closures/globals retaining large objects; module-scope accumulators.
+- Detached callbacks, unresolved promises holding context.
 
-**Verify**
-- Reproduce under load (`autocannon`/loop), confirm `heapUsed` plateaus after change across forced GC (`--expose-gc`, call `global.gc()`).
+**Verify**: reproduce load, watch `heapUsed` plateau instead of climb.
 
-Share the snapshot diff (top retainer) or the growing structure and I'll pin the exact fix.
-[usage] input=3484 cache_read=8731 cache_write=222 output=496
+Share the leaking code or a heap snapshot diff → I'll pin the exact retainer.
+[usage] input=3656 cache_read=8731 cache_write=222 output=415

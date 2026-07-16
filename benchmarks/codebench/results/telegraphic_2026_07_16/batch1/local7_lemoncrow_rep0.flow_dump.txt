@@ -19,18 +19,18 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
-claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -72,13 +72,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS = browser blocking a cross-origin request because the server's response lacks required headers. Not a client bug — server must send them.
+[assistant] CORS errors = browser blocking JS `fetch`/`XHR` to a different origin because the **server's response lacks matching CORS headers**. Not a browser bug; server must opt in.
 
 Common causes → fixes:
-- Missing `Access-Control-Allow-Origin` → server must return it (your frontend origin, e.g. `https://app.com`, or `*`).
-- Preflight (OPTIONS) fails → handle OPTIONS, return `Access-Control-Allow-Methods` / `-Headers`.
-- Sending cookies/auth → need `Access-Control-Allow-Credentials: true` **and** a specific origin (`*` forbidden with credentials).
-- Frontend calling wrong host/port/protocol → point at correct API origin, or use a dev proxy.
+- Missing `Access-Control-Allow-Origin` → server must send it (echo your origin or `*`).
+- Preflight `OPTIONS` failing → server must answer `OPTIONS` with `Access-Control-Allow-Methods` / `-Headers`.
+- Credentials (cookies/auth) → need `Access-Control-Allow-Credentials: true` **and** exact origin (not `*`).
+- Origin mismatch → `http` vs `https`, port, or `www` differs.
 
-Paste the exact console error + your stack (Express/nginx/etc.) → I give the precise header/config fix.
-[usage] input=3484 cache_read=8731 cache_write=218 output=297
+Read the exact console line — it names the missing header/rule.
+
+Fix belongs on the **API server** (or a proxy), not the frontend. Paste the error + your stack (Express/Nginx/Flask/etc.) → exact config.
+[usage] input=3483 cache_read=8731 cache_write=218 output=341

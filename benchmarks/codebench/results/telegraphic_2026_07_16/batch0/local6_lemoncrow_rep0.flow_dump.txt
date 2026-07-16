@@ -27,10 +27,17 @@ mcp__claude_ai_Google_Calendar__list_events
 mcp__claude_ai_Google_Calendar__respond_to_event
 mcp__claude_ai_Google_Calendar__suggest_time
 mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -72,23 +79,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Decision factors before splitting:
+[assistant] Key factors before splitting:
 
-**Prove the monolith is the problem first.** Most Django slowness is fixable in place — N+1 queries (`select_related`/`prefetch_related`), missing DB indexes, no caching layer, sync work that should be Celery tasks, single-process WSGI. Profile (django-silk, APM) before assuming architecture. Microservices add latency; they don't make code faster.
+**1. Is the problem actually architecture?** Profile first. Most Django slowness = N+1 queries, missing indexes, no caching, sync work that should be async (Celery). Microservices fix none of these — they add network latency. Splitting a slow monolith gives you slow, distributed services.
 
-**Bottleneck locality.** If one component (e.g. reporting, image processing) is the hot path, extract *that one* service — not a full rewrite. Splitting a fast module gains nothing.
+**2. Do clear domain boundaries exist?** You can only split cleanly along seams where data and logic are loosely coupled. If everything JOINs everything, you'll build a distributed monolith — worst of both. Map bounded contexts before drawing service lines.
 
-**Domain boundaries.** Can you draw clean seams with low cross-talk? If services would chat constantly, you get a distributed monolith — worse latency, same coupling.
+**3. Data ownership.** Each service owns its DB. Cross-service JOINs vanish → replaced by API calls, eventual consistency, no cross-service transactions. Can your invariants survive that? This is usually the hardest, most underestimated cost.
 
-**Data ownership.** Each service owns its DB. Shared tables, cross-service JOINs, and distributed transactions are the hardest part. If your models are tightly foreign-keyed, splitting is expensive.
+**4. Team & ops maturity.** Microservices need: CI/CD per service, service discovery, distributed tracing/observability, on-call, container orchestration. Conway's law — service boundaries mirror team boundaries. One team of 6 rarely benefits from 15 services.
 
-**Team + ops maturity.** Microservices need CI/CD per service, service discovery, distributed tracing, centralized logging, on-call. Small team without this → operational load dominates. Conway's law: split matches team structure.
+**5. Operational cost.** Debugging spans networks, versioned APIs, contract testing, more infra spend, more failure modes (partial outages, retries, timeouts).
 
-**Consistency tolerance.** Cross-service ops become eventually-consistent (events/sagas). Can the domain accept that?
+Recommended path:
+- Profile → fix the real bottleneck (queries, caching, async, read replicas, scale gunicorn workers).
+- If genuinely need to split: **modular monolith first** — enforce clean module boundaries inside one codebase. Then extract the one hot/independent piece as a service (strangler pattern), not a big-bang rewrite.
 
-**Cost.** Network hops, serialization, more infra, debugging across boundaries.
+Rule of thumb: extract a service to solve an *organizational or independent-scaling* problem, not a performance one. If you can't name which module and why, you're not ready.
 
-Recommended path: profile → fix in-place wins → if still bounded, extract the single worst offender as one service (strangler pattern), measure, repeat. Don't big-bang.
-
-What's the actual symptom — slow requests, slow deploys, or team scaling pain? Determines whether splitting even helps.
-[usage] input=3483 cache_read=8731 cache_write=246 output=663
+Want me to look at the actual slow paths in the codebase?
+[usage] input=3656 cache_read=8731 cache_write=246 output=682

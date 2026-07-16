@@ -32,17 +32,17 @@ mcp__claude_ai_Gmail__list_labels
 mcp__claude_ai_Gmail__search_threads
 mcp__claude_ai_Gmail__unlabel_message
 mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -84,15 +84,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Queue (point-to-point):** one message → exactly one consumer. Work distribution, load balancing across workers, task processing. Competing consumers scale throughput; each job done once.
+[assistant] **Queue** — point-to-point, one consumer per message; competing consumers share load.
+- Work distribution, task processing, load balancing
+- Each message processed once → ordered/reliable job handoff
+- Scale consumers horizontally without duplicate work
 
-**Topic (pub/sub):** one message → every subscriber. Event fan-out, decoupled broadcast, multiple independent reactions to same event.
+**Topic** — pub/sub, one message fanned out to all subscribers.
+- Event broadcast, notifications, multiple independent reactions
+- N systems each need own copy (analytics + audit + cache-invalidate)
+- Decouple producer from unknown/growing set of consumers
 
-Decide by:
-- One logical handler, want parallelism → **queue**
-- N independent consumers each need the message → **topic**
-- Command ("do this") → queue · Event ("this happened") → topic
-- Add consumers without duplicating processing → queue · without affecting others → topic
+Rule: **one job done once → queue. One event, many reactors → topic.**
 
-Modern brokers blur it: Kafka/Pulsar = partitioned log — topic semantics + consumer groups give queue-style competing consumers in one system.
-[usage] input=3752 cache_read=8951 cache_write=0 output=275
+Hybrid (Kafka/SNS+SQS): topic fans out to per-consumer-group queues → broadcast + independent load-balanced processing.
+[usage] input=3751 cache_read=8951 cache_write=0 output=273

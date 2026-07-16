@@ -19,10 +19,29 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
-claude.ai Google Calendar
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
@@ -65,29 +84,29 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Reusing a set of pre-opened DB connections instead of opening/closing one per query.
+[assistant] Connection pooling: keep a set of open DB connections alive, reuse them across requests instead of opening/closing per query.
 
-**Problem it solves** — opening a connection (TCP handshake, auth, TLS, session setup) costs 10–100ms+. Doing it per request wastes time and exhausts the DB's connection limit under load.
+**Why** — TCP handshake + auth + TLS + session setup per connection is expensive (ms-scale, often costlier than the query). Pool amortizes that.
 
-**How it works** — pool holds N ready connections. Request flow:
-- acquire → borrow an idle connection (or wait if none free)
-- use → run queries
-- release → return it to the pool (not closed), reset for reuse
+**Mechanics**
+- Pool holds N ready connections.
+- Request borrows one → runs query → returns it (not closed).
+- Idle connection reused by next caller.
+- Exhausted pool → caller waits (queue) or errors on timeout.
 
 **Key knobs**
-- `min`/`max` size → floor of warm conns, ceiling to protect the DB
-- `acquire timeout` → fail fast when pool exhausted vs. block forever
-- `idle timeout` → close excess conns after inactivity
-- `max lifetime` → recycle old conns (avoids stale/leaked server-side state)
-- health check / validation → drop dead conns before handing out
+- `min`/`max` size — floor kept warm, ceiling caps DB load.
+- idle timeout — reap unused connections.
+- max lifetime — recycle old connections (avoid stale/leaked server state).
+- acquire timeout — cap wait when saturated.
+- validation — health-check on borrow (detect dead connections).
 
-**Watch out for**
-- pool size > DB `max_connections` across all app instances → DB rejects
-- leaked connections (acquire without release) → pool starves, hangs
-- long transactions holding conns → effective pool shrinks
-- serverless/many instances → per-instance pools multiply; use an external pooler (e.g. PgBouncer)
+**Sizing** — `max` bounded by DB's own limit (Postgres `max_connections`); too high → DB memory/context-switch thrash. Rule of thumb: small pool near CPU/core count often beats large.
 
-Sizing rule of thumb: `connections ≈ cores × 2` per DB, not "bigger is faster" — too many causes contention.
+**Gotchas**
+- Leaks: borrow without return → pool drains → hangs.
+- Serverless/many instances: each process×pool multiplies against DB limit → use external pooler (PgBouncer, RDS Proxy).
+- Session state (temp tables, `SET`) leaks across borrows unless reset.
 
-Examples: HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool`, Go `database/sql` built-in.
-[usage] input=3311 cache_read=8942 cache_write=0 output=568
+**Examples** — HikariCP (Java), pgbouncer, SQLAlchemy `QueuePool`, `pg.Pool` (node), Go `database/sql` built-in.
+[usage] input=3751 cache_read=8942 cache_write=0 output=548

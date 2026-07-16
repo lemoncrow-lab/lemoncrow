@@ -87,21 +87,21 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Key factors before splitting:
+[assistant] Decision factors, ranked:
 
-**1. Is the monolith actually the problem?** Profile first. Slow usually = bad queries (N+1, missing indexes), no caching, sync work that should be async. Microservices fix *none* of these — you carry the same slow code across a network. Cheapest wins: query optimization, `select_related`/`prefetch_related`, DB indexes, Redis cache, Celery for background jobs, read replicas, horizontal scaling of Django workers.
+**1. Profile first — is it even architecture?** Slow monolith ≠ needs microservices. Find the actual cause: N+1 queries, missing indexes, no caching, sync work that should be async (Celery), no read replica. Most "slow monolith" pain is fixed here, cheaper. Microservices add latency, not remove it.
 
-**2. Clear domain boundaries.** Can you name seams where modules barely touch? No clean boundary → distributed monolith (all the pain, none of the benefit). De-risk first by enforcing boundaries *inside* the monolith (Django apps, separate schemas, no cross-import).
+**2. Bounded contexts.** Can you draw clean domain seams (billing, auth, catalog)? Split along those. If the ORM models are deeply cross-joined, a split becomes distributed joins — worse than now.
 
-**3. Data ownership.** Each service owns its data. Shared tables / cross-service joins / FK across boundaries = the hardest part. No more DB transactions across services → sagas, eventual consistency.
+**3. Data ownership.** Each service owns its DB. Shared Django DB across services = distributed monolith (worst case: coupling + network cost). Ask: can these tables separate without cross-service transactions everywhere?
 
-**4. Team & org.** Conway's law — services map to teams. One small team → microservices multiply ops load (deploy, monitor, on-call) without payoff. Do you have DevOps maturity: CI/CD per service, observability, tracing, service discovery?
+**4. Team topology.** Conway's law — services map to teams. One team of 5? Microservices buy you overhead, not speed. Multiple teams blocked on one deploy pipeline is the real trigger.
 
-**5. Coupling cost of the split.** Network latency, partial failures, retries, versioning, distributed tracing/debugging. Local call → RPC.
+**5. Operational maturity.** Do you have: CI/CD per service, centralized logging/tracing, service discovery, on-call? Microservices convert a code problem into a distributed-systems problem. No observability → debugging gets much harder.
 
-**6. Scaling profile.** Only *some* parts need independent scale? That's the real microservices case — extract that hotspot, not everything.
+**6. Transaction boundaries.** Cross-service consistency needs sagas/eventual consistency. If your domain demands strong ACID across contexts, splitting fights you.
 
-Recommended path → fix DB/caching/async first (likely solves "slow"). If org/scale truly needs it, extract *one* well-bounded service via strangler pattern, keep the rest monolith. Don't big-bang rewrite.
+**Recommended path:** profile + fix hotspots → modular monolith (clean app boundaries, no shared imports across domains) → extract *one* service only where a proven scaling/team bottleneck justifies it. "Modular monolith first" wins most of these debates.
 
-Want me to profile the actual bottleneck if you point me at the code?
-[usage] input=3795 cache_read=8977 cache_write=0 output=654
+What's the actual symptom — slow requests, slow deploys, or team contention? That determines whether the answer is a query fix or an architecture change.
+[usage] input=3795 cache_read=8977 cache_write=0 output=656

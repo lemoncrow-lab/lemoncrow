@@ -19,35 +19,13 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,25 +65,17 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Core mechanic**
-- `merge`: creates a new commit joining two branches. History preserved as-is; non-destructive. Graph shows the branch/join.
-- `rebase`: replays your commits onto a new base, rewriting them (new SHAs). Produces linear history; no merge commit.
+[assistant] **Merge** — combines branches with a merge commit; preserves true history, non-destructive. History shows branches as they happened (diverge + join).
 
-**Use merge when**
-- Branch is shared/pushed — others may have based work on it. Rewriting published history breaks them.
-- You want a truthful record of when/how work joined (esp. `--no-ff` for feature branches).
-- Integrating a completed feature into `main`.
+**Rebase** — replays your commits on top of another branch's tip; rewrites commit hashes → linear history, no merge commits.
 
-**Use rebase when**
-- Local, unpushed work — clean up before sharing.
-- Keeping a feature branch current with `main`: `git rebase main` instead of repeated merge commits.
-- You want linear, readable history / bisectable log.
-- Squashing/reordering via `git rebase -i`.
+When:
+- **Merge** — integrating a shared/public branch; when you want an accurate record of when work joined. Safe for branches others pull.
+- **Rebase** — cleaning up your *local* feature branch before sharing; `git pull --rebase` to avoid noise merge commits; keeping a tidy linear log.
 
-**Tradeoffs**
-- merge → honest but noisy graph; many merge commits clutter log.
-- rebase → clean linear log but rewrites SHAs (lies about chronology); conflicts resolved commit-by-commit (can repeat across commits).
-- **Golden rule:** never rebase commits others have pulled. Public history → merge.
+Tradeoffs:
+- Merge → honest history but cluttered graph; many merge commits obscure the mainline.
+- Rebase → clean linear history but **rewrites history** → never rebase commits already pushed/shared (breaks others' clones, forces `--force` push). Conflicts resolved per-replayed-commit, can repeat.
 
-**Common flow:** rebase your local feature onto latest `main` to stay current, then `merge --no-ff` into `main` for a clear integration point.
-[usage] input=3795 cache_read=8965 cache_write=0 output=490
+Rule of thumb: rebase private work, merge public. Golden rule → never rebase a branch others depend on.
+[usage] input=3311 cache_read=8965 cache_write=0 output=383

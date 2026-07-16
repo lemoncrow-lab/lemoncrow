@@ -19,27 +19,6 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -48,6 +27,12 @@ mcp__claude_ai_Google_Drive__get_file_permissions
 mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,18 +72,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL EXPLAIN shows the **query execution plan** — how the database engine will run your query, without (usually) executing it.
+[assistant] SQL EXPLAIN shows the query planner's execution plan — *how* the DB will run a query, not its results.
 
 Tells you:
-- **Access method** → full table scan vs index scan/seek (which indexes used, or ignored)
-- **Join order & strategy** → nested loop, hash join, merge join
-- **Row estimates** → rows the planner expects at each step (mismatch vs reality = stale stats)
-- **Cost estimate** → relative planner cost units
-- **Operations** → sorts, aggregations, temp tables, filters
+- **Join/scan type** — seq scan vs index scan, join algorithm (nested loop, hash, merge)
+- **Order** — which tables accessed first, join sequence
+- **Cost/row estimates** — planner's guessed rows + relative cost
+- **Index usage** — whether indexes are hit or ignored
 
-Use it to spot slow spots: missing indexes, unexpected full scans, bad join order.
+`EXPLAIN ANALYZE` actually runs it → adds real timing + actual rows (vs estimated) → spot bad estimates.
 
-`EXPLAIN ANALYZE` (Postgres) / `EXPLAIN ANALYZE`/`EXPLAIN FORMAT=JSON` (MySQL) actually **runs** the query and adds real timings + actual row counts — compare estimated vs actual to find bad estimates.
-
-Syntax varies by engine (Postgres, MySQL, SQLite, SQL Server `SHOWPLAN`, Oracle `EXPLAIN PLAN`). Which DB?
-[usage] input=3795 cache_read=8950 cache_write=0 output=378
+Use it to diagnose slow queries: full scans, missing indexes, row-estimate skew.
+[usage] input=3484 cache_read=8950 cache_write=0 output=229

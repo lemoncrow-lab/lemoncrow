@@ -95,5 +95,5 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a promise (rows). If it's still callback-only, wrap once: `const query = util.promisify(db.query.bind(db))`.
-[usage] input=3795 cache_read=9052 cache_write=0 output=133
+Assumes `db.query` returns a promise (rows). If it only takes callbacks → wrap: `const {promisify}=require('util'); const q=promisify(db.query.bind(db));`
+[usage] input=3795 cache_read=9052 cache_write=0 output=142

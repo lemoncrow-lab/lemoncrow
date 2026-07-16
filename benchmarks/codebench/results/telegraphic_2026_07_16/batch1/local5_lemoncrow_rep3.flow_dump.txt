@@ -19,25 +19,11 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -79,18 +65,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL EXPLAIN shows the query planner's execution plan — *how* the DB will run your query, not the results.
+[assistant] SQL `EXPLAIN` → shows the query planner's execution plan for a statement, not results.
 
 Tells you:
-- **Access method** → sequential scan vs index scan, which index used
-- **Join strategy** → nested loop, hash join, merge join
-- **Join/operation order** → what runs first
-- **Cost estimates** → planner's guess of rows returned + relative cost
-- **Sort/aggregate/filter steps** → extra work like sorts, temp tables
+- **Access method** → seq scan vs index scan/index-only scan on each table.
+- **Join order + join type** → nested loop, hash join, merge join.
+- **Cost estimates** → startup..total cost (arbitrary units), estimated rows, row width.
+- **Operations** → sorts, aggregates, filters, limits.
 
-`EXPLAIN ANALYZE` actually runs it → adds real timing + actual vs estimated row counts (exposes bad statistics).
+`EXPLAIN ANALYZE` → actually runs it, adds real time + actual row counts → compare estimated vs actual to spot bad planner estimates.
 
-Main use: spot missing indexes, full-table scans, and expensive joins when tuning slow queries.
-
-Note: syntax/output vary by engine (Postgres, MySQL, SQLite, Oracle all differ).
-[usage] input=3656 cache_read=8950 cache_write=0 output=280
+Use it to find missing indexes, unexpected seq scans, costly joins. Syntax/output vary by engine (Postgres, MySQL, SQLite).
+[usage] input=3311 cache_read=8950 cache_write=0 output=272

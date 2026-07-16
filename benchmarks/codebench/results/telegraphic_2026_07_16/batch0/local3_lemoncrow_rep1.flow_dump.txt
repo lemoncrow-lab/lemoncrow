@@ -19,11 +19,30 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -65,7 +84,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Using `pg` (node-postgres):
+[assistant] `pg` (node-postgres) Pool:
 
 ```js
 import { Pool } from 'pg';
@@ -77,57 +96,50 @@ const pool = new Pool({
   user: process.env.PGUSER,
   password: <redacted>,
 
-  max: 20,                          // max clients in pool
+  max: 20,                        // max clients in pool
   min: 0,
-  idleTimeoutMillis: 30_000,        // close idle clients after 30s
-  connectionTimeoutMillis: 5_000,   // fail if no conn acquired in 5s
-  maxUses: 7_500,                   // recycle a client after N uses
+  idleTimeoutMillis: 30_000,      // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail if no connection acquired in 5s
+  maxUses: 7_500,                 // recycle a client after N uses (avoids server-side leaks)
   allowExitOnIdle: false,
-
-  // per-query/socket timeouts (passed to each client)
-  statement_timeout: 10_000,        // abort any statement >10s
-  query_timeout: 10_000,           // client-side query timeout
-  idle_in_transaction_session_timeout: 10_000,
-  keepAlive: true,
+  // statement_timeout: 10_000,   // server-side per-query cap (ms)
+  // query_timeout: 10_000,       // client-side per-query cap (ms)
+  // ssl: { rejectUnauthorized: true, ca: fs.readFileSync('ca.pem') },
 });
 
-// CRITICAL: idle clients can emit errors (dropped TCP, DB restart).
-// Unhandled → crashes the process.
+// Critical: idle clients can emit errors (server restart, network drop).
+// Unhandled → crashes process. Always attach:
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
-
-// Safe query helper — pool.query auto-acquires + releases.
-export async function query(text, params) {
-  return pool.query(text, params);
-}
-
-// Manual checkout (transactions) — ALWAYS release in finally.
-export async function withTransaction(fn) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();   // release() prevents pool exhaustion / leaks
-  }
-}
-
-// Graceful shutdown.
-process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
-Key points:
-- `connectionTimeoutMillis` → guards pool exhaustion; `statement_timeout` → guards runaway queries. Both needed.
-- `pool.on('error')` is mandatory — idle-client errors are async and crash otherwise.
-- Always `client.release()` in `finally`; leaked clients exhaust `max` → hangs.
-- One pool per process (module singleton), not per request.
-- `pool.query()` for single statements; manual `connect()` only for transactions (must run on one client).
+Query safely — always release, even on throw:
 
-Want it adapted to your setup (TypeScript, existing config, Knex/Drizzle)? Point me at the file.
-[usage] input=3311 cache_read=8968 cache_write=0 output=919
+```js
+async function query(text, params) {
+  const client = await pool.connect();     // rejects after connectionTimeoutMillis
+  try {
+    return await client.query(text, params);
+  } finally {
+    client.release();                       // return to pool; release(true) to destroy
+  }
+}
+```
+
+Graceful shutdown:
+
+```js
+process.on('SIGTERM', async () => {
+  await pool.end();   // drains + closes all clients
+  process.exit(0);
+});
+```
+
+Key points
+- `connectionTimeoutMillis` → bounds pool-acquire wait; `statement_timeout`/`query_timeout` → bound query runtime (set both: server + client side).
+- `pool.on('error')` is mandatory — without it an idle-client error is an unhandled exception.
+- `max` should stay under Postgres `max_connections` divided across app instances; use PgBouncer if you exceed it.
+- `maxUses` guards against slow per-connection memory growth.
+- Never forget `client.release()` — leaked clients exhaust the pool → `connect()` hangs then times out.
+[usage] input=3752 cache_read=8968 cache_write=0 output=830

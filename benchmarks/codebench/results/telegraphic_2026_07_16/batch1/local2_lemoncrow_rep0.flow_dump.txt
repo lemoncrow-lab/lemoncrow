@@ -65,26 +65,27 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Connection pooling = reuse a fixed set of open DB connections instead of opening/closing one per request.
+[assistant] DB connection pooling — reuse a fixed set of open DB connections instead of opening/closing one per request.
 
-Why → TCP + auth handshake per connection is slow (10s–100s ms); DBs cap concurrent connections. Pool amortizes setup, bounds load.
+Why → TCP handshake + auth + session setup cost 10–100ms per connect; DBs cap concurrent connections. Pool amortizes both.
 
-Mechanism →
-- Pool pre-opens N connections, keeps them idle-alive.
-- Request borrows one → runs query → returns it (not closed).
-- Pool empty → caller waits up to timeout, then errors.
-- Idle/stale ones validated or recycled (max-lifetime, health check).
+Mechanism:
+- Pool holds N pre-opened connections.
+- Request → borrow (acquire) idle connection → run query → return (release) to pool, not close.
+- No idle available → wait up to `timeout`, or grow to `max`, or error.
+- Idle beyond `idleTimeout` / `maxLifetime` → closed & pruned.
 
-Key knobs →
-- `min`/`max` size → floor for warmth, ceiling to protect DB.
-- `acquire/wait timeout` → fail fast vs queue.
-- `idle timeout` → shrink when quiet.
-- `max lifetime` → rotate to avoid stale/leaky conns.
-- validation query → drop dead conns before handing out.
+Key knobs:
+- `min`/`max` size → floor keeps warm conns, ceiling protects DB.
+- `acquireTimeout` → fail fast vs hang.
+- `maxLifetime` → recycle to dodge stale conns / load-balancer drops.
+- validation (`SELECT 1` / test-on-borrow) → discard dead conns.
 
-Sizing → roughly `connections ≈ cores × 2` at the DB, not "more = faster"; oversizing causes contention. Total across app instances must stay under server `max_connections`.
+Pitfalls:
+- Leaks → borrow without release → pool exhaustion → hangs.
+- max × app-instances > DB max_connections → DB refuses.
+- Long transactions hold conns → starvation.
+- Serverless/short-lived processes → external pooler (PgBouncer) instead of per-process pool.
 
-Pitfalls → leaked connections (borrow, never return) drain pool → deadlock; long transactions hold slots; serverless/many-instances multiply pools past DB limit → use external pooler (PgBouncer).
-
-Examples → HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool`, Go `database/sql` built-in.
-[usage] input=3311 cache_read=8731 cache_write=211 output=517
+Examples: HikariCP (Java), pgbouncer (Postgres), `pg.Pool` (Node), SQLAlchemy `QueuePool`.
+[usage] input=3311 cache_read=8731 cache_write=211 output=501

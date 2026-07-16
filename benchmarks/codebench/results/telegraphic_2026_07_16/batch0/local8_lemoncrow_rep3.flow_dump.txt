@@ -19,11 +19,30 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -65,51 +84,19 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__lc__bash] {"command": "ls package.json tsconfig.json 2>/dev/null; echo \"---\"; test -f package.json && grep -E '\"(main|start|build)\"|\"engines\"' package.json"}
-[usage] input=3311 cache_read=8988 cache_write=0 output=138
+[assistant] Multi-stage: build stage compiles TS, production stage carries only runtime deps + compiled JS.[tool_use: mcp__lc__edit] {"edits": [{"path": "Dockerfile", "replace": true, "new": "# syntax=docker/dockerfile:1\n\n# ---- Build stage: install all deps + compile TypeScript ----\nFROM node:22-alpine AS build\nWORKDIR /app\n\n# Install deps against lockfile (needs devDeps for tsc)\nCOPY package.json package-lock.json ./\nRUN npm ci\n\n# Compile\nCOPY tsconfig.json ./\nCOPY src ./src\nRUN npm run build\n\n# ---- Deps stage: production-only node_modules ----\nFROM node:22-alpine AS deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev\n\n# ---- Runtime stage: minimal final image ----\nFROM node:22-alpine AS runtime\nENV NODE_ENV=production\nWORKDIR /app\n\n# Copy runtime artifacts only\nCOPY --from=deps  /app/node_modules ./node_modules\nCOPY --from=build /app/dist ./dist\nCOPY package.json ./\n\n# Drop root\nUSER node\n\nEXPOSE 3000\nCMD [\"node\", \"dist/index.js\"]\n"}]}
+[usage] input=3752 cache_read=8988 cache_write=0 output=541
 
 === Turn 2 ===
-[user] [tool_result] exit_code=1
----
-[assistant] No repo files here. Writing a standalone Dockerfile.[tool_use: mcp__lc__edit] {"edits": [{"path":"Dockerfile","replace":true,"new":"# syntax=docker/dockerfile:1\n\n# ---- Stage 1: deps (all deps, incl. dev, for build) ----\nFROM node:22-alpine AS deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN --mount=type=cache,target=/root/.npm npm ci\n\n# ---- Stage 2: build (compile TypeScript) ----\nFROM node:22-alpine AS build\nWORKDIR /app\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN npm run build\n\n# ---- Stage 3: prod deps only ----\nFROM node:22-alpine AS prod-deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN --mount=type=cache,target=/root/.npm npm ci --omit=dev\n\n# ---- Stage 4: runtime (minimal) ----\nFROM node:22-alpine AS runtime\nENV NODE_ENV=production\nWORKDIR /app\nCOPY --from=prod-deps /app/node_modules ./node_modules\nCOPY --from=build /app/dist ./dist\nCOPY package.json ./\nUSER node\nEXPOSE 3000\nCMD [\"node\", \"dist/index.js\"]\n"}]}
-[usage] input=2 cache_read=8988 cache_write=3460 output=591
+[user] [tool_result] ok
+[assistant] `Dockerfile` written.
 
-=== Turn 3 ===
-[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
-[assistant] `done: Dockerfile written` → 4 stages: deps → build (tsc) → prod-deps (`npm ci --omit=dev`) → alpine runtime copies only `dist` + prod `node_modules`.
+3 stages → `build` (npm ci + tsc), `deps` (npm ci --omit=dev), `runtime` (alpine + prod node_modules + dist only).
 
-assumptions: entry `dist/index.js`, `npm run build` script exists, port 3000, node 22. Adjust if different.
+assumptions:
+- build script `npm run build` → outputs `dist/`, entry `dist/index.js`
+- sources in `src/`, `tsconfig.json` present, `package-lock.json` committed
+- port 3000
 
-Notes:
-- `npm ci` needs committed `package-lock.json`.
-- add `.dockerignore` (`node_modules`, `dist`, `.git`) to keep build context small.
-[usage] input=733 cache_read=12448 cache_write=599 output=178
+Adjust `dist`/`src`/port/entry if your layout differs.
+[usage] input=2 cache_read=8988 cache_write=4298 output=166

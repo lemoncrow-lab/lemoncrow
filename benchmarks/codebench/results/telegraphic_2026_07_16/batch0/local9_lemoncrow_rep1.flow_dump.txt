@@ -65,9 +65,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Root cause: read-modify-write in app code → two requests read same value, both write +1.
-
-Fix — make the DB do the increment atomically and return the new value:
+[assistant] Cause: read-modify-write in app code (`SELECT` then `UPDATE`) — concurrent txns read same value. Fix: make the increment atomic in SQL, return the new value:
 
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
@@ -78,12 +76,10 @@ const { rows } = await pool.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const next = rows[0].value;
+return rows[0].value;
 ```
 
-Why → single statement takes a row lock; concurrent updates serialize, each gets distinct `value`. No `SELECT` then `UPDATE`.
+Single statement → row lock held for the write → each concurrent request gets a distinct `value`. Drop any separate SELECT.
 
-- Never `SELECT value` → compute → `UPDATE`. That's the race.
-- If increment spans multiple statements, wrap in a txn + `SELECT ... FOR UPDATE`.
-- App-level counters (Redis `INCR`, sequences) also atomic if you don't need the row.
-[usage] input=3311 cache_read=8983 cache_write=0 output=383
+Alternatives if you can't merge into one statement: `SELECT ... FOR UPDATE` inside a txn, or a Postgres `SEQUENCE` (`nextval`) if gaps are acceptable.
+[usage] input=3311 cache_read=8983 cache_write=0 output=350

@@ -32,6 +32,14 @@ mcp__claude_ai_Gmail__list_labels
 mcp__claude_ai_Gmail__search_threads
 mcp__claude_ai_Gmail__unlabel_message
 mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -41,11 +49,6 @@ mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
 
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Calendar
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
-
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
 - Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
@@ -53,18 +56,6 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
-
-# MCP Server Instructions
-
-The following MCP servers have provided instructions for how to use their tools and resources:
-
-## lc
-LemonCrow replaces the grep→read→re-read loop.
-- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
-- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
-- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
-- `bash` = execution only (tests, git, builds).
-- Large output → a file, never inline prose.
 
 The following skills are available for use with the Skill tool:
 
@@ -84,20 +75,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL injection — `req.params.id` interpolated raw into query. Attacker: `/api/users/1;DROP TABLE users--` or `0 OR 1=1` → dumps all rows.
+[assistant] SQL injection — `req.params.id` interpolated into query.
 
 Fix — parameterized query:
-
 ```js
 app.get('/api/users/:id', (req, res) => {
   db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
     .then(user => res.json(user))
-    .catch(() => res.status(500).json({ error: 'internal error' }));
+    .catch(() => res.sendStatus(500));
 });
 ```
-
-Also:
-- No `.catch` → unhandled rejection + leaked stack/DB errors to client.
-- `SELECT *` → returns password hashes/secrets; select explicit columns.
-- No auth check → any caller reads any user by id (IDOR).
-[usage] input=3752 cache_read=9016 cache_write=0 output=280
+Also: unhandled promise rejection (added `.catch`); `SELECT *` leaks columns (password hashes) → select explicit fields; no authz check on `:id`.
+[usage] input=3503 cache_read=6664 cache_write=285 output=194
