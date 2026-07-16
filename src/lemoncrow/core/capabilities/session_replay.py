@@ -52,7 +52,7 @@ def _is_lemoncrow_search(turn: dict[str, Any]) -> bool:
 # Shell commands that are really a code search (agents grep via Bash, not the
 # Grep tool). A single LemonCrow code_search replaces these too.
 _SHELL_SEARCH_RE = re.compile(
-    r"(?:^|[|;&]|\bxargs\s+)\s*(?:sudo\s+)?(?:git\s+)?(grep|egrep|fgrep|rg|ag|ack)\b|\bfind\b[^|]*-(?:i?name|i?path|regex)\b"
+    r"(?:^|[|;&\r\n]|\bxargs\s+)\s*(?:sudo\s+)?(?:git\s+)?(grep|egrep|fgrep|rg|ag|ack)\b|\bfind\b[^|]*-(?:i?name|i?path|regex)\b"
 )
 
 
@@ -62,12 +62,17 @@ def _shell_is_search(command: str) -> bool:
 
 def _shell_search_query(command: str) -> str:
     command = command or ""
+    # Anchor to the actual search invocation: a multi-line/chained command may
+    # carry an unrelated quoted argument earlier (e.g. a `sed` rewrite before
+    # the `grep`), which would otherwise be picked up as the "query".
+    search_match = _SHELL_SEARCH_RE.search(command)
+    segment = command[search_match.start() :] if search_match else command
     raw = ""
-    m = re.search(r"""(['\"])(.+?)\1""", command)
+    m = re.search(r"""(['\"])(.+?)\1""", segment)
     if m and m.group(2).strip():
         raw = m.group(2).strip()
     else:
-        m2 = re.search(r"\b(?:grep|egrep|fgrep|rg|ag|ack)\b\s+((?:-\S+\s+)*)(\S+)", command)
+        m2 = re.search(r"\b(?:grep|egrep|fgrep|rg|ag|ack)\b\s+((?:-\S+\s+)*)(\S+)", segment)
         if m2 and m2.group(2) and not m2.group(2).startswith("-"):
             raw = m2.group(2).strip("'\"")
     if not raw:
@@ -621,13 +626,15 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         time_saved = measured_time
         lemoncrow_measured = True
         saved_measured = True
-    elif ran_with_lemoncrow:
-        # Ran with LemonCrow but has no per-node recorded savings -- a subagent
-        # (whose savings are billed to the PARENT session) or a top-level
-        # session with no recorded sidecar. Estimating "what LemonCrow would
-        # save" is meaningless here (it already used LemonCrow), so show neither
-        # an estimate nor a fake 0 -- the render says where the savings live
-        # (the parent for a subagent; "not recorded" for a top-level session).
+    elif ran_with_lemoncrow and calls_saved == 0:
+        # Ran with LemonCrow, has no per-node recorded savings, AND nothing
+        # structurally left to collapse in this transcript -- a subagent (whose
+        # savings are billed to the PARENT session) or a top-level session with
+        # no recorded sidecar. Estimating "what LemonCrow would save" is truly
+        # meaningless here (it already used LemonCrow and there's no residual
+        # grep/read loop to price), so show neither an estimate nor a fake 0 --
+        # the render says where the savings live (the parent for a subagent;
+        # "not recorded" for a top-level session).
         lemoncrow_cost = total_cost
         saved = 0.0
         baseline_ref = total_cost
@@ -635,11 +642,16 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
         lemoncrow_measured = True
         saved_measured = False
     else:
-        # Vanilla session -- the ONLY thing a real user has. Estimate the saving
-        # from THIS session alone via the canonical savings engine: what fraction
-        # of the cost collapsing the grep/read loops would save (removed round-trips
-        # + leaner surviving context). Applied to the canonical est_cost so 'Cost'
-        # stays consistent with the dashboard/session-stats surfaces.
+        # Either a vanilla session, or one that used LemonCrow for SOME calls but
+        # still left raw grep/read loops uncollapsed (calls_saved > 0, ran_with_
+        # lemoncrow True). That gap is a REAL, priceable opportunity in this
+        # same transcript -- not "meaningless": every counted call is an actual
+        # round-trip a raw grep/read loop paid for instead of the single
+        # code_search LemonCrow would have used. Estimate the saving from THIS
+        # session alone via the canonical savings engine: what fraction of the
+        # cost collapsing those loops would save (removed round-trips + leaner
+        # surviving context). Applied to the canonical est_cost so 'Cost' stays
+        # consistent with the dashboard/session-stats surfaces.
         fraction = 0.0
         try:
             from lemoncrow.core.capabilities.savings_summary import estimate_collapse_saving_fraction
