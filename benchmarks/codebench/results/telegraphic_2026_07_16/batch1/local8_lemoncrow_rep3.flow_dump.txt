@@ -65,13 +65,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Debounce delays firing the search until typing pauses (e.g. 300 ms idle).
+[assistant] Debouncer waits until typing pauses (e.g. 300ms idle) before firing the search.
 
-Point → collapse a burst of keystrokes into one action:
-- fewer API calls / DB queries → less load, less cost
-- avoid wasted requests for prefixes user never meant to search
-- prevent out-of-order responses (stale results overwriting newer)
-- less UI thrash / re-render churn
+- Cuts API/DB calls: one request per pause, not per keystroke.
+- Avoids wasted work on partial queries user never meant to search.
+- Prevents out-of-order/racing responses flickering the UI.
+- Lightens server + rate-limit load.
 
-Net: search runs on intent (pause), not per keystroke.
-[usage] input=3311 cache_read=8948 cache_write=0 output=150
+Trade-off: small latency before results appear.
+[usage] input=3311 cache_read=8948 cache_write=0 output=154

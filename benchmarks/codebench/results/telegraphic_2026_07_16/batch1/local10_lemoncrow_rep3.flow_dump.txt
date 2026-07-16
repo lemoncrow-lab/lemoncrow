@@ -19,35 +19,6 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,14 +58,21 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Queue (point-to-point):** one message → one consumer. Work distributed across competing consumers; each message processed once. Use for task/job distribution, load balancing, decoupling work.
+[assistant] Queue = point-to-point, one consumer processes each message. Topic = pub/sub, every subscriber gets a copy.
 
-**Topic (pub/sub):** one message → all subscribers. Each subscriber gets own copy. Use for event broadcast, fan-out, multiple independent reactions to same event.
+Use a **queue** when:
+- Work distributed among competing consumers (load balancing)
+- Each message must be processed exactly once
+- Task/job processing, decoupling producer speed from consumer
+- Order + backpressure matter
 
-Decide by:
-- One logical processor, scale by adding workers → **queue**
-- N independent systems each need every event → **topic**
-- Command ("do this") → queue · Event ("this happened") → topic
+Use a **topic** when:
+- Multiple independent consumers each need the same event
+- Broadcast / fan-out (e.g. one order event → billing, inventory, email)
+- Publishers shouldn't know/care who consumes
+- Adding new consumers without touching producers
 
-Note: Kafka topics + consumer groups blur the line — one topic gives queue semantics within a group, pub/sub across groups.
-[usage] input=3795 cache_read=8951 cache_write=0 output=251
+Rule of thumb: *one job, one worker* → queue. *One event, many reactions* → topic.
+
+Note: Kafka/pub-sub with consumer groups blurs this — a topic + consumer group gives queue-like competing-consumer semantics per group while still fanning out across groups.
+[usage] input=3149 cache_read=8951 cache_write=0 output=318

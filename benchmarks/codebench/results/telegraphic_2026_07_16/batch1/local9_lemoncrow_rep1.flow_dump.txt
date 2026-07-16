@@ -19,29 +19,10 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
@@ -84,15 +65,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Both integrate changes from one branch into another; differ in history shape.
+[assistant] Both integrate changes from one branch into another; differ in *how* history results.
 
-**merge** → creates a merge commit joining two branches. Non-destructive, preserves original history/commit hashes, shows where branches diverged. History becomes non-linear.
+**merge** → creates a merge commit joining two branches. Non-destructive, preserves original commit history/topology (branchy graph). Existing commits unchanged.
 
-**rebase** → replays your branch's commits on top of the target's tip, one by one. Rewrites history (new commit hashes), produces linear history, no merge commit. Discards the branching context.
+**rebase** → replays your branch's commits onto the tip of another branch, rewriting them as new commits. Linear history, no merge commit. Discards original commits (new SHAs).
 
 Trade-offs:
-- merge → true record, but cluttered graph on busy branches.
-- rebase → clean linear log, easier `git bisect`/`git log`, but rewrites commits.
+- merge: true history, cluttered graph, safe on shared branches.
+- rebase: clean linear history, but rewrites commits → never rebase branches others have pulled.
 
-Golden rule: never rebase commits already pushed/shared — it rewrites hashes and breaks others' history. Rebase local/private work; merge shared branches.
-[usage] input=3751 cache_read=8945 cache_write=0 output=291
+Typical: rebase local feature onto updated `main` to stay current; merge to integrate finished feature.
+[usage] input=3311 cache_read=8945 cache_write=0 output=274

@@ -99,7 +99,7 @@ if ! uv audit --frozen 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Mirror to public repo (bench -> lemoncrowhq/lemoncrow main)
+# 9. Mirror to public repo (bench -> lemoncrow-lab/lemoncrow main)
 # ---------------------------------------------------------------------------
 if [ "$CURRENT_BRANCH" = "bench" ] && [ -z "${LEMONCROW_MIRROR_RUNNING:-}" ]; then
     echo "🪞 Mirroring to public repo..."

@@ -19,9 +19,21 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
 claude.ai Google Drive
 
@@ -65,28 +77,26 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Database connection pooling = reuse a fixed set of open DB connections instead of opening/closing one per request.
+[assistant] Connection pooling = reuse a fixed set of open DB connections instead of opening/closing one per request.
 
-**Why**: opening a connection is expensive — TCP handshake, TLS, auth, session setup (often 10–100ms). Under load, per-request connect exhausts DB resources and adds latency.
+Why → TCP handshake + auth + session setup cost 10–100ms per connect; DBs cap concurrent connections. Pool amortizes that.
 
-**How**:
-- Pool holds N pre-established connections.
-- Request borrows one → runs query → returns it (not closed).
-- Idle connections wait for the next borrower.
-- If all busy → caller waits until one frees or timeout fires.
+How →
+- Pool opens N connections at startup, keeps them idle-ready.
+- Request `acquires` one → runs query → `releases` back (not closed).
+- Pool empty → caller waits until one frees or timeout fires.
 
-**Key knobs**:
-- `min`/`max` size — floor keeps warm conns, ceiling caps DB load.
-- `acquire/wait timeout` — fail fast when saturated.
-- `idle timeout` — reap unused conns.
-- `max lifetime` — recycle old conns (avoids stale/leaked server-side state).
-- `validation` — test conn (`SELECT 1`) before handing out, drop dead ones.
+Key knobs →
+- `min`/`max` size → floor of warm conns, ceiling to protect DB.
+- idle timeout → retire unused conns.
+- max lifetime → recycle old conns (avoid stale/leaked state).
+- acquire timeout → fail fast under saturation.
 
-**Gotchas**:
-- Leaks — borrowed conn never returned → pool drains → hangs. Always release (try/finally, context manager).
-- Sizing — bigger ≠ faster; too many conns thrash the DB. Rule of thumb: `pool_max ≈ cores × 2` per instance, summed across app instances ≤ DB limit.
-- Session state — pooled conns retain temp tables/settings/transactions; reset on return.
-- Serverless/many instances — total conns = instances × pool_max; use a proxy (PgBouncer, RDS Proxy) to multiplex.
+Gotchas →
+- leaks: forget to release → pool exhausts → hangs. Always release in `finally`.
+- session state (temp tables, `SET`) persists across reuse → reset on return.
+- sizing: too-large pool overloads DB; rule of thumb `conns ≈ cores * 2` per instance, sum across app replicas < DB limit.
+- transaction poolers (PgBouncer) break session-scoped features (prepared statements, `LISTEN`).
 
-Libraries: HikariCP (Java), pgbouncer (Postgres), SQLAlchemy `QueuePool` (Python), `pg.Pool` (Node).
-[usage] input=3311 cache_read=8942 cache_write=0 output=620
+Examples → HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool`, node `pg.Pool`.
+[usage] input=3579 cache_read=8942 cache_write=0 output=466

@@ -65,7 +65,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] `pg` Pool — timeouts + error handling:
+[assistant] `pg` (node-postgres) Pool:
 
 ```js
 const { Pool } = require('pg');
@@ -73,47 +73,48 @@ const { Pool } = require('pg');
 const pool = new Pool({
   host: process.env.PGHOST,
   port: 5432,
-  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
+  database: process.env.PGDATABASE,
 
-  max: 20,                        // max clients
+  max: 20,                       // max clients in pool
   min: 0,
-  idleTimeoutMillis: 30_000,      // idle client closed after 30s
-  connectionTimeoutMillis: 5_000, // fail if no conn acquired in 5s
-  maxUses: 7_500,                 // recycle client after N queries
+  idleTimeoutMillis: 30_000,     // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail acquire if no conn in 5s
+  maxUses: 7_500,                // recycle client after N queries (avoids leaks)
   allowExitOnIdle: false,
-
-  statement_timeout: 10_000,      // kill query server-side after 10s
-  query_timeout: 10_000,          // client-side query cap
-  idle_in_transaction_session_timeout: 10_000,
+  ssl: { rejectUnauthorized: true },
 });
 
-// CRITICAL: idle clients can emit errors (dropped TCP, DB restart).
-// Unhandled → crashes process. Always attach:
+// Per-query statement/idle timeouts (ms) — set via options string:
+// options: '-c statement_timeout=10000 -c idle_in_transaction_session_timeout=10000'
+
+// Background client errors (idle client dropped by server) — MUST handle or process crashes
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
-```
 
-Query — always release, even on throw:
-
-```js
-async function q(text, params) {
+// Safe query with acquire timeout already covered by connectionTimeoutMillis
+async function query(text, params) {
   const client = await pool.connect();
   try {
     return await client.query(text, params);
   } finally {
-    client.release();   // release() in finally; never leak
+    client.release();          // always release, even on throw
   }
 }
-// simple case: pool.query() auto-acquires+releases
+
+// Graceful shutdown
+process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
-Shutdown:
-```js
-process.on('SIGTERM', async () => { await pool.end(); });
-```
+Key points:
+- `connectionTimeoutMillis` → caps how long `pool.connect()` waits for a free/new client.
+- `idleTimeoutMillis` → reaps idle clients; pair with `min` if you want warm connections.
+- `statement_timeout` / `idle_in_transaction_session_timeout` → per-query server-side caps; set via `options` or `SET` after connect.
+- `pool.on('error')` → **required**; idle clients can error async, unhandled → crash.
+- Always `client.release()` in `finally` → prevents pool exhaustion.
+- `maxUses` → periodic client recycling, avoids server-side memory creep.
 
-Key points → `connectionTimeoutMillis` (acquire) ≠ `statement_timeout` (server exec) ≠ `idleTimeoutMillis` (reap). `pool.on('error')` is mandatory — omitting it crashes on any idle-client failure. `release(err)` with a truthy arg destroys the client instead of returning it to the pool.
-[usage] input=3311 cache_read=8968 cache_write=0 output=671
+Values are starting points — tune `max` to `DB max_connections / instance count`.
+[usage] input=3311 cache_read=8968 cache_write=0 output=814

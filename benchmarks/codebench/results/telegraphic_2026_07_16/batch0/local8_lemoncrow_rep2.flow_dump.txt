@@ -19,19 +19,6 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
 mcp__claude_ai_Google_Calendar__create_event
 mcp__claude_ai_Google_Calendar__delete_event
 mcp__claude_ai_Google_Calendar__get_event
@@ -48,6 +35,11 @@ mcp__claude_ai_Google_Drive__get_file_permissions
 mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,16 +79,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "Dockerfile", "replace": true, "new": "# syntax=docker/dockerfile:1\n\n# ---- Stage 1: deps (all deps for build) ----\nFROM node:20-alpine AS deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN npm ci\n\n# ---- Stage 2: build (compile TypeScript) ----\nFROM node:20-alpine AS build\nWORKDIR /app\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN npm run build\n\n# ---- Stage 3: prod deps only ----\nFROM node:20-alpine AS prod-deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev\n\n# ---- Stage 4: runtime (minimal) ----\nFROM node:20-alpine AS runner\nENV NODE_ENV=production\nWORKDIR /app\nUSER node\nCOPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules\nCOPY --from=build --chown=node:node /app/dist ./dist\nCOPY --chown=node:node package.json ./\nEXPOSE 3000\nCMD [\"node\", \"dist/index.js\"]\n"}]}
-[usage] input=3795 cache_read=8988 cache_write=0 output=548
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path":"Dockerfile","replace":true,"new":"# syntax=docker/dockerfile:1\n\n# ---- deps: install ALL deps (incl. dev) for building ----\nFROM node:22-alpine AS deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN --mount=type=cache,target=/root/.npm npm ci\n\n# ---- build: compile TypeScript ----\nFROM node:22-alpine AS build\nWORKDIR /app\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN npm run build\n\n# ---- prod-deps: production-only node_modules ----\nFROM node:22-alpine AS prod-deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN --mount=type=cache,target=/root/.npm npm ci --omit=dev\n\n# ---- runner: minimal final image ----\nFROM node:22-alpine AS runner\nENV NODE_ENV=production\nWORKDIR /app\nUSER node\nCOPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules\nCOPY --from=build --chown=node:node /app/dist ./dist\nCOPY --chown=node:node package.json ./\nCMD [\"node\", \"dist/index.js\"]\n"}]}
+[usage] input=3656 cache_read=8988 cache_write=0 output=572
 
 === Turn 2 ===
 [user] [tool_result] ok
 [assistant] `Dockerfile` written.
 
-- 4 stages: `deps` (full `npm ci`) → `build` (`npm run build`) → `prod-deps` (`npm ci --omit=dev`) → `runner`.
-- Final image = `node:20-alpine` + prod `node_modules` + `dist/` only. No source, no devDeps, no build cache.
-- Non-root `node` user, `NODE_ENV=production`.
+- 4 stages: `deps` (full install) → `build` (tsc) → `prod-deps` (`--omit=dev`) → `runner`.
+- Final = `node:22-alpine` + prod `node_modules` + `dist` only. Non-root `node`, `NODE_ENV=production`, npm cache mounts.
 
-Adjust if yours differ: `dist/index.js` entrypoint, `EXPOSE 3000`, build script name `build`.
-[usage] input=2 cache_read=8988 cache_write=4348 output=186
+assumptions: build script = `npm run build`, output `dist/`, entry `dist/index.js`, Node 22. Adjust if different.
+[usage] input=2 cache_read=8988 cache_write=4234 output=165

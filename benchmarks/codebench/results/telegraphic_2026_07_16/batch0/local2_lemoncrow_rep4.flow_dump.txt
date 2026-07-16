@@ -65,9 +65,9 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Bug: `exp` is Unix **seconds**; `Date.now()` is **milliseconds**. So `Date.now() < token.exp` is always true → expired tokens pass.
+[assistant] **Bug**: `exp` is in **seconds** (Unix epoch, per JWT spec); `Date.now()` is **milliseconds**. So `Date.now() > exp` is ~1000× too large-scaled — comparison never trips → expired tokens pass.
 
-Fix — compare in same unit:
+**Fix** — align units:
 
 ```js
 if (Date.now() >= decoded.exp * 1000) {
@@ -75,5 +75,7 @@ if (Date.now() >= decoded.exp * 1000) {
 }
 ```
 
-Better: let the library check it — `jwt.verify` throws `TokenExpiredError` on expiry automatically; only hand-roll if you decode without verifying.
-[usage] input=3311 cache_read=8988 cache_write=0 output=225
+or `Math.floor(Date.now()/1000) >= decoded.exp`.
+
+Better: let the library check it. `jwt.verify(token, secret)` throws `TokenExpiredError` on expiry automatically — drop the manual check unless you decode without verifying.
+[usage] input=3311 cache_read=8988 cache_write=0 output=293

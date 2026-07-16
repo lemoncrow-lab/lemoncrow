@@ -65,21 +65,21 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Connection pooling = reuse a fixed set of open DB connections instead of opening/closing one per request.
+[assistant] Database connection pooling = reuse a fixed set of open DB connections instead of opening/closing one per request.
 
-Why → TCP + auth handshake is expensive (10s–100s ms); connections are limited server-side. Pool amortizes setup, caps concurrency.
+Mechanism → pool holds N pre-established connections. Client borrows one, runs query, returns it (not closed). Idle connections wait for next borrower.
 
-Mechanics →
-- Pool holds N warm connections.
-- Request borrows one → runs query → returns it (not closed).
-- Idle/empty → wait, grow to max, or error on timeout.
-- Idle connections reaped after TTL; dead ones health-checked/recycled.
+Why → opening a connection is expensive (TCP handshake, TLS, auth, session setup — often 10–100ms). Pooling amortizes that cost and caps total concurrent DB load.
 
-Key knobs → min/max size, acquire timeout, max idle time, max connection lifetime, validation query.
+Key knobs:
+- min/max size → floor of warm conns, ceiling to protect DB.
+- acquire timeout → how long a caller waits for a free conn before erroring.
+- idle timeout / max lifetime → recycle stale conns, avoid server-side drops.
+- validation → test conn health before handing out (dead ones get discarded).
 
-Tradeoffs → too small = contention/queuing; too large = DB overload (each conn = server memory + `max_connections` cap). Size ≈ cores × small factor, not per-client.
+Flow when pool exhausted → caller blocks up to timeout, then fails; prevents unbounded connection storms.
 
-Tools → HikariCP (JVM), PgBouncer (Postgres, external), SQLAlchemy `QueuePool`, `pgxpool` (Go).
+Common libs → HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool` (Python), `pg.Pool` (Node).
 
-Gotcha → serverless/many-instances × per-instance pools → exceed DB `max_connections`; use an external pooler (PgBouncer) in transaction mode.
-[usage] input=3311 cache_read=8942 cache_write=0 output=408
+Watch → sizing too high overwhelms DB; too low starves app. Also match pool to DB `max_connections`, and beware pooling across serverless/forked processes (use a proxy like pgbouncer).
+[usage] input=3311 cache_read=8942 cache_write=0 output=465

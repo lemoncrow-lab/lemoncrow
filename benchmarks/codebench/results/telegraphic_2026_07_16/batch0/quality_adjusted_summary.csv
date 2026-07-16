@@ -1,2 +1,2 @@
 baseline_arm,candidate_arm,pairs,judged_pairs,quality_passed_pairs,quality_failed_pairs,unjudged_pairs,candidate_at_least_baseline_rate,avg_quality_delta,baseline_cost_usd,candidate_cost_usd,raw_saved_usd,quality_adjusted_saved_usd,raw_saved_tokens,quality_adjusted_saved_tokens,raw_cost_savings_vs_baseline_pct,quality_adjusted_cost_savings_vs_baseline_pct
-baseline,lemoncrow,50,0,0,0,50,,,4.5905,3.9993,0.5911,0.0,-867379,0,12.9,0.0
+baseline,lemoncrow,50,0,0,0,50,,,4.5905,3.0955,1.4951,0.0,-304156,0,32.6,0.0

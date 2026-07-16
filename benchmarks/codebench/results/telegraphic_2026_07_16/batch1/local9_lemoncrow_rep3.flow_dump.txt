@@ -19,13 +19,35 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
-claude.ai Google Calendar
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -34,6 +56,18 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
 The following skills are available for use with the Skill tool:
 
@@ -53,15 +87,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Both integrate changes from one branch into another; they differ in how.
+[assistant] Both integrate changes from one branch into another; differ in how.
 
-**Merge** → creates a merge commit joining two branch histories. Non-destructive; preserves original commits/timeline. History shows divergence + join.
+**merge** → creates a new merge commit joining two branch histories. Non-destructive; preserves history/branch topology exactly. History shows the branching.
 
-**Rebase** → replays your commits onto the tip of the target branch, rewriting them as new commits. Linear history, no merge commit; original commits discarded.
+**rebase** → replays your branch's commits on top of the target's tip, rewriting them as new commits. Linear history, no merge commit; discards original commit hashes.
 
-Tradeoffs:
-- Merge: true history, extra merge commits, noisier graph.
-- Rebase: clean linear graph, but rewrites SHAs → never rebase shared/public branches (breaks others' history).
+- merge: safe on shared/public branches; extra merge commits, messier graph.
+- rebase: clean linear log; **rewrites history** → never rebase branches others have pulled.
+- conflicts: merge resolves once; rebase may resolve per-replayed-commit.
 
-Rule of thumb: rebase local/private cleanup, merge to integrate shared branches.
-[usage] input=3019 cache_read=6664 cache_write=214 output=245
+Rule of thumb: rebase local/private work to tidy up, merge to integrate shared branches.
+[usage] input=3795 cache_read=8945 cache_write=0 output=269

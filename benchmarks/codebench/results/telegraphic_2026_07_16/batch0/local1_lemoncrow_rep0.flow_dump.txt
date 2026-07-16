@@ -65,13 +65,18 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Object prop = new reference every parent render → `React.memo` shallow compare sees `{}!=={}` → child re-renders.
+[assistant] Object literal → new reference every parent render → `React.memo` shallow compare sees prop as "changed" → child re-renders.
 
 Fixes:
-- Memoize the object: `const cfg = useMemo(() => ({ a, b }), [a, b])`.
-- Wrap child in `React.memo(Child)` (needed for props-based skip at all).
-- Callbacks in the object → `useCallback`.
+- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])`.
 - Or pass primitives instead of the object.
+- Child must be wrapped in `React.memo` for the compare to matter.
+- Same trap for inline callbacks/arrays → `useCallback` / `useMemo`.
 
-Note: without `React.memo`, a child *always* re-renders when parent renders — that's normal React, not a prop-change trigger. Re-render ≠ DOM update (reconciliation may no-op). Only optimize if profiler shows real cost.
-[usage] input=3311 cache_read=0 cache_write=8969 output=277
+```jsx
+const data = useMemo(() => ({ id, name }), [id, name]);
+<Child data={data} />   // Child = React.memo(Child)
+```
+
+Note: without `React.memo`, a child always re-renders when parent does — prop identity is irrelevant then.
+[usage] input=3311 cache_read=8969 cache_write=0 output=277

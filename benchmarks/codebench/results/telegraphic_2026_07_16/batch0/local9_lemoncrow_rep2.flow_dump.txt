@@ -65,9 +65,9 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Root cause: read-then-write (`SELECT` → `+1` → `UPDATE`) is non-atomic → lost updates under concurrency.
+[assistant] Cause → read-modify-write race (`SELECT` then `UPDATE`, or `x = x+1` in app).
 
-Fix — make the increment atomic in one statement, let PG lock the row:
+Fix → make increment atomic in one statement, use returned value:
 
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
@@ -81,9 +81,7 @@ const { rows } = await pool.query(
 return rows[0].value;
 ```
 
-Each concurrent `UPDATE` takes a row lock → serialized → unique returned values.
+Why → single `UPDATE` takes a row lock; concurrent txns serialize, each gets a distinct `RETURNING value`. No separate read.
 
-- Don't read-modify-write in app code, and don't wrap that pattern in a transaction hoping it helps — default `READ COMMITTED` still lets both read the old value.
-- If logic genuinely needs read-before-write: `SELECT ... FOR UPDATE` to lock the row first.
-- Sequences (`nextval`) if you only need unique/monotonic values, not a gap-free stored count.
-[usage] input=3311 cache_read=8983 cache_write=0 output=368
+Avoid → `SELECT`-then-`UPDATE`, or computing new value in Node. If you must split, use `SELECT ... FOR UPDATE` inside a txn. Never rely on default read for the new value.
+[usage] input=3311 cache_read=8983 cache_write=0 output=346

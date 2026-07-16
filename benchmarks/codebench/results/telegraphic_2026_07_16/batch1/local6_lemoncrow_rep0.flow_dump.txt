@@ -19,30 +19,11 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
 claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -53,6 +34,18 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
 
 The following skills are available for use with the Skill tool:
 
@@ -72,14 +65,14 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Two main strategies:
+[assistant] Collision resolution — two families:
 
-**Chaining** → each bucket holds a list (or tree) of entries. Colliding keys append to that bucket's list. Lookup: hash → bucket → scan list comparing keys.
+**Chaining** → each bucket holds a list (or tree). Colliding keys append to the bucket's list. Lookup: hash → scan list. Java `HashMap` treeifies long chains to O(log n).
 
-**Open addressing** → all entries live in the array itself; on collision, probe for another slot:
-- linear probing → next slot (+1), sequential
-- quadratic probing → +1, +4, +9… (reduces clustering)
-- double hashing → step size from a second hash
+**Open addressing** → one slot per key; on collision, probe for another empty slot by a fixed sequence:
+- linear: `i+1, i+2…` (fast, clusters)
+- quadratic: `i+1², i+2²…` (less clustering)
+- double hashing: step = 2nd hash (best spread)
 
-Load factor kept low (e.g. <0.75); exceeding it triggers **resize + rehash**. Java `HashMap` uses chaining, converting long chains to red-black trees; Python dict / Go maps use open addressing.
-[usage] input=3460 cache_read=6664 cache_write=213 output=251
+Lookup/delete follow the same probe path; delete needs tombstones. Both degrade as load factor rises → resize + rehash (typ. at ~0.75).
+[usage] input=3311 cache_read=8731 cache_write=213 output=238

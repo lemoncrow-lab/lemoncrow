@@ -32,6 +32,14 @@ mcp__claude_ai_Gmail__list_labels
 mcp__claude_ai_Gmail__search_threads
 mcp__claude_ai_Gmail__unlabel_message
 mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -40,11 +48,6 @@ mcp__claude_ai_Google_Drive__get_file_permissions
 mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Calendar
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -84,15 +87,11 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] No repo context, no code — CORS is browser-side, not a codebase bug. Answering directly.
+[assistant] CORS = browser blocking cross-origin requests because the server's response lacks matching `Access-Control-Allow-Origin`. Not a browser bug — a server config gap. Common causes:
 
-CORS errors = server didn't return the `Access-Control-Allow-Origin` header your browser demands for a cross-origin request (different scheme/host/port than the page).
+- Frontend origin ≠ API origin (different host/port/scheme) and server doesn't send `Access-Control-Allow-Origin` for your origin.
+- Preflight `OPTIONS` failing → missing `Access-Control-Allow-Methods` / `-Allow-Headers` (triggered by custom headers, `PUT/DELETE`, JSON content-type).
+- Sending credentials (cookies) but server returns `*` instead of exact origin + `Access-Control-Allow-Credentials: true`.
 
-Common causes → fixes:
-- **Missing header** → server must send `Access-Control-Allow-Origin: <your-origin>` (or `*`).
-- **Preflight fails** → `OPTIONS` request must return 2xx with `Access-Control-Allow-Methods` / `-Headers` matching your request.
-- **Credentials** (`fetch` with cookies) → server needs `Access-Control-Allow-Credentials: true` AND a specific origin, not `*`.
-- **Custom header / non-simple content-type** → triggers preflight; server must allow it.
-
-Read the exact console line — it names the missing header. Fix is server-side, not JS. Paste the message + your stack (Express/nginx/Flask…) for the exact config.
-[usage] input=3752 cache_read=8949 cache_write=0 output=332
+Fix on the **server** (add CORS middleware for your origin), not the browser. Paste the exact console error + your stack → precise fix.
+[usage] input=3795 cache_read=8949 cache_write=0 output=315

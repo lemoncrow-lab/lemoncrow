@@ -19,35 +19,13 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
+claude.ai Google Calendar
+claude.ai Google Drive
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -87,17 +65,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Both integrate changes from one branch into another; differ in **how**.
+[assistant] **Merge** → combines branches with a new merge commit; preserves both histories exactly; non-destructive; history shows branching.
 
-**Merge** → combines with a merge commit. Both branch histories preserved; nonlinear graph. Non-destructive, no SHA rewrites.
-`git merge feature` → new commit with 2 parents.
+**Rebase** → replays your commits onto a new base, one by one; rewrites commit hashes; linear history, no merge commit; discards original topology.
 
-**Rebase** → replays your commits onto tip of target branch. Rewrites history; linear, no merge commit. New SHAs.
-`git rebase main` → feature commits reapplied atop main.
+Key differences:
+- History: merge = branchy/true; rebase = linear/clean.
+- Commits: merge adds a merge commit; rebase creates new commits (new SHAs).
+- Safety: merge non-destructive; rebase rewrites history → never rebase shared/pushed branches.
+- Conflicts: merge resolves once; rebase may resolve per-replayed-commit.
 
-Trade-offs:
-- Merge: true history, cluttered graph, safe on shared branches.
-- Rebase: clean linear history, cleaner log/bisect, **never on pushed/shared branches** (rewrites break others' clones).
-
-Rule of thumb: rebase local/private cleanup, merge to integrate shared work.
-[usage] input=3795 cache_read=8731 cache_write=214 output=302
+Rule of thumb: rebase local/private work to tidy before merging; merge to integrate shared branches.
+[usage] input=3311 cache_read=8731 cache_write=214 output=287

@@ -19,17 +19,10 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
+claude.ai Google Calendar
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
@@ -72,27 +65,28 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Standard fix: make the DB do the increment atomically instead of read-then-write in JS.
+[assistant] Root cause: read-modify-write in app code (`SELECT` → `+1` → `UPDATE`) races. Fix: make the increment atomic in one SQL statement.
 
-**The bug** (read-modify-write race):
-```js
-const { rows } = await client.query('SELECT count FROM counters WHERE id=$1', [id]);
-const next = rows[0].count + 1;
-await client.query('UPDATE counters SET count=$1 WHERE id=$2', [next, id]);
+```sql
+UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
 ```
-Two requests read the same value → both write the same `next`.
 
-**Fix** — single atomic statement, return the new value:
 ```js
-const { rows } = await client.query(
-  'UPDATE counters SET count = count + 1 WHERE id=$1 RETURNING count',
+const { rows } = await pool.query(
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const value = rows[0].count;
+return rows[0].value;
 ```
-`count = count + 1` takes a row lock; concurrent updates serialize → each gets a distinct value.
 
-If read + increment span multiple statements you actually need together, wrap in a txn with `SELECT ... FOR UPDATE`. But for a plain counter, the one-liner above is enough.
+Atomic row-level lock → each concurrent request gets a distinct value. No `SELECT` first, no app-side transaction needed.
 
-Share the handler if you want it patched.
-[usage] input=3483 cache_read=8983 cache_write=0 output=351
+If value not yet a row → seed with upsert:
+```sql
+INSERT INTO counters(id,value) VALUES($1,1)
+ON CONFLICT (id) DO UPDATE SET value = counters.value + 1
+RETURNING value;
+```
+
+Avoid: `SELECT ... FOR UPDATE` + separate `UPDATE` (works but 2 round-trips); serializable retries (overkill here).
+[usage] input=3311 cache_read=8983 cache_write=0 output=393

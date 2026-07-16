@@ -65,26 +65,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Core difference** — both integrate changes from one branch into another; history shape differs.
+[assistant] **Merge** — combines branches with a merge commit; preserves history as-is, non-destructive. Both branch histories stay intact, with a diamond-shaped graph.
 
-- `merge`: creates a merge commit joining two branches → preserves actual history, non-destructive, branch topology visible.
-- `rebase`: replays your commits on top of target branch tip → linear history, rewrites commit SHAs.
+**Rebase** — replays your commits on top of another branch's tip; rewrites commit hashes, linear history, no merge commit.
 
-**Use merge when**
-- Integrating a feature branch into shared/public branch (`main`).
-- You want a true record of when/how work combined.
-- Branch is shared — others have pulled it.
+Use **merge** when:
+- Integrating a feature into a shared/public branch (`main`) → merge commit records when/what merged.
+- Branch is shared by others → rewriting history breaks their clones.
+- You want an accurate record of what actually happened.
 
-**Use rebase when**
-- Updating your local feature branch onto latest `main` before opening a PR → clean linear history.
-- Cleaning up local commits before pushing (`rebase -i`: squash/reorder/reword).
-- Branch is private/unpushed.
+Use **rebase** when:
+- Cleaning up a *local* feature branch before sharing → linear, readable history.
+- Pulling upstream changes into your in-progress branch (`git pull --rebase`) → avoids noise merge commits.
+- Squashing/reordering your own unpushed commits.
 
-**Tradeoffs**
-- merge → clutters history with merge commits, non-linear graph; but safe, preserves context, no SHA rewrite.
-- rebase → linear readable history, easier `bisect`/`log`; but rewrites history, per-commit conflict resolution, and force-push required.
+Tradeoffs:
+- Rebase → clean linear log, easier `bisect`/review; **but** rewrites hashes → never rebase pushed/shared commits (forces others into conflicts), and you re-resolve conflicts per-replayed-commit.
+- Merge → safe, non-destructive, one-shot conflict resolution; **but** cluttered graph with many merge commits.
 
-**Golden rule** — never rebase commits others have based work on (shared/pushed branches). Rewriting published history breaks collaborators' clones.
-
-Common flow: `rebase` to keep your feature branch current + tidy locally, then `merge` (often `--no-ff`) into `main`.
-[usage] input=3311 cache_read=8731 cache_write=234 output=521
+Rule of thumb: **rebase local, merge public.** Never rebase commits others have pulled.
+[usage] input=3311 cache_read=8731 cache_write=234 output=496

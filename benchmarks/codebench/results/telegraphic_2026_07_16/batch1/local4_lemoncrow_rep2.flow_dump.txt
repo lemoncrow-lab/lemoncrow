@@ -19,11 +19,30 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -65,24 +84,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Diagnose first, then fix the source:
+[assistant] Systematic approach:
 
-**Find it**
-- `node --inspect` → Chrome DevTools → Memory → take 2+ heap snapshots under load, diff retained objects
-- `process.memoryUsage().heapUsed` logged over time → confirm upward trend
-- `node --heapsnapshot-near-heap-limit=2 --max-old-space-size=...` for auto-dump near OOM
+**1. Confirm it's a leak** — track `process.memoryUsage().heapUsed` / RSS over time; leak = monotonic climb across GC cycles, not a plateau.
 
-**Common sources**
-- Unbounded growth: caches/Maps/arrays never evicted → add size cap / LRU / TTL
-- Listeners: `emitter.on` in a loop without `off` → `MaxListenersExceededWarning`
-- Closures/globals retaining large objects; module-level accumulation
-- Timers (`setInterval`) never cleared; dangling promises
-- Per-request state leaking into long-lived scope
+**2. Capture heap snapshots** — Chrome DevTools (`node --inspect`) → take 2–3 snapshots over time → "Comparison" view → find object classes with growing retained count. Or `require('v8').writeHeapSnapshot()` on a signal.
 
-**Fix**
-- Bound every cache; remove listeners/timers on teardown
-- Use `WeakMap`/`WeakRef` for incidental references
-- Confirm: heap flat across snapshots under sustained load, not just restart
+**3. Common culprits**
+- Unbounded growth: arrays/`Map`/`Set`/cache/object keyed by request never evicted → use `LRU` / cap size / `WeakMap`.
+- Event listeners added per request, never removed → `MaxListenersExceededWarning`; pair `on`/`removeListener`, or `once`.
+- Closures/globals retaining large objects (module-scope arrays, module singletons).
+- Timers (`setInterval`) holding refs never cleared.
+- Outstanding promises / pending callbacks accumulating.
 
-Share the heap-snapshot diff or code and I'll pinpoint it.
-[usage] input=3311 cache_read=8953 cache_write=0 output=413
+**4. Fix** → bound the growing structure, remove listeners, clear timers, drop refs so GC can collect.
+
+**5. Verify** → re-run under load (e.g. `autocannon`), watch `heapUsed` return to baseline after GC (`--expose-gc`, or `node --max-old-space-size` to bound).
+
+Share the actual code / snapshot diff and I'll pinpoint it.
+[usage] input=3752 cache_read=8953 cache_write=0 output=496

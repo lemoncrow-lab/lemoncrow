@@ -19,11 +19,25 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
-claude.ai Google Calendar
-claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -65,22 +79,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] No repo here → general guidance.
+[assistant] Systematic approach:
 
-**Find it**
-- Run with `node --inspect`, open `chrome://inspect` → take 2–3 heap snapshots over time → compare "retained" growth between them. Growing objects = leak source.
-- Or `node --heapsnapshot-signal=SIGUSR2` and diff snapshots; `process.memoryUsage().heapUsed` to trend.
+**1. Confirm it's a leak** → monitor `process.memoryUsage().heapUsed`/RSS over time under load. Steady climb that never drops after GC = leak.
 
-**Common causes**
-- Listeners: `emitter.on(...)` never removed → "MaxListenersExceededWarning". Pair every `on` with `off`/`removeListener`; use `once` where possible.
-- Unbounded caches/`Map`/`Array` growing forever → cap size or use `LRU` / `WeakMap`.
-- Closures/globals retaining large objects; module-level arrays you keep pushing to.
-- Timers (`setInterval`) never `clearInterval`; dangling promises/subscriptions.
-- Per-request state stored on a long-lived object.
+**2. Capture heap snapshots** → Chrome DevTools (`node --inspect`) or `require('v8').writeHeapSnapshot()`. Take 2–3 at intervals, use "Comparison" view → objects growing between snapshots = the leak.
 
-**Fix + verify**
-- Remove the retainer → re-snapshot → confirm retained size flat under sustained load (`autocannon`/loop).
-- Guard: run with `--max-old-space-size` and watch it stay flat, not climb to OOM.
+**3. Common causes**
+- Unbounded growth: arrays/Maps/caches never evicted → add size cap / TTL / `WeakMap`.
+- Event listeners added per-request, never removed → `removeListener`; watch `MaxListenersExceededWarning`.
+- Closures/globals retaining large objects.
+- Timers (`setInterval`) never cleared.
+- Module-scope accumulation (logs, request buffers).
 
-Paste the offending code or a heap-snapshot diff → I'll pinpoint the retainer.
-[usage] input=3311 cache_read=8953 cache_write=0 output=463
+**4. Fix** → cap the growing structure, remove listeners, clear timers, drop retained refs.
+
+**5. Verify** → re-run step 1 load test → heap plateaus, RSS stable across cycles.
+
+Fastest path: `node --inspect`, `--comparison` snapshot diff points straight at the retained type. Want me to inspect a specific repo? Point me at it.
+[usage] input=3656 cache_read=8953 cache_write=0 output=439

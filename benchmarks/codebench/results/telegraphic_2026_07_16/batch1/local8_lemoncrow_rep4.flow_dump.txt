@@ -65,13 +65,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Debouncer waits for typing pause (e.g. 300ms idle) before firing search.
+[assistant] Limits how often the search fires while typing.
 
-- fewer API calls → no request per keystroke
-- skips wasted queries on intermediate strings ("l","la","lap"→ just "laptop")
-- less server/DB load, lower cost
-- avoids race conditions where stale responses arrive out of order
-- smoother UX, no flicker per keystroke
+Without: every keystroke → a request. "laptop" = 6 requests, 5 wasted.
+With: wait for a pause (e.g. 300ms) after last keystroke → fire once.
 
-Cost: results lag ~debounce interval behind typing.
-[usage] input=3311 cache_read=8948 cache_write=0 output=150
+Gains → fewer API/DB calls, less server load, avoids race conditions where a stale earlier response overwrites a newer one, smoother UI (no flicker per key).
+
+Related: throttle = fire at fixed rate during typing; debounce = fire only after typing stops. Search wants debounce.
+[usage] input=3311 cache_read=8948 cache_write=0 output=202

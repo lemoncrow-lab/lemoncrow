@@ -65,14 +65,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS = server didn't return the headers the browser demands for cross-origin requests. Browser blocks the response; your JS never sees it.
+[assistant] CORS = server didn't return `Access-Control-Allow-Origin` for your frontend's origin. Browser blocks the response.
 
-Cause → your frontend origin (`http://localhost:3000`) ≠ API origin (host/port/scheme differ), and the API omits `Access-Control-Allow-Origin`.
+Common causes:
+- Frontend origin ≠ API origin (different host/port/scheme) → cross-origin → server must opt in.
+- Server missing `Access-Control-Allow-Origin: <your-origin>` (or `*`).
+- Preflight `OPTIONS` failing → missing `Access-Control-Allow-Methods`/`-Headers`.
+- Credentials (cookies) → need `Access-Control-Allow-Credentials: true` + explicit origin (not `*`).
 
-Fix (server-side, not browser):
-- Set `Access-Control-Allow-Origin: <your-frontend-origin>` (or `*` if no credentials).
-- Preflight (`OPTIONS`) → also return `Access-Control-Allow-Methods` + `Access-Control-Allow-Headers`, status 2xx.
-- Cookies/auth → `Access-Control-Allow-Credentials: true` **and** exact origin (no `*`).
+Fix = on the **server**, not the browser. Add CORS middleware for your origin. Dev-only alternative: proxy API through your frontend dev server (same origin).
 
-Read the exact console line — it names the missing header. Paste it (+ stack: Express/Flask/nginx?) → exact fix.
-[usage] input=3311 cache_read=8949 cache_write=0 output=345
+Paste the exact console error + your stack (Express/Flask/nginx…) → exact config.
+[usage] input=3311 cache_read=8949 cache_write=0 output=317

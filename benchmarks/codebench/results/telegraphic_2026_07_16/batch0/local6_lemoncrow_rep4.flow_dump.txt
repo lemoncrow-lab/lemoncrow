@@ -65,21 +65,28 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Key factors before splitting:
+[assistant] Not a code task — advice. Key factors:
 
-**Is the monolith actually the problem?** Profile first. Slow Django is usually N+1 queries, missing indexes, no caching, sync work that should be async (Celery). Microservices fix none of these — you'll ship the same slow code across a network. Fix perf in-place first; it's often the whole answer.
+**Prove the monolith is the problem first**
+- Profile actual slowness → often DB (N+1, missing indexes, no caching), not architecture. Splitting won't fix bad queries; it adds network latency. Fix these first — cheaper, reversible.
 
-**Domain boundaries** — Can you draw clean seams (bounded contexts) where data + logic separate with few cross-calls? If modules share tables and reach into each other's ORM models, you're not ready. Enforce boundaries inside the monolith first (app separation, no cross-app model imports).
+**Domain boundaries**
+- Can you draw clean seams (bounded contexts) with few cross-calls? No clear boundaries → distributed monolith: all the ops cost, none of the decoupling.
 
-**Data ownership** — Each service owns its DB. Splitting a shared Postgres means losing cross-service joins and ACID transactions → distributed consistency, eventual consistency, sagas. This is the hardest part.
+**Data ownership**
+- Each service owns its data, no shared DB. Cross-service joins → API calls + eventual consistency. Distributed transactions are the hardest part. If your data is tightly relational, this hurts most.
 
-**Operational maturity** — Do you have CI/CD, centralized logging, distributed tracing, monitoring, container orchestration, on-call? N services = N× deploy/observe/debug surface. Without this, latency bugs become unfindable.
+**Team & org (Conway's law)**
+- Services map to teams that own them independently. One team for N services → coordination overhead without autonomy gain. Right split ≈ team topology.
 
-**Team topology** — Conway's law. Microservices pay off when independent teams own independent services and deploy without coordination. One small team → overhead with no benefit.
+**Operational maturity (prerequisites)**
+- CI/CD per service, centralized logging/tracing, monitoring, service discovery, infra-as-code. Missing these → microservices amplify every gap.
 
-**Cost** — Network latency, serialization, more infra, harder local dev/testing, data duplication.
+**Costs you're buying**
+- Network latency/failure, versioned APIs, deploy orchestration, distributed debugging, more infra spend.
 
-Recommended path: profile → fix real bottlenecks (queries, caching, async, scale horizontally) → **modular monolith** (enforce boundaries in-code) → extract only proven hotspots (e.g. one CPU-heavy or independently-scaled service). Extract for a concrete reason — independent scaling, isolation, team autonomy — not "monoliths are slow."
+**Cheaper alternatives before splitting**
+- Caching (Redis), read replicas, query/index fixes, async tasks (Celery), scale-out gunicorn workers, modular monolith (clean internal boundaries, one deploy). Extract *one* high-value service (strangler-fig) rather than big-bang.
 
-Want me to profile the app or look at specific slow paths?
-[usage] input=3311 cache_read=8977 cache_write=0 output=611
+Decision rule: split when a **specific** module has divergent scaling, deploy cadence, or team ownership — not for generic "slowness."
+[usage] input=3311 cache_read=8977 cache_write=0 output=649

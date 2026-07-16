@@ -19,6 +19,27 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -27,12 +48,6 @@ mcp__claude_ai_Google_Drive__get_file_permissions
 mcp__claude_ai_Google_Drive__list_recent_files
 mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
-claude.ai Google Calendar
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -72,23 +87,29 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Connection pooling → reuse a fixed set of open DB connections instead of opening/closing one per request.
+[assistant] Connection pooling → keep a set of open DB connections alive, reuse across requests instead of open/close per query.
 
-Why → TCP handshake + auth + TLS per connection is slow (ms-scale); DBs cap max connections. Pooling amortizes setup, bounds concurrency.
+Why → opening a connection is expensive: TCP handshake + auth + TLS + session setup (tens of ms). Pool amortizes this; connection acquire drops to ~microseconds.
 
-Mechanism:
-- Pool holds N live connections.
-- Request borrows one → runs query → returns it (not closed).
-- Idle connection reused by next caller.
-- Exhausted pool → caller waits or errors (timeout).
+Mechanics →
+- Pool holds N ready connections.
+- Request borrows one → runs queries → returns it (not closed).
+- Idle connection sits in pool for next borrower.
+- Exhausted pool → caller waits (queue) or errors on timeout.
 
-Key knobs:
-- `min`/`max` size → concurrency ceiling vs idle cost.
-- idle timeout → reap unused.
-- max lifetime → recycle stale conns (avoid server-side drops).
-- acquire timeout → fail fast under load.
+Key knobs →
+- `min`/`max` size → floor keeps warm conns; ceiling caps DB load (each conn = server memory + a backend process/thread).
+- `acquire/wait timeout` → fail fast vs block.
+- `idle timeout` → reap unused conns.
+- `max lifetime` → recycle old conns (avoid stale/leaked server state, aid failover).
+- `validation` → ping/test-on-borrow to drop dead conns.
 
-Gotchas → leaked connections (borrow, never return) drain pool; per-connection state (temp tables, session vars, open txn) leaks to next borrower — reset on return; pool per process, so total = pool_size × app_instances must stay under DB limit.
+Sizing → `max` too high overwhelms DB (Postgres especially — process-per-conn); too low starves app. Rule of thumb start: `cores * 2` per app instance, tune by contention. Watch total across all instances vs DB `max_connections`.
 
-Common libs: HikariCP (Java), pgbouncer (Postgres proxy), SQLAlchemy `QueuePool`, `pg`/`node-postgres`.
-[usage] input=3484 cache_read=8942 cache_write=0 output=412
+Gotchas →
+- Connection leak → borrow without return exhausts pool → hangs. Always release (RAII / context manager / `finally`).
+- Serverless/many-instances → per-instance pools multiply → use a proxy (PgBouncer, RDS Proxy).
+- Session state leaks across borrows (temp tables, `SET`, prepared stmts) → reset on return.
+
+Common libs → HikariCP (Java), pgbouncer (external), SQLAlchemy `QueuePool` (Python), pg-pool (Node), database/sql built-in (Go).
+[usage] input=3795 cache_read=8942 cache_write=0 output=627

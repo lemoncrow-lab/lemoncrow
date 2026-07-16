@@ -19,9 +19,21 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
 claude.ai Google Calendar
 claude.ai Google Drive
 
@@ -65,7 +77,13 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Debounce delays firing the search until typing pauses (e.g. 300ms idle).
+[assistant] Debouncer waits for a pause in typing before firing → collapses a burst of keystrokes into one call.
 
-Point: one request per pause, not per keystroke. Cuts API/DB load, avoids wasted in-flight queries, dodges race conditions where a slow early response overwrites a later one, saves render churn.
-[usage] input=3311 cache_read=8948 cache_write=0 output=97
+Point:
+- fewer API/DB queries → no request per keystroke ("h","he","hel"...)
+- skips wasted work on intermediate strings user never meant
+- avoids race: stale response for "hel" landing after "hello"
+- less CPU/render churn on each input event
+
+Cost: added latency (~200–300ms) before results show.
+[usage] input=3579 cache_read=8948 cache_write=0 output=145

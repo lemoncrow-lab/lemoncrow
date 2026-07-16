@@ -65,13 +65,11 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Debouncer delays the search action until typing pauses (~300ms idle).
+[assistant] Debounce delays firing the search until input pauses (e.g. 300ms idle) → collapses a burst of keystrokes into one call.
 
-Point → skip firing on every keystroke:
-- fewer API calls / DB queries → less load, less cost
-- no wasted requests for intermediate strings ("r","re","rea"→"react")
-- avoids race conditions where a slow early response overwrites a later one
-- smoother UI, less re-render churn
-
-Net: one query per intent, not per keystroke.
-[usage] input=3311 cache_read=8948 cache_write=0 output=142
+Point: stop firing a request/filter on every keystroke.
+- Fewer API calls → less server load, lower cost, no rate-limit trips
+- Skips stale in-flight queries → avoids out-of-order results overwriting newer ones
+- Less re-render/compute churn → smoother UI
+- Waits for a complete-ish term → more relevant results, less wasted work
+[usage] input=3311 cache_read=8948 cache_write=0 output=167

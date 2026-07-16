@@ -40,11 +40,14 @@ mcp__claude_ai_Google_Calendar__list_events
 mcp__claude_ai_Google_Calendar__respond_to_event
 mcp__claude_ai_Google_Calendar__suggest_time
 mcp__claude_ai_Google_Calendar__update_event
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -84,24 +87,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Diagnose first, don't guess:
+[assistant] No repo given → general playbook.
 
-**Confirm the leak** → run with `node --expose-gc`, watch `process.memoryUsage().heapUsed` over time (or `--max-old-space-size` crash + steady RSS climb). Rising heap that never drops after GC = leak.
+**Find it first**
+- Reproduce, then measure. `node --inspect`, open `chrome://inspect` → Memory tab → take heap snapshots at intervals under load.
+- Diff snapshots: sort by retained size, look for object counts that only grow. `--expose-gc` + `global.gc()` before each snapshot to drop noise.
+- Trend over time: log `process.memoryUsage().heapUsed` / `rss`; leak = monotonic climb that survives GC.
+- Automate: `clinic heapprofiler` or `heapdump` on signal → compare in DevTools.
 
-**Capture heap snapshots** → take 2-3 over time under load:
-- `node --inspect`, open `chrome://inspect` → Memory → Heap snapshot, or
-- programmatic: `require('v8').writeHeapSnapshot()` at intervals.
+**Common causes → fix**
+- Unbounded module-scope collections (`Map`/`Set`/arrays/cache) never evicted → bound size / TTL, or `WeakMap`/`WeakRef` for key-tied data.
+- Listeners added per-request without removal → `emitter.setMaxListeners` warning is the tell; `removeListener`/`once`, or `AbortController` signals.
+- Timers (`setInterval`) never cleared, closures capturing big scopes → clear on teardown; `.unref()` where fitting.
+- Global caches keyed by request → use `lru-cache` with `max`/`maxSize`/`ttl`.
+- Dangling refs from a growing singleton (loggers, DB pools accumulating handlers).
 
-**Compare snapshots** → Chrome DevTools "Comparison" view → sort by delta. Retained objects growing between snapshots = the leak. Follow the retainer path to the GC root that holds them.
+**Confirm**
+- Same load, heap plateaus instead of climbing across many GC cycles → fixed.
 
-**Common causes → fix:**
-- Unbounded caches/`Map`/`Array` growing forever → cap size (LRU) or use `WeakMap`/`WeakRef`.
-- Listeners not removed → `emitter.removeListener`; watch `MaxListenersExceededWarning`.
-- Closures/globals capturing large objects → null out references.
-- Timers (`setInterval`) never cleared → `clearInterval`.
-- Detached promises / growing pending queues.
-
-**Verify fix** → re-run same load, confirm heapUsed plateaus across GC cycles (not just one dip).
-
-Want me to inspect a specific file/service? Point me at it.
-[usage] input=3751 cache_read=8731 cache_write=222 output=508
+Give me the process shape (HTTP server? worker? what climbs — `heapUsed` or `rss`?) and I'll pin the likely culprit. `rss` climbing while `heapUsed` flat → native/Buffer leak, different hunt.
+[usage] input=3795 cache_read=8953 cache_write=0 output=596

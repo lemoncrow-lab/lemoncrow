@@ -35,6 +35,18 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
 The following skills are available for use with the Skill tool:
 
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
@@ -53,20 +65,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Unit mismatch.** `exp` is Unix **seconds**; `Date.now()` is **milliseconds** (~1000×). Your comparison compares across scales, so the check is meaningless.
+[assistant] Bug: `exp` is Unix seconds; `Date.now()` is milliseconds. `Date.now() > exp` is ~1000× too large in the wrong direction — comparison never trips, expired tokens pass.
 
 Fix — compare in the same unit:
+
 ```js
-if (Date.now() >= decoded.exp * 1000) return res.status(401).send('expired');
-// or: Math.floor(Date.now()/1000) >= decoded.exp
+if (Math.floor(Date.now() / 1000) >= decoded.exp) {
+  return res.status(401).json({ error: 'Token expired' });
+}
 ```
 
-Better — don't hand-roll; `jwt.verify` enforces `exp` itself (with clock tolerance):
-```js
-jwt.verify(token, secret, (err, decoded) => {
-  if (err) return res.status(401).send('invalid/expired'); // err.name === 'TokenExpiredError'
-  req.user = decoded;
-});
-```
-Root cause: manual `exp` check bypasses the library's built-in expiry validation — drop it, let `verify` throw.
-[usage] input=3019 cache_read=0 cache_write=6921 output=1143
+Better: let the library check it — `jwt.verify()` validates `exp` automatically and throws `TokenExpiredError`. Drop the manual check.
+[usage] input=3311 cache_read=8731 cache_write=257 output=251

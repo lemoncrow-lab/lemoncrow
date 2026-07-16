@@ -121,25 +121,29 @@ useEffect(() => { console.log('config changed'); }, [config]);
 If that logs on every render, your object reference is unstable — one of the fixes above will solve it.
 
 Want to paste your actual component? I can point to the exact line creating the new reference.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_baseline_rep1.flow,True,,,,,,0.0,0
-local1,lemoncrow,0,True,0.11316999999999999,7629,5995,1,3311,0,8969,0,277,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render → `React.memo` shallow compare sees `{}!=={}` → child re-renders.
+local1,lemoncrow,0,True,0.0279645,6852,5171,1,3311,8969,0,0,277,['claude-opus-4-8'],False,False,"Object literal → new reference every parent render → `React.memo` shallow compare sees prop as ""changed"" → child re-renders.
 
 Fixes:
-- Memoize the object: `const cfg = useMemo(() => ({ a, b }), [a, b])`.
-- Wrap child in `React.memo(Child)` (needed for props-based skip at all).
-- Callbacks in the object → `useCallback`.
+- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])`.
 - Or pass primitives instead of the object.
+- Child must be wrapped in `React.memo` for the compare to matter.
+- Same trap for inline callbacks/arrays → `useCallback` / `useMemo`.
 
-Note: without `React.memo`, a child *always* re-renders when parent renders — that's normal React, not a prop-change trigger. Re-render ≠ DOM update (reconciliation may no-op). Only optimize if profiler shows real cost.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep0.flow,True,,,,,,-0.0537,916
-local1,lemoncrow,1,True,0.11295999999999999,7490,5580,1,3484,0,8969,0,234,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render → memo/comparison sees ""changed.""
+```jsx
+const data = useMemo(() => ({ id, name }), [id, name]);
+<Child data={data} />   // Child = React.memo(Child)
+```
+
+Note: without `React.memo`, a child always re-renders when parent does — prop identity is irrelevant then.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep0.flow,True,,,,,,0.0329,970
+local1,lemoncrow,1,True,0.029659500000000002,7091,5356,1,3795,8969,0,0,248,['claude-opus-4-8'],False,False,"Object literal recreated each render → new reference every time → `React.memo`/`useMemo` shallow compare sees ""changed.""
 
 Fixes:
-- `React.memo` alone won't help — shallow compare, new object ref each time.
-- Memoize the object: `const cfg = useMemo(() => ({a, b}), [a, b])` in parent.
-- Or pass primitives, not the wrapped object.
-- Or stabilize with `useRef`/state if truly static.
-- Custom comparator: `React.memo(Cmp, (p,n)=>deepEqual(p.obj,n.obj))` (last resort).
+- Wrap the object: `const obj = useMemo(() => ({ a, b }), [a, b])`
+- Memoize child: `React.memo(Child)` (needed + stable props)
+- Callbacks in the object → `useCallback`
+- Don't inline: `<Child cfg={{x:1}} />` recreates every render → hoist or `useMemo`
 
-Root cause: `{...}`/`[]`/inline fn in JSX allocate fresh each render; child re-renders regardless of value equality.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep1.flow,True,,,,,,-0.0536,778
+Note: a parent re-render re-renders children regardless of props unless the child is `React.memo`'d — memo + stable object reference are both required.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep1.flow,True,,,,,,0.0318,537
 local1,baseline,2,True,0.060931000000000006,12381,13647,2,3319,7222,2097,0,891,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a classic React re-render gotcha. Let me explain what's happening and how to fix it.
 
 ## Why it happens
@@ -263,27 +267,24 @@ The same pitfall applies to **arrays** (`[]`) and **inline functions/callbacks**
 - React DevTools → **Profiler** → ""Why did this render?"" will name the specific prop that changed.
 
 If you paste your actual component, I can point at the exact prop that's churning.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_baseline_rep3.flow,True,,,,,,0.0,0
-local1,lemoncrow,2,True,0.029784500000000002,7311,5810,1,3795,8969,0,0,253,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render → `React.memo` shallow-compares by identity → sees ""changed"" → re-renders. Value equal, reference not.
+local1,lemoncrow,2,True,0.0277145,9561,7899,1,3311,8969,0,0,267,['claude-opus-4-8'],False,False,"Object literal = new reference every parent render → `props` shallow-compare fails → child re-renders even if contents identical.
 
 Fixes:
-- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])`
+- `React.memo(Child)` alone won't help — new object ref each time still differs.
+- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])` in parent, then `React.memo(Child)`.
+- Or lift the object to a stable ref / module constant if truly static.
+- Same trap for inline `{}`, `[]`, and `() => {}` callbacks (use `useCallback`).
+
+Note: a component also re-renders when *its own* state/parent renders regardless of props — `memo` only skips when props are shallow-equal. If contents change, re-render is correct.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep2.flow,True,,,,,,0.0354,1067
+local1,lemoncrow,3,True,0.0259045,6234,4380,1,3484,8969,0,0,160,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render → memo/`===` sees it ""changed.""
+
+Fixes:
+- `useMemo(() => ({...}), [deps])` — stabilize the object.
+- Child: `React.memo` won't help while ref changes; needs stable prop first.
 - Or pass primitives instead of the object.
-- Or `React.memo(Child, customCompare)` with deep/field compare.
-- Inline `prop={{...}}` or arrow fns → same trap, hoist/`useCallback`.
+- `useState`/`useRef` for objects that shouldn't be recreated.
 
-Note: without `React.memo`, a child *always* re-renders when parent does — prop identity is irrelevant then. Memoize only after confirming the child is wrapped.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep2.flow,True,,,,,,0.0311,512
-local1,lemoncrow,3,True,0.027664499999999998,7422,5725,1,3311,8969,0,0,265,['claude-opus-4-8'],False,False,"New object literal → new reference every parent render → child sees ""changed"" prop → re-renders.
-
-- `React.memo` does shallow compare: `{a:1} !== {a:1}` (different refs) → fails → re-render.
-- Even without memo, child re-renders whenever parent renders; the object just defeats any memoization.
-
-Fixes:
-- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])`.
-- Wrap child in `React.memo`, pass memoized object (both needed).
-- Pass primitives instead of object: `<Child a={a} b={b} />`.
-- Callbacks in the object → `useCallback` too.
-
-Root cause = referential identity, not value equality.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep3.flow,True,,,,,,0.0327,958
+Root cause: `{}` literal in render body ≠ previous `{}` by reference.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep3.flow,True,,,,,,0.0372,999
 local1,baseline,4,True,0.06042100000000001,12350,16073,2,3319,7222,2097,0,869,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The short answer: **passing an object literal as a prop creates a new object reference on every render**, so any memoization based on reference equality breaks.
 
 ## Why it happens
@@ -349,17 +350,15 @@ useEffect(() => {
 If that logs on every render, the reference is unstable.
 
 Want to share the actual component? I can point out exactly which prop is breaking the memoization.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_baseline_rep4.flow,True,,,,,,0.0,0
-local1,lemoncrow,4,True,0.0280395,7567,5891,1,3311,8969,0,0,280,['claude-opus-4-8'],False,False,"Object prop = new reference each parent render → `React.memo`/shallow compare sees ""changed"" → child re-renders.
+local1,lemoncrow,4,True,0.0269295,7790,5941,1,3484,8969,0,0,201,['claude-opus-4-8'],False,False,"Object prop = new reference every parent render → `===` fails → child re-renders even if contents identical.
 
 Fixes:
-- `React.memo` alone won't help — object identity differs every time.
-- Memoize the object: `const obj = useMemo(() => ({a, b}), [a, b])` in parent.
-- Then wrap child in `React.memo`.
+- `useMemo` the object: `const cfg = useMemo(() => ({a, b}), [a, b])` → stable ref.
+- Wrap child in `React.memo` (shallow-compares props; needs stable refs to help).
+- Inline literals `prop={{a:1}}` / arrow fns → hoist or memoize (`useCallback`).
 - Or pass primitives instead of the object.
 
-Inline `<Child data={{a,b}} />` recreates on every render — hoist + `useMemo`. Same trap for arrays, inline functions (`useCallback`), and inline styles.
-
-Note: without `React.memo`, a child always re-renders when its parent does regardless of props — props equality only matters once memoized.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep4.flow,True,,,,,,0.0324,947
+Same applies to array/function props. Without stable ref, `React.memo` alone won't stop it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local1_lemoncrow_rep4.flow,True,,,,,,0.0324,811
 local2,baseline,1,True,0.0627,12910,14303,2,3328,7222,2116,0,953,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The bug is a **units mismatch**.
 
 - JWT's `exp` is a **NumericDate**: seconds since the Unix epoch.
@@ -409,23 +408,23 @@ function auth(req, res, next) {
 A manual `exp` check usually means the token was decoded with `jwt.decode()` (no verification) instead of `jwt.verify()`. `decode()` does **not** validate the signature or expiry — which is a second, more serious bug if that's what's happening, since it means unsigned/tampered tokens are also accepted.
 
 If you paste the middleware (or point me at the file), I'll confirm which case you're in and patch it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_baseline_rep1.flow,True,,,,,,0.0,0
-local2,lemoncrow,1,True,0.0323905,8163,6171,1,3311,8731,257,0,356,['claude-opus-4-8'],False,False,"Unit mismatch. `exp` = seconds since epoch; `Date.now()` = milliseconds. So `Date.now() > exp` is always true-scale-skewed — ms value dwarfs the seconds `exp`, comparison logic breaks, expired tokens slip through.
+local2,lemoncrow,1,True,0.031324,9280,7485,1,3311,8988,0,0,411,['claude-opus-4-8'],False,False,"Bug: `exp` is Unix **seconds**; `Date.now()` is **milliseconds**. `Date.now() > token.exp` is always true-scaled wrong — you compare ms against s, so `exp` (~1.7e9) is dwarfed by `Date.now()` (~1.7e12)... actually that makes everything look expired. If your check is inverted (`exp > Date.now()` → ""still valid""), expired tokens pass because `exp` in seconds never exceeds ms now. Unit mismatch either way.
 
-Fix — compare in same unit:
+Fix — normalize units:
 
 ```js
-if (Date.now() >= decoded.exp * 1000) return res.status(401).json({ error: 'token expired' });
+if (Date.now() >= token.exp * 1000) {
+  throw new Error('token expired');
+}
 ```
 
-Better: stop hand-rolling. `jwt.verify()` checks `exp` itself and throws `TokenExpiredError`:
+Better: don't hand-roll. `jwt.verify()` checks `exp` for you and throws `TokenExpiredError`:
 
 ```js
-try {
-  req.user = jwt.verify(token, SECRET);
-} catch (e) {
-  return res.status(401).json({ error: 'invalid or expired token' });
-}
-```",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep1.flow,True,,,,,,0.0303,964
+jwt.verify(raw, secret); // throws on expiry; wrap in try/catch → 401
+```
+
+Also confirm you're reading `exp` from the **verified** payload, not a decode of the raw token.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep1.flow,True,,,,,,0.1207,41102
 local2,baseline,0,True,0.15161999999999998,62643,64047,2,3328,7222,2116,0,4509,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The bug is almost certainly a **units mismatch**: `Date.now()` returns **milliseconds**, but the JWT `exp` claim is **seconds** since the Unix epoch (per RFC 7519). So you're comparing two numbers that are off by a factor of 1000.
 
 ### Why it lets expired tokens through
@@ -546,43 +545,29 @@ Two things worth confirming while you're in there:
 - **`exp` presence** — if a token has no `exp` claim, a manual `undefined` comparison silently passes. `jwt.verify` treats a missing `exp` as ""no expiry,"" so set `exp` at sign time and consider requiring it.
 
 The short version: **`exp` is seconds, `Date.now()` is milliseconds** — either divide `Date.now()` by 1000, or better, let `jwt.verify` do the check.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_baseline_rep2.flow,True,,,,,,0.0,0
-local2,lemoncrow,0,True,0.11288,19500,17772,1,3019,0,6921,0,1143,['claude-opus-4-8'],False,False,"**Unit mismatch.** `exp` is Unix **seconds**; `Date.now()` is **milliseconds** (~1000×). Your comparison compares across scales, so the check is meaningless.
+local2,lemoncrow,0,True,0.029765499999999997,6325,4591,1,3311,8731,257,0,251,['claude-opus-4-8'],False,False,"Bug: `exp` is Unix seconds; `Date.now()` is milliseconds. `Date.now() > exp` is ~1000× too large in the wrong direction — comparison never trips, expired tokens pass.
 
 Fix — compare in the same unit:
-```js
-if (Date.now() >= decoded.exp * 1000) return res.status(401).send('expired');
-// or: Math.floor(Date.now()/1000) >= decoded.exp
-```
 
-Better — don't hand-roll; `jwt.verify` enforces `exp` itself (with clock tolerance):
 ```js
-jwt.verify(token, secret, (err, decoded) => {
-  if (err) return res.status(401).send('invalid/expired'); // err.name === 'TokenExpiredError'
-  req.user = decoded;
-});
-```
-Root cause: manual `exp` check bypasses the library's built-in expiry validation — drop it, let `verify` throw.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep0.flow,True,,,,,,0.0387,6092
-local2,lemoncrow,2,True,0.056934,21855,20038,1,3483,8988,0,0,1401,['claude-opus-4-8'],False,False,"Unit mismatch. `exp` (JWT RFC 7519) is **Unix seconds**; `Date.now()` is **milliseconds**. Comparing them directly (`exp < Date.now()` etc.) never lands correctly → expiry check is broken.
-
-Fix — align units:
-```js
-if (decoded.exp < Math.floor(Date.now() / 1000)) {
+if (Math.floor(Date.now() / 1000) >= decoded.exp) {
   return res.status(401).json({ error: 'Token expired' });
 }
 ```
 
-Better — stop hand-rolling; let the library enforce exp:
+Better: let the library check it — `jwt.verify()` validates `exp` automatically and throws `TokenExpiredError`. Drop the manual check.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep0.flow,True,,,,,,0.1454,29996
+local2,lemoncrow,2,True,0.030264,7329,5685,1,3484,8988,0,0,334,['claude-opus-4-8'],False,False,"Bug: `exp` is Unix **seconds**; `Date.now()` is **milliseconds** (~1000× larger). So `Date.now() < exp` is almost always false-negative logic — comparison is wrong scale, expired tokens slip through (or all tokens look expired, depending on direction).
+
+Fix — put both in the same unit:
+
 ```js
-try {
-  const decoded = jwt.verify(token, SECRET); // throws TokenExpiredError on expiry
-  req.user = decoded;
-  next();
-} catch (e) {
-  return res.status(401).json({ error: 'Invalid or expired token' });
+const now = Math.floor(Date.now() / 1000); // seconds
+if (payload.exp && now >= payload.exp) {
+  return res.status(401).json({ error: 'token expired' });
 }
 ```
 
-Also check: if you're using `jwt.decode()` instead of `jwt.verify()`, signature+exp aren't validated at all → that alone lets expired (and forged) tokens through.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep2.flow,True,,,,,,0.0749,26383
+Better: let the library check it — `jwt.verify(token, secret)` throws `TokenExpiredError` automatically. Manual `exp` checks are the bug source; drop them.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep2.flow,True,,,,,,0.2897,44266
 local2,baseline,3,True,0.15406,64262,65667,2,3328,7222,2116,0,4605,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The root cause is almost certainly a **units mismatch**, and there's an important subtlety worth being precise about.
 
 ## The mismatch
@@ -641,13 +626,13 @@ try {
 Watch out for `jwt.decode()` (no signature/exp verification) vs `jwt.verify()`, and make sure `ignoreExpiration` isn't set to `true` anywhere.
 
 If you paste the actual middleware, I'll pinpoint exactly which line is wrong and confirm whether it's the units, the direction, or both.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_baseline_rep3.flow,True,,,,,,0.0,0
-local2,lemoncrow,3,True,0.031273999999999996,12869,11128,1,3751,8988,0,0,321,['claude-opus-4-8'],False,False,"Unit mismatch. JWT `exp` = seconds since epoch; `Date.now()` = milliseconds. Comparing `Date.now() > token.exp * 1000`? If you wrote `Date.now() > token.exp`, every real exp looks ~1000× smaller → never expired → expired tokens pass.
+local2,lemoncrow,3,True,0.026074,6016,4328,1,3311,8988,0,0,201,['claude-opus-4-8'],False,False,"Bug: `exp` is **seconds** (Unix), `Date.now()` is **milliseconds**. `Date.now() < exp*1000` always true → expired tokens pass.
 
 Fix:
 ```js
-if (Date.now() >= decoded.exp * 1000) throw new Error('token expired');
+if (Date.now() >= decoded.exp * 1000) return res.status(401).send('expired');
 ```
-Better: drop the manual check — `jwt.verify(token, secret)` validates `exp` itself (throws `TokenExpiredError`), correct units, plus signature. Manual `exp` compare alone skips signature verification.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep3.flow,True,,,,,,0.1228,4211
+Better: let the library enforce it — `jwt.verify(token, secret)` throws `TokenExpiredError` on expiry; drop the manual check.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep3.flow,True,,,,,,0.1363,5102
 local2,baseline,4,True,0.26442099999999996,89195,90002,6,3380,58294,7033,0,6024,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Your working directory here is empty (no code to inspect), so I'll answer from the symptom you described — and it's a textbook one.
 
 ## What's wrong: seconds vs. milliseconds
@@ -834,9 +819,9 @@ process.on('SIGINT', shutdown);
 
 - **Sizing `max`:** more is not better. Postgres has a hard `max_connections` limit (default 100). If you run multiple app instances, `max × instances` must stay comfortably under it. For high concurrency, put **PgBouncer** in front rather than raising `max`.
 - **`statement_timeout` vs `query_tim",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_baseline_rep0.flow,True,,,,,,0.0,0
-local2,lemoncrow,4,True,0.026673999999999996,6031,4462,1,3311,8988,0,0,225,['claude-opus-4-8'],False,False,"Bug: `exp` is Unix **seconds**; `Date.now()` is **milliseconds**. So `Date.now() < token.exp` is always true → expired tokens pass.
+local2,lemoncrow,4,True,0.028374000000000003,7569,6006,1,3311,8988,0,0,293,['claude-opus-4-8'],False,False,"**Bug**: `exp` is in **seconds** (Unix epoch, per JWT spec); `Date.now()` is **milliseconds**. So `Date.now() > exp` is ~1000× too large-scaled — comparison never trips → expired tokens pass.
 
-Fix — compare in same unit:
+**Fix** — align units:
 
 ```js
 if (Date.now() >= decoded.exp * 1000) {
@@ -844,11 +829,11 @@ if (Date.now() >= decoded.exp * 1000) {
 }
 ```
 
-Better: let the library check it — `jwt.verify` throws `TokenExpiredError` on expiry automatically; only hand-roll if you decode without verifying.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep4.flow,True,,,,,,0.2377,62207
-local3,lemoncrow,0,True,0.0864395,17567,15459,2,3313,17699,3785,0,927,['claude-opus-4-8'],False,False,"No project code — general answer, `node-postgres` (`pg`):
+or `Math.floor(Date.now()/1000) >= decoded.exp`.
 
-```js
-const { Pool } = require('pg');
+Better: let the library check it. `jwt.verify(token, secret)` throws `TokenExpiredError` on expiry automatically — drop the manual check unless you decode without verifying.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local2_lemoncrow_rep4.flow,True,,,,,,0.1489,5608
+local3,lemoncrow,0,True,0.0447105,12591,10809,1,3795,8731,237,0,760,['claude-opus-4-8'],False,False,"```js
+import { Pool } from 'pg';
 
 const pool = new Pool({
   host: process.env.PGHOST,
@@ -857,66 +842,56 @@ const pool = new Pool({
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
 
-  max: 20,                        // max clients in pool
-  min: 0,
-  idleTimeoutMillis: 30_000,      // close idle client after 30s
-  connectionTimeoutMillis: 5_000, // fail if no connection in 5s
-  maxUses: 7_500,                 // recycle client after N queries
+  max: 20,                          // max clients in pool
+  min: 2,                           // keep warm
+  idleTimeoutMillis: 30_000,        // close idle clients after 30s
+  connectionTimeoutMillis: 5_000,   // fail if no conn in 5s
+  maxUses: 7_500,                   // recycle client after N queries
   allowExitOnIdle: false,
 
-  // per-query/socket timeouts (passed to pg client)
-  statement_timeout: 10_000,      // abort any query > 10s
-  query_timeout: 10_000,
+  // per-query/socket timeouts (ms)
+  statement_timeout: 10_000,        // abort server-side query
+  query_timeout: 10_000,           // abort client-side wait
   idle_in_transaction_session_timeout: 10_000,
-
-  // ssl: { rejectUnauthorized: true, ca: fs.readFileSync('ca.pem') },
+  keepAlive: true,
 });
 
-// CRITICAL: idle clients can emit errors (server restart, network drop).
-// Without this handler the process crashes.
+// CRITICAL: idle clients emit 'error' async — unhandled = process crash
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
-```
 
-Query — pooled, auto-release:
-
-```js
-async function query(text, params) {
-  return pool.query(text, params); // acquires + releases client
+export async function query(text, params) {
+  const start = Date.now();
+  const res = await pool.query(text, params);
+  return res;
 }
-```
 
-Transaction — manual checkout, release in `finally`:
-
-```js
-async function tx(fn) {
+// transaction: always release, even on throw
+export async function withTransaction(fn) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const r = await fn(client);
+    const out = await fn(client);
     await client.query('COMMIT');
-    return r;
+    return out;
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;
   } finally {
-    client.release(); // ALWAYS — leak otherwise
+    client.release();   // returns to pool; never leak
   }
 }
-```
 
-Shutdown:
-
-```js
+// graceful shutdown
 process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
 Key points:
-- `connectionTimeoutMillis` → pool acquisition timeout; `statement_timeout` → server-side query kill. Different layers, set both.
-- `pool.on('error')` is mandatory — missing it is the #1 prod crash.
-- Always `release()` checked-out clients in `finally`; pooled `pool.query()` releases itself.
-- `max`: size to DB `max_connections` ÷ instances, not arbitrarily high.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep0.flow,True,,,,,,-0.0027,-11288
+- `pool.on('error')` mandatory → idle-client errors are async; unhandled crashes the process.
+- `connectionTimeoutMillis` (acquire) vs `statement_timeout` (server-side) vs `query_timeout` (client-side) — distinct layers.
+- `finally { client.release() }` — leaked clients exhaust `max`, then hangs.
+- `maxUses` recycles clients → dodges server-side memory creep / stale conns.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep0.flow,True,,,,,,0.0334,687
 local3,baseline,1,True,0.08009400000000001,22326,23785,2,3312,7222,2096,0,1659,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a solid setup using `node-postgres` (`pg`), which is the standard library for this.
 
 ## Installation
@@ -1163,7 +1138,7 @@ process.on('SIGINT', shutdown);
 A few practical notes:
 
 - **Size `max` to your database, not your app.** If you run 5 app instances each with `max: 20`, that's 100 connections. Postgres defaults to `max_connections = 100` and reserves some for superuser — s",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_baseline_rep2.flow,True,,,,,,0.0,0
-local3,lemoncrow,1,True,0.044014,15054,13290,1,3311,8968,0,0,919,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres):
+local3,lemoncrow,1,True,0.043994000000000005,15214,13405,1,3752,8968,0,0,830,['claude-opus-4-8'],False,False,"`pg` (node-postgres) Pool:
 
 ```js
 import { Pool } from 'pg';
@@ -1175,106 +1150,113 @@ const pool = new Pool({
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
 
-  max: 20,                          // max clients in pool
+  max: 20,                        // max clients in pool
   min: 0,
-  idleTimeoutMillis: 30_000,        // close idle clients after 30s
-  connectionTimeoutMillis: 5_000,   // fail if no conn acquired in 5s
-  maxUses: 7_500,                   // recycle a client after N uses
+  idleTimeoutMillis: 30_000,      // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail if no connection acquired in 5s
+  maxUses: 7_500,                 // recycle a client after N uses (avoids server-side leaks)
   allowExitOnIdle: false,
-
-  // per-query/socket timeouts (passed to each client)
-  statement_timeout: 10_000,        // abort any statement >10s
-  query_timeout: 10_000,           // client-side query timeout
-  idle_in_transaction_session_timeout: 10_000,
-  keepAlive: true,
+  // statement_timeout: 10_000,   // server-side per-query cap (ms)
+  // query_timeout: 10_000,       // client-side per-query cap (ms)
+  // ssl: { rejectUnauthorized: true, ca: fs.readFileSync('ca.pem') },
 });
 
-// CRITICAL: idle clients can emit errors (dropped TCP, DB restart).
-// Unhandled → crashes the process.
-pool.on('error', (err) => {
-  console.error('idle client error', err);
-});
-
-// Safe query helper — pool.query auto-acquires + releases.
-export async function query(text, params) {
-  return pool.query(text, params);
-}
-
-// Manual checkout (transactions) — ALWAYS release in finally.
-export async function withTransaction(fn) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();   // release() prevents pool exhaustion / leaks
-  }
-}
-
-// Graceful shutdown.
-process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
-```
-
-Key points:
-- `connectionTimeoutMillis` → guards pool exhaustion; `statement_timeout` → guards runaway queries. Both needed.
-- `pool.on('error')` is mandatory — idle-client errors are async and crash otherwise.
-- Always `client.release()` in `finally`; leaked clients exhaust `max` → hangs.
-- One pool per process (module singleton), not per request.
-- `pool.query()` for single statements; manual `connect()` only for transactions (must run on one client).
-
-Want it adapted to your setup (TypeScript, existing config, Knex/Drizzle)? Point me at the file.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep1.flow,True,,,,,,0.0361,1091
-local3,lemoncrow,2,True,0.037839,12502,10691,1,3311,8968,0,0,672,['claude-opus-4-8'],False,False,"Using `pg` (node-postgres):
-
-```js
-import pg from 'pg';
-
-const pool = new pg.Pool({
-  host: process.env.PGHOST,
-  port: 5432,
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-
-  max: 20,                       // max clients in pool
-  min: 0,
-  idleTimeoutMillis: 30_000,     // close idle clients after 30s
-  connectionTimeoutMillis: 5_000,// fail if no conn acquired in 5s
-  maxUses: 7_500,                // recycle a client after N uses
-  allowExitOnIdle: false,
-  // statement_timeout: 10_000,  // server-side per-query cap (ms)
-  // query_timeout: 10_000,      // client-side per-query cap (ms)
-  // ssl: { rejectUnauthorized: true },
-});
-
-// Critical: pool emits 'error' for idle clients dropped by server/network.
-// Unhandled → process crash.
+// Critical: idle clients can emit errors (server restart, network drop).
+// Unhandled → crashes process. Always attach:
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
 ```
 
-Usage — always release, even on throw:
+Query safely — always release, even on throw:
 
 ```js
-async function q(text, params) {
-  const client = await pool.connect();
+async function query(text, params) {
+  const client = await pool.connect();     // rejects after connectionTimeoutMillis
   try {
     return await client.query(text, params);
   } finally {
-    client.release();          // return to pool; release(true) to destroy
+    client.release();                       // return to pool; release(true) to destroy
   }
 }
-// simple queries: pool.query(text, params) auto-acquires + releases.
 ```
 
-Shutdown: `await pool.end()` on SIGTERM/SIGINT to drain gracefully.
+Graceful shutdown:
 
-Key knobs → `connectionTimeoutMillis` (acquire), `idleTimeoutMillis` (reap idle), `statement_timeout`/`query_timeout` (runaway queries), `maxUses` (guard leaks). The `pool.on('error')` handler is the one most often missed.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep2.flow,True,,,,,,0.046,1486
+```js
+process.on('SIGTERM', async () => {
+  await pool.end();   // drains + closes all clients
+  process.exit(0);
+});
+```
+
+Key points
+- `connectionTimeoutMillis` → bounds pool-acquire wait; `statement_timeout`/`query_timeout` → bound query runtime (set both: server + client side).
+- `pool.on('error')` is mandatory — without it an idle-client error is an unhandled exception.
+- `max` should stay under Postgres `max_connections` divided across app instances; use PgBouncer if you exceed it.
+- `maxUses` guards against slow per-connection memory growth.
+- Never forget `client.release()` — leaked clients exhaust the pool → `connect()` hangs then times out.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep1.flow,True,,,,,,0.0333,625
+local3,lemoncrow,2,True,0.040504,12911,11334,1,3484,8968,0,0,744,['claude-opus-4-8'],False,False,"Using `node-postgres` (`pg`):
+
+```js
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  host: process.env.PGHOST,
+  port: 5432,
+  database: process.env.PGDATABASE,
+  user: process.env.PGUSER,
+  password: process.env.PGPASSWORD,
+
+  max: 20,                       // max clients in pool
+  min: 0,
+  idleTimeoutMillis: 30_000,     // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail acquire if no conn in 5s
+  maxUses: 7_500,                // recycle client after N queries
+  allowExitOnIdle: false,
+
+  // per-connection server-side timeouts
+  statement_timeout: 10_000,             // kill any query > 10s
+  query_timeout: 10_000,                 // client-side query cap
+  idle_in_transaction_session_timeout: 15_000,
+  keepAlive: true,
+});
+
+// CRITICAL: idle clients emit 'error' on backend/network drop.
+// Unhandled → process crash. Always attach.
+pool.on('error', (err) => {
+  console.error('idle client error', err);
+});
+```
+
+Query safely — pool auto acquires/releases:
+
+```js
+async function q(text, params) {
+  const res = await pool.query(text, params);
+  return res.rows;
+}
+```
+
+Manual client (transactions) — release in `finally`, always:
+
+```js
+const client = await pool.connect();
+try {
+  await client.query('BEGIN');
+  // ...
+  await client.query('COMMIT');
+} catch (e) {
+  await client.query('ROLLBACK');
+  throw e;
+} finally {
+  client.release();  // release(true) to destroy a broken client
+}
+```
+
+Shutdown: `await pool.end()` on `SIGTERM`/`SIGINT`.
+
+Key points → `connectionTimeoutMillis` guards pool acquisition; `statement_timeout` guards runaway queries; the `pool.on('error')` handler is mandatory (idle-client errors otherwise crash the process); never leak clients — `release()` in `finally`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep2.flow,True,,,,,,0.0419,1185
 local3,baseline,3,True,0.08061900000000001,21608,22663,2,3312,7222,2096,0,1680,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's a production-ready setup using the `pg` library (node-postgres), which is the standard choice:
 
 ## Installation
@@ -1405,7 +1387,7 @@ await withTransaction(async (client) => {
 - **Never mutate connection state** (e.g. `SET`, temp tables, prepared statements) without resetting it — the client goes back into the pool for reuse.
 - **`connectionTimeoutMillis` vs `statement_timeout`** are different layers: the former is ""can't get a client,"" the latter is ""query ran too long."" Set both.
 - **`max`** should match your DB's connection limit divided across a",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_baseline_rep3.flow,True,,,,,,0.0,0
-local3,lemoncrow,3,True,0.037814,11798,10219,1,3311,8968,0,0,671,['claude-opus-4-8'],False,False,"`pg` Pool — timeouts + error handling:
+local3,lemoncrow,3,True,0.041389,14149,12618,1,3311,8968,0,0,814,['claude-opus-4-8'],False,False,"`pg` (node-postgres) Pool:
 
 ```js
 const { Pool } = require('pg');
@@ -1413,49 +1395,50 @@ const { Pool } = require('pg');
 const pool = new Pool({
   host: process.env.PGHOST,
   port: 5432,
-  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
+  database: process.env.PGDATABASE,
 
-  max: 20,                        // max clients
+  max: 20,                       // max clients in pool
   min: 0,
-  idleTimeoutMillis: 30_000,      // idle client closed after 30s
-  connectionTimeoutMillis: 5_000, // fail if no conn acquired in 5s
-  maxUses: 7_500,                 // recycle client after N queries
+  idleTimeoutMillis: 30_000,     // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail acquire if no conn in 5s
+  maxUses: 7_500,                // recycle client after N queries (avoids leaks)
   allowExitOnIdle: false,
-
-  statement_timeout: 10_000,      // kill query server-side after 10s
-  query_timeout: 10_000,          // client-side query cap
-  idle_in_transaction_session_timeout: 10_000,
+  ssl: { rejectUnauthorized: true },
 });
 
-// CRITICAL: idle clients can emit errors (dropped TCP, DB restart).
-// Unhandled → crashes process. Always attach:
+// Per-query statement/idle timeouts (ms) — set via options string:
+// options: '-c statement_timeout=10000 -c idle_in_transaction_session_timeout=10000'
+
+// Background client errors (idle client dropped by server) — MUST handle or process crashes
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
-```
 
-Query — always release, even on throw:
-
-```js
-async function q(text, params) {
+// Safe query with acquire timeout already covered by connectionTimeoutMillis
+async function query(text, params) {
   const client = await pool.connect();
   try {
     return await client.query(text, params);
   } finally {
-    client.release();   // release() in finally; never leak
+    client.release();          // always release, even on throw
   }
 }
-// simple case: pool.query() auto-acquires+releases
+
+// Graceful shutdown
+process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
-Shutdown:
-```js
-process.on('SIGTERM', async () => { await pool.end(); });
-```
+Key points:
+- `connectionTimeoutMillis` → caps how long `pool.connect()` waits for a free/new client.
+- `idleTimeoutMillis` → reaps idle clients; pair with `min` if you want warm connections.
+- `statement_timeout` / `idle_in_transaction_session_timeout` → per-query server-side caps; set via `options` or `SET` after connect.
+- `pool.on('error')` → **required**; idle clients can error async, unhandled → crash.
+- Always `client.release()` in `finally` → prevents pool exhaustion.
+- `maxUses` → periodic client recycling, avoids server-side memory creep.
 
-Key points → `connectionTimeoutMillis` (acquire) ≠ `statement_timeout` (server exec) ≠ `idleTimeoutMillis` (reap). `pool.on('error')` is mandatory — omitting it crashes on any idle-client failure. `release(err)` with a truthy arg destroys the client instead of returning it to the pool.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep3.flow,True,,,,,,0.0428,1360
+Values are starting points — tune `max` to `DB max_connections / instance count`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep3.flow,True,,,,,,0.0378,1159
 local3,baseline,4,True,0.08284400000000001,27138,28233,2,3312,7222,2096,0,1769,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's how to set up a production-ready PostgreSQL connection pool in Node.js using the `pg` (node-postgres) library, which is the standard choice.
 
 ## Installation
@@ -1623,10 +1606,10 @@ feature:           D'---E'   (D', E' = rewritten commits)
 A middle-ground option: **squash merge** (common on GitHub PRs) collapses a whole branch into a single commit on `main`, giving linear history without manual rebasing — at the cost of losing individual commit granularity.
 
 Want me to show the exact commands for any of these, or look at your repo's current branch setup to suggest a fit?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_baseline_rep0.flow,True,,,,,,0.0,0
-local3,lemoncrow,4,True,0.052918999999999994,17094,15528,1,3752,8968,0,0,1187,['claude-opus-4-8'],False,False,"`pg` Pool:
+local3,lemoncrow,4,True,0.042638999999999996,13551,11956,1,3311,8968,0,0,864,['claude-opus-4-8'],False,False,"`pg` (node-postgres) `Pool`:
 
 ```js
-import { Pool } from 'pg';
+const { Pool } = require('pg');
 
 const pool = new Pool({
   host: process.env.PGHOST,
@@ -1634,107 +1617,91 @@ const pool = new Pool({
   database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
-  max: 20,                        // max clients in pool
-  min: 2,
-  idleTimeoutMillis: 30000,       // close idle client after 30s
-  connectionTimeoutMillis: 5000,  // fail if no conn acquired in 5s
-  maxUses: 7500,                  // recycle client after N uses
+
+  max: 20,                        // max clients
+  min: 0,
+  idleTimeoutMillis: 30_000,      // close idle client after 30s
+  connectionTimeoutMillis: 5_000, // fail if no connection in 5s
+  maxUses: 7_500,                 // recycle client after N uses (avoids leaks)
   allowExitOnIdle: false,
-  // per-query server-side timeouts:
-  statement_timeout: 10000,       // kill query after 10s
-  query_timeout: 10000,           // client-side query timeout
-  idle_in_transaction_session_timeout: 15000,
+
+  // per-query server-side timeouts
+  statement_timeout: 10_000,      // abort query >10s
+  query_timeout: 10_000,          // client-side query abort
+  idle_in_transaction_session_timeout: 10_000,
+
+  // ssl: { rejectUnauthorized: true },
 });
 
-// CRITICAL: handle errors on idle clients or process crashes
+// pool-level errors on IDLE clients — must handle or process crashes
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
-
-// Query with auto release
-export async function query(text, params) {
-  return pool.query(text, params);
-}
-
-// Manual checkout — always release in finally
-export async function withClient(fn) {
-  const client = await pool.connect();
-  try {
-    return await fn(client);
-  } finally {
-    client.release();
-  }
-}
-
-// graceful shutdown
-process.on('SIGTERM', async () => {
-  await pool.end();
-  process.exit(0);
-});
 ```
 
-Key points to note. Keep telegraphic.`pg` (node-postgres) Pool:
+Query — always release, use pool.query for auto acquire/release:
 
 ```js
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  host: process.env.PGHOST,
-  port: 5432,
-  database: process.env.PGDATABASE,
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  max: 20,                                 // max clients
-  min: 2,
-  idleTimeoutMillis: 30000,                // drop idle client after 30s
-  connectionTimeoutMillis: 5000,           // fail acquire after 5s
-  maxUses: 7500,                           // recycle client after N uses
-  statement_timeout: 10000,                // server kills query after 10s
-  query_timeout: 10000,                    // client-side query timeout
-  idle_in_transaction_session_timeout: 15000,
-});
-
-// REQUIRED — without this an idle-client error crashes the process
-pool.on('error', (err) => console.error('idle client error', err));
-
-// manual checkout — release in finally, always
-async function withClient(fn) {
-  const client = await pool.connect();
-  try { return await fn(client); }
-  finally { client.release(); }
+async function getUser(id) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    return rows[0];
+  } catch (err) {
+    console.error('query failed', err);
+    throw err;
+  }
 }
+```
 
-// graceful shutdown
+Transaction — manual client, release in `finally`:
+
+```js
+async function tx(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await fn(client);
+    await client.query('COMMIT');
+    return r;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();   // return to pool, never leak
+  }
+}
+```
+
+Shutdown:
+
+```js
 process.on('SIGTERM', async () => { await pool.end(); process.exit(0); });
 ```
 
-Essentials:
-- `pool.on('error')` mandatory → unhandled idle-client error = crash.
-- Always `client.release()` in `finally` (or use `pool.query()` which auto-releases) → leaked clients exhaust `max`.
-- `connectionTimeoutMillis` = acquire timeout; `statement_timeout`/`query_timeout` = runaway-query kill.
-- `pool.end()` on shutdown → drains cleanly.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep4.flow,True,,,,,,0.0299,492
-local4,lemoncrow,0,True,0.036285500000000005,12371,10622,1,3311,8731,234,0,521,['claude-opus-4-8'],False,False,"**Core difference** — both integrate changes from one branch into another; history shape differs.
+Key points:
+- `pool.on('error')` mandatory → unhandled idle-client error crashes process.
+- `connectionTimeoutMillis` ≠ `statement_timeout` (acquire vs execute).
+- `finally { client.release() }` on every `connect()` → leak = pool exhaustion.
+- `maxUses` guards against slow server-side memory growth.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local3_lemoncrow_rep4.flow,True,,,,,,0.0472,1535
+local4,lemoncrow,0,True,0.035660500000000005,17873,16297,1,3311,8731,234,0,496,['claude-opus-4-8'],False,False,"**Merge** — combines branches with a merge commit; preserves history as-is, non-destructive. Both branch histories stay intact, with a diamond-shaped graph.
 
-- `merge`: creates a merge commit joining two branches → preserves actual history, non-destructive, branch topology visible.
-- `rebase`: replays your commits on top of target branch tip → linear history, rewrites commit SHAs.
+**Rebase** — replays your commits on top of another branch's tip; rewrites commit hashes, linear history, no merge commit.
 
-**Use merge when**
-- Integrating a feature branch into shared/public branch (`main`).
-- You want a true record of when/how work combined.
-- Branch is shared — others have pulled it.
+Use **merge** when:
+- Integrating a feature into a shared/public branch (`main`) → merge commit records when/what merged.
+- Branch is shared by others → rewriting history breaks their clones.
+- You want an accurate record of what actually happened.
 
-**Use rebase when**
-- Updating your local feature branch onto latest `main` before opening a PR → clean linear history.
-- Cleaning up local commits before pushing (`rebase -i`: squash/reorder/reword).
-- Branch is private/unpushed.
+Use **rebase** when:
+- Cleaning up a *local* feature branch before sharing → linear, readable history.
+- Pulling upstream changes into your in-progress branch (`git pull --rebase`) → avoids noise merge commits.
+- Squashing/reordering your own unpushed commits.
 
-**Tradeoffs**
-- merge → clutters history with merge commits, non-linear graph; but safe, preserves context, no SHA rewrite.
-- rebase → linear readable history, easier `bisect`/`log`; but rewrites history, per-commit conflict resolution, and force-push required.
+Tradeoffs:
+- Rebase → clean linear log, easier `bisect`/review; **but** rewrites hashes → never rebase pushed/shared commits (forces others into conflicts), and you re-resolve conflicts per-replayed-commit.
+- Merge → safe, non-destructive, one-shot conflict resolution; **but** cluttered graph with many merge commits.
 
-**Golden rule** — never rebase commits others have based work on (shared/pushed branches). Rewriting published history breaks collaborators' clones.
-
-Common flow: `rebase` to keep your feature branch current + tidy locally, then `merge` (often `--no-ff`) into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep0.flow,True,,,,,,0.0263,789
+Rule of thumb: **rebase local, merge public.** Never rebase commits others have pulled.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep0.flow,True,,,,,,0.0291,903
 local4,baseline,1,True,0.064118,16636,19996,2,3316,7222,2093,0,1021,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"## git merge vs git rebase
 
 Both integrate changes from one branch into another, but they do it differently.
@@ -1798,28 +1765,19 @@ Practical notes:
 - Conflicts in rebase can feel repetitive because they surface per-commit; `git rebase --abort` gets you back to safety if it goes sideways.
 
 Bottom line: **rebase to clean up before sharing; merge to integrate what's shared.**",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_baseline_rep1.flow,True,,,,,,0.0,0
-local4,lemoncrow,1,True,0.0347125,12104,10561,1,3311,8965,0,0,547,['claude-opus-4-8'],False,False,"**Core difference** — both integrate branch changes; history shape differs.
+local4,lemoncrow,1,True,0.0327575,9585,7827,1,3795,8965,0,0,372,['claude-opus-4-8'],False,False,"**merge** → non-destructive. Combines branches via a new merge commit; both histories preserved. Existing commits untouched.
 
-- **merge** → creates a merge commit tying two histories together. Non-destructive, preserves exact history, shows when branches joined. History becomes non-linear (diamonds).
-- **rebase** → replays your commits on top of the target tip, rewriting them as new commits. Linear history, no merge commit. Rewrites SHAs.
+**rebase** → replays your commits onto a new base → linear history, no merge commit. Rewrites commits (new SHAs).
 
-**Use merge when**
-- Integrating a feature branch into a shared/public branch (`main`).
-- Branch is shared by others — preserving true history matters.
-- You want an auditable record of when/what merged.
+When:
+- **merge** — shared/public branches, feature→main integration, want true history + context of when branches joined. Safe with collaborators.
+- **rebase** — local cleanup before pushing; sync feature branch with main to keep linear history; tidy WIP commits (`rebase -i`).
 
-**Use rebase when**
-- Updating your local feature branch onto latest `main` before opening a PR → clean linear history.
-- Cleaning up local commits before sharing (`rebase -i`: squash, reword, reorder).
-- You value a readable, bisect-friendly linear log.
+Tradeoffs:
+- merge → honest history but cluttered graph; many merge commits, harder to read log.
+- rebase → clean linear log, easier `bisect`/revert; but rewrites SHAs → **never rebase pushed/shared commits** (breaks others' clones, forces `--force`). Replays can mean resolving same conflict repeatedly.
 
-**Tradeoffs**
-- rebase rewrites history → **never rebase commits already pushed/shared** (forces others into conflict, needs `--force`). Golden rule.
-- merge clutters log with merge commits; rebase loses the real chronological context.
-- rebase resolves conflicts commit-by-commit (can repeat across commits); merge resolves once.
-- rebase makes reverting a whole feature harder (no single merge commit); merge makes it trivial.
-
-**Common flow**: `rebase` your private branch onto `main` to stay current, then `merge --no-ff` into `main` to land it.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep1.flow,True,,,,,,0.0294,829
+Rule of thumb: rebase private work, merge public. Common flow: `rebase` local feature onto latest main, then `merge` (or fast-forward/PR) into main.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep1.flow,True,,,,,,0.031,500
 local4,baseline,2,True,0.063473,21940,23314,2,3316,7222,2093,0,992,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"## Core Difference
 
 Both integrate changes from one branch into another, but they do it differently:
@@ -1875,27 +1833,27 @@ D---E---F---G  main
 This gives you clean, readable commits *and* an honest integration record.
 
 One more distinction worth knowing: `git pull` defaults to merge (fetch + merge), which can litter history with ""Merge branch 'main'"" commits. `git pull --rebase` avoids that by replaying your local commits on top instead — a common default to configure (`git config --global pull.rebase true`).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_baseline_rep2.flow,True,,,,,,0.0,0
-local4,lemoncrow,2,True,0.0326125,10887,9194,1,3311,8965,0,0,463,['claude-opus-4-8'],False,False,"**Core difference** — both integrate branches; they rewrite history differently.
+local4,lemoncrow,2,True,0.09742,10186,8622,1,3503,0,6898,0,437,['claude-opus-4-8'],False,False,"**Merge** — combines branches with a merge commit; preserves true history, non-destructive. Branch commits stay where they were.
 
-- **Merge**: creates a new merge commit joining two branches. History preserved as-is, non-destructive. Branch topology visible (diverge/converge).
-- **Rebase**: replays your commits on top of another branch's tip → new commit hashes. Linear history, no merge commit. Rewrites history.
+**Rebase** — replays your commits on top of another branch; rewrites history into a linear sequence, new commit hashes.
 
-**Use merge when**
-- Integrating a feature branch into shared/public branches (`main`).
-- You want a true record of when/how branches joined.
-- The branch is shared — others have based work on it.
+Use **merge** when:
+- Branch is shared/public (others based work on it) → rewriting breaks them.
+- You want to preserve exact context of when/where work happened.
+- Integrating a feature branch into `main` (merge commit documents the feature).
 
-**Use rebase when**
-- Cleaning up local commits before pushing/PR.
-- Keeping a feature branch current with `main` (`git rebase main`) without merge-commit noise.
-- You want linear, bisect-friendly history.
+Use **rebase** when:
+- Cleaning up *local* commits before sharing.
+- Keeping a linear, readable history.
+- Updating a private feature branch onto latest `main` (`git rebase main`) to avoid noisy merge commits.
 
-**Tradeoffs**
-- Merge → honest history but cluttered graph; merge commits accumulate.
-- Rebase → clean linear history but hashes change → conflicts resolved per-replayed-commit, can be tedious.
-- **Golden rule**: never rebase commits already pushed/shared — rewriting public history breaks others' clones. Merge those.
+Tradeoffs:
+- Merge → honest but cluttered graph; safe on shared branches; conflicts resolved once.
+- Rebase → clean linear graph, easier `bisect`/`log`; but rewrites hashes, conflicts may replay per-commit, and dangerous on pushed/shared branches.
 
-Common flow: rebase your local feature onto latest `main` to tidy, then merge (often `--no-ff`) into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep2.flow,True,,,,,,0.0309,884
+**Golden rule:** never rebase commits others have pulled. Public → merge; private cleanup → rebase.
+
+Common combo: rebase your feature onto `main` to linearize, then `--no-ff` merge into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep2.flow,True,,,,,,-0.033,2823
 local4,baseline,3,True,0.066383,19639,20693,2,3316,7222,2093,0,1110,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"## git merge vs git rebase
 
 Both integrate changes from one branch into another, but they do it with fundamentally different mechanics.
@@ -1970,27 +1928,19 @@ This gives you clean per-feature history *and* a truthful integration record.
 One nuance: `git pull` defaults to merge, which sprinkles tiny merge commits into your history. Many people set `git config --global pull.rebase true` to rebase local commits on pull instead.
 
 Want me to walk through resolving a rebase conflict, or set up any of these config defaults?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_baseline_rep3.flow,True,,,,,,0.0,0
-local4,lemoncrow,3,True,0.0357075,11447,9834,1,3795,8965,0,0,490,['claude-opus-4-8'],False,False,"**Core mechanic**
-- `merge`: creates a new commit joining two branches. History preserved as-is; non-destructive. Graph shows the branch/join.
-- `rebase`: replays your commits onto a new base, rewriting them (new SHAs). Produces linear history; no merge commit.
+local4,lemoncrow,3,True,0.0306125,15972,14370,1,3311,8965,0,0,383,['claude-opus-4-8'],False,False,"**Merge** — combines branches with a merge commit; preserves true history, non-destructive. History shows branches as they happened (diverge + join).
 
-**Use merge when**
-- Branch is shared/pushed — others may have based work on it. Rewriting published history breaks them.
-- You want a truthful record of when/how work joined (esp. `--no-ff` for feature branches).
-- Integrating a completed feature into `main`.
+**Rebase** — replays your commits on top of another branch's tip; rewrites commit hashes → linear history, no merge commits.
 
-**Use rebase when**
-- Local, unpushed work — clean up before sharing.
-- Keeping a feature branch current with `main`: `git rebase main` instead of repeated merge commits.
-- You want linear, readable history / bisectable log.
-- Squashing/reordering via `git rebase -i`.
+When:
+- **Merge** — integrating a shared/public branch; when you want an accurate record of when work joined. Safe for branches others pull.
+- **Rebase** — cleaning up your *local* feature branch before sharing; `git pull --rebase` to avoid noise merge commits; keeping a tidy linear log.
 
-**Tradeoffs**
-- merge → honest but noisy graph; many merge commits clutter log.
-- rebase → clean linear log but rewrites SHAs (lies about chronology); conflicts resolved commit-by-commit (can repeat across commits).
-- **Golden rule:** never rebase commits others have pulled. Public history → merge.
+Tradeoffs:
+- Merge → honest history but cluttered graph; many merge commits obscure the mainline.
+- Rebase → clean linear history but **rewrites history** → never rebase commits already pushed/shared (breaks others' clones, forces `--force` push). Conflicts resolved per-replayed-commit, can repeat.
 
-**Common flow:** rebase your local feature onto latest `main` to stay current, then `merge --no-ff` into `main` for a clear integration point.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep3.flow,True,,,,,,0.0307,491
+Rule of thumb: rebase private work, merge public. Golden rule → never rebase a branch others depend on.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep3.flow,True,,,,,,0.031,891
 local4,baseline,4,True,0.06455799999999999,19663,20899,2,3316,7222,2093,0,1037,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"# Git Rebase vs. Git Merge
 
 Both integrate changes from one branch into another, but they build **different histories**.
@@ -2108,28 +2058,20 @@ try {
 ```
 
 Let me know which database driver you're using and I can tailor it exactly.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_baseline_rep0.flow,True,,,,,,0.0,0
-local4,lemoncrow,4,True,0.03199200000000001,10675,8829,1,3019,6664,234,0,449,['claude-opus-4-8'],False,False,"**Merge** — combines branches with a merge commit; preserves actual history, non-destructive. `git merge feature` → new commit with two parents.
+local4,lemoncrow,4,True,0.0305625,9079,7488,1,3311,8965,0,0,381,['claude-opus-4-8'],False,False,"**Merge** — non-destructive. Combines branches via a new merge commit; both histories preserved. History = true but non-linear (diamonds).
 
-**Rebase** — replays your commits on top of another base, rewriting them as new commits. `git rebase main` → linear history, no merge commit.
+**Rebase** — replays your commits onto the tip of another branch → new commit hashes, linear history. Rewrites history.
 
-Use **merge** when:
-- branch is shared/public (others based work on it) — never rewrite pushed history
-- you want a true record of when/how integration happened
-- merging a feature into `main` (`--no-ff` keeps feature grouping)
-
-Use **rebase** when:
-- cleaning up *local* commits before pushing
-- keeping a feature branch current with `main` without noise merge commits
-- you want linear, bisect-friendly history
+When:
+- **Merge** → shared/public branches; integrating a feature into `main`; when you want an audit trail of when/how branches joined.
+- **Rebase** → local cleanup before pushing; keep feature branch current with `main` (`git rebase main`) without merge-commit noise; squash/reorder via interactive rebase.
 
 Tradeoffs:
-- merge → truthful but cluttered graph; safe on shared branches
-- rebase → clean linear history but rewrites SHAs → breaks anyone who pulled those commits; conflicts resolved per-replayed-commit (can repeat)
+- Rebase → clean linear log, easier `bisect`/`blame`; but rewrites hashes → **never rebase commits others have pulled** (diverges shared history, forces `--force`).
+- Merge → safe, preserves context; but clutters log with merge commits.
 
-Rule: **rebase local, merge public.** Golden rule — never rebase commits others have pulled.
-
-Common flow: rebase your feature onto latest `main` to tidy, then `--no-ff` merge into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep4.flow,True,,,,,,0.0326,3302
-local5,lemoncrow,0,True,0.027655500000000003,4659,2771,1,3311,8731,321,0,141,['claude-opus-4-8'],False,False,"```js
+Rule of thumb: rebase private work, merge public work. Common flow: rebase feature onto latest `main`, then `--no-ff` merge into `main`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local4_lemoncrow_rep4.flow,True,,,,,,0.0328,961
+local5,lemoncrow,0,True,0.0292555,4930,3139,1,3656,8731,321,0,136,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2137,7 +2079,7 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a Promise resolving to rows. If it stays callback-only → wrap: `const rows = await promisify(db.query).call(db, sql, [id])`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep0.flow,True,,,,,,0.0271,894
+Assumes `db.query` returns a promise (rows). Promisify if callback-only: `const rows = await util.promisify(db.query).call(db, sql, [id])`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep0.flow,True,,,,,,0.0244,507
 local5,baseline,1,True,0.054582000000000006,9052,10262,2,3385,7222,2180,0,602,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's the async/await version:
 
 ```javascript
@@ -2224,7 +2166,7 @@ try {
 ```
 
 Want me to keep backward compatibility with the old callback signature (supporting both styles), or is the full promise migration what you're after?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_baseline_rep2.flow,True,,,,,,0.0,0
-local5,lemoncrow,1,True,0.026361,4173,2575,1,3752,9052,0,0,123,['claude-opus-4-8'],False,False,"```javascript
+local5,lemoncrow,1,True,0.026526,4666,2880,1,3795,9052,0,0,121,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2232,8 +2174,8 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a Promise (rows). If it's still callback-only, wrap with `util.promisify` first.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep1.flow,True,,,,,,0.0282,462
-local5,lemoncrow,2,True,0.025087,4970,3358,1,3019,6664,321,0,138,['claude-opus-4-8'],False,False,"```js
+Assumes `db.query` returns a promise resolving to rows. Callers now use `await`/`.catch` instead of callback.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep1.flow,True,,,,,,0.0256,322
+local5,lemoncrow,2,True,0.024180999999999998,4783,2861,1,3311,9052,0,0,124,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2241,7 +2183,7 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a Promise resolving to rows (e.g. `mysql2/promise`). Callers: `const u = await getUser(id)` in try/catch.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep2.flow,True,,,,,,0.0296,3248
+Assumes `db.query` returns a promise resolving to rows. If callback-only, wrap with `util.promisify(db.query)`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep2.flow,True,,,,,,0.0274,778
 local5,baseline,3,True,0.055192000000000005,8457,9410,2,3385,7222,2180,0,628,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Here's the refactored version using async/await:
 
 ```javascript
@@ -2322,7 +2264,7 @@ This assumes `db.query` returns a promise. A few notes:
   ```
 
 The DB error that was passed to `callback(err)` now propagates automatically as a rejected promise, so you don't need to handle it explicitly inside the function.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_baseline_rep4.flow,True,,,,,,0.0,0
-local5,lemoncrow,3,True,0.026826000000000003,4762,2894,1,3795,9052,0,0,133,['claude-opus-4-8'],False,False,"```js
+local5,lemoncrow,3,True,0.027051000000000002,4819,3028,1,3795,9052,0,0,142,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2330,8 +2272,8 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a promise (rows). If it's still callback-only, wrap once: `const query = util.promisify(db.query.bind(db))`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep3.flow,True,,,,,,0.0284,435
-local5,lemoncrow,4,True,0.026660999999999997,4863,2891,1,3752,9052,0,0,135,['claude-opus-4-8'],False,False,"```javascript
+Assumes `db.query` returns a promise (rows). If it only takes callbacks → wrap: `const {promisify}=require('util'); const q=promisify(db.query.bind(db));`",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep3.flow,True,,,,,,0.0246,279
+local5,lemoncrow,4,True,0.027256,5572,4004,1,3751,9052,0,0,159,['claude-opus-4-8'],False,False,"```js
 async function getUser(id) {
   const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);
   if (!rows.length) throw new Error('Not found');
@@ -2339,7 +2281,7 @@ async function getUser(id) {
 }
 ```
 
-Assumes `db.query` returns a promise (rows). If it's still callback-only, wrap once: `const query = util.promisify(db.query).bind(db);`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep4.flow,True,,,,,,0.0245,313
+Assumes `db.query` returns a promise resolving to rows. If callback-only, wrap: `const rows = await new Promise((res, rej) => db.query(sql, [id], (e, r) => e ? rej(e) : res(r)));`",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local5_lemoncrow_rep4.flow,True,,,,,,0.0249,326
 local6,baseline,0,True,0.071253,23854,25922,2,3326,7222,2105,0,1302,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Before splitting a monolith, the most important thing to establish is whether microservices actually address your problem. ""Slow"" and ""monolith"" are often unrelated — so I'd frame the decision around these factors:
 
 ## 1. Diagnose *why* it's slow first
@@ -2422,42 +2364,42 @@ Is there a genuinely different scaling profile—e.g., an image-processing or re
 3. **Extract only when a specific, painful driver appears**—a team that needs independent deploys, a workload with a truly different scaling/latency profile, or a component with different reliability requirements. Extract *that one thing* (strangler-fig pattern) and learn, rather than a big-bang split.
 
 If you can share what the profiling actually shows—where the time goes—and how big the team is, I can give you a much more concrete recommendation on whether extraction is even worth considering.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_baseline_rep1.flow,True,,,,,,0.0,0
-local6,lemoncrow,0,True,0.040815500000000005,15346,13762,1,3483,8731,246,0,663,['claude-opus-4-8'],False,False,"Decision factors before splitting:
+local6,lemoncrow,0,True,0.0421555,14927,13360,1,3656,8731,246,0,682,['claude-opus-4-8'],False,False,"Key factors before splitting:
 
-**Prove the monolith is the problem first.** Most Django slowness is fixable in place — N+1 queries (`select_related`/`prefetch_related`), missing DB indexes, no caching layer, sync work that should be Celery tasks, single-process WSGI. Profile (django-silk, APM) before assuming architecture. Microservices add latency; they don't make code faster.
+**1. Is the problem actually architecture?** Profile first. Most Django slowness = N+1 queries, missing indexes, no caching, sync work that should be async (Celery). Microservices fix none of these — they add network latency. Splitting a slow monolith gives you slow, distributed services.
 
-**Bottleneck locality.** If one component (e.g. reporting, image processing) is the hot path, extract *that one* service — not a full rewrite. Splitting a fast module gains nothing.
+**2. Do clear domain boundaries exist?** You can only split cleanly along seams where data and logic are loosely coupled. If everything JOINs everything, you'll build a distributed monolith — worst of both. Map bounded contexts before drawing service lines.
 
-**Domain boundaries.** Can you draw clean seams with low cross-talk? If services would chat constantly, you get a distributed monolith — worse latency, same coupling.
+**3. Data ownership.** Each service owns its DB. Cross-service JOINs vanish → replaced by API calls, eventual consistency, no cross-service transactions. Can your invariants survive that? This is usually the hardest, most underestimated cost.
 
-**Data ownership.** Each service owns its DB. Shared tables, cross-service JOINs, and distributed transactions are the hardest part. If your models are tightly foreign-keyed, splitting is expensive.
+**4. Team & ops maturity.** Microservices need: CI/CD per service, service discovery, distributed tracing/observability, on-call, container orchestration. Conway's law — service boundaries mirror team boundaries. One team of 6 rarely benefits from 15 services.
 
-**Team + ops maturity.** Microservices need CI/CD per service, service discovery, distributed tracing, centralized logging, on-call. Small team without this → operational load dominates. Conway's law: split matches team structure.
+**5. Operational cost.** Debugging spans networks, versioned APIs, contract testing, more infra spend, more failure modes (partial outages, retries, timeouts).
 
-**Consistency tolerance.** Cross-service ops become eventually-consistent (events/sagas). Can the domain accept that?
+Recommended path:
+- Profile → fix the real bottleneck (queries, caching, async, read replicas, scale gunicorn workers).
+- If genuinely need to split: **modular monolith first** — enforce clean module boundaries inside one codebase. Then extract the one hot/independent piece as a service (strangler pattern), not a big-bang rewrite.
 
-**Cost.** Network hops, serialization, more infra, debugging across boundaries.
+Rule of thumb: extract a service to solve an *organizational or independent-scaling* problem, not a performance one. If you can't name which module and why, you're not ready.
 
-Recommended path: profile → fix in-place wins → if still bounded, extract the single worst offender as one service (strangler pattern), measure, repeat. Don't big-bang.
+Want me to look at the actual slow paths in the codebase?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep0.flow,True,,,,,,0.0329,791
+local6,lemoncrow,1,True,0.0398635,14743,13243,1,3795,8977,0,0,656,['claude-opus-4-8'],False,False,"Decision factors, ranked:
 
-What's the actual symptom — slow requests, slow deploys, or team scaling pain? Determines whether splitting even helps.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep0.flow,True,,,,,,0.0304,832
-local6,lemoncrow,1,True,0.0398135,14298,12731,1,3795,8977,0,0,654,['claude-opus-4-8'],False,False,"Key factors before splitting:
+**1. Profile first — is it even architecture?** Slow monolith ≠ needs microservices. Find the actual cause: N+1 queries, missing indexes, no caching, sync work that should be async (Celery), no read replica. Most ""slow monolith"" pain is fixed here, cheaper. Microservices add latency, not remove it.
 
-**1. Is the monolith actually the problem?** Profile first. Slow usually = bad queries (N+1, missing indexes), no caching, sync work that should be async. Microservices fix *none* of these — you carry the same slow code across a network. Cheapest wins: query optimization, `select_related`/`prefetch_related`, DB indexes, Redis cache, Celery for background jobs, read replicas, horizontal scaling of Django workers.
+**2. Bounded contexts.** Can you draw clean domain seams (billing, auth, catalog)? Split along those. If the ORM models are deeply cross-joined, a split becomes distributed joins — worse than now.
 
-**2. Clear domain boundaries.** Can you name seams where modules barely touch? No clean boundary → distributed monolith (all the pain, none of the benefit). De-risk first by enforcing boundaries *inside* the monolith (Django apps, separate schemas, no cross-import).
+**3. Data ownership.** Each service owns its DB. Shared Django DB across services = distributed monolith (worst case: coupling + network cost). Ask: can these tables separate without cross-service transactions everywhere?
 
-**3. Data ownership.** Each service owns its data. Shared tables / cross-service joins / FK across boundaries = the hardest part. No more DB transactions across services → sagas, eventual consistency.
+**4. Team topology.** Conway's law — services map to teams. One team of 5? Microservices buy you overhead, not speed. Multiple teams blocked on one deploy pipeline is the real trigger.
 
-**4. Team & org.** Conway's law — services map to teams. One small team → microservices multiply ops load (deploy, monitor, on-call) without payoff. Do you have DevOps maturity: CI/CD per service, observability, tracing, service discovery?
+**5. Operational maturity.** Do you have: CI/CD per service, centralized logging/tracing, service discovery, on-call? Microservices convert a code problem into a distributed-systems problem. No observability → debugging gets much harder.
 
-**5. Coupling cost of the split.** Network latency, partial failures, retries, versioning, distributed tracing/debugging. Local call → RPC.
+**6. Transaction boundaries.** Cross-service consistency needs sagas/eventual consistency. If your domain demands strong ACID across contexts, splitting fights you.
 
-**6. Scaling profile.** Only *some* parts need independent scale? That's the real microservices case — extract that hotspot, not everything.
+**Recommended path:** profile + fix hotspots → modular monolith (clean app boundaries, no shared imports across domains) → extract *one* service only where a proven scaling/team bottleneck justifies it. ""Modular monolith first"" wins most of these debates.
 
-Recommended path → fix DB/caching/async first (likely solves ""slow""). If org/scale truly needs it, extract *one* well-bounded service via strangler pattern, keep the rest monolith. Don't big-bang rewrite.
-
-Want me to profile the actual bottleneck if you point me at the code?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep1.flow,True,,,,,,0.0331,595
+What's the actual symptom — slow requests, slow deploys, or team contention? That determines whether the answer is a query fix or an architecture change.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep1.flow,True,,,,,,0.0332,598
 local6,baseline,3,True,0.065803,21122,22383,2,3326,7222,2105,0,1084,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This is a decision worth slowing down on—microservices are often adopted for the wrong reasons and add substantial cost. Here's how I'd frame it.
 
 ## First: is ""slow"" actually an architecture problem?
@@ -2536,44 +2478,43 @@ Do engineers know async messaging, API versioning, contract testing? And can you
 The modular monolith is the underrated middle ground here — it validates your boundaries cheaply, and boundaries that survive as modules are the ones worth promoting to services later.
 
 Want me to look at the actual codebase — model relationships, query patterns, app structure — to see where the real bottlenecks and natural seams are? That wou",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_baseline_rep2.flow,True,,,,,,0.0,0
-local6,lemoncrow,3,True,0.040463500000000006,15546,13768,1,3795,8977,0,0,680,['claude-opus-4-8'],False,False,"Splitting isn't the first lever — profile before you architect. Key factors:
+local6,lemoncrow,3,True,0.0390435,16783,15111,1,3311,8977,0,0,720,['claude-opus-4-8'],False,False,"Splitting rarely fixes slowness — and it adds network, ops, and data-consistency cost. Verify the monolith is actually the bottleneck first.
 
-**Is the monolith actually the bottleneck?**
-- Slowness usually = DB/query issues (N+1, missing indexes), not code topology. Profile first (django-silk, APM). Microservices add network latency — often *slower*.
-- Cheaper fixes first: query optimization, caching (Redis), read replicas, `select_related`/`prefetch_related`, async tasks (Celery), horizontal scaling of the monolith itself.
+**Before splitting, exhaust cheaper wins:**
+- Profile real bottlenecks — `django-silk`/APM. Usually N+1 queries, missing indexes, no caching, sync work that should be async.
+- `select_related`/`prefetch_related`, DB indexes, query caching (Redis), read replicas.
+- Offload slow work to Celery; add a cache layer; scale horizontally (more gunicorn/app instances behind LB). A monolith scales out fine.
 
-**Domain boundaries**
-- Can you draw clean seams? Bounded contexts with few cross-calls split well; a tangled model doesn't.
-- Shared DB tables + foreign keys across proposed services = you'll pay in distributed joins and data duplication.
+**If splitting is still on the table, weigh:**
+- **Bounded contexts** — clear domain seams with low coupling? No clean seam → distributed monolith (worst of both).
+- **Data ownership** — each service owns its data; cross-service joins become API calls + eventual consistency. Django ORM joins/transactions don't cross the boundary.
+- **Team + ops maturity** — CI/CD, observability (tracing, centralized logs), on-call, service discovery. Microservices trade code complexity for operational complexity.
+- **Team topology** — Conway's law: split makes sense when independent teams own independent deploy cadences.
+- **Transaction boundaries** — anything needing atomicity across the seam is a red flag.
+- **Latency budget** — in-process calls become network hops; chatty boundaries kill p99.
 
-**Data & consistency**
-- Losing ACID transactions across service boundaries → eventual consistency, sagas, distributed-txn pain. Real cost.
+**Middle path:** modular monolith — enforce domain boundaries in-code (separate apps, no cross-import), extract one high-value service later only if a real scaling/team need proves out. Cheaper, reversible.
 
-**Team & operational readiness**
-- Conway's law: split makes sense when *teams* need independent deploy cadence. One team → one deploy usually wins.
-- Ops burden: CI/CD per service, service discovery, observability/tracing, network security, versioned APIs. Do you have the platform/on-call maturity?
+Bottom line: split for team autonomy and independent scaling of a proven-isolated hotspot — not for raw speed. Profile first.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep3.flow,True,,,,,,0.0347,1046
+local6,lemoncrow,2,True,0.0396935,16271,14545,1,3311,8977,0,0,746,['claude-opus-4-8'],False,False,"**Measure before you split — slowness is rarely a monolith problem.** Profile first (Django Debug Toolbar, silk, APM). Most Django slowness = N+1 queries, missing indexes, no caching, sync work that should be async. Microservices fix none of these and add network latency.
 
-**Coupling of the split itself**
-- If services must deploy together or chatter constantly, you built a distributed monolith — worst of both.
+Key factors before splitting:
 
-Recommended path: profile → fix DB/caching → modularize *inside* the monolith (clear app boundaries, no cross-imports) → extract one high-value service only if a concrete driver (independent scaling, team autonomy) justifies it.
+- **Root cause** → is it CPU, DB, I/O, or code? Microservices don't fix a slow query.
+- **Bottleneck isolation** → does one component (e.g. reporting, image processing) have genuinely different scaling/resource needs? That's the real case for extraction.
+- **Team & ownership** → Conway's law. Split makes sense when separate teams need independent deploy cadence. One team → coordination cost usually outweighs gains.
+- **Data boundaries** → can you cleanly separate the data? Cross-service joins, distributed transactions, and eventual consistency are the hardest cost. If tables are tightly coupled, don't.
+- **Operational maturity** → CI/CD, observability (tracing across services), on-call, service discovery, network security. Missing these → distributed monolith = worse.
+- **Latency budget** → in-process call → network hop (ms + failure modes: retries, timeouts, partial failure).
+- **Transaction integrity** → losing ACID across boundaries; saga/compensation complexity.
 
-What's the actual symptom — slow requests, slow deploys, or team contention? Determines the answer.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep3.flow,True,,,,,,0.0253,285
-local6,lemoncrow,2,True,0.035883500000000006,15340,13509,1,3484,8977,0,0,559,['claude-opus-4-8'],False,False,"Key factors before splitting:
+Cheaper intermediate steps first:
+- Fix N+1 (`select_related`/`prefetch_related`), add indexes, `EXPLAIN ANALYZE` hot queries.
+- Caching layer (Redis), read replicas.
+- Async offload (Celery) for slow/background work.
+- Modular monolith → clean app boundaries + interfaces in-process; extract later only if proven.
 
-**Is the problem actually architectural?** Slow Django is usually N+1 queries, missing indexes, no caching, sync work that should be async (Celery), undersized DB. Profile first (django-silk, APM) → microservices add network latency, won't fix a bad query. Most ""slow monolith"" cases are fixed in-place.
-
-**Domain boundaries.** Can you draw clean seams (bounded contexts) where data + logic separate with few cross-calls? No clear seams → distributed monolith: all the ops cost, none of the decoupling. Modular monolith (split into Django apps with enforced boundaries) is the cheaper intermediate step.
-
-**Data ownership.** Each service owns its DB. Shared tables, cross-service joins, and distributed transactions are the hardest part — you trade ACID for eventual consistency, sagas, dual writes.
-
-**Team & ops maturity.** Microservices need CI/CD per service, containers/orchestration, service discovery, distributed tracing, centralized logging, on-call. Conway's law: split by team ownership or it won't hold. Small team → overhead dominates.
-
-**Independent scaling need.** Real win when components scale/deploy on different axes (one hot endpoint, one heavy job). If everything scales together, splitting buys little.
-
-**Cost:** latency, debugging across services, versioning, eventual-consistency bugs, more infra.
-
-Recommended path → profile & optimize → extract to modular monolith → split only the proven hotspot with a clean boundary. Don't split for its own sake.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep2.flow,True,,,,,,0.0374,1018
+Rule of thumb: extract a service when a bounded context has a distinct scaling profile, owner, and clean data boundary — not to fix performance.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep2.flow,True,,,,,,0.0364,1112
 local7,baseline,0,True,0.06345,13875,15189,2,3358,7222,2144,0,969,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has a **critical SQL injection vulnerability**, plus a couple of secondary issues.
 
 ## Critical: SQL injection (CWE-89)
@@ -2665,19 +2606,20 @@ In-process calls become network calls: slower, and they can fail partially. You 
 The strongest signals you're *actually* ready to split: multiple teams stepping on each other at deploy time, one component with a wildly different resource profile than the rest, and you already have the observability/CI infrastructure to run distributed services.
 
 Want me to dig into the current codebase — profile the slow paths, or look at how coupled the Django apps already are? That would turn this from a general debate into a decision grounded in your actual code.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_baseline_rep4.flow,True,,,,,,0.0,0
-local7,lemoncrow,0,True,0.0317005,7309,4671,1,3752,8731,285,0,229,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query. Attacker: `GET /api/users/1 OR 1=1` dumps all rows; `; DROP`/UNION → data theft/destruction.
+local7,lemoncrow,0,True,0.0282455,5360,3613,1,3311,8731,285,0,179,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into the query.
 
 Fix — parameterized query:
 
 ```js
 app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
+  const query = 'SELECT * FROM users WHERE id = ?';
+  db.query(query, [req.params.id])
     .then(user => res.json(user))
-    .catch(() => res.sendStatus(500));
+    .catch(() => res.status(500).json({ error: 'internal error' }));
 });
 ```
 
-Also: no error `.catch` → unhandled rejection; `SELECT *` may leak password/hash columns → select explicit fields.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep0.flow,True,,,,,,0.0317,696
+Also: unhandled promise rejection (added `.catch`) → prevents crash/leaking stack traces.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep0.flow,True,,,,,,0.0363,1232
 local7,baseline,1,True,0.06293000000000001,12909,14438,2,3358,7222,2144,0,949,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This code has a critical **SQL injection** vulnerability, plus a couple of secondary issues.
 
 ## Critical: SQL Injection
@@ -2728,26 +2670,33 @@ Parameterization is the real fix; the `Number()` check is defense-in-depth (and 
 The SQL injection is the urgent, exploitable flaw — fix it with parameterized queries immediately. The `SELECT *` data exposure and missing error handling are important follow-ups.
 
 Want me to look at the actual file in this repo (this looks like a pasted snippet) so I can give you an edit that matches your DB driver and surrounding style?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_baseline_rep1.flow,True,,,,,,0.0,0
-local6,lemoncrow,4,True,0.0363185,14289,12183,1,3311,8977,0,0,611,['claude-opus-4-8'],False,False,"Key factors before splitting:
+local6,lemoncrow,4,True,0.0372685,14929,13156,1,3311,8977,0,0,649,['claude-opus-4-8'],False,False,"Not a code task — advice. Key factors:
 
-**Is the monolith actually the problem?** Profile first. Slow Django is usually N+1 queries, missing indexes, no caching, sync work that should be async (Celery). Microservices fix none of these — you'll ship the same slow code across a network. Fix perf in-place first; it's often the whole answer.
+**Prove the monolith is the problem first**
+- Profile actual slowness → often DB (N+1, missing indexes, no caching), not architecture. Splitting won't fix bad queries; it adds network latency. Fix these first — cheaper, reversible.
 
-**Domain boundaries** — Can you draw clean seams (bounded contexts) where data + logic separate with few cross-calls? If modules share tables and reach into each other's ORM models, you're not ready. Enforce boundaries inside the monolith first (app separation, no cross-app model imports).
+**Domain boundaries**
+- Can you draw clean seams (bounded contexts) with few cross-calls? No clear boundaries → distributed monolith: all the ops cost, none of the decoupling.
 
-**Data ownership** — Each service owns its DB. Splitting a shared Postgres means losing cross-service joins and ACID transactions → distributed consistency, eventual consistency, sagas. This is the hardest part.
+**Data ownership**
+- Each service owns its data, no shared DB. Cross-service joins → API calls + eventual consistency. Distributed transactions are the hardest part. If your data is tightly relational, this hurts most.
 
-**Operational maturity** — Do you have CI/CD, centralized logging, distributed tracing, monitoring, container orchestration, on-call? N services = N× deploy/observe/debug surface. Without this, latency bugs become unfindable.
+**Team & org (Conway's law)**
+- Services map to teams that own them independently. One team for N services → coordination overhead without autonomy gain. Right split ≈ team topology.
 
-**Team topology** — Conway's law. Microservices pay off when independent teams own independent services and deploy without coordination. One small team → overhead with no benefit.
+**Operational maturity (prerequisites)**
+- CI/CD per service, centralized logging/tracing, monitoring, service discovery, infra-as-code. Missing these → microservices amplify every gap.
 
-**Cost** — Network latency, serialization, more infra, harder local dev/testing, data duplication.
+**Costs you're buying**
+- Network latency/failure, versioned APIs, deploy orchestration, distributed debugging, more infra spend.
 
-Recommended path: profile → fix real bottlenecks (queries, caching, async, scale horizontally) → **modular monolith** (enforce boundaries in-code) → extract only proven hotspots (e.g. one CPU-heavy or independently-scaled service). Extract for a concrete reason — independent scaling, isolation, team autonomy — not ""monoliths are slow.""
+**Cheaper alternatives before splitting**
+- Caching (Redis), read replicas, query/index fixes, async tasks (Celery), scale-out gunicorn workers, modular monolith (clean internal boundaries, one deploy). Extract *one* high-value service (strangler-fig) rather than big-bang.
 
-Want me to profile the app or look at specific slow paths?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep4.flow,True,,,,,,0.035,1060
-local7,lemoncrow,1,True,0.026963,6028,4067,1,3311,9016,0,0,236,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated into query string. Attacker: `/api/users/1;DROP TABLE users--` or `1 OR 1=1` dumps all rows.
+Decision rule: split when a **specific** module has divergent scaling, deploy cadence, or team ownership — not for generic ""slowness.""",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local6_lemoncrow_rep4.flow,True,,,,,,0.0392,1227
+local7,lemoncrow,1,True,0.026937999999999997,6506,4878,1,3311,9016,0,0,235,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query. Attacker: `/api/users/1;DROP TABLE users` or `0 OR 1=1` → dumps/destroys data.
 
-Fix — parameterize:
+Fix — parameterized query:
 
 ```js
 app.get('/api/users/:id', (req, res) => {
@@ -2757,7 +2706,7 @@ app.get('/api/users/:id', (req, res) => {
 });
 ```
 
-Also: `SELECT *` leaks columns (password hashes) → select explicit fields. Missing `.catch` → unhandled rejection + error leak.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep1.flow,True,,,,,,0.036,1110
+Also: no error handling (unhandled rejection), `SELECT *` leaks columns (e.g. password hash) → select explicit fields.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep1.flow,True,,,,,,0.0381,1195
 local7,baseline,2,True,0.06428000000000002,14871,15726,2,3358,7222,2144,0,1003,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has one critical vulnerability and a couple of secondary issues.
 
 ## Critical: SQL Injection
@@ -2887,10 +2836,24 @@ app.get('/api/users/:id', (req, res) => {
 ```
 
 **Priority: the parameterized query is the must-fix** — it closes a critical, trivially exploitable vulnerability. The rest are defense-in-depth improvements. (Adjust the placeholder syntax to your driver: `?` for mysql/mysql2, `$1` for node-postgres.)",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_baseline_rep3.flow,True,,,,,,0.0,0
-local7,lemoncrow,2,True,0.028203,6088,4479,1,3579,9016,0,0,232,['claude-opus-4-8'],False,False,"SQL injection: `req.params.id` interpolated into query string. Attacker → `/api/users/1;DROP TABLE users--` or `1 OR 1=1` → data exfil/destruction.
+local7,lemoncrow,2,True,0.029508,6957,5051,1,3795,9016,0,0,241,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query. Also unhandled promise rejection (`.catch` missing) → crash/leak.
 
 Fix — parameterized query:
 
+```js
+app.get('/api/users/:id', (req, res) => {
+  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
+    .then(user => res.json(user))
+    .catch(() => res.status(500).json({ error: 'internal' }));
+});
+```
+
+- `?` placeholder → driver escapes input, injection closed.
+- `.catch` → no unhandled rejection, no stack/DB-error leak to client.
+- Optional: validate `id` numeric before query.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep2.flow,True,,,,,,0.0339,65
+local7,lemoncrow,3,True,0.028546999999999996,5708,3916,1,3503,6664,285,0,194,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated into query.
+
+Fix — parameterized query:
 ```js
 app.get('/api/users/:id', (req, res) => {
   db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
@@ -2898,24 +2861,7 @@ app.get('/api/users/:id', (req, res) => {
     .catch(() => res.sendStatus(500));
 });
 ```
-
-Also: no error handling (rejected promise → unhandled), and `SELECT *` leaks all columns (e.g. password hashes) → select explicit fields.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep2.flow,True,,,,,,0.0361,900
-local7,lemoncrow,3,True,0.030267999999999996,7340,5837,1,3752,9016,0,0,280,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query. Attacker: `/api/users/1;DROP TABLE users--` or `0 OR 1=1` → dumps all rows.
-
-Fix — parameterized query:
-
-```js
-app.get('/api/users/:id', (req, res) => {
-  db.query('SELECT * FROM users WHERE id = ?', [req.params.id])
-    .then(user => res.json(user))
-    .catch(() => res.status(500).json({ error: 'internal error' }));
-});
-```
-
-Also:
-- No `.catch` → unhandled rejection + leaked stack/DB errors to client.
-- `SELECT *` → returns password hashes/secrets; select explicit columns.
-- No auth check → any caller reads any user by id (IDOR).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep3.flow,True,,,,,,0.0416,981
+Also: unhandled promise rejection (added `.catch`); `SELECT *` leaks columns (password hashes) → select explicit fields; no authz check on `:id`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep3.flow,True,,,,,,0.0365,3110
 local7,baseline,4,True,0.061855,12664,13761,2,3358,7222,2144,0,906,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"This handler has a critical **SQL injection** vulnerability, plus a couple of secondary issues.
 
 ## Critical: SQL injection
@@ -2960,7 +2906,9 @@ For `pg` use `$1` placeholders: `db.query('SELECT * FROM users WHERE id = $1', [
 4. **No authentication/authorization** (not visible here) — confirm this endpoint enforces that the caller is allowed to read the requested user's record, to prevent IDOR (any user reading any other user's data).
 
 The SQL injection is the one to fix immediately; the rest are hardening. Want me to look for the same interpolation pattern elsewhere in the codebase?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_baseline_rep4.flow,True,,,,,,0.0,0
-local7,lemoncrow,4,True,0.028793,7136,4660,1,3752,9016,0,0,221,['claude-opus-4-8'],False,False,"SQL injection — `req.params.id` interpolated raw into query. Fix: parameterize.
+local7,lemoncrow,4,True,0.025838,5447,3933,1,3311,9016,0,0,191,['claude-opus-4-8'],False,False,"SQL injection → `req.params.id` interpolated raw into query.
+
+Fix — parameterized query:
 
 ```js
 app.get('/api/users/:id', (req, res) => {
@@ -2971,9 +2919,7 @@ app.get('/api/users/:id', (req, res) => {
 });
 ```
 
-Secondary:
-- No error `.catch` → unhandled rejection + stack/DB leak to client.
-- `SELECT *` → over-exposes columns (e.g. password hash); select explicit fields.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep4.flow,True,,,,,,0.0331,641
+Also: no `.catch` → unhandled rejection + `SELECT *` leaks all columns (e.g. password hash) → select explicit fields.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local7_lemoncrow_rep4.flow,True,,,,,,0.0387,1217
 local8,baseline,0,True,0.134466,26962,28490,4,3330,29158,6265,0,1727,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `Dockerfile`. It uses four stages so the final image carries only what's needed to run:
 
 **How it minimizes size**
@@ -3023,14 +2969,82 @@ npm-debug.log
 ```
 
 Want me to also generate that `.dockerignore`, or tailor the Dockerfile once you have a `package.json`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_baseline_rep1.flow,True,,,,,,0.0,0
-local8,lemoncrow,0,True,0.0863595,13818,11370,2,3486,17719,4297,0,684,['claude-opus-4-8'],False,False,"done: `Dockerfile` → 3-stage (build=all deps+`npm run build`; deps=`npm ci --omit=dev`; runtime=copy `dist`+prod `node_modules`, non-root, alpine).
+local8,lemoncrow,0,True,0.0354805,11225,9464,1,3149,8731,257,0,512,['claude-opus-4-8'],False,False,"```dockerfile
+# syntax=docker/dockerfile:1
 
-assumptions: entry `dist/index.js`, `build` script exists, port 3000, Node 20. Adjust if different.
+# ---- Stage 1: deps (all deps incl dev, for build) ----
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
 
-Not verified — no repo/app present to build against.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep0.flow,True,,,,,,0.0481,14294
-local8,lemoncrow,1,True,0.081623,14674,11882,2,3313,17976,3877,0,692,['claude-opus-4-8'],False,False,"`Dockerfile` written → 4 stages: deps → build (`npm run build`) → prod-deps (`npm ci --omit=dev`) → alpine runtime, non-root `node`, only `dist`+prod `node_modules` copied.
+# ---- Stage 2: build (compile TypeScript) ----
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
 
-Adjust: base tag `22`, build output `dist`, entry `dist/index.js`, port `3000`, `build` script must exist in package.json.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep1.flow,True,,,,,,0.0422,13718
+# ---- Stage 3: prod deps only ----
+FROM node:22-alpine AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# ---- Stage 4: runtime (minimal) ----
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+USER node
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node package.json ./
+EXPOSE 3000
+CMD [""node"", ""dist/index.js""]
+```
+
+Assumptions:
+- build script `npm run build` → `tsc` outputs to `dist/`; entry `dist/index.js`
+- port 3000
+- alpine base for minimal size
+
+Adjust `dist`/entry/port to match your `tsconfig.json` `outDir` and app.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep0.flow,True,,,,,,0.0986,27584
+local8,lemoncrow,1,True,0.035944000000000004,9178,7364,1,3795,8988,0,0,499,['claude-opus-4-8'],False,False,"```dockerfile
+# syntax=docker/dockerfile:1
+
+# --- deps: full deps for build ---
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# --- build: compile TypeScript ---
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build            # tsc -> ./dist
+
+# --- prod-deps: production-only modules ---
+FROM node:22-alpine AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# --- runtime: minimal final image ---
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY package.json ./
+USER node
+CMD [""node"", ""dist/index.js""]
+```
+
+Assumptions: `build` script runs `tsc` → `dist/`; entry `dist/index.js`. Adjust both to match your `package.json`.
+
+Size wins → alpine base · dev deps never in final image · only `dist` + prod `node_modules` copied · `NODE_ENV=production` · non-root `node` user.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep1.flow,True,,,,,,0.1175,41264
 local8,baseline,2,True,0.1414995,28046,29174,5,3332,41995,6167,0,1792,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Done. Here's how the size minimization works:
 
 **Multi-stage layout (4 stages):**
@@ -3072,13 +3086,12 @@ A couple of things to adjust to your project:
 - Add a `.dockerignore` (`node_modules`, `dist`, `.git`, etc.) so the `COPY . .` in the build stage stays fast and clean.
 
 Want me to generate a matching `.dockerignore`?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_baseline_rep3.flow,True,,,,,,0.0,0
-local8,lemoncrow,2,True,0.089803,12664,10566,2,3797,17976,4348,0,734,['claude-opus-4-8'],False,False,"`Dockerfile` written.
+local8,lemoncrow,2,True,0.088043,13009,11071,2,3658,17976,4234,0,737,['claude-opus-4-8'],False,False,"`Dockerfile` written.
 
-- 4 stages: `deps` (full `npm ci`) → `build` (`npm run build`) → `prod-deps` (`npm ci --omit=dev`) → `runner`.
-- Final image = `node:20-alpine` + prod `node_modules` + `dist/` only. No source, no devDeps, no build cache.
-- Non-root `node` user, `NODE_ENV=production`.
+- 4 stages: `deps` (full install) → `build` (tsc) → `prod-deps` (`--omit=dev`) → `runner`.
+- Final = `node:22-alpine` + prod `node_modules` + `dist` only. Non-root `node`, `NODE_ENV=production`, npm cache mounts.
 
-Adjust if yours differ: `dist/index.js` entrypoint, `EXPOSE 3000`, build script name `build`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep2.flow,True,,,,,,0.0517,26431
+assumptions: build script = `npm run build`, output `dist/`, entry `dist/index.js`, Node 22. Adjust if different.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep2.flow,True,,,,,,0.06,27431
 local8,baseline,4,True,0.10605699999999998,17816,19206,3,3328,16560,5529,0,1139,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Done. Key size-minimizing choices:
 
 **Three stages**
@@ -3108,16 +3121,48 @@ npm-debug.log
 ```
 
 Want me to create the `.dockerignore` too, or check your `package.json`/`tsconfig.json` to tailor the paths?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_baseline_rep4.flow,True,,,,,,0.0,0
-local8,lemoncrow,3,True,0.098707,17017,14649,3,4046,30424,4059,0,907,['claude-opus-4-8'],False,False,"`done: Dockerfile written` → 4 stages: deps → build (tsc) → prod-deps (`npm ci --omit=dev`) → alpine runtime copies only `dist` + prod `node_modules`.
+local8,lemoncrow,3,True,0.08841299999999999,14580,12640,2,3754,17976,4298,0,707,['claude-opus-4-8'],False,False,"`Dockerfile` written.
 
-assumptions: entry `dist/index.js`, `npm run build` script exists, port 3000, node 22. Adjust if different.
+3 stages → `build` (npm ci + tsc), `deps` (npm ci --omit=dev), `runtime` (alpine + prod node_modules + dist only).
 
-Notes:
-- `npm ci` needs committed `package-lock.json`.
-- add `.dockerignore` (`node_modules`, `dist`, `.git`) to keep build context small.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep3.flow,True,,,,,,0.0163,-12382
-local8,lemoncrow,4,True,0.08038799999999999,13818,11699,2,3313,17976,3836,0,659,['claude-opus-4-8'],False,False,"`Dockerfile` written. 3 stages → build (dev deps + tsc), deps (prod-only npm ci), runtime (alpine + non-root, only node_modules+dist copied).
+assumptions:
+- build script `npm run build` → outputs `dist/`, entry `dist/index.js`
+- sources in `src/`, `tsconfig.json` present, `package-lock.json` committed
+- port 3000
 
-Adjust: `dist/index.js` entrypoint, `EXPOSE 3000`, node version to match your `package.json`. Needs `build` script in package.json + `.dockerignore` (node_modules, dist, .git).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep4.flow,True,,,,,,0.0257,772
+Adjust `dist`/`src`/port/entry if your layout differs.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep3.flow,True,,,,,,0.0648,27885
+local8,lemoncrow,4,True,0.035899,9074,7378,1,3751,8988,0,0,506,['claude-opus-4-8'],False,False,"```dockerfile
+# syntax=docker/dockerfile:1
+
+# --- Stage 1: install all deps (incl dev) + compile TS ---
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY . .
+RUN npm run build          # tsc -> dist/
+
+# --- Stage 2: production deps only ---
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+
+# --- Stage 3: minimal runtime ---
+FROM node:20-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+USER node
+COPY --chown=node:node --from=deps  /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node package.json ./
+EXPOSE 3000
+CMD [""node"", ""dist/index.js""]
+```
+
+Assumptions → build script `npm run build`→`dist/`, entry `dist/index.js`, port 3000; adjust to match your `package.json`.
+
+Notes → alpine base + prod-only `node_modules` (separate `deps` stage) minimizes size; non-root `node` user; `.dockerignore` should exclude `node_modules`, `dist`, `.git`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local8_lemoncrow_rep4.flow,True,,,,,,0.1179,53044
 local9,baseline,0,True,0.06990800000000001,17181,18428,2,3321,7222,2111,0,1242,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race is almost certainly a **read-modify-write** done in your application code. If your handler looks like this:
 
 ```js
@@ -3171,23 +3216,31 @@ Note this must be the **same** `client` (connection) for all three statements �
 ---
 
 If you paste your actual handler I can point to the exact line and give you the minimal diff. But 9 times out of 10, switching to `UPDATE ... SET value = value + 1 RETURNING value` is the whole fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_baseline_rep0.flow,True,,,,,,0.0,0
-local9,lemoncrow,0,True,0.0323055,10751,9134,1,3484,8731,252,0,320,['claude-opus-4-8'],False,False,"Use an atomic SQL update, not read-then-write. The race is a read/modify/write across two statements.
+local9,lemoncrow,0,True,0.035855500000000005,8791,7067,1,3579,8731,252,0,443,['claude-opus-4-8'],False,False,"Root cause: read-then-write (`SELECT` then `UPDATE`) is non-atomic → two requests read same value.
 
-Atomic single statement — returns the new value:
+Fix: single atomic statement, let Postgres do the increment:
+
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
 ```
+
 ```js
 const { rows } = await pool.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const newValue = rows[0].value;
+return rows[0].value;
 ```
 
-Row lock handles the concurrency (default `READ COMMITTED` is fine). No separate `SELECT`.
+- Atomic → row lock held for the statement; concurrent requests serialize, each gets a distinct value.
+- No `SELECT ... FOR UPDATE` + separate write, no app-side `+1`.
+- If value comes from a real sequence/ID, use `nextval()`/a `SEQUENCE` instead — sequences are lock-free and never hand out duplicates.
 
-Avoid: `SELECT value` → `+1` in JS → `UPDATE`. Two concurrent txns read the same value → both write same → lost update. If you must keep separate reads, use `SELECT ... FOR UPDATE` in an explicit transaction, but the `RETURNING` form is simpler.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep0.flow,True,,,,,,0.0376,1109
+Anti-pattern to delete:
+```js
+const v = (await q('SELECT value FROM counters WHERE id=$1',[id])).rows[0].value; // race window
+await q('UPDATE counters SET value=$1 WHERE id=$2',[v+1,id]);
+```",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep0.flow,True,,,,,,0.0308,761
 local9,baseline,1,True,0.068668,16724,18196,2,3321,7222,2111,0,1194,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition happens because your code is doing **read-then-write** in separate steps (or separate transactions), so two concurrent requests read the same value before either writes back.
 
 ## The root cause
@@ -3248,9 +3301,7 @@ For a plain single-statement increment you don't even need the explicit transact
 ---
 
 If you paste your actual endpoint handler I can point to the exact line to change and confirm which pattern fits (single counter vs. sequence vs. needs-transaction-with-other-writes).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_baseline_rep1.flow,True,,,,,,0.0,0
-local9,lemoncrow,1,True,0.0306215,8503,6519,1,3311,8983,0,0,383,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code → two requests read same value, both write +1.
-
-Fix — make the DB do the increment atomically and return the new value:
+local9,lemoncrow,1,True,0.0297965,8534,6941,1,3311,8983,0,0,350,['claude-opus-4-8'],False,False,"Cause: read-modify-write in app code (`SELECT` then `UPDATE`) — concurrent txns read same value. Fix: make the increment atomic in SQL, return the new value:
 
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
@@ -3261,14 +3312,12 @@ const { rows } = await pool.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const next = rows[0].value;
+return rows[0].value;
 ```
 
-Why → single statement takes a row lock; concurrent updates serialize, each gets distinct `value`. No `SELECT` then `UPDATE`.
+Single statement → row lock held for the write → each concurrent request gets a distinct `value`. Drop any separate SELECT.
 
-- Never `SELECT value` → compute → `UPDATE`. That's the race.
-- If increment spans multiple statements, wrap in a txn + `SELECT ... FOR UPDATE`.
-- App-level counters (Redis `INCR`, sequences) also atomic if you don't need the row.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep1.flow,True,,,,,,0.038,1171
+Alternatives if you can't merge into one statement: `SELECT ... FOR UPDATE` inside a txn, or a Postgres `SEQUENCE` (`nextval`) if gaps are acceptable.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep1.flow,True,,,,,,0.0349,1044
 local9,baseline,2,True,0.069538,18529,19698,2,3321,7222,2111,0,1228,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition almost always comes from doing the read and the write as two separate steps in your Node code:
 
 ```js
@@ -3360,9 +3409,9 @@ return rows[0].count;
 - **For high-throughput, monotonic IDs** where gaps are acceptable, a `SEQUENCE` (`nextval('...')`) is even better — it's lock-free and never returns a duplicate, though it can skip numbers on rollback.
 
 If you share the actual handler code I can point at the exact lines and give you the corrected version.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_baseline_rep3.flow,True,,,,,,0.0,0
-local9,lemoncrow,2,True,0.0302465,9075,6868,1,3311,8983,0,0,368,['claude-opus-4-8'],False,False,"Root cause: read-then-write (`SELECT` → `+1` → `UPDATE`) is non-atomic → lost updates under concurrency.
+local9,lemoncrow,2,True,0.029696499999999997,8920,7291,1,3311,8983,0,0,346,['claude-opus-4-8'],False,False,"Cause → read-modify-write race (`SELECT` then `UPDATE`, or `x = x+1` in app).
 
-Fix — make the increment atomic in one statement, let PG lock the row:
+Fix → make increment atomic in one statement, use returned value:
 
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
@@ -3376,34 +3425,33 @@ const { rows } = await pool.query(
 return rows[0].value;
 ```
 
-Each concurrent `UPDATE` takes a row lock → serialized → unique returned values.
+Why → single `UPDATE` takes a row lock; concurrent txns serialize, each gets a distinct `RETURNING value`. No separate read.
 
-- Don't read-modify-write in app code, and don't wrap that pattern in a transaction hoping it helps — default `READ COMMITTED` still lets both read the old value.
-- If logic genuinely needs read-before-write: `SELECT ... FOR UPDATE` to lock the row first.
-- Sequences (`nextval`) if you only need unique/monotonic values, not a gap-free stored count.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep2.flow,True,,,,,,0.0393,1220
-local9,lemoncrow,3,True,0.030681499999999997,8144,6138,1,3483,8983,0,0,351,['claude-opus-4-8'],False,False,"Standard fix: make the DB do the increment atomically instead of read-then-write in JS.
+Avoid → `SELECT`-then-`UPDATE`, or computing new value in Node. If you must split, use `SELECT ... FOR UPDATE` inside a txn. Never rely on default read for the new value.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep2.flow,True,,,,,,0.0306,872
+local9,lemoncrow,3,True,0.0308715,9655,7915,1,3311,8983,0,0,393,['claude-opus-4-8'],False,False,"Root cause: read-modify-write in app code (`SELECT` → `+1` → `UPDATE`) races. Fix: make the increment atomic in one SQL statement.
 
-**The bug** (read-modify-write race):
-```js
-const { rows } = await client.query('SELECT count FROM counters WHERE id=$1', [id]);
-const next = rows[0].count + 1;
-await client.query('UPDATE counters SET count=$1 WHERE id=$2', [next, id]);
+```sql
+UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
 ```
-Two requests read the same value → both write the same `next`.
 
-**Fix** — single atomic statement, return the new value:
 ```js
-const { rows } = await client.query(
-  'UPDATE counters SET count = count + 1 WHERE id=$1 RETURNING count',
+const { rows } = await pool.query(
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const value = rows[0].count;
+return rows[0].value;
 ```
-`count = count + 1` takes a row lock; concurrent updates serialize → each gets a distinct value.
 
-If read + increment span multiple statements you actually need together, wrap in a txn with `SELECT ... FOR UPDATE`. But for a plain counter, the one-liner above is enough.
+Atomic row-level lock → each concurrent request gets a distinct value. No `SELECT` first, no app-side transaction needed.
 
-Share the handler if you want it patched.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep3.flow,True,,,,,,0.0297,702
+If value not yet a row → seed with upsert:
+```sql
+INSERT INTO counters(id,value) VALUES($1,1)
+ON CONFLICT (id) DO UPDATE SET value = counters.value + 1
+RETURNING value;
+```
+
+Avoid: `SELECT ... FOR UPDATE` + separate `UPDATE` (works but 2 round-trips); serializable retries (overkill here).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep3.flow,True,,,,,,0.0368,1118
 local9,baseline,4,True,0.06144300000000001,14564,16615,2,3321,7222,2111,0,905,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"The race condition comes from a **read-then-write** pattern in your app code. If you're doing something like:
 
 ```js
@@ -3441,23 +3489,26 @@ Here `value = value + 1` is computed by the database while the row is locked for
 - **High-contention sequences?** If you just need unique increasing numbers (not a gap-free count), a Postgres `SEQUENCE` / `nextval()` scales better and never blocks.
 
 If you paste your actual endpoint code, I can point at the exact lines and give you the drop-in fix.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_baseline_rep4.flow,True,,,,,,0.0,0
-local9,lemoncrow,4,True,0.0293465,7284,5621,1,3311,8983,0,0,332,['claude-opus-4-8'],False,False,"Cause: read-modify-write in app code → two requests read same value.
+local9,lemoncrow,4,True,0.028936499999999997,8411,6808,1,3149,8983,0,0,348,['claude-opus-4-8'],False,False,"Fix: make the increment atomic in the DB — don't read-then-write in app code.
 
-Fix: make increment atomic in one SQL statement, use `RETURNING`:
+**Root cause:** `SELECT value → increment in JS → UPDATE` lets two requests read the same value before either writes.
 
+**Fix — single atomic statement, return new value:**
 ```sql
 UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value;
 ```
-
 ```js
 const { rows } = await pool.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const value = rows[0].value;
+const newValue = rows[0].value;
 ```
+`UPDATE` takes a row lock → concurrent requests serialize → each gets a distinct value. No transaction/`SELECT` needed.
 
-Row lock serializes concurrent updates → each gets distinct value. Drop any `SELECT`-then-`UPDATE`. For insert-or-increment use `INSERT ... ON CONFLICT (id) DO UPDATE SET value = counters.value + 1 RETURNING value`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep4.flow,True,,,,,,0.0321,933
+If you must read-modify-write across statements → `SELECT ... FOR UPDATE` inside a transaction, or use a `SEQUENCE` (`nextval()`) for gap-tolerant IDs.
+
+Share the handler if you want it patched.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local9_lemoncrow_rep4.flow,True,,,,,,0.0398,1369
 local10,baseline,0,True,0.16608450000000002,40764,42040,5,3324,41631,7050,0,2425,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `src/ErrorBoundary.tsx`. Since the repo has no React tooling, it's a self-contained, drop-in class component (error boundaries must be class components — there's no Hook equivalent for `getDerivedStateFromError`/`componentDidCatch`).
 
 **What it does:**
@@ -3511,7 +3562,8 @@ Two things worth knowing about React error boundaries in general:
 - A bare retry only helps if the underlying cause is transient (e.g. a flaky fetch). For a hard bug, the render will just fail again — often you'll pair retry with a `resetKeys`-style prop or a navigation reset.
 
 Want me to add a `package.json`/`tsconfig`, a test, or a `resetKeys` prop that auto-resets when props change?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_baseline_rep1.flow,True,,,,,,0.0,0
-local10,lemoncrow,0,True,0.30838200000000004,91042,77704,13,4195,185684,9014,0,4177,['claude-opus-4-8'],False,False,"`done: src/components/ErrorBoundary.tsx` → catch (`getDerivedStateFromError`+`componentDidCatch`), log (`console.error`+optional `onError`), default fallback UI, Retry resets state; scaffolding removed → verified: mounted throwing child via react-dom/client+jsdom → 4 asserts PASS (fallback shown, message+error logged, `onError` fired, Retry re-renders recovered child). Component unchanged post-run.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep0.flow,True,,,,,,-0.1423,-148640
+local10,lemoncrow,0,True,0.331394,95259,74955,13,4185,190908,10414,0,4435,['claude-opus-4-8'],False,False,"done: `src/ErrorBoundary.tsx` + tests.
+verified: `npm test` (vitest+jsdom+RTL) → 3 passed — no-error passthrough, render-error caught → fallback + `onError` log, Retry resets → recovered child renders.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep0.flow,True,,,,,,-0.1507,-142774
 local10,baseline,2,True,0.16186899999999999,32133,33575,5,3324,41330,6813,0,2358,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `ErrorBoundary.tsx`. It covers all three requirements:
 
 - **Catches render errors** — via `getDerivedStateFromError` (sets fallback state) and `componentDidCatch` (side effects). It's a class component because React has no hook equivalent for these lifecycle methods.
@@ -3537,9 +3589,11 @@ Usage:
 Two caveats worth knowing: error boundaries **don't** catch errors in event handlers, async code, or SSR — only render/lifecycle/constructor errors in the tree below them. And a plain retry re-renders the same children, so if the underlying cause persists it'll error again; often you'll pair `retry` with a state reset or a `resetKeys`-style prop upstream.
 
 If you tell me the project's setup (JS vs TS, styling system, logging service), I can adapt it to match.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_baseline_rep2.flow,True,,,,,,0.0,0
-local10,lemoncrow,2,True,0.236757,59538,50904,8,4056,105124,7809,0,3433,['claude-opus-4-8'],False,False,"done: `ErrorBoundary.tsx` verified.
+local10,lemoncrow,2,True,0.1878575,50082,41087,7,4054,86705,6421,0,2401,['claude-opus-4-8'],False,False,"done: verified.
+- typecheck: `tsc --noEmit --strict` → TYPECHECK_OK
+- render: `getDerivedStateFromError(Error)` → `{error}`; `render()` → fallback markup with message `kaboom` + Retry button (via `renderToStaticMarkup`).
 
-verified: `tsc --noEmit` (strict, react-jsx) → exit 0; jsdom render test → 5/5 PASS: fallback shown, error message shown, console.error logged, onError called, retry recovers.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep2.flow,True,,,,,,-0.0749,-66597
+`afterRetry` warning is a test artifact (manually-constructed unmounted instance → `setState` no-op); on a real mounted boundary `retry` clears state and re-renders children.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep2.flow,True,,,,,,-0.0458,-46849
 local10,baseline,3,True,0.19866250000000002,41039,41984,5,3324,43307,9094,0,2877,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"I've created the error boundary at `src/ErrorBoundary.jsx`. It's a class component (required — hooks can't implement error boundaries) that covers all three requirements:
 
 - **Catches render errors** — `getDerivedStateFromError` flips into an error state so the fallback renders instead of the crashed subtree.
@@ -3573,12 +3627,11 @@ A couple of things worth knowing given the requirements:
 - **Retry caveat:** clicking retry re-renders the same children. If the underlying cause (bad prop, failing data) is still present, it'll error again immediately. The `onReset` prop lets the parent reset that state (refetch, change a key) alongside the retry.
 
 This is a plain `.jsx` file with no build config assumed since the repo has no React setup. If you want a TypeScript (`.tsx`) version, a Jest/RTL test, or it wired into a specific app, let me know.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_baseline_rep3.flow,True,,,,,,0.0,0
-local10,lemoncrow,1,True,0.8256344999999999,228669,201020,32,4491,631999,19743,0,11590,['claude-opus-4-8'],False,False,"done: verified end-to-end, no code change needed → real React 18 + jsdom client render, `node --import tsx eb.test.tsx` → 9/9 passed:
-- default fallback catches render error, shows message + Retry, logs via `console.error`
-- Retry clears error → children re-render/recover
-- custom `fallback(error, reset)` + `onError` both invoked
+local10,lemoncrow,1,True,0.3296474999999999,208016,75667,13,4185,188025,10646,0,4330,['claude-opus-4-8'],False,False,"done: `ErrorBoundary.tsx` verified.
+- typecheck: `tsc --strict --jsx react-jsx --noEmit` → clean
+- runtime (jsdom + react-dom/client + act): throw → fallback shows ""Something went wrong""/error msg/Retry, `onError` logged `kaboom`; fix child + click Retry → renders `recovered`. → RUNTIME_OK
 
-note: component uses automatic JSX runtime (no `import React`) — correct for Vite/Next/CRA5/`tsc --jsx react-jsx`; a classic-transform setup would need `import React`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep1.flow,True,,,,,,-0.6546,-601388
+Note: error boundaries are client-only; SSR `renderToString` rethrows by design (React limitation, not a bug in the component).",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep1.flow,True,,,,,,-0.1539,-140241
 local10,baseline,4,True,0.1953035,36356,37591,5,3324,43179,9080,0,2750,"['claude-haiku-4-5-20251001', 'claude-opus-4-8']",False,False,"Created `src/ErrorBoundary.tsx`. Since the repo has no React toolchain, this is a standalone component you can drop into an existing project.
 
 **What it does:**
@@ -3608,6 +3661,62 @@ Two things worth flagging:
 - They only catch errors during **render/lifecycle/constructors**, not in event handlers, async code, or SSR — those need `try/catch`.
 
 Want me to add a `package.json` + test setup (Vitest/RTL) so it's runnable, or convert it to plain JS/JSX if you're not on TypeScript?",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_baseline_rep4.flow,True,,,,,,0.0,0
-local10,lemoncrow,3,True,0.25833249999999996,68385,59210,9,3811,121485,8471,0,3753,['claude-opus-4-8'],False,False,"done: `ErrorBoundary.jsx` verified end-to-end (React 19 + jsdom + esbuild automatic JSX).
-verified: rendered throwing child → fallback shows ""Something went wrong"" + `kaboom` msg + Retry button + `role=""alert""`; `console.error` logged; fixed child + click Retry → subtree recovers. 6/6 PASS.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep3.flow,True,,,,,,-0.0597,-78918
-local10,lemoncrow,4,True,0.3061755,85244,70381,12,4172,177551,9044,0,4244,['claude-opus-4-8'],False,False,"done: `ErrorBoundary.jsx` verified → 3 tests pass (`npm test`): renders children, shows fallback+logs+`onError` on throw, Retry resets → recovers. Added `package.json`, `vitest.config.js`, `ErrorBoundary.test.jsx`.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep4.flow,True,,,,,,-0.1109,-136678
+local10,lemoncrow,3,False,0.25521399999999994,24635,22383,4,3509,24158,19824,0,1094,['claude-opus-4-8'],False,False,"No filesystem tools in this env → delivering code inline.
+
+`ErrorBoundary.tsx`:
+
+```tsx
+import { Component, ErrorInfo, ReactNode } from ""react"";
+
+interface Props {
+  children: ReactNode;
+  fallback?: (error: Error, retry: () => void) => ReactNode;
+  onError?: (error: Error, info: ErrorInfo) => void;
+}
+
+interface State {
+  error: Error | null;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    // Log error details (swap for your telemetry sink)
+    console.error(""ErrorBoundary caught:"", error, info.componentStack);
+    this.props.onError?.(error, info);
+  }
+
+  retry = (): void => this.setState({ error: null });
+
+  render(): ReactNode {
+    const { error } = this.state;
+    if (error) {
+      if (this.props.fallback) return this.props.fallback(error, this.retry);
+      return (
+        <div role=""alert"" style={{ padding: 16 }}>
+          <h2>Something went wrong.</h2>
+          <pre style={{ whiteSpace: ""pre-wrap"" }}>{error.message}</pre>
+          <button onClick={this.retry}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+```
+
+Usage:
+```tsx
+<ErrorBoundary onError={(e, i) => reportToSentry(e, i)}>
+  <App />
+</ErrorBoundary>
+```
+
+Notes → error boundaries catch render/lifecycle errors only, not event handlers/async/SSR. `retry` clears state to re-mount children; for a stale-error loop, add a `resetKeys` prop. Class component required — no hook equivalent.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep3.flow,False,runtime/provider error surfaced in result,,,,,-0.0989,16687
+local10,lemoncrow,4,True,0.3568775,250468,84418,16,3954,240985,10304,0,4543,['claude-opus-4-8'],False,False,"done: `src/ErrorBoundary.tsx` verified end-to-end.
+verified: tsc `--strict --jsx react-jsx` → TYPECHECK_OK; react-test-renderer drive → 6/6 PASS — catches render throw, shows fallback + message + Retry, fires `onError` log, Retry clears state and re-renders recovered child.",/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260716T123202Z/batch0/local10_lemoncrow_rep4.flow,True,,,,,,-0.172,-201877

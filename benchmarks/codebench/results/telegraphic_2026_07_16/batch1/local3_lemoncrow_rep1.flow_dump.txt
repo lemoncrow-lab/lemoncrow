@@ -40,11 +40,14 @@ mcp__claude_ai_Google_Calendar__list_events
 mcp__claude_ai_Google_Calendar__respond_to_event
 mcp__claude_ai_Google_Calendar__suggest_time
 mcp__claude_ai_Google_Calendar__update_event
-
-The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Google Drive
-
-If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -84,9 +87,9 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] TCP → connection-oriented, reliable, ordered, error-checked; handshake, retransmits lost packets, flow/congestion control. Slower, more overhead. Use: web, email, file transfer.
+[assistant] TCP → connection-oriented, reliable, ordered, error-checked; handshake before data; retransmits lost packets; flow/congestion control. Higher overhead, slower. Web, email, file transfer.
 
-UDP → connectionless, fire-and-forget; no handshake, no retransmit, no ordering guarantee. Faster, less overhead. Use: video/voice, gaming, DNS.
+UDP → connectionless, no delivery/order guarantee, no retransmit. Low overhead, fast. Streaming, gaming, DNS, VoIP.
 
-Core tradeoff → TCP buys reliability with latency; UDP buys speed by dropping guarantees.
-[usage] input=3751 cache_read=8946 cache_write=0 output=188
+Core tradeoff: TCP reliability vs UDP speed.
+[usage] input=3795 cache_read=8946 cache_write=0 output=146

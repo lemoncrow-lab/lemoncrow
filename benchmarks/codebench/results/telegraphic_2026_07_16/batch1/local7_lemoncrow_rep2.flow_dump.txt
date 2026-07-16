@@ -19,19 +19,6 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
 mcp__claude_ai_Google_Drive__copy_file
 mcp__claude_ai_Google_Drive__create_file
 mcp__claude_ai_Google_Drive__download_file_content
@@ -42,6 +29,7 @@ mcp__claude_ai_Google_Drive__read_file_content
 mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Gmail
 claude.ai Google Calendar
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
@@ -84,13 +72,12 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS errors = your browser blocked a cross-origin request because the **server** didn't return the `Access-Control-Allow-Origin` header matching your page's origin. Browser enforces it; the request often still hits the server.
+[assistant] CORS = server didn't return the header the browser demands, so the browser blocks the response (not your JS). Common causes:
 
-Common causes → fixes:
-- **Server missing CORS headers** → add `Access-Control-Allow-Origin: https://your-site` (not the client — must be set server-side).
-- **Preflight failing** — `OPTIONS` request returns non-2xx or lacks `Access-Control-Allow-Methods`/`-Headers` → handle `OPTIONS`, echo allowed methods/headers. Triggered by custom headers, `Content-Type: application/json`, `PUT`/`DELETE`.
-- **Credentials** — sending cookies/auth with `credentials:'include'` → server needs `Access-Control-Allow-Credentials: true` **and** a specific origin (wildcard `*` forbidden).
-- **Origin mismatch** — `http` vs `https`, port, `www` differ → align exactly.
+- Server missing `Access-Control-Allow-Origin` (must match your origin, or `*`).
+- Preflight `OPTIONS` failing → add `Access-Control-Allow-Methods/-Headers`.
+- Credentialed request (`credentials: 'include'`) → server needs explicit origin (not `*`) + `Access-Control-Allow-Credentials: true`.
+- Calling a different scheme/host/port than the page.
 
-Paste the exact console message + who owns the API (you or third-party) → I'll give the precise fix. Third-party API you don't control → proxy through your own backend.
-[usage] input=3752 cache_read=8949 cache_write=0 output=498
+Fix on the **server/API**, not the browser. Share the exact console line + request → pinpoint.
+[usage] input=3484 cache_read=8949 cache_write=0 output=241

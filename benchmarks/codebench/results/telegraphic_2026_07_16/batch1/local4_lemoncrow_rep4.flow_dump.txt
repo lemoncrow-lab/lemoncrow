@@ -65,22 +65,18 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Systematic approach:
+[assistant] Common causes → fixes:
 
-**1. Confirm it's a leak** → watch RSS/heap over time: `node --expose-gc`, log `process.memoryUsage().heapUsed`. Rising baseline across GCs = leak.
+**Find it first:** `node --inspect`, Chrome DevTools → Memory tab → take 2 heap snapshots under load, diff retained objects. Or `node --heapsnapshot-near-heap-limit=2`. Watch `process.memoryUsage().heapUsed` trend.
 
-**2. Capture heap snapshots** → Chrome DevTools (`node --inspect`) or `require('v8').writeHeapSnapshot()`. Take 2–3 at intervals, diff in DevTools "Comparison" view → objects growing unbounded = culprits.
+**Usual culprits:**
+- **Unbounded growth** — global arrays/Maps/caches never evicted → use `lru-cache` or cap size, use `WeakMap`/`WeakRef` for object-keyed data.
+- **Listener leaks** — `emitter.on()` without `removeListener` in loops → check `MaxListenersExceededWarning`; pair every add with a remove.
+- **Timers/intervals** — `setInterval` never cleared → `clearInterval` on teardown.
+- **Closures** — long-lived callbacks capturing large scope → null out refs.
+- **Dangling references** — objects held by a still-reachable parent (cache, request context, connection pool).
 
-**3. Common causes**
-- Unbounded module-scope `Map`/`Array`/cache growing forever → add eviction (LRU/TTL) or `WeakMap`.
-- Listeners added without removal → `emitter.on` in a loop; remove or check `MaxListenersExceededWarning`.
-- Closures/timers (`setInterval`) holding references → `clearInterval`, null refs.
-- Global `let`/singletons accumulating request data.
-- Detached DOM/streams not closed (`.destroy()`).
+**Method:** reproduce under sustained load → snapshot-diff to name the retained constructor → trace retainer path to the holder → break that reference → re-run same load, confirm heapUsed plateaus instead of climbing.
 
-**4. Fix + verify** → patch the retaining reference → re-run load, diff snapshots again → heap flat across GCs.
-
-Tools: `clinic doctor`/`clinic heapprofiler`, `node --heap-prof`, `heapdump`.
-
-Share the snapshot diff or growing object type → I pinpoint the retainer.
-[usage] input=3311 cache_read=8953 cache_write=0 output=477
+`--max-old-space-size` raises the ceiling, doesn't fix the leak.
+[usage] input=3311 cache_read=8953 cache_write=0 output=459

@@ -65,13 +65,19 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Parent re-renders → children re-render by default. React re-runs the whole subtree; props changing is not required.
+[assistant] Common causes, most likely first:
 
-Fixes:
-- `React.memo(Child)` → skips re-render when props shallow-equal.
-- Stabilize props: `useMemo`/`useCallback` for objects/arrays/functions passed down (new refs each render defeat `memo`).
-- Pass children as `props.children` (JSX created in parent) → not re-created by parent's state change.
-- Move state down / colocate so the expensive child isn't under the updating parent.
+**1. No memoization** — parent re-render re-runs child by default. Wrap child in `React.memo`.
 
-Re-rendering ≠ DOM update; often harmless. Optimize only if measured (React DevTools Profiler).
-[usage] input=3311 cache_read=8949 cache_write=0 output=243
+**2. New reference props each render** — `React.memo` breaks when you pass fresh objects/arrays/functions:
+```jsx
+<Child onClick={() => x} style={{a:1}} data={[1,2]} />
+```
+Fix: `useCallback` for fns, `useMemo` for objects/arrays.
+
+**3. New `children` / JSX prop** — same reference problem.
+
+**4. Non-primitive context value** re-rendering all consumers.
+
+Verify which: React DevTools Profiler → "why did this render". Share the component + how parent passes props for a specific fix.
+[usage] input=3311 cache_read=8731 cache_write=218 output=236

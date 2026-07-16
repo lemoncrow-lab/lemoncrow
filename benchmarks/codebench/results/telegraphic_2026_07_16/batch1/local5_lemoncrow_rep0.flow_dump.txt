@@ -87,15 +87,15 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL `EXPLAIN` shows the query planner's execution plan — *how* the DB will run a query, not its results.
+[assistant] SQL EXPLAIN shows the query planner's execution plan — *how* the DB will run a query, not the results.
 
-Tells you:
-- **Access method** → seq scan vs index scan/index-only scan per table
-- **Join strategy** → nested loop, hash join, merge join, and join order
-- **Cost estimate** → planner's relative cost, estimated rows, row width
-- **Operations** → sorts, aggregates, filters, and where they happen
+Reveals:
+- **Access method** → sequential/full scan vs index scan, which index
+- **Join order + algorithm** → nested loop, hash, merge
+- **Estimated cost/rows** → planner's guesses per step
+- **Operations** → sorts, filters, aggregations
 
-`EXPLAIN ANALYZE` (Postgres/MySQL) actually runs it → adds real time + actual rows, so you can spot bad row estimates and slow steps. Use it to find missing indexes and expensive scans.
+`EXPLAIN ANALYZE` actually runs it → adds real timing + actual rows (vs estimates). Use to find slow queries, missing indexes, bad row estimates.
 
-Note: syntax/output vary by engine (Postgres, MySQL, SQLite, Oracle `EXPLAIN PLAN`).
-[usage] input=3795 cache_read=8731 cache_write=219 output=288
+Syntax varies: Postgres/MySQL `EXPLAIN`, Oracle `EXPLAIN PLAN FOR`, SQL Server `SET SHOWPLAN_ALL ON`.
+[usage] input=3795 cache_read=8731 cache_write=219 output=265
