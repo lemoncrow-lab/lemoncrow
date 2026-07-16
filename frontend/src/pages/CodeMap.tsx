@@ -151,6 +151,7 @@ export default function CodeMap() {
   const activitySession = useRef<string | null>(null);
   const lastActiveNode = useRef<string | null>(null);
   const graphNodes = useRef<Map<string, CodeMapNode>>(new Map());
+  const graphNodesByPath = useRef<Map<string, CodeMapNode[]>>(new Map());
   const highlightTimers = useRef<number[]>([]);
 
   const selectedProjectRoot =
@@ -285,12 +286,16 @@ export default function CodeMap() {
   }, [selectedProjectRoot]);
 
   useEffect(() => {
-    graphNodes.current = new Map(
-      [...(full?.graph.nodes ?? []), ...focusGraph.nodes].map((node) => [
-        node.id,
-        node,
-      ])
-    );
+    const allNodes = [...(full?.graph.nodes ?? []), ...focusGraph.nodes];
+    graphNodes.current = new Map(allNodes.map((node) => [node.id, node]));
+    const byPath = new Map<string, CodeMapNode[]>();
+    for (const node of allNodes) {
+      if (!node.path) continue;
+      const bucket = byPath.get(node.path);
+      if (bucket) bucket.push(node);
+      else byPath.set(node.path, [node]);
+    }
+    graphNodesByPath.current = byPath;
   }, [focusGraph.nodes, full?.graph.nodes]);
 
   useEffect(() => {
@@ -423,20 +428,25 @@ export default function CodeMap() {
           let targets = (event.symbol_ids ?? []).filter((id) =>
             graphNodes.current.has(id)
           );
-          if (!targets.length) {
-            targets = [...graphNodes.current.values()]
-              .filter(
-                (node) =>
-                  Boolean(event.path && event.path === node.path) ||
-                  Boolean(
-                    event.query &&
-                    `${node.label} ${node.qualified_name}`
-                      .toLowerCase()
-                      .includes(event.query.toLowerCase())
-                  )
-              )
+          if (!targets.length && event.path) {
+            targets = (graphNodesByPath.current.get(event.path) ?? [])
               .slice(0, 6)
               .map((node) => node.id);
+          }
+          if (!targets.length && event.query) {
+            const needle = event.query.toLowerCase();
+            const matched: string[] = [];
+            for (const node of graphNodes.current.values()) {
+              if (
+                `${node.label} ${node.qualified_name}`
+                  .toLowerCase()
+                  .includes(needle)
+              ) {
+                matched.push(node.id);
+                if (matched.length >= 6) break;
+              }
+            }
+            targets = matched;
           }
           if (event.kind === "verify" && !targets.length) {
             const fallback =
@@ -509,13 +519,25 @@ export default function CodeMap() {
         : new Set(facets.map((facet) => facet.id))
     );
   };
-  const callEdges = baseGraph.edges.filter((edge) => edge.kind === "calls");
-  const incomingCount = selectedId
-    ? callEdges.filter((edge) => edge.target === selectedId).length
-    : 0;
-  const outgoingCount = selectedId
-    ? callEdges.filter((edge) => edge.source === selectedId).length
-    : 0;
+  const { incomingCount, outgoingCount } = useMemo(() => {
+    if (!selectedId) return { incomingCount: 0, outgoingCount: 0 };
+    let incoming = 0;
+    let outgoing = 0;
+    for (const edge of baseGraph.edges) {
+      if (edge.kind !== "calls") continue;
+      if (edge.target === selectedId) incoming += 1;
+      if (edge.source === selectedId) outgoing += 1;
+    }
+    return { incomingCount: incoming, outgoingCount: outgoing };
+  }, [baseGraph.edges, selectedId]);
+  const graphCallCount = useMemo(
+    () =>
+      graph.edges.reduce(
+        (total, edge) => total + (edge.kind === "calls" ? 1 : 0),
+        0
+      ),
+    [graph.edges]
+  );
 
   return (
     <section className="min-h-[calc(100vh-150px)] bg-surface-sunken text-neutral-200">
@@ -609,12 +631,7 @@ export default function CodeMap() {
           <span>·</span>
           <span>{graph.nodes.length.toLocaleString()} map nodes</span>
           <span>·</span>
-          <span>
-            {graph.edges
-              .filter((edge) => edge.kind === "calls")
-              .length.toLocaleString()}{" "}
-            calls
-          </span>
+          <span>{graphCallCount.toLocaleString()} calls</span>
           {full?.truncated && (
             <span className="text-amber-200">bounded by safety limit</span>
           )}
