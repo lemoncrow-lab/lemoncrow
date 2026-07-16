@@ -76,9 +76,7 @@ describe("CodeMap", () => {
             total_symbols: 320,
             total_files: 40,
             truncated: false,
-            communities: [
-              { id: "src", label: "src", color: "#60a5fa", count: 2 },
-            ],
+            groups: [{ id: "src", label: "src", color: "#60a5fa", count: 2 }],
             file_types: [
               { id: "source", label: "Source", color: "#67e8f9", count: 1 },
             ],
@@ -174,7 +172,7 @@ describe("CodeMap", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("320 indexed symbols")).toBeInTheDocument();
     expect(screen.getByText("40 tracked files")).toBeInTheDocument();
-    expect(screen.getByText("Communities")).toBeInTheDocument();
+    expect(screen.getByText("Groups")).toBeInTheDocument();
     expect(await screen.findByText("Edited payment.ts")).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByTestId("code-graph")).toHaveAttribute(
@@ -228,9 +226,7 @@ describe("CodeMap", () => {
             total_symbols: 1,
             total_files: 1,
             truncated: false,
-            communities: [
-              { id: "src", label: "src", color: "#60a5fa", count: 2 },
-            ],
+            groups: [{ id: "src", label: "src", color: "#60a5fa", count: 2 }],
             file_types: [
               { id: "source", label: "Source", color: "#67e8f9", count: 1 },
             ],

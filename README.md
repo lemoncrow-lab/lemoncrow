@@ -78,7 +78,7 @@ it:
 
 Open the existing dashboard with `lc dashboard open`, then choose **Map**. The
 browser opens the full tracked source map: files, indexed symbols, and only
-uniquely resolved call edges. Communities stay spatially grouped; filters split
+uniquely resolved call edges. Groups stay spatially grouped; filters split
 source, tests, Markdown/docs, config, data, assets, and languages. Search any
 symbol, click it for its exact source range, or double-click to focus callers
 and callees. Live mode adds glow, edge flow, and camera-follow from the local

@@ -1741,7 +1741,7 @@ export interface CodeMapFull extends CodeMapOverview {
   total_symbols: number;
   total_files: number;
   truncated: boolean;
-  communities: CodeMapFacet[];
+  groups: CodeMapFacet[];
   file_types: CodeMapFacet[];
   languages: CodeMapFacet[];
 }

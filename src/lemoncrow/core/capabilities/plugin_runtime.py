@@ -4155,8 +4155,16 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
         "llm_turns": 0,
         "tools_used": {},
         "total_tool_calls": 0,
+        "current_turn_context_tokens": 0,
     }
     latest_usage: dict[str, Any] = {}
+    # Bounded per-turn context size (this turn's input_tokens, which already
+    # includes cached as a subset -- see _extract_flat_usage), NOT the
+    # cumulative total_token_usage below. Used as the avoided-call pricing
+    # basis: total_token_usage grows unboundedly across hundreds of turns and
+    # would overprice every avoided call as if it re-sent the WHOLE session's
+    # cumulative tokens instead of one real (context-window-bounded) request.
+    latest_turn_context = 0
     llm_turns = 0
     previous_total_signature: tuple[int, int, int, int] | None = None
     previous_unidentified_event = ""
@@ -4240,6 +4248,7 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
         last_numbers = _usage_numbers(last_usage) if last_usage else {}
         if _usage_has_tokens(last_numbers):
             llm_turns += 1
+            latest_turn_context = int(last_numbers.get("input_tokens", 0) or 0)
         usage = _as_dict(info.get("total_token_usage"))
         if usage:
             latest_usage = usage
@@ -4270,6 +4279,7 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
             "thinking_tokens": int(total_numbers.get("thinking_tokens", 0) or 0),
         }
     snapshot["llm_turns"] = llm_turns
+    snapshot["current_turn_context_tokens"] = latest_turn_context
     if tools_used:
         for name, count in fallback_tools_used.items():
             if name not in tools_used:
@@ -4327,6 +4337,9 @@ def _apply_codex_transcript_snapshot(root: str | Path, session_id: str, payload:
         status_payload["tools_used"] = tools_used
         status_payload["total_tool_calls"] = int(best.get("total_tool_calls", 0) or 0)
         status_payload["tool_call_source"] = "transcript"
+    current_turn_ctx = int(best.get("current_turn_context_tokens", 0) or 0)
+    if current_turn_ctx > 0:
+        status_payload["current_turn_context_tokens"] = current_turn_ctx
     update_session_stats(root, status_payload)
 
 
@@ -4590,6 +4603,14 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
     snapshot = _context_usage_snapshot(payload)
     if _usage_has_tokens(snapshot):
         state["usage"].update(snapshot)
+    # Bounded per-turn context size (NOT cumulative -- see
+    # _codex_transcript_snapshot). This is what avoided-call pricing must use
+    # as the "tokens a real request would have re-sent" basis; state["usage"]
+    # above is a running session total and would overprice every avoided call
+    # by the entire session's cumulative tokens on long sessions.
+    current_turn_ctx = int(payload.get("current_turn_context_tokens", 0) or 0)
+    if current_turn_ctx > 0:
+        state["current_turn_context_tokens"] = current_turn_ctx
     llm_turns = int(payload.get("llm_turns", 0) or 0)
     if llm_turns > 0:
         state["llm_turns"] = llm_turns

@@ -107,7 +107,7 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
             "project": {"root": str(root), "label": root.name},
             "total_symbols": 3,
             "total_files": 1,
-            "communities": [],
+            "groups": [],
             "file_types": [],
             "languages": [],
             "graph": {"focus": "root", "nodes": [], "edges": [], "truncated": False},

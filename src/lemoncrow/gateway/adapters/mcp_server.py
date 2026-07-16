@@ -2614,7 +2614,7 @@ def _bridge_context_state(session_id: str, host: str) -> tuple[int, str]:
 
     For non-Claude hosts (OpenCode, Codex) that don't produce Claude-format
     transcript JSONL, this reads the session stats file maintained by the host
-    plugin and extracts cumulative usage as a proxy for current context size.
+    plugin.
     """
     try:
         from lemoncrow.core.foundation.paths import session_dir
@@ -2629,13 +2629,22 @@ def _bridge_context_state(session_id: str, host: str) -> tuple[int, str]:
             return 0, ""
         if not isinstance(stats, dict):
             return 0, ""
-        _usage = stats.get("usage")
-        usage = _usage if isinstance(_usage, dict) else {}
-        ctx = (
-            int(usage.get("input_tokens", 0) or 0)
-            + int(usage.get("cache_read_tokens", 0) or 0)
-            + int(usage.get("cache_write_tokens", 0) or 0)
-        )
+        # Prefer the bounded current-turn context size (this turn's real,
+        # context-window-capped request size -- Codex populates this from its
+        # transcript's last_token_usage; see _codex_transcript_snapshot).
+        # Falling back to state["usage"] is a LAST RESORT: that field is a
+        # cumulative running total across the whole session and grows
+        # unboundedly turn over turn, which would price every avoided call as
+        # if it re-sent the entire session's tokens instead of one request.
+        ctx = int(stats.get("current_turn_context_tokens", 0) or 0)
+        if ctx <= 0:
+            _usage = stats.get("usage")
+            usage = _usage if isinstance(_usage, dict) else {}
+            ctx = (
+                int(usage.get("input_tokens", 0) or 0)
+                + int(usage.get("cache_read_tokens", 0) or 0)
+                + int(usage.get("cache_write_tokens", 0) or 0)
+            )
         model = str(stats.get("last_model") or stats.get("model") or "").strip()
         return ctx, model
     except Exception:  # noqa: BLE001 - best-effort bridge read, never break MCP dispatch
