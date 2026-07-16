@@ -41,6 +41,7 @@ coverage.xml
 .nyc_output/
 .tox/
 .nox/
+graphify-out/
 
 # Ruff
 .ruff_cache/

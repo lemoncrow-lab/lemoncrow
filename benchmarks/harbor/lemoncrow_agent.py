@@ -56,6 +56,29 @@ def _host_lemoncrow_auth_token() -> str:
     return load_auth_token() or ""
 
 
+def _lemoncrow_credential_env() -> dict[str, str]:
+    """LEMONCROW_AUTH_TOKEN plus LEMONCROW_DEVICE_ID for container forwarding.
+
+    The token alone is NOT enough: the account's signed plan token and cap
+    verdict are bound to the device id that logged in on the host. A container
+    has its own /etc/machine-id, so without the host's device id the plan
+    degrades to free and the cap gate stays fail-closed dormant (empty MCP
+    tool list) even with a valid pro token. See store.load_or_create_device_id.
+    """
+    env: dict[str, str] = {}
+    token = _host_lemoncrow_auth_token()
+    if not token:
+        return env
+    env["LEMONCROW_AUTH_TOKEN"] = token
+    try:
+        from lemoncrow.core.capabilities.licensing.store import load_or_create_device_id
+
+        env["LEMONCROW_DEVICE_ID"] = load_or_create_device_id()
+    except Exception:  # token still forwarded; device binding may fail
+        pass
+    return env
+
+
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
 # Terminal-Bench 2.1 runs use "high" effort (Opus 4.8 System Card, sec 8.3);
 # overridable via LEMONCROW_BENCH_EFFORT.
@@ -336,11 +359,10 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
-        # Forward the host's activated LemonCrow account token so `lemoncrow init`
-        # doesn't need an interactive `lemoncrow account login` inside the container.
-        lemoncrow_token = _host_lemoncrow_auth_token()
-        if lemoncrow_token:
-            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
+        # Forward the host's activated LemonCrow account credentials (token +
+        # device id) so `lemoncrow init` doesn't need an interactive
+        # `lemoncrow account login` inside the container.
+        env.update(_lemoncrow_credential_env())
         return env
 
     # ── Lifecycle ────────────────────────────────────────────────────────────────────────
@@ -497,11 +519,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-        # Forward the host's activated LemonCrow account token so `lemoncrow init`
-        # doesn't need an interactive `lemoncrow account login` inside the container.
-        lemoncrow_token = _host_lemoncrow_auth_token()
-        if lemoncrow_token:
-            env["LEMONCROW_AUTH_TOKEN"] = lemoncrow_token
+        # Forward the host's activated LemonCrow account credentials (token +
+        # device id) so `lemoncrow init` doesn't need an interactive
+        # `lemoncrow account login` inside the container.
+        env.update(_lemoncrow_credential_env())
         return env
 
     async def install(self, environment: BaseEnvironment) -> None:
@@ -588,7 +609,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "cd /root && LEMONCROW_ROOT=/root/.lemoncrow LEMONCROW_WORKSPACE_ROOT=/root "
                 "/opt/lemoncrow-venv/bin/lemoncrow init --no-login"
             ),
-            env={"LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token()},
+            env=_lemoncrow_credential_env(),
         )
         if self._bench_mode != "off":
             await self.exec_as_root(
@@ -597,7 +618,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 env={
                     "LEMONCROW_ROOT": "/root/.lemoncrow",
                     "LEMONCROW_WORKSPACE_ROOT": "/root",
-                    "LEMONCROW_AUTH_TOKEN": _host_lemoncrow_auth_token(),
+                    **_lemoncrow_credential_env(),
                 },
             )
         # Bench-lean copy of the plugin: keep only the persona this arm runs

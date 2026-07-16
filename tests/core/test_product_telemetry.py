@@ -78,8 +78,63 @@ def test_public_rollup_payload_is_minimal_and_session_scoped(telemetry_env: Path
     assert payload["tokens_saved"] == 9240
     assert payload["calls_avoided"] == 3
     assert payload["turn_count"] == 5
+    assert payload["turns_avoided"] == 0  # default when the caller omits it
     assert payload["occurred_at"] == "2026-06-16T10:00:00Z"
     assert payload["domain"] == "code"  # default vertical
+
+
+def test_public_rollup_payload_carries_real_totals(telemetry_env: Path) -> None:
+    """tokens_processed/calls_made/time_spent_seconds pair with the existing
+    tokens_saved/calls_avoided/time_saved_seconds deltas -- default to 0
+    (omitted by older callers) rather than being dropped from the payload."""
+    payload = _payload(
+        session_id="session-totals",
+        saved_usd=0.5,
+        tokens_saved=100,
+        calls_avoided=1,
+        turn_count=2,
+        source="claude",
+        occurred_at=datetime(2026, 6, 16, 10, 0, tzinfo=UTC),
+        tokens_processed=5_000,
+        calls_made=12,
+        time_spent_seconds=321.5,
+    )
+    assert payload is not None
+    assert payload["tokens_processed"] == 5_000
+    assert payload["calls_made"] == 12
+    assert payload["time_spent_seconds"] == 321.5
+
+
+def test_public_rollup_payload_carries_turns_avoided(telemetry_env: Path) -> None:
+    """Whole avoided turns (turn_cut credit) ride their own field, distinct
+    from the raw turn_count."""
+    payload = _payload(
+        session_id="session-turns",
+        saved_usd=0.5,
+        tokens_saved=100,
+        calls_avoided=9,
+        turn_count=20,
+        turns_avoided=7,
+        source="claude",
+        occurred_at=datetime(2026, 6, 16, 10, 0, tzinfo=UTC),
+    )
+    assert payload is not None
+    assert payload["turn_count"] == 20
+    assert payload["turns_avoided"] == 7
+
+    default_payload = _payload(
+        session_id="session-no-totals",
+        saved_usd=0.5,
+        tokens_saved=100,
+        calls_avoided=1,
+        turn_count=2,
+        source="claude",
+        occurred_at=datetime(2026, 6, 16, 10, 0, tzinfo=UTC),
+    )
+    assert default_payload is not None
+    assert default_payload["tokens_processed"] == 0
+    assert default_payload["calls_made"] == 0
+    assert default_payload["time_spent_seconds"] == 0
 
 
 def test_public_rollup_payload_tags_custom_domain(telemetry_env: Path) -> None:
