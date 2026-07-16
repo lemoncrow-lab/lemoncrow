@@ -1,115 +1,98 @@
 # LemonCrow plans & pricing
 
-LemonCrow is source-available and local-first: the engine runs on your machine.
-The official distribution requires a free LemonCrow account at lc init; code,
-local session data, and configuration remain local.
+LemonCrow is open-core and local-first: code, indexes, session data, and
+configuration stay on your machine. The official ongoing Free plan requires a
+free LemonCrow account.
 
-Prices are configured in Stripe Payment Links. The client checks plan
-entitlements, not prices.
+## Access model
+
+- **Anonymous evaluation:** use the local core until LemonCrow has measured $50
+  in savings over a rolling 30-day window. It then goes dormant without
+  touching your code or data.
+- **Free account:** uncapped core runtime for one developer, including local
+  session recall and multi-worktree swarm.
+- **Pro:** advanced individual capabilities for large codebases, cross-vendor
+  workflows, and optimization.
+- **Enterprise:** shared context, governance, and organizational scale.
+
+Lite is no longer offered. Existing Lite subscriptions remain recognized for
+backward compatibility.
 
 ## At a glance
 
-| Capability | Free | Lite | Pro | Enterprise |
-| --- | :---: | :---: | :---: | :---: |
-| Code-navigation tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ | ✅ | ✅ |
-| Normal-size repo map and context engine | ✅ | ✅ | ✅ | ✅ |
-| Local savings estimate and session replay | ✅ | ✅ | ✅ | ✅ |
-| Monthly savings before the engine goes dormant | up to $20 | up to $200 | unlimited | unlimited |
-| Large-repo search and indexing | — | — | ✅ | ✅ |
-| Session recall and cross-vendor memory | — | — | ✅ | ✅ |
-| Reasoning library | — | — | ✅ | ✅ |
-| Savings engine, context compression, and budget optimization | — | — | ✅ | ✅ |
-| Model routing | — | — | ✅ | ✅ |
-| Multi-worktree swarm | — | — | ✅ | ✅ |
-| Shared team context, governance, audit, and SSO | — | — | — | ✅ |
+| Capability | Free | Pro | Enterprise |
+| --- | :---: | :---: | :---: |
+| Grounded tools, agents, skills, hooks, and verification | ✅ | ✅ | ✅ |
+| Normal-size repo map and context engine | ✅ | ✅ | ✅ |
+| Local session replay and recall | ✅ | ✅ | ✅ |
+| Local multi-worktree swarm | ✅ | ✅ | ✅ |
+| Savings dormancy after account sign-in | Never | Never | Never |
+| Larger-repo search and semantic indexing | — | ✅ | ✅ |
+| Cross-vendor memory and reasoning library | — | ✅ | ✅ |
+| Context compression, scoped pruning, and savings optimization | — | ✅ | ✅ |
+| Full savings history, budget and prefix-cache planning | — | ✅ | ✅ |
+| Shared team context, governance, audit, and SSO | — | — | ✅ |
 
 ## Free — $0
 
-For developers trying LemonCrow and using its local runtime day to day.
+For individual developers, including personal and commercial work.
 
-Free includes the local code-navigation tools, supported host packaging,
-normal-size repository context, benchmarks, and local savings estimates. Create
-a free account with `lc account login`, then activate the official install with
-lc init.
+Create an account with `lc account login`, then run `lc init`. Free includes
+the grounded tool loop, normal-size repository context, local session recall,
+local swarm runs, verification hooks, replay, and uncapped measured savings.
+There is no value-based dormancy after sign-in.
 
-The local savings engine keeps working until it has saved you **$20 in a
-rolling 30-day window**. After that the plugin goes *dormant*: it stops
-force-loading its tools and the agent falls back to your host's built-in tools.
-Nothing breaks and no local data is touched — the cap resets when the window
-rolls over, or upgrade to keep the engine active.
+Remote product telemetry uses aggregate operational data and can be disabled
+with `lc telemetry remote off`.
 
-Remote telemetry is on by default to help us improve the product. Opt out
-anytime with `lc telemetry remote off`.
+## Pro — for advanced individual use
 
-## Lite — for light daily users
-
-For developers who want the savings to keep running but do not need the
-large-repo or memory features yet.
-
-Everything in Free, with the monthly savings cap raised to **$200 in a rolling
-30-day window** before the engine goes dormant. Lite does not unlock the gated
-Pro capabilities — it simply lets the free engine keep saving for far longer.
-
-| Billing | Price | Notes |
-| --- | --- | --- |
-| Monthly | **$5 / mo** | Stripe subscription; cancel anytime |
-| Annual | **$50 / yr** | Two months free versus monthly |
-
-## Pro — for individual developers
-
-For developers who use the gated capabilities regularly.
-
-Everything in Lite, **uncapped** (the engine never goes dormant), plus
-large-repository search and indexing, session recall, reasoning library,
-savings optimization, model routing, and multi-worktree swarm.
+Pro adds the capabilities that have a distinct power-user cost or maintenance
+surface: larger-repository search and semantic indexing, cross-vendor memory,
+reusable reasoning and knowledge, savings-policy optimization, context
+compression, scoped pruning, and budget and prefix-cache planning.
 
 | Billing | Price | Notes |
 | --- | --- | --- |
 | Monthly | **$20 / mo** | Stripe subscription; cancel anytime |
 | Annual | **$200 / yr** | Two months free versus monthly |
 
-The official client checks the account plan. The local runtime remains
-source-available; the subscription supports the maintained product and unlocks
-the official Pro distribution.
+Regional CHF and EUR prices are shown on the pricing page.
 
 ## Enterprise — for teams
 
-For teams that need scale and governance.
+Enterprise adds very large repositories without index or symbol caps, shared
+team context across repositories, role-based access, governance, audit export,
+retention, SSO, and priority support. Contact contact@lemoncrow.com for
+pricing.
 
-Everything in Pro, plus very large repositories with no index or symbol caps,
-shared team context across repositories, and governance: audit export,
-retention, and SSO. Contact us for team pricing.
+## Billing and activation
 
-## Billing terms
+A successful Stripe payment sets the account to Pro. Cancellation or refund
+returns advanced surfaces to Free; local code, indexes, memory, and
+configuration remain untouched.
 
-A successful Stripe payment sets the account plan (lite / pro / enterprise). On
-cancellation or refund, gated surfaces and the savings cap return to Free and
-local data remains untouched.
+```bash
+lc account login  # create or sign in to a free account
+lc init           # activate the official install
+lc account status # show account and plan
+```
 
-## How to activate
-
-    lc account login  # create or sign in to a free account
-    lc init           # activate the official install
-    lc account status # show account and plan
-
-In CI or containers, set LEMONCROW_AUTH_TOKEN to a session token.
+In CI or containers, set `LEMONCROW_AUTH_TOKEN` to a session token.
 
 ## FAQ
 
-**Does Free require internet?** Only to create an account and activate the
-official installation. The local runtime itself works on your machine.
+**Why keep anonymous access capped?** It gives a developer room to evaluate the
+runtime without turning anonymous use into an unbounded production channel. A
+free account removes the cap.
 
-**What is the savings cap?** Free saves up to $20 and Lite up to $200 per
-rolling 30-day window; past that the engine goes dormant (falls back to host
-defaults) until the window rolls over or you upgrade. Pro and Enterprise are
-uncapped.
+**Does Free require internet?** Internet is required to create/sign into the
+account and periodically refresh the signed identity. Runtime work, parsing,
+indexing, recall, and swarm execution are local.
 
-**Does a paid plan require internet?** The plan check is cached locally for a
-few hours.
+**Why pay for Pro if Free is uncapped?** Pro is feature-gated, not value-metered.
+It is for larger repos, cross-vendor memory, optimization, compression, budget
+planning, and reusable knowledge.
 
-**What happens when a plan lapses?** Nothing breaks: gated surfaces return to
-Free. Code, memory, and configuration remain untouched.
-
-**Why charge for source-available code?** Local feature checks can be patched.
-A paid plan is an official maintained distribution and a way to support the
-product — not DRM.
+**What happens when Pro lapses?** Advanced surfaces return to Free. Code, local
+memory, and configuration remain untouched.

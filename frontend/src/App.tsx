@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   Brain,
   GitBranch,
   LayoutGrid,
   Moon,
+  Network,
   Play,
   Settings,
   Sun,
@@ -30,11 +31,16 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/overview", label: "Overview", icon: LayoutGrid },
   { to: "/sessions", label: "Sessions", icon: Play },
+  { to: "/map", label: "Map", icon: Network },
   { to: "/swarms", label: "Swarms", icon: GitBranch },
   { to: "/costs", label: "Costs", icon: Wallet },
   { to: "/knowledge", label: "Knowledge", icon: Brain },
   { to: "/system", label: "System", icon: Settings },
 ];
+
+// Sigma/WebGL and the layout worker are map-only dependencies. Keep them out
+// of the analytics dashboard's initial bundle.
+const CodeMap = lazy(() => import("./pages/CodeMap"));
 
 /**
  * Reusable dismissible notification banner. The mechanism is intentionally kept
@@ -160,6 +166,20 @@ export default function App() {
               <Route path="/overview" element={<Overview />} />
               <Route path="/sessions" element={<Sessions />} />
               <Route path="/sessions/:id" element={<Sessions />} />
+              <Route
+                path="/map"
+                element={
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-[560px] items-center justify-center text-sm text-neutral-300">
+                        Loading code map…
+                      </div>
+                    }
+                  >
+                    <CodeMap />
+                  </Suspense>
+                }
+              />
               <Route
                 path="/knowledge"
                 element={<Navigate to="/knowledge/blocks" replace />}

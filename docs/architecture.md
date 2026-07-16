@@ -49,7 +49,7 @@ flowchart TB
         LocalMem["Local SQLite store"]
     end
 
-    subgraph TokenEcon["Token Economics & Routing"]
+    subgraph TokenEcon["Token Economics & Model Clients"]
         Tik["tiktoken"]
         Lite["LiteLLM"]
         ORT["OR-Tools optimizer"]
@@ -159,14 +159,14 @@ flowchart TB
 | **Local memory store (SQLite)** | Default, server-free recall | Repo/session facts and lessons without any hosted backend                              |
 | **Letta (MemGPT)**              | Agent memory server         | Optional durable cross-session memory and archival recall (`letta-client` talks to it) |
 
-### Token economics & model routing
+### Token economics & optional model clients
 
 | Technology          | What it is                     | Why LemonCrow uses it                                                          |
 | --------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
 | **tiktoken**        | BPE tokenizer                  | Exact token counting for budgets, cost tracking, and the live savings badges |
-| **LiteLLM**         | Multi-provider LLM gateway     | Cross-vendor model routing (`route`/`router` commands)                       |
+| **LiteLLM**         | Multi-provider LLM gateway     | Experimental provider evaluation and normalized cost accounting              |
 | **Ollama**          | Local LLM runtime              | On-device models for "smart" features (summarize/classify) with no API cost  |
-| **OpenAI SDK**      | Cloud LLM client               | Optional cloud model calls for routing/cloud features                        |
+| **OpenAI SDK**      | Cloud LLM client               | Optional cloud model calls for smart features                                |
 | **Google OR-Tools** | Constraint/optimization solver | The budget optimizer — allocating token and cost budget across steps        |
 | **XGBoost**         | Gradient-boosted trees         | Learned ranking signals (e.g. PR-risk and rank models)                       |
 

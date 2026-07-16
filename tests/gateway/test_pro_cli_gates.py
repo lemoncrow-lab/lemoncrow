@@ -1,7 +1,7 @@
-"""Pro entitlement gates on CLI control surfaces (recall, router, zoekt).
+"""Pro entitlement gates on paid CLI control surfaces.
 
-Free installs (not signed in) must block these commands with an upsell; a
-signed-in account on a Pro plan opens the gate.
+Recall and swarm are local Free capabilities; hosted/advanced controls remain
+gated behind a signed-in Pro account.
 """
 
 from __future__ import annotations
@@ -31,11 +31,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
 
 
 GATED = [
-    ("session", "recall", "search", "hello"),
-    ("router", "start"),
     ("zoekt", "index"),
     ("knowledge", "extract"),
-    ("swarm", "start"),
     ("memory", "find", "hello"),
     ("savings", "detail"),
 ]
@@ -50,12 +47,52 @@ def test_free_install_blocks_pro_cli(tmp_path: Path, args: tuple[str, ...]) -> N
     assert "LemonCrow Pro feature" in res.output
 
 
-def test_pro_install_opens_recall_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_free_install_opens_recall(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    init_store_at(str(root))
+    res = _invoke(root, "session", "recall", "search", "hello")
+    assert "LemonCrow Pro feature" not in res.output
+    assert res.exit_code == 0, res.output
+
+
+def test_free_install_reaches_swarm_validation(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    init_store_at(str(root))
+    res = _invoke(root, "swarm", "start")
+    assert "LemonCrow Pro feature" not in res.output
+
+
+def test_pro_install_keeps_recall_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     grant_oauth_pro(monkeypatch)
 
     root = tmp_path / "a"
     init_store_at(str(root))
     res = _invoke(root, "session", "recall", "search", "hello")
-    # Gate opened: the command ran (no matches in an empty index) instead of the upsell.
     assert "LemonCrow Pro feature" not in res.output
     assert res.exit_code == 0, res.output
+
+
+@pytest.mark.parametrize("action", ["start", "restart"])
+def test_routing_daemon_is_not_sold_as_a_pro_feature(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    grant_oauth_pro(monkeypatch)
+    root = tmp_path / "a"
+    init_store_at(str(root))
+
+    res = _invoke(root, "router", action)
+
+    assert res.exit_code != 0
+    assert "not available in this release" in res.output
+    assert "LemonCrow Pro feature" not in res.output
+
+
+def test_unshipped_routing_commands_are_hidden_from_main_help(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    init_store_at(str(root))
+
+    res = _invoke(root, "--help")
+
+    assert res.exit_code == 0, res.output
+    assert "  route " not in res.output
+    assert "  router " not in res.output

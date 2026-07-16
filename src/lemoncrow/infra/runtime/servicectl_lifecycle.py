@@ -407,7 +407,7 @@ def _git_project_root() -> Path | None:
 
 # Distribution channel -- keep in lockstep with scripts/install.sh and
 # src/lemoncrow/gateway/cli/commands/update.py.
-_GH_REPO = "lemoncrowhq/lemoncrow"
+_GH_REPO = "lemoncrow-lab/lemoncrow"
 _RELEASE_LATEST_URL = f"https://github.com/{_GH_REPO}/releases/latest/download"
 
 

@@ -43,7 +43,9 @@ def test_ledger_records_basic_fields(tmp_path: Path) -> None:
 
 
 def test_ledger_persist_and_load_roundtrip(tmp_path: Path) -> None:
-    led = RunLedger(agent="codex", task="t", domain="d", root=tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    led = RunLedger(agent="codex", task="t", domain="d", root=tmp_path, workspace_path=workspace)
     led.record_command("pytest", ok=False, error_signature="sig1")
     led.record_alert("monitor_x", "medium", "blah")
     path = led.persist()
@@ -51,6 +53,7 @@ def test_ledger_persist_and_load_roundtrip(tmp_path: Path) -> None:
     loaded = RunLedger.load(path)
     assert loaded.task == "t"
     assert loaded.domain == "d"
+    assert loaded.workspace_path == str(workspace.resolve())
     assert "pytest" in loaded.commands_run
     assert "sig1" in loaded.errors_seen
     assert any(e.kind == "watchdog_alert" for e in loaded.events)

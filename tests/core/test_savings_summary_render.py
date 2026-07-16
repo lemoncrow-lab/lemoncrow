@@ -78,7 +78,7 @@ def test_cap_line_over_cap_shows_dormant_and_server_source() -> None:
     assert "[server]" in out
 
 
-def test_cap_line_lite_uses_its_own_cap() -> None:
+def test_cap_line_legacy_lite_cap_still_renders() -> None:
     out = _with_sub(
         {
             "plan": "lite",
@@ -89,7 +89,7 @@ def test_cap_line_lite_uses_its_own_cap() -> None:
             "windowDays": 30,
         }
     )
-    assert "of $200.00" in out  # lite's $200 cap, not free's $20
+    assert "of $200.00" in out  # old cached Lite blobs remain readable
     assert "$160.00 left" in out
 
 
