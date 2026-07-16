@@ -1,0 +1,110 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index f02199d97c..2acefb9318 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -1405,6 +1405,7 @@ class SQLInsertCompiler(SQLCompiler):
+             returning_fields and len(self.query.objs) != 1 and
+             not self.connection.features.can_return_rows_from_bulk_insert
+         )
++        opts = self.query.get_meta()
+         self.returning_fields = returning_fields
+         with self.connection.cursor() as cursor:
+             for sql, params in self.as_sql():
+@@ -1412,13 +1413,19 @@ class SQLInsertCompiler(SQLCompiler):
+             if not self.returning_fields:
+                 return []
+             if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:
+-                return self.connection.ops.fetch_returned_insert_rows(cursor)
+-            if self.connection.features.can_return_columns_from_insert:
++                rows = self.connection.ops.fetch_returned_insert_rows(cursor)
++            elif self.connection.features.can_return_columns_from_insert:
+                 assert len(self.query.objs) == 1
+-                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]
+-            return [(self.connection.ops.last_insert_id(
+-                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column
+-            ),)]
++                rows = [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]
++            else:
++                rows = [(self.connection.ops.last_insert_id(
++                    cursor, opts.db_table, opts.pk.column,
++                ),)]
++        cols = [field.get_col(opts.db_table) for field in self.returning_fields]
++        converters = self.get_converters(cols)
++        if converters:
++            rows = list(self.apply_converters(rows, converters))
++        return rows
+ 
+ 
+ class SQLDeleteCompiler(SQLCompiler):
+diff --git a/tests/queries/models.py b/tests/queries/models.py
+index 383f633be9..2dd6f4d762 100644
+--- a/tests/queries/models.py
++++ b/tests/queries/models.py
+@@ -743,6 +743,26 @@ class NonIntegerPKReturningModel(models.Model):
+     created = CreatedField(editable=False, primary_key=True)
+ 
+ 
++class DomainWrapper:
++    def __init__(self, value):
++        self.value = value
++
++
++class DomainField(models.BigAutoField):
++    def get_prep_value(self, value):
++        if value is None:
++            return None
++        return int(value)
++
++    def from_db_value(self, value, expression, connection):
++        if value is None:
++            return None
++        return DomainWrapper(value)
++
++
++class Domain(models.Model):
++    id = DomainField(primary_key=True)
++
+ class JSONFieldNullable(models.Model):
+     json_field = models.JSONField(blank=True, null=True)
+ 
+diff --git a/tests/queries/test_db_returning.py b/tests/queries/test_db_returning.py
+index 9ba352a7ab..fe214e5ac6 100644
+--- a/tests/queries/test_db_returning.py
++++ b/tests/queries/test_db_returning.py
+@@ -4,7 +4,10 @@ from django.db import connection
+ from django.test import TestCase, skipUnlessDBFeature
+ from django.test.utils import CaptureQueriesContext
+ 
+-from .models import DumbCategory, NonIntegerPKReturningModel, ReturningModel
++from .models import (
++    Domain, DomainWrapper, DumbCategory, NonIntegerPKReturningModel,
++    ReturningModel,
++)
+ 
+ 
+ @skipUnlessDBFeature('can_return_columns_from_insert')
+@@ -49,3 +52,15 @@ class ReturningValuesTests(TestCase):
+             with self.subTest(obj=obj):
+                 self.assertTrue(obj.pk)
+                 self.assertIsInstance(obj.created, datetime.datetime)
++
++
++class ConverterTests(TestCase):
++    def test_convert_pk_on_insert(self):
++        obj = Domain.objects.create()
++        self.assertIsInstance(obj.pk, DomainWrapper)
++
++    @skipUnlessDBFeature('can_return_rows_from_bulk_insert')
++    def test_convert_pk_on_bulk_insert(self):
++        objs = [Domain()]
++        Domain.objects.bulk_create(objs)
++        self.assertIsInstance(objs[0].pk, DomainWrapper)
+diff --git a/uv.lock b/uv.lock
+new file mode 100644
+index 0000000000..bda0207302
+--- /dev/null
++++ b/uv.lock
+@@ -0,0 +1,3 @@
++version = 1
++revision = 3
++requires-python = ">=3.13"

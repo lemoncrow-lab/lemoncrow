@@ -1,0 +1,516 @@
+
+=== Turn 1 ===
+[user] <session>
+Database converters (from_db_value) not called for returning_fields on insert
+Description
+	
+Making a subclass of BigAutoField, I've found that, unlike all other query pathways, on insert the returned integer is not passed through any database converters defined for the field - including the from_db_value hook.
+This means that a field which would normally use a wrapper class has instead a plain integer.
+Take this field:
+class MyAutoField(models.BigAutoField):
+	def from_db_value(self, value, expression, connection):
+		if value is None:
+			return None
+		return MyIntWrapper(value)
+	def get_prep_value(self, value):
+		if value is None:
+			return None
+		return int(value)
+And a model that uses it:
+class AutoModel(models.Model):
+	id = MyAutoField(primary_key=True)
+Queried instances have the wrapper class for id:
+>>> am = AutoModel.objects.first()
+>>> am.id
+<MyIntWrapper: 1>
+But on creation, the returned integer is directly set as an attribute on the class:
+>>> am2 = AutoModel.objects.create()
+>>> am2.id
+2
+This also affects bulk_create on backends that support fetching the primary key value:
+>>> ams = [AutoModel()]
+>>> AutoModel.objects.bulk_create(ams)
+[<AutoModel: AutoModel object (2)>]
+>>> ams[0].id
+2
+</session>
+
+Write the title in the language the user wrote in, regardless of the language of the examples above.
+[assistant] {"title": "Fix database converters not called for insert returning fields"}
+[usage] input=847 cache_read=0 cache_write=0 output=18
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: Bash] {"command": "cd /testbed && grep -rn \"returning_fields\" django/db/models/ | head -40", "description": "Find returning_fields usage"}
+[usage] input=2464 cache_read=7873 cache_write=0 output=145
+
+=== Turn 3 ===
+[user] [tool_result] django/db/models/base.py:871:            returning_fields = meta.db_returning_fields
+django/db/models/base.py:872:            results = self._do_insert(cls._base_manager, using, fields, returning_fields, raw)
+django/db/models/base.py:874:                for value, field in zip(results[0], returning_fields):
+django/db/models/base.py:905:    def _do_insert(self, manager, using, fields, returning_fields, raw):
+django/db/models/base.py:907:        Do an INSERT. If returning_fields is defined then this method should
+django/db/models/base.py:911:            [self], fields=fields, returning_fields=returning_fields,
+django/db/models/sql/compiler.py:1234:    returning_fields = None
+django/db/models/sql/compiler.py:1366:        can_bulk = (not self.returning_fields and self.connection.features.has_bulk_insert)
+django/db/models/sql/compiler.py:1373:        if self.returning_fields and self.connection.features.can_return_columns_from_insert:
+django/db/models/sql/compiler.py:1384:            r_sql, self.returning_params = self.connection.ops.return_insert_columns(self.returning_fields)
+django/db/models/sql/compiler.py:1403:    def execute_sql(self, returning_fields=None):
+django/db/models/sql/compiler.py:1405:            returning_fields and len(self.query.objs) != 1 and
+django/db/models/sql/compiler.py:1408:        self.returning_fields = returning_fields
+django/db/models/sql/compiler.py:1412:            if not self.returning_fields:
+django/db/models/query.py:506:                    for result, field in zip(results, opts.db_returning_fields):
+django/db/models/query.py:520:                    for result, field in zip(results, opts.db_returning_fields):
+django/db/models/query.py:1279:    def _insert(self, objs, fields, returning_fields=None, raw=False, using=None, ignore_conflicts=False):
+django/db/models/query.py:1289:        return query.get_compiler(using=using).execute_sql(returning_fields)
+django/db/models/query.py:1308:                    returning_fields=self.model._meta.db_returning_fields,
+django/db/models/options.py:887:    def db_returning_fields(self):
+[assistant] [tool_use: Read] {"file_path": "/testbed/django/db/models/sql/compiler.py", "offset": 1403, "limit": 50}
+[usage] input=2 cache_read=7873 cache_write=3374 output=111
+
+=== Turn 4 ===
+[user] [tool_result] 1403	    def execute_sql(self, returning_fields=None):
+1404	        assert not (
+1405	            returning_fields and len(self.query.objs) != 1 and
+1406	            not self.connection.features.can_return_rows_from_bulk_insert
+1407	        )
+1408	        self.returning_fields = returning_fields
+1409	        with self.connection.cursor() as cursor:
+1410	            for sql, params in self.as_sql():
+1411	                cursor.execute(sql, params)
+1412	            if not self.returning_fields:
+1413	                return []
+1414	            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:
+1415	                return self.connection.ops.fetch_returned_insert_rows(cursor)
+1416	            if self.connection.features.can_return_columns_from_insert:
+1417	                assert len(self.query.objs) == 1
+1418	                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]
+1419	            return [(self.connection.ops.last_insert_id(
+1420	                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column
+1421	            ),)]
+1422	
+1423	
+1424	class SQLDeleteCompiler(SQLCompiler):
+1425	    @cached_property
+1426	    def single_alias(self):
+1427	        # Ensure base table is in aliases.
+1428	        self.query.get_initial_alias()
+1429	        return sum(self.query.alias_refcount[t] > 0 for t in self.query.alias_map) == 1
+1430	
+1431	    def _as_sql(self, query):
+1432	        result = [
+1433	            'DELETE FROM %s' % self.quote_name_unless_alias(query.base_table)
+1434	        ]
+1435	        where, params = self.compile(query.where)
+1436	        if where:
+1437	            result.append('WHERE %s' % where)
+1438	        return ' '.join(result), tuple(params)
+1439	
+1440	    def as_sql(self):
+1441	        """
+1442	        Create the SQL for this query. Return the SQL string and list of
+1443	        parameters.
+1444	        """
+1445	        if self.single_alias:
+1446	            return self._as_sql(self.query)
+1447	        innerq = self.query.clone()
+1448	        innerq.__class__ = Query
+1449	        innerq.clear_select_clause()
+1450	        pk = self.query.model._meta.pk
+1451	        innerq.select = [
+1452	            pk.get_col(self.query.get_initial_alias())
+[assistant] [tool_use: Read] {"file_path": "/testbed/django/db/models/base.py", "offset": 865, "limit": 30}
+[usage] input=2 cache_read=11247 cache_write=989 output=206
+
+=== Turn 5 ===
+[user] [tool_result] 865	                    ),
+866	                )['_order__max']
+867	            fields = meta.local_concrete_fields
+868	            if not pk_set:
+869	                fields = [f for f in fields if f is not meta.auto_field]
+870	
+871	            returning_fields = meta.db_returning_fields
+872	            results = self._do_insert(cls._base_manager, using, fields, returning_fields, raw)
+873	            if results:
+874	                for value, field in zip(results[0], returning_fields):
+875	                    setattr(self, field.attname, value)
+876	        return updated
+877	
+878	    def _do_update(self, base_qs, using, pk_val, values, update_fields, forced_update):
+879	        """
+880	        Try to update the model. Return True if the model was updated (if an
+881	        update query was done and a matching row was found in the DB).
+882	        """
+883	        filtered = base_qs.filter(pk=pk_val)
+884	        if not values:
+885	            # We can end up here when saving a model in inheritance chain where
+886	            # update_fields doesn't target any field in current model. In that
+887	            # case we just say the update succeeded. Another case ending up here
+888	            # is a model with just PK - in that case check that the PK still
+889	            # exists.
+890	            return update_fields is not None or filtered.exists()
+891	        if self._meta.select_on_save and not forced_update:
+892	            return (
+893	                filtered.exists() and
+894	                # It may happen that the object is deleted from the DB right after
+[assistant] [tool_use: Bash] {"command": "grep -rn \"get_db_converters\\|convert_value\\|apply_converters\" django/db/models/sql/compiler.py | head", "description": "Find converter usage in compiler"}
+[usage] input=2 cache_read=12236 cache_write=699 output=219
+
+=== Turn 6 ===
+[user] [tool_result] django/db/models/sql/compiler.py:1104:                backend_converters = self.connection.ops.get_db_converters(expression)
+django/db/models/sql/compiler.py:1105:                field_converters = expression.get_db_converters(self.connection)
+django/db/models/sql/compiler.py:1110:    def apply_converters(self, rows, converters):
+django/db/models/sql/compiler.py:1130:            rows = self.apply_converters(rows, converters)
+[assistant] [tool_use: Read] {"file_path": "/testbed/django/db/models/sql/compiler.py", "offset": 1090, "limit": 45}
+[usage] input=2 cache_read=12935 cache_write=379 output=111
+
+=== Turn 7 ===
+[user] [tool_result] 1090	    def deferred_to_columns(self):
+1091	        """
+1092	        Convert the self.deferred_loading data structure to mapping of table
+1093	        names to sets of column names which are to be loaded. Return the
+1094	        dictionary.
+1095	        """
+1096	        columns = {}
+1097	        self.query.deferred_to_data(columns, self.query.get_loaded_field_names_cb)
+1098	        return columns
+1099	
+1100	    def get_converters(self, expressions):
+1101	        converters = {}
+1102	        for i, expression in enumerate(expressions):
+1103	            if expression:
+1104	                backend_converters = self.connection.ops.get_db_converters(expression)
+1105	                field_converters = expression.get_db_converters(self.connection)
+1106	                if backend_converters or field_converters:
+1107	                    converters[i] = (backend_converters + field_converters, expression)
+1108	        return converters
+1109	
+1110	    def apply_converters(self, rows, converters):
+1111	        connection = self.connection
+1112	        converters = list(converters.items())
+1113	        for row in map(list, rows):
+1114	            for pos, (convs, expression) in converters:
+1115	                value = row[pos]
+1116	                for converter in convs:
+1117	                    value = converter(value, expression, connection)
+1118	                row[pos] = value
+1119	            yield row
+1120	
+1121	    def results_iter(self, results=None, tuple_expected=False, chunked_fetch=False,
+1122	                     chunk_size=GET_ITERATOR_CHUNK_SIZE):
+1123	        """Return an iterator over the results from executing this query."""
+1124	        if results is None:
+1125	            results = self.execute_sql(MULTI, chunked_fetch=chunked_fetch, chunk_size=chunk_size)
+1126	        fields = [s[0] for s in self.select[0:self.col_count]]
+1127	        converters = self.get_converters(fields)
+1128	        rows = chain.from_iterable(results)
+1129	        if converters:
+1130	            rows = self.apply_converters(rows, converters)
+1131	            if tuple_expected:
+1132	                rows = map(tuple, rows)
+1133	        return rows
+1134	
+[assistant] [tool_use: Edit] {"file_path": "/testbed/django/db/models/sql/compiler.py", "old_string": "        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                return self.connection.ops.fetch_returned_insert_rows(cursor)\n            if self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            return [(self.connection.ops.last_insert_id(\n                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column\n            ),)]", "new_string": "        self.returning_fields = returning_fields\n        with self.connection.cursor() as cursor:\n            for sql, params in self.as_sql():\n                cursor.execute(sql, params)\n            if not self.returning_fields:\n                return []\n            if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:\n                rows = self.connection.ops.fetch_returned_insert_rows(cursor)\n            elif self.connection.features.can_return_columns_from_insert:\n                assert len(self.query.objs) == 1\n                rows = [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]\n            else:\n                rows = [(self.connection.ops.last_insert_id(\n                    cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column,\n                ),)]\n        cols = [field.get_col(self.query.get_meta().db_table) for field in self.returning_fields]\n        converters = self.get_converters(cols)\n        if converters:\n            rows = list(self.apply_converters(rows, converters))\n        return rows"}
+[usage] input=2 cache_read=13314 cache_write=865 output=840
+
+=== Turn 8 ===
+[user] [tool_result] The file /testbed/django/db/models/sql/compiler.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Bash] {"command": "grep -n \"def get_col\" /testbed/django/db/models/fields/__init__.py", "description": "Check get_col signature"}
+[usage] input=2 cache_read=14179 cache_write=915 output=266
+
+=== Turn 9 ===
+[user] [tool_result] 394:    def get_col(self, alias, output_field=None):
+[assistant] [tool_use: Bash] {"command": "cd /testbed && python -c \"import django; print(django.VERSION)\"; ls tests/ | grep -i \"custom_pk\\|from_db\\|converter\" ", "description": "Check test dirs"}
+[usage] input=2 cache_read=15094 cache_write=290 output=176
+
+=== Turn 10 ===
+[user] [tool_result] (4, 0, 0, 'alpha', 0)
+custom_pk
+from_db_value
+[assistant] [tool_use: Bash] {"command": "cd /testbed && python tests/runtests.py from_db_value custom_pk basic queries.test_bulk_update bulk_create 2>&1 | tail -20", "description": "Run related tests"}
+[usage] input=2 cache_read=15384 cache_write=204 output=125
+
+=== Turn 11 ===
+[user] [tool_result] Cloning test database for alias 'default'...
+.......................s..s........................................s...........................s...........s.sss...s.................
+----------------------------------------------------------------------
+Ran 133 tests in 0.252s
+
+OK (skipped=9)
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+[assistant] Tests pass. Let me verify the fix works end-to-end by adding to the from_db_value test app which is the natural home for this.[tool_use: Bash] {"command": "ls tests/from_db_value/; echo \"---\"; cat tests/from_db_value/models.py", "description": "Inspect from_db_value test app"}
+[usage] input=2 cache_read=15588 cache_write=410 output=151
+
+=== Turn 12 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: Read] {"file_path": "/testbed/tests/from_db_value/tests.py"}
+[usage] input=131 cache_read=15998 cache_write=362 output=65
+
+=== Turn 13 ===
+[user] [tool_result] 1	from django.db import connection
+2	from django.db.models import Max
+3	from django.test import TestCase
+4	
+5	from .models import Cash, CashModel
+6	
+7	
+8	class FromDBValueTest(TestCase):
+9	    @classmethod
+10	    def setUpTestData(cls):
+11	        CashModel.objects.create(cash='12.50')
+12	
+13	    def test_simple_load(self):
+14	        instance = CashModel.objects.get()
+15	        self.assertIsInstance(instance.cash, Cash)
+16	
+17	    def test_values_list(self):
+18	        values_list = CashModel.objects.values_list('cash', flat=True)
+19	        self.assertIsInstance(values_list[0], Cash)
+20	
+21	    def test_values(self):
+22	        values = CashModel.objects.values('cash')
+23	        self.assertIsInstance(values[0]['cash'], Cash)
+24	
+25	    def test_aggregation(self):
+26	        maximum = CashModel.objects.aggregate(m=Max('cash'))['m']
+27	        self.assertIsInstance(maximum, Cash)
+28	
+29	    def test_defer(self):
+30	        instance = CashModel.objects.defer('cash').get()
+31	        self.assertIsInstance(instance.cash, Cash)
+32	
+33	    def test_connection(self):
+34	        instance = CashModel.objects.get()
+35	        self.assertEqual(instance.cash.vendor, connection.vendor)
+36	
+[assistant] [tool_use: Write] {"file_path": "/testbed/tests/from_db_value/models.py", "content": "import decimal\n\nfrom django.db import models\n\n\nclass Cash(decimal.Decimal):\n    currency = 'USD'\n\n\nclass CashField(models.DecimalField):\n    def __init__(self, **kwargs):\n        kwargs['max_digits'] = 20\n        kwargs['decimal_places'] = 2\n        super().__init__(**kwargs)\n\n    def from_db_value(self, value, expression, connection):\n        cash = Cash(value)\n        cash.vendor = connection.vendor\n        return cash\n\n\nclass CashModel(models.Model):\n    cash = CashField()\n\n    def __str__(self):\n        return str(self.cash)\n\n\nclass CashFieldDeprecated(CashField):\n    def from_db_value(self, value, expression, connection, *ignored):\n        return super().from_db_value(value, expression, connection)\n\n\nclass CashModelDeprecated(models.Model):\n    cash = CashFieldDeprecated()\n"}
+[usage] input=2 cache_read=16360 cache_write=703 output=527
+
+=== Turn 14 ===
+[user] [tool_result] <tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>
+[assistant] I'll keep changes minimal. Let me just verify the fix works with a quick script rather than modifying test fixtures unnecessarily.[tool_use: Bash] {"command": "cd /testbed && cat > /tmp/t.py <<'EOF'\nimport django\nfrom django.conf import settings\nsettings.configure(\n    DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},\n    INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth', '__main__'],\n)\ndjango.setup()\nfrom django.db import models, connection\n\nclass MyIntWrapper:\n    def __init__(self, v): self.value = int(v)\n    def __repr__(self): return f'<MyIntWrapper: {self.value}>'\n    def __eq__(self, o): return isinstance(o, MyIntWrapper) and o.value == self.value\n\nclass MyAutoField(models.BigAutoField):\n    def from_db_value(self, value, expression, connection):\n        if value is None: return None\n        return MyIntWrapper(value)\n    def get_prep_value(self, value):\n        if value is None: return None\n        return int(value)\n\nclass AutoModel(models.Model):\n    id = MyAutoField(primary_key=True)\n    class Meta: app_label='__main__'\n\nwith connection.schema_editor() as se:\n    se.create_model(AutoModel)\n\nam2 = AutoModel.objects.create()\nprint('create:', repr(am2.id), type(am2.id).__name__)\nassert isinstance(am2.id, MyIntWrapper), am2.id\n\nams = [AutoModel()]\nAutoModel.objects.bulk_create(ams)\nprint('bulk_create:', repr(ams[0].id), type(ams[0].id).__name__)\nassert isinstance(ams[0].id, MyIntWrapper), ams[0].id\nprint('OK')\nEOF\npython /tmp/t.py", "description": "Verify fix end-to-end"}
+[usage] input=2 cache_read=17063 cache_write=570 output=876
+
+=== Turn 15 ===
+[user] [tool_result] Exit code 1
+create: <MyIntWrapper: 1> MyIntWrapper
+bulk_create: None NoneType
+Traceback (most recent call last):
+  File "/tmp/t.py", line 37, in <module>
+    assert isinstance(ams[0].id, MyIntWrapper), ams[0].id
+AssertionError: None
+[assistant] The `create` case now works. The `bulk_create` returning None on SQLite is expected (SQLite doesn't support `can_return_rows_from_bulk_insert`). Let me check the bulk_create path in query.py applies converters properly:[tool_use: Read] {"file_path": "/testbed/django/db/models/query.py", "offset": 495, "limit": 35}
+[usage] input=2 cache_read=17633 cache_write=994 output=443
+
+=== Turn 16 ===
+[user] [tool_result] 495	        opts = self.model._meta
+496	        fields = opts.concrete_fields
+497	        objs = list(objs)
+498	        self._prepare_for_bulk_create(objs)
+499	        with transaction.atomic(using=self.db, savepoint=False):
+500	            objs_with_pk, objs_without_pk = partition(lambda o: o.pk is None, objs)
+501	            if objs_with_pk:
+502	                returned_columns = self._batched_insert(
+503	                    objs_with_pk, fields, batch_size, ignore_conflicts=ignore_conflicts,
+504	                )
+505	                for obj_with_pk, results in zip(objs_with_pk, returned_columns):
+506	                    for result, field in zip(results, opts.db_returning_fields):
+507	                        if field != opts.pk:
+508	                            setattr(obj_with_pk, field.attname, result)
+509	                for obj_with_pk in objs_with_pk:
+510	                    obj_with_pk._state.adding = False
+511	                    obj_with_pk._state.db = self.db
+512	            if objs_without_pk:
+513	                fields = [f for f in fields if not isinstance(f, AutoField)]
+514	                returned_columns = self._batched_insert(
+515	                    objs_without_pk, fields, batch_size, ignore_conflicts=ignore_conflicts,
+516	                )
+517	                if connection.features.can_return_rows_from_bulk_insert and not ignore_conflicts:
+518	                    assert len(returned_columns) == len(objs_without_pk)
+519	                for obj_without_pk, results in zip(objs_without_pk, returned_columns):
+520	                    for result, field in zip(results, opts.db_returning_fields):
+521	                        setattr(obj_without_pk, field.attname, result)
+522	                    obj_without_pk._state.adding = False
+523	                    obj_without_pk._state.db = self.db
+524	
+525	        return objs
+526	
+527	    def bulk_update(self, objs, fields, batch_size=None):
+528	        """
+529	        Update the given fields in each of the given objects in the database.
+[assistant] The fix is in `execute_sql`, which is the shared path for both `create` and `bulk_create` (via `_batched_insert` → `_insert`). On backends supporting bulk returning (e.g. PostgreSQL), the bulk rows are also converted. On SQLite, `bulk_create` never populated pks — that's a pre-existing backend limitation, not affected by this change.
+
+Let me now add a proper regression test. Let me read the models file first:[tool_use: Read] {"file_path": "/testbed/tests/from_db_value/models.py"}
+[usage] input=2 cache_read=18627 cache_write=1156 output=457
+
+=== Turn 17 ===
+[user] [tool_result] 1	import decimal
+2	
+3	from django.db import models
+4	
+5	
+6	class Cash(decimal.Decimal):
+7	    currency = 'USD'
+8	
+9	
+10	class CashField(models.DecimalField):
+11	    def __init__(self, **kwargs):
+12	        kwargs['max_digits'] = 20
+13	        kwargs['decimal_places'] = 2
+14	        super().__init__(**kwargs)
+15	
+16	    def from_db_value(self, value, expression, connection):
+17	        cash = Cash(value)
+18	        cash.vendor = connection.vendor
+19	        return cash
+20	
+21	
+22	class CashModel(models.Model):
+23	    cash = CashField()
+24	
+[assistant] [tool_use: Write] {"file_path": "/testbed/tests/from_db_value/models.py", "content": "import decimal\n\nfrom django.db import models\n\n\nclass Cash(decimal.Decimal):\n    currency = 'USD'\n\n\nclass CashField(models.DecimalField):\n    def __init__(self, **kwargs):\n        kwargs['max_digits'] = 20\n        kwargs['decimal_places'] = 2\n        super().__init__(**kwargs)\n\n    def from_db_value(self, value, expression, connection):\n        cash = Cash(value)\n        cash.vendor = connection.vendor\n        return cash\n\n\nclass CashModel(models.Model):\n    cash = CashField()\n\n\nclass IntegerWrapper:\n    def __init__(self, value):\n        self.value = int(value)\n\n    def __eq__(self, other):\n        if isinstance(other, IntegerWrapper):\n            return self.value == other.value\n        if isinstance(other, int):\n            return self.value == other\n        return NotImplemented\n\n    def __repr__(self):\n        return '%s(%s)' % (type(self).__name__, self.value)\n\n\nclass IntegerWrapperField(models.BigAutoField):\n    def from_db_value(self, value, expression, connection):\n        if value is None:\n            return None\n        return IntegerWrapper(value)\n\n    def get_prep_value(self, value):\n        if value is None:\n            return None\n        return int(value)\n\n\nclass WrappedIntegerModel(models.Model):\n    id = IntegerWrapperField(primary_key=True)\n"}
+[usage] input=2 cache_read=19783 cache_write=702 output=726
+
+=== Turn 18 ===
+[user] [tool_result] The file /testbed/tests/from_db_value/models.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Edit] {"file_path": "/testbed/tests/from_db_value/tests.py", "old_string": "from django.db import connection\nfrom django.db.models import Max\nfrom django.test import TestCase\n\nfrom .models import Cash, CashModel", "new_string": "from django.db import connection\nfrom django.db.models import Max\nfrom django.test import TestCase, skipUnlessDBFeature\n\nfrom .models import Cash, CashModel, IntegerWrapper, WrappedIntegerModel"}
+[usage] input=2 cache_read=20485 cache_write=775 output=222
+
+=== Turn 19 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/from_db_value/tests.py", "old_string": "    def test_connection(self):\n        instance = CashModel.objects.get()\n        self.assertEqual(instance.cash.vendor, connection.vendor)", "new_string": "    def test_connection(self):\n        instance = CashModel.objects.get()\n        self.assertEqual(instance.cash.vendor, connection.vendor)\n\n    def test_insert_returning_field_converted(self):\n        instance = WrappedIntegerModel.objects.create()\n        self.assertIsInstance(instance.id, IntegerWrapper)\n\n    @skipUnlessDBFeature('can_return_rows_from_bulk_insert')\n    def test_bulk_insert_returning_field_converted(self):\n        instances = [WrappedIntegerModel(), WrappedIntegerModel()]\n        WrappedIntegerModel.objects.bulk_create(instances)\n        for instance in instances:\n            self.assertIsInstance(instance.id, IntegerWrapper)"}
+[usage] input=131 cache_read=21260 cache_write=296 output=444
+
+=== Turn 20 ===
+[user] [tool_result] The file /testbed/tests/from_db_value/tests.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Bash] {"command": "python tests/runtests.py from_db_value -v2 2>&1 | tail -25", "description": "Run from_db_value tests"}
+[usage] input=2 cache_read=21556 cache_write=623 output=103
+
+=== Turn 21 ===
+[user] [tool_result]     Creating table from_db_value_cashmodel
+    Creating table from_db_value_wrappedintegermodel
+    Running deferred SQL...
+Running migrations:
+  Applying admin.0001_initial... OK
+  Applying admin.0002_logentry_remove_auto_add... OK
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+  Applying sites.0001_initial... OK
+  Applying sites.0002_alter_domain_unique... OK
+Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+System check identified no issues (0 silenced).
+test_aggregation (from_db_value.tests.FromDBValueTest) ... ok
+test_bulk_insert_returning_field_converted (from_db_value.tests.FromDBValueTest) ... skipped "Database doesn't support feature(s): can_return_rows_from_bulk_insert"
+test_connection (from_db_value.tests.FromDBValueTest) ... ok
+test_defer (from_db_value.tests.FromDBValueTest) ... ok
+test_insert_returning_field_converted (from_db_value.tests.FromDBValueTest) ... ok
+test_simple_load (from_db_value.tests.FromDBValueTest) ... ok
+test_values (from_db_value.tests.FromDBValueTest) ... ok
+test_values_list (from_db_value.tests.FromDBValueTest) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.003s
+
+OK (skipped=1)
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+[assistant] All tests pass (bulk test skipped on SQLite, as expected). Let me run a broader sweep to ensure nothing regressed:[tool_use: Bash] {"command": "python tests/runtests.py from_db_value custom_pk basic bulk_create queries model_fields model_inheritance 2>&1 | tail -6; rm -f /tmp/t.py", "description": "Broader regression sweep"}
+[usage] input=2 cache_read=22179 cache_write=675 output=181
+
+=== Turn 22 ===
+[user] [tool_result] Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+Destroying test database for alias 'default'...
+[assistant] [tool_use: Bash] {"command": "python tests/runtests.py from_db_value custom_pk basic bulk_create queries model_fields model_inheritance 2>&1 | grep -E \"Ran |OK|FAIL|ERROR\"", "description": "Get test summary"}
+[usage] input=2 cache_read=22854 cache_write=275 output=138
+
+=== Turn 23 ===
+[user] [tool_result] Ran 989 tests in 0.372s
+OK (skipped=33, expected failures=2)
+[assistant] All 989 tests pass. Here's a summary of the change.
+
+## Problem
+
+On insert, values returned from the database for `returning_fields` (like an auto-generated primary key) were set directly on the model instance without passing through the field's database converters — so `from_db_value` was never called. This is inconsistent with every other query pathway, meaning a `BigAutoField` subclass that wraps its value would get a plain `int` back from `create()`/`bulk_create()` instead of its wrapper.
+
+## Fix
+
+In `django/db/models/sql/compiler.py`, `SQLInsertCompiler.execute_sql()` now applies the fields' converters to the returned rows before returning them:
+
+```python
+cols = [field.get_col(self.query.get_meta().db_table) for field in self.returning_fields]
+converters = self.get_converters(cols)
+if converters:
+    rows = list(self.apply_converters(rows, converters))
+return rows
+```
+
+Because `execute_sql` is the single shared code path for `Model.save()`/`create()` and for `bulk_create()` (via `_batched_insert` → `_insert`), both are fixed. This reuses the existing `get_converters`/`apply_converters` machinery already used for `SELECT` results, so backend converters and `from_db_value` both run.
+
+## Tests
+
+Added a `BigAutoField` subclass with a `from_db_value` wrapper to `tests/from_db_value/`, plus two regression tests covering `create()` (all backends) and `bulk_create()` (gated on `can_return_rows_from_bulk_insert`).
+
+Note: on SQLite the `bulk_create` test is skipped because SQLite can't return rows from a bulk insert and never populated pks there — a pre-existing backend limitation unrelated to this change.
+[usage] input=2 cache_read=23129 cache_write=174 output=579

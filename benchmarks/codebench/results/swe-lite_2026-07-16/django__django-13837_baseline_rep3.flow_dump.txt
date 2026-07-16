@@ -1,0 +1,189 @@
+
+=== Turn 1 ===
+[user] <session>
+Allow autoreloading of `python -m pkg_other_than_django runserver`
+Description
+	 
+		(last modified by William Schwartz)
+	 
+​django.utils.autoreload.get_child_arguments detects if Python was launched as python -m django. Currently it detects only when ​-m was passed specifically django (and only in Python environments in which __file__ is set on modules, which is ​not true of all Python environments). Like #32177, this ticket aims to remove one impediment to creating Django-based command-line utilities that have their own ​__main__ sub-module while overriding Django's built-in management commands—in this case, runserver.
+The fix, which I have submitted in the ​attached PR, is to use Python's ​documented way of determining if -m was used in get_child_arguments:
+The top-level __main__ module is always the entry point of a ​complete Python program.
+ __main__.__spec__ is not None ​if and only if Python was launched with -m or the name of a "directory, zipfile or other sys.path entry." In the latter cases, the ​documentation says
+If the script name refers to a directory or zipfile, the script name is added to the start of sys.path and the __main__.py file in that location is executed as the __main__ module.
+Hence __main__.__spec__.parent (which is ​usually but not always __main__.__package__) exists and is the empty string when Python is started with the name of a directory or zip file.
+Therefore Python was started with -m pkg if and only if __main__.__spec__.parent == "pkg".
+Following this algorithm is guaranteed to work as long as Python obeys its own documentation, and has the side benefit of avoiding use of __file__.
+</session>
+
+Write the title in the language the user wrote in, regardless of the language of the examples above.
+[assistant] {"title": "Fix autoreload for custom Django-based command utilities"}
+[usage] input=913 cache_read=0 cache_write=0 output=19
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: Bash] {"command": "grep -n \"get_child_arguments\" /testbed/django/utils/autoreload.py | head", "description": "Find get_child_arguments"}
+[usage] input=2464 cache_read=7959 cache_write=0 output=120
+
+=== Turn 3 ===
+[user] [tool_result] 213:def get_child_arguments():
+256:    args = get_child_arguments()
+[assistant] [tool_use: Read] {"file_path": "/testbed/django/utils/autoreload.py", "offset": 213, "limit": 50}
+[usage] input=2 cache_read=7959 cache_write=2612 output=107
+
+=== Turn 4 ===
+[user] [tool_result] 213	def get_child_arguments():
+214	    """
+215	    Return the executable. This contains a workaround for Windows if the
+216	    executable is reported to not have the .exe extension which can cause bugs
+217	    on reloading.
+218	    """
+219	    import django.__main__
+220	    django_main_path = Path(django.__main__.__file__)
+221	    py_script = Path(sys.argv[0])
+222	
+223	    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]
+224	    if py_script == django_main_path:
+225	        # The server was started with `python -m django runserver`.
+226	        args += ['-m', 'django']
+227	        args += sys.argv[1:]
+228	    elif not py_script.exists():
+229	        # sys.argv[0] may not exist for several reasons on Windows.
+230	        # It may exist with a .exe extension or have a -script.py suffix.
+231	        exe_entrypoint = py_script.with_suffix('.exe')
+232	        if exe_entrypoint.exists():
+233	            # Should be executed directly, ignoring sys.executable.
+234	            # TODO: Remove str() when dropping support for PY37.
+235	            # args parameter accepts path-like on Windows from Python 3.8.
+236	            return [str(exe_entrypoint), *sys.argv[1:]]
+237	        script_entrypoint = py_script.with_name('%s-script.py' % py_script.name)
+238	        if script_entrypoint.exists():
+239	            # Should be executed as usual.
+240	            # TODO: Remove str() when dropping support for PY37.
+241	            # args parameter accepts path-like on Windows from Python 3.8.
+242	            return [*args, str(script_entrypoint), *sys.argv[1:]]
+243	        raise RuntimeError('Script %s does not exist.' % py_script)
+244	    else:
+245	        args += sys.argv
+246	    return args
+247	
+248	
+249	def trigger_reload(filename):
+250	    logger.info('%s changed, reloading.', filename)
+251	    sys.exit(3)
+252	
+253	
+254	def restart_with_reloader():
+255	    new_environ = {**os.environ, DJANGO_AUTORELOAD_ENV: 'true'}
+256	    args = get_child_arguments()
+257	    while True:
+258	        p = subprocess.run(args, env=new_environ, close_fds=False)
+259	        if p.returncode != 3:
+260	            return p.returncode
+261	
+262	
+[assistant] [tool_use: Edit] {"file_path": "/testbed/django/utils/autoreload.py", "old_string": "    import django.__main__\n    django_main_path = Path(django.__main__.__file__)\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    if py_script == django_main_path:\n        # The server was started with `python -m django runserver`.\n        args += ['-m', 'django']\n        args += sys.argv[1:]\n    elif not py_script.exists():", "new_string": "    import __main__\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]\n    elif not py_script.exists():"}
+[usage] input=2 cache_read=10571 cache_write=948 output=508
+
+=== Turn 5 ===
+[user] [tool_result] The file /testbed/django/utils/autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] Let me use the cleaner form matching the ticket's algorithm:[tool_use: Edit] {"file_path": "/testbed/django/utils/autoreload.py", "old_string": "    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')):\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]\n    elif not py_script.exists():", "new_string": "    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None and __main__.__spec__.parent:\n        args += ['-m', __main__.__spec__.parent]\n        args += sys.argv[1:]\n    elif not py_script.exists():"}
+[usage] input=2 cache_read=11519 cache_write=580 output=897
+
+=== Turn 6 ===
+[user] [tool_result] The file /testbed/django/utils/autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] The change is complete. Let me verify it:[tool_use: Read] {"file_path": "/testbed/django/utils/autoreload.py", "offset": 213, "limit": 32}
+[usage] input=2 cache_read=12099 cache_write=969 output=121
+
+=== Turn 7 ===
+[user] [tool_result] 213	def get_child_arguments():
+214	    """
+215	    Return the executable. This contains a workaround for Windows if the
+216	    executable is reported to not have the .exe extension which can cause bugs
+217	    on reloading.
+218	    """
+219	    import __main__
+220	    py_script = Path(sys.argv[0])
+221	
+222	    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]
+223	    # __spec__ is set when the server was started with the `-m` option,
+224	    # see https://docs.python.org/3/reference/import.html#main-spec
+225	    # __spec__ may not exist, e.g. when running in a Conda env.
+226	    if getattr(__main__, '__spec__', None) is not None and __main__.__spec__.parent:
+227	        args += ['-m', __main__.__spec__.parent]
+228	        args += sys.argv[1:]
+229	    elif not py_script.exists():
+230	        # sys.argv[0] may not exist for several reasons on Windows.
+231	        # It may exist with a .exe extension or have a -script.py suffix.
+232	        exe_entrypoint = py_script.with_suffix('.exe')
+233	        if exe_entrypoint.exists():
+234	            # Should be executed directly, ignoring sys.executable.
+235	            # TODO: Remove str() when dropping support for PY37.
+236	            # args parameter accepts path-like on Windows from Python 3.8.
+237	            return [str(exe_entrypoint), *sys.argv[1:]]
+238	        script_entrypoint = py_script.with_name('%s-script.py' % py_script.name)
+239	        if script_entrypoint.exists():
+240	            # Should be executed as usual.
+241	            # TODO: Remove str() when dropping support for PY37.
+242	            # args parameter accepts path-like on Windows from Python 3.8.
+243	            return [*args, str(script_entrypoint), *sys.argv[1:]]
+244	        raise RuntimeError('Script %s does not exist.' % py_script)
+[assistant] I've updated `get_child_arguments` in `django/utils/autoreload.py` to detect `-m` launches using Python's documented `__main__.__spec__` mechanism instead of comparing `sys.argv[0]` against `django.__main__.__file__`.
+
+## What changed
+
+**Before:** The code imported `django.__main__`, read its `__file__` (which isn't set in all Python environments), and only recognized `python -m django`.
+
+**After:** It inspects the top-level `__main__` module's `__spec__`:
+
+- `__main__.__spec__` is `None` when Python was launched with a script path → falls through to the existing script-path handling.
+- When launched with `-m pkg`, `__main__.__spec__.parent` equals `"pkg"`, so `args += ['-m', pkg]` restarts the child with the *same* package — whether that's `django` or a third-party package that overrides `runserver`.
+- The `.parent` truthiness check also correctly excludes the case where Python is started with a directory/zipfile name (where `parent` is the empty string), matching the ticket's algorithm exactly.
+
+This removes the dependency on `__file__` and generalizes autoreload to work with `python -m any_package runserver`.
+[usage] input=2 cache_read=13068 cache_write=812 output=397

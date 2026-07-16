@@ -1,0 +1,99 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index f02199d97c..b6ae8aa3c9 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -1412,13 +1412,19 @@ class SQLInsertCompiler(SQLCompiler):
+             if not self.returning_fields:
+                 return []
+             if self.connection.features.can_return_rows_from_bulk_insert and len(self.query.objs) > 1:
+-                return self.connection.ops.fetch_returned_insert_rows(cursor)
+-            if self.connection.features.can_return_columns_from_insert:
++                rows = self.connection.ops.fetch_returned_insert_rows(cursor)
++            elif self.connection.features.can_return_columns_from_insert:
+                 assert len(self.query.objs) == 1
+-                return [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]
+-            return [(self.connection.ops.last_insert_id(
+-                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column
+-            ),)]
++                rows = [self.connection.ops.fetch_returned_insert_columns(cursor, self.returning_params)]
++            else:
++                rows = [(self.connection.ops.last_insert_id(
++                    cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column,
++                ),)]
++        cols = [field.get_col(self.query.get_meta().db_table) for field in self.returning_fields]
++        converters = self.get_converters(cols)
++        if converters:
++            rows = list(self.apply_converters(rows, converters))
++        return rows
+ 
+ 
+ class SQLDeleteCompiler(SQLCompiler):
+diff --git a/tests/from_db_value/models.py b/tests/from_db_value/models.py
+index 58e8ec3a27..a50fc16a7a 100644
+--- a/tests/from_db_value/models.py
++++ b/tests/from_db_value/models.py
+@@ -21,3 +21,34 @@ class CashField(models.DecimalField):
+ 
+ class CashModel(models.Model):
+     cash = CashField()
++
++
++class IntegerWrapper:
++    def __init__(self, value):
++        self.value = int(value)
++
++    def __eq__(self, other):
++        if isinstance(other, IntegerWrapper):
++            return self.value == other.value
++        if isinstance(other, int):
++            return self.value == other
++        return NotImplemented
++
++    def __repr__(self):
++        return '%s(%s)' % (type(self).__name__, self.value)
++
++
++class IntegerWrapperField(models.BigAutoField):
++    def from_db_value(self, value, expression, connection):
++        if value is None:
++            return None
++        return IntegerWrapper(value)
++
++    def get_prep_value(self, value):
++        if value is None:
++            return None
++        return int(value)
++
++
++class WrappedIntegerModel(models.Model):
++    id = IntegerWrapperField(primary_key=True)
+diff --git a/tests/from_db_value/tests.py b/tests/from_db_value/tests.py
+index ab92f37ccf..3a3c4c3fff 100644
+--- a/tests/from_db_value/tests.py
++++ b/tests/from_db_value/tests.py
+@@ -1,8 +1,8 @@
+ from django.db import connection
+ from django.db.models import Max
+-from django.test import TestCase
++from django.test import TestCase, skipUnlessDBFeature
+ 
+-from .models import Cash, CashModel
++from .models import Cash, CashModel, IntegerWrapper, WrappedIntegerModel
+ 
+ 
+ class FromDBValueTest(TestCase):
+@@ -33,3 +33,14 @@ class FromDBValueTest(TestCase):
+     def test_connection(self):
+         instance = CashModel.objects.get()
+         self.assertEqual(instance.cash.vendor, connection.vendor)
++
++    def test_insert_returning_field_converted(self):
++        instance = WrappedIntegerModel.objects.create()
++        self.assertIsInstance(instance.id, IntegerWrapper)
++
++    @skipUnlessDBFeature('can_return_rows_from_bulk_insert')
++    def test_bulk_insert_returning_field_converted(self):
++        instances = [WrappedIntegerModel(), WrappedIntegerModel()]
++        WrappedIntegerModel.objects.bulk_create(instances)
++        for instance in instances:
++            self.assertIsInstance(instance.id, IntegerWrapper)

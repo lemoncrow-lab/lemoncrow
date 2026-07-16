@@ -1,0 +1,10 @@
+task,baseline_arm,candidate_arm,baseline_reps,candidate_reps,baseline_cost_usd_median,candidate_cost_usd_median,cost_savings_vs_baseline_pct,baseline_tokens_median,candidate_tokens_median,tokens_savings_vs_baseline_pct,baseline_duration_ms_median,candidate_duration_ms_median,duration_savings_vs_baseline_pct,baseline_tool_calls_median,candidate_tool_calls_median,tool_calls_savings_vs_baseline_pct
+local1,baseline,lemoncrow,5,5,0.0559,0.0271,51.5,13298,12503,6.0,11348.0,8199.0,27.7,0,0,
+local2,baseline,lemoncrow,5,5,0.0681,0.0352,48.3,13778,12821,6.9,19674.0,12845.0,34.7,0,0,
+local4,baseline,lemoncrow,5,5,0.0692,0.033,52.4,13838,12741,7.9,21124.0,11418.0,45.9,0,0,
+local5,baseline,lemoncrow,5,5,0.0623,0.0308,50.6,13552,13005,4.0,14109.0,7868.0,44.2,0,0,
+local6,baseline,lemoncrow,5,5,0.0617,0.029,52.9,13522,12859,4.9,14319.0,10994.0,23.2,0,0,
+local7,baseline,lemoncrow,5,5,0.0625,0.0314,49.8,13562,12730,6.1,15706.0,8421.0,46.4,0,0,
+local8,baseline,lemoncrow,5,5,0.0569,0.0248,56.4,13339,12409,7.0,13323.0,6363.0,52.2,0,0,
+local9,baseline,lemoncrow,5,5,0.0568,0.0305,46.3,13328,12987,2.6,12177.0,9319.0,23.5,0,0,
+local10,baseline,lemoncrow,5,5,0.0602,0.0304,49.6,13470,12997,3.5,13434.0,8829.0,34.3,0,0,
