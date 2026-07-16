@@ -33,7 +33,7 @@ from lemoncrow.core.foundation.update_state import write_update_state
 
 # Single source of truth for the distribution channel. Keep these in lockstep
 # with scripts/install.sh and .github/workflows/release.yml.
-_GH_REPO = "lemoncrowhq/lemoncrow"
+_GH_REPO = "lemoncrow-lab/lemoncrow"
 _RELEASE_LATEST_URL = f"https://github.com/{_GH_REPO}/releases/latest/download"
 _INSTALLER_ASSET = "install.sh"
 

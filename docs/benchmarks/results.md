@@ -1,7 +1,7 @@
 # Benchmark Results
 
 Every number on [lemoncrow.com](https://lemoncrow.com) and in the repo's
-[BENCHMARKS.md](https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md)
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)
 traces back to a committed raw run. This page is the index: what was measured,
 against what, and where the receipts live. See also: [every "vs" comparison on
 lemoncrow.com](https://lemoncrow.com/vs) for the marketing-facing version of the same
@@ -11,21 +11,21 @@ data, and [Marketing & Positioning](../marketing/strategy.md) for voice.
 
 | Suite | What it measures | Baseline | LemonCrow | Raw data |
 | --- | --- | ---: | ---: | --- |
-| SWE-bench Verified | 50 tasks x 5 reps, real bug fixes, official harness | 202/250 (80.8%), $234.84 | **232/250 (92.8%), $165.45** | [`swe50_2026_06_30/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/swe50_2026_06_30) |
-| SWE-bench Lite | 10 tasks x 3 reps | 28/30 (93.3%), $12.38 | **30/30 (100%), $10.79** | [`swe-lite_2026-07-06/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/swe-lite_2026-07-06) |
-| SWE-bench Pro | 10 tasks x 5 reps, Go/TS/Python, ScaleAI harness | 44/50 (88%), $39.01 | **45/50 (90%), $30.61** | [`swe-pro_2026_07_07/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/swe-pro_2026_07_07) |
-| Exploration tasks | 7 large repos x 5 reps, one open-ended question each | $19.11 | **$6.29 (67% cheaper)** | [`exploration_2026_06_29/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/exploration_2026_06_29) |
-| Telegraphic output anatomy | Output-token decomposition (prose vs. fixed payload vs. thinking) | 67 prose tok/turn | **30 prose tok/turn (2.7x less)** | [`swe_lite_telegraphic_2026_07_06/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06) |
-| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $8.93 | **$5.34 (40.2% cheaper)** | [`telegraphic_2026_07_08/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/telegraphic_2026_07_08) |
-| Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/codebench/results/retrieval_2026_07_05) |
+| SWE-bench Verified | 50 tasks x 5 reps, real bug fixes, official harness | 202/250 (80.8%), $234.84 | **232/250 (92.8%), $165.45** | [`swe50_2026_06_30/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe50_2026_06_30) |
+| SWE-bench Lite | 10 tasks x 5 reps | 49/50 (98%), $19.83 | 48/50 (96%), **$17.51 (11.7% cheaper)** | [`swe-lite_2026-07-16/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe-lite_2026-07-16) |
+| SWE-bench Pro | 10 tasks x 5 reps, Go/TS/Python, ScaleAI harness | 44/50 (88%), $39.01 | **45/50 (90%), $30.61** | [`swe-pro_2026_07_07/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe-pro_2026_07_07) |
+| Exploration tasks | 7 large repos x 5 reps, one open-ended question each | $19.11 | **$6.29 (67% cheaper)** | [`exploration_2026_06_29/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/exploration_2026_06_29) |
+| Telegraphic output anatomy | Output-token decomposition (prose vs. fixed payload vs. thinking) | 67 prose tok/turn | **30 prose tok/turn (2.7x less)** | [`swe_lite_telegraphic_2026_07_06/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06) |
+| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $7.73 | **$4.59 (40.7% cheaper)** | [`telegraphic_2026_07_16/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/telegraphic_2026_07_16) |
+| Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/retrieval_2026_07_05) |
 | Indexing time | Cold full-rebuild time, 14 repos, lexical/zoekt/semantic phases | -- | see table below | same as above |
 | Embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1, LemonCrow's default)** | `benchmarks/codebench/run_embedder_sweep.py` |
-| Terminal-Bench 2.1 | 89 agentic terminal tasks, 1 attempt vs. public tbench.ai leaderboard (5-rep avg) | 78.9% expected, $96.76 | 78.7%, **$69.52 (28.1% cheaper)*** | [`harbor/results/lemoncrow/2026-07-07__02-24-29/`](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29) |
+| Terminal-Bench 2.1 | 89 agentic terminal tasks, 1 attempt vs. public tbench.ai leaderboard (5-rep avg) | 78.9% expected, $96.76 | 78.7%, **$69.52 (28.1% cheaper)*** | [`harbor/results/lemoncrow/2026-07-07__02-24-29/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29) |
 
 <sub>* Understates the real gap: 5 of 6 tasks missing cost data are real, uncounted LemonCrow spend (harness killed the process on a timeout before it logged final cost), not zero-cost runs.</sub>
 
 Full per-suite tables, setup notes, and reproduction commands are in
-[BENCHMARKS.md](https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md) --
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md) --
 this page is the index, that file is the source of truth.
 
 ## Retrieval evaluation: the "vs named competitors" story
@@ -92,16 +92,15 @@ both get their own page on [lemoncrow.com/vs](https://lemoncrow.com/vs) instead.
 - **["Just tell Claude to be terse"](https://lemoncrow.com/vs/caveman)** is the
   free DIY alternative every reader can try with no install: a system-prompt
   instruction (`benchmarks/telegraphic/caveman_skill.md`) layered on vanilla
-  Claude Code. Real data from the same 5-rep, 3-arm run as the flagship
-  comparison (`benchmarks/codebench/results/telegraphic_2026_07_08/`): it
-  cuts output tokens almost as much as LemonCrow's full runtime (43% vs. 46%
-  fewer, mean pooled) but with more variance across prompts (16pp vs. 11pp
-  stdev), and it barely moves cost (-2% vs. LemonCrow's -40%) -- a wording
+  Claude Code. Same run as the Telegraphic Q&A table above
+  (`benchmarks/codebench/results/telegraphic_2026_07_16/`, 3 arms x 20
+  prompts x 5 reps, 300 runs, one invocation): caveman cuts output tokens
+  almost as much as LemonCrow's full runtime per prompt (mean 47% vs.
+  LemonCrow's mean 62%, stdev 17pp vs. 34pp) but costs 4.2% *more* than
+  baseline overall, where LemonCrow is 40.7% cheaper -- a wording
   instruction only compresses replies, it can't touch the input/context
-  tokens that actually drive the bill. Its weakest prompt is `error-boundary`
-  (a real code-block answer, not prose to compress) at a 3% output-token cut;
-  its worst *cost* outcome is `async-refactor`, a 12% cost increase despite a
-  47% token cut there.
+  tokens that actually drive the bill. Its weakest prompt is `microservices-monolith`
+  (a 13% output-token cut); its strongest is `auth-middleware-fix` (85% cut).
 
 ## Indexing time (cold full rebuild)
 
@@ -112,7 +111,7 @@ both get their own page on [lemoncrow.com/vs](https://lemoncrow.com/vs) instead.
 | linux | 1,239,077 | 179.49s | 13.69s | 1,208.89s |
 
 Full 14-repo table in
-[BENCHMARKS.md#indexing-time](https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md#indexing-time).
+[BENCHMARKS.md#indexing-time](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md#indexing-time).
 
 ## Vanilla Claude Code baseline
 
@@ -125,7 +124,7 @@ any baseline; GitHub is the one vendor we found publishing a comparable
 harness-vs-harness efficiency study (GitHub Copilot's agent vs. model-vendor
 harnesses). See [lemoncrow.com/vs/claude-code](https://lemoncrow.com/vs/claude-code)
 for the marketing rollup, or
-[BENCHMARKS.md](https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md)
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)
 for every suite in full.
 
 ## Reproduce any of this
@@ -140,11 +139,11 @@ CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto uv run --project benchmarks python -m b
 uv run lemoncrow eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
 
 # Telegraphic Q&A
-uv run lemoncrow benchmark telegraphic --arm baseline --arm lemoncrow --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y
+uv run lemoncrow benchmark telegraphic --arm baseline --arm lemoncrow --arm caveman --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y
 
 # Terminal-Bench 2.1
 lc benchmark harbor -y
 ```
 
 Every command above, plus setup notes and per-suite caveats, is in
-[BENCHMARKS.md](https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md).
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md).

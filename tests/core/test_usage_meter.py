@@ -200,7 +200,7 @@ def test_oauth_subscription_overrides_stale_local_trial(lemoncrow_root: Path, mo
     stale = pr.compute_usage_meter(lemoncrow_root)
     pr._write_json(pr.subscription_state_path(lemoncrow_root), stale)
     assert stale["plan"] == "LOCAL"
-    assert stale["monthlySavingsCapInUsd"] == 20.0
+    assert stale["monthlySavingsCapInUsd"] == pr.ANONYMOUS_SAVINGS_CAP_USD
 
     monkeypatch.setattr(
         "lemoncrow.core.capabilities.licensing.entitlements.auth_user",

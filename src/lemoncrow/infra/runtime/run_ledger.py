@@ -134,11 +134,16 @@ class RunLedger:
         root: Path | None = None,
         task: str = "",
         domain: str | None = None,
+        workspace_path: str | Path | None = None,
     ) -> None:
         self.session_id = session_id or uuid.uuid4().hex
         self.agent = agent
         self.task = task
         self.domain = domain
+        configured_workspace = (
+            workspace_path or os.environ.get("LEMONCROW_WORKSPACE_ROOT") or os.environ.get("CLAUDE_WORKSPACE_ROOT")
+        )
+        self.workspace_path = str(Path(configured_workspace).expanduser().resolve()) if configured_workspace else ""
         self.events: list[LedgerEvent] = []
         # Monotonic checkpoint step counter. Authoritative even after old
         # checkpoint events are evicted from the bounded ``self.events`` list.
@@ -559,6 +564,7 @@ class RunLedger:
                 "agent": self.agent,
                 "task": self.task,
                 "domain": self.domain,
+                "workspace_path": self.workspace_path,
                 "status": self.status,
                 "tool_call_count": len(tool_calls),
                 "total_tool_output_chars": total_output,
@@ -624,7 +630,11 @@ class RunLedger:
             agent=snap.get("agent"),
             task=snap.get("task", "") or "",
             domain=snap.get("domain"),
+            workspace_path=snap.get("workspace_path"),
         )
+        # Old ledgers intentionally remain unscoped instead of inheriting the
+        # workspace environment of whichever process happens to load them.
+        led.workspace_path = str(snap.get("workspace_path") or "")
         led.status = snap.get("status", "running")
         for ev in snap.get("events", []):
             led.events.append(

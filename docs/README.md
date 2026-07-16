@@ -45,4 +45,4 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 ---
 
-**Links:** [Website](https://lemoncrow.com) · [GitHub](https://github.com/lemoncrowhq/lemoncrow) · [Contact](mailto:contact@lemoncrow.com)
+**Links:** [Website](https://lemoncrow.com) · [GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Contact](mailto:contact@lemoncrow.com)
