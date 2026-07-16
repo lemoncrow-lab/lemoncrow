@@ -110,14 +110,8 @@ def _persist_cap_verdict_token(data: dict[str, object]) -> None:
         pass
 
 
-def _entitled_plan(data: dict[str, object]) -> str:
-    """Resolve the account plan, preferring the server-SIGNED plan token over the
-    forgeable unsigned ``plan`` field (see licensing_gate.plan_from_token).
-
-    - valid signed token -> its plan (authoritative, tamper-resistant).
-    - token present but invalid/expired -> ``free`` (distrust a bad/forged token).
-    - no token -> ``free``.
-    """
+def _verified_plan(data: dict[str, object]) -> str | None:
+    """Return the server-signed account plan, or ``None`` when unverified."""
     raw_token = data.get("plan_token")
     token = raw_token if isinstance(raw_token, str) and raw_token else None
     account_id = data.get("user_id")
@@ -130,7 +124,7 @@ def _entitled_plan(data: dict[str, object]) -> str:
             or not isinstance(server_device_id, str)
             or server_device_id != local_device_id
         ):
-            return "free"
+            return None
         from lemoncrow.pro.capabilities.licensing_gate import plan_from_token
 
         signed = plan_from_token(
@@ -141,11 +135,12 @@ def _entitled_plan(data: dict[str, object]) -> str:
         )
     except Exception:  # noqa: BLE001 — verification must never crash entitlement
         signed = None
-    if signed is not None:
-        return signed
-    if token is not None:
-        return "free"  # a token was issued but did not verify -> never trust unsigned
-    return "free"
+    return signed
+
+
+def _entitled_plan(data: dict[str, object]) -> str:
+    """Resolve paid feature access; unverified state always falls back to Free."""
+    return _verified_plan(data) or "free"
 
 
 def _resolve() -> _Resolved:
@@ -202,12 +197,12 @@ def current_license() -> License | None:
 
 
 def current_identity() -> tuple[str, str, str] | None:
-    """Return the verified account, local device, and canonical plan."""
+    """Return the server-signed account, local device, and canonical plan."""
 
     data = auth_user()
     if data is None:
         return None
-    plan = _entitled_plan(data)
+    plan = _verified_plan(data)
     account_id = data.get("user_id")
     device_id = data.get("device_id")
     if (

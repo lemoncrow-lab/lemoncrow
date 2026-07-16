@@ -169,15 +169,16 @@ rather than standalone CLI commands. Invoke them through your agent host or via
 `lc tools call <name>`. (Call-graph and reference relations — callers,
 callees, usages — fold into one `explore` call.)
 
-| Command                 | Purpose                                                |
-| ----------------------- | ------------------------------------------------------ |
-| `lc code index` | Build or refresh the code index for a repository. |
-| `lc optimize`   | Show session cost optimization recommendations.   |
+| Command         | Purpose                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| `lc code index` | Build or refresh the code index for a repository.                      |
+| `lc optimize`   | Show session cost optimization recommendations.                        |
 
 Examples:
 
 ```bash
 lc code index --repo-root .
+lc dashboard open  # choose Map in the existing dashboard
 lc tools call grep --args '{"path":".","content_regex":"TODO"}'
 ```
 
@@ -292,6 +293,6 @@ is command-specific rather than universal.
 
 ## Related References
 
-- [README.md](https://github.com/lemoncrowhq/lemoncrow#readme)
+- [README.md](https://github.com/lemoncrow-lab/lemoncrow#readme)
 - [docs/installation.md](installation.md)
 - [docs/sdk/mcp.md](sdk/mcp.md)

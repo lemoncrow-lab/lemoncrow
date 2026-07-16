@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.gateway.cli.commands._shared import _emit
 from lemoncrow.pro.capabilities.swarm import (
     build_swarm_apply_payload,
     build_swarm_export_payload,
@@ -312,8 +312,6 @@ def swarm_start(
     ``--runner`` profile. The child command receives a per-child
     ``LEMONCROW_ROOT``, workspace root, and ``LEMONCROW_SWARM_SPEC_PATH``.
     """
-    require_pro("swarm", "Multi-worktree swarm runs")
-
     if runs < 1:
         raise click.ClickException("--runs must be >= 1")
     max_runs_cap = max(1, int(os.environ.get("LEMONCROW_SWARM_MAX_RUNS", "32")))
