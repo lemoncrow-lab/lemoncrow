@@ -15,6 +15,18 @@ vi.mock("../components/CodeGraph", () => ({
     </div>
   ),
 }));
+vi.mock("../components/CodeGraph3D", () => ({
+  default: ({ nodes, followNodeId, onSelect, onExpand }: any) => (
+    <div data-testid="code-graph" data-follow={followNodeId || ""}>
+      {nodes.map((node: any) => (
+        <button key={node.id} onClick={() => onSelect(node.id)}>
+          {node.label}
+        </button>
+      ))}
+      <button onClick={() => onExpand("charge")}>Focus charge</button>
+    </div>
+  ),
+}));
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), {
