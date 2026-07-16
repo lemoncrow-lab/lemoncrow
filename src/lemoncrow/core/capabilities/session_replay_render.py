@@ -176,7 +176,7 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
             # Ran with LemonCrow and has its own recorded savings -> show them.
             head += "     " + c(_GREEN + _BOLD, f"saved {_money(sav['saved_usd'])} ({sav['saved_pct']}%) measured")
             head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}") + c(_DIM, " est")
-        elif sav["ran_with_lemoncrow"]:
+        elif sav["ran_with_lemoncrow"] and sav["calls_saved"] == 0:
             # Ran with LemonCrow, no per-node savings. Only a subagent can point
             # at a parent; a top-level session just has nothing recorded.
             note = (
@@ -194,7 +194,7 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
             )
             head += "     " + c(_GREEN + _BOLD, f"time saved {_dur(sav['time_saved_seconds'])}")
         lines.append(head)
-        if not sav["saved_is_measured"] and not sav["ran_with_lemoncrow"]:
+        if not sav["saved_is_measured"] and not (sav["ran_with_lemoncrow"] and sav["calls_saved"] == 0):
             lines.append(
                 "  " + c(_DIM, "LemonCrow cost & saving are estimates — run `lc benchmark` for the measured A/B")
             )
@@ -609,7 +609,7 @@ def _html_session(replay: Replay) -> str:
                 f'<div class="d">&minus;{sav["saved_pct"]}% &middot; measured</div></div>'
             )
             hero = f'<div class="tiles hero-row">{cost_tile}{mid_tile}{time_tile}</div>'
-        elif sav["ran_with_lemoncrow"]:
+        elif sav["ran_with_lemoncrow"] and sav["calls_saved"] == 0:
             note = (
                 "savings counted on the parent session"
                 if replay.is_subagent
@@ -729,9 +729,9 @@ _HTML_SHELL = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
 <style>
-:root{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2;--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
-:root[data-theme=dark]{--bg:#0b110e;--surface:#111a15;--surface-2:#0e1712;--text:#dce6df;--muted:#93a399;--faint:#66756c;--border:#20302a;--rail:#2a3b33;--accent:#3fb950;--accent-soft:#12251a;--waste:#e5705f;--waste-soft:#24140f}
-:root[data-theme=light]{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2}
+:root{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2;--warn:#8a5a00;--warn-soft:#fbf0d9;--warn-border:#e8c877;--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
+:root[data-theme=dark]{--bg:#0b110e;--surface:#111a15;--surface-2:#0e1712;--text:#dce6df;--muted:#93a399;--faint:#66756c;--border:#20302a;--rail:#2a3b33;--accent:#3fb950;--accent-soft:#12251a;--waste:#e5705f;--waste-soft:#24140f;--warn:#e0ac3f;--warn-soft:#2b2210;--warn-border:#5c4a1e}
+:root[data-theme=light]{--bg:#f4f7f5;--surface:#fff;--surface-2:#eef3f0;--text:#16201b;--muted:#5c6b63;--faint:#8a988f;--border:#dde6e0;--rail:#cdd8d1;--accent:#1a7f3c;--accent-soft:#e3f3e8;--waste:#b23b2e;--waste-soft:#f6e5e2;--warn:#8a5a00;--warn-soft:#fbf0d9;--warn-border:#e8c877}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:1.5;-webkit-font-smoothing:antialiased}
 .wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px}
@@ -743,8 +743,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
-.lede{color:var(--muted);font-size:13.5px;margin:0 0 26px;max-width:70ch}
+.lede{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:70ch}
 .lede code{font-family:var(--font-mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+.sim-warn{display:flex;gap:9px;align-items:flex-start;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:10px;padding:10px 13px;font-size:12.5px;margin:0 0 26px;max-width:70ch}
+.sim-warn b{color:inherit}
+.sim-warn .ic{flex:0 0 auto;font-size:14px;line-height:1.4}
 .session{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:26px 0 16px}
 .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .badge{font-family:var(--font-mono);font-size:11.5px;font-weight:600;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--muted)}
@@ -846,6 +849,7 @@ details.subagent .wrap{padding:0}
 <div class="wrap">
 <h1>LemonCrow Session Replay</h1>
 <p class="lede">Reconstructed from a recorded session — <b>no model was re-run, $0</b>. The full transcript is replayed; grep→read loops the agent walked are struck through, with the single <code>code_search</code> that would have collapsed each one inserted inline.</p>
+<p class="sim-warn"><span class="ic">&#9888;</span><span><b>Simulated calls, not the original session.</b> Annotations tagged <code>PREVIEW</code>/<code>COMPACTED</code> are estimated, not executed. Annotations tagged <code>REAL</code> (code_search / read / web_fetch) are genuinely re-run, but live, against the repo/network as they are <b>right now</b> — not as they were during the recorded session — so their output can differ from what the original agent actually saw.</span></p>
 {{BODY}}
 </div>
 </body>
