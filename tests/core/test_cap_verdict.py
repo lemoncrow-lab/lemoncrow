@@ -287,3 +287,146 @@ def test_gate_fail_closed_when_pinned_key_present_but_token_untrusted(
     _use_key(monkeypatch, pub)
     _seed_token(tmp_path, "not-a-real-signed-token")
     assert _gate.cap_exhausted(tmp_path) is True
+
+
+# --- resolve_cap_verdict: the single central authority everything else reads --
+
+
+def test_resolve_cap_verdict_signed_identity(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "current_identity", lambda: ("acct_1", "device_1", "pro"))
+    priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, auth_state_path
+
+    payload = _payload(over=False, expires=int(_t.time()) + 3600)
+    payload["plan"] = "pro"  # _payload() defaults to "free"; bind to the identity's plan
+    tok = cv.sign_cap_token(payload, private_key_hex=priv)
+    _write_json(
+        auth_state_path(tmp_path),
+        {"authenticated": True, "subscriptionStatus": {"plan": "pro", "capVerdictToken": tok}},
+    )
+    verdict = _gate.resolve_cap_verdict(tmp_path)
+    assert verdict == _gate.CapVerdict(
+        dormant=False,
+        verified=True,
+        plan="pro",
+        reason="signed",
+        server_saved_usd=42.0,
+        server_cap_usd=20.0,
+    )
+
+
+def test_resolve_cap_verdict_no_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(entitlements, "current_identity", lambda: None)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    verdict = _gate.resolve_cap_verdict(tmp_path)
+    assert verdict == _gate.CapVerdict(dormant=True, verified=False, plan=None, reason="no_token")
+
+
+def test_resolve_cap_verdict_local_fallback_when_unconfigured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(_gate, "_public_key_hex", lambda: "")  # no key pinned -> dev fallback
+    from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
+
+    _write_json(subscription_state_path(tmp_path), {"plan": "free", "savingsOverCap": False})
+    verdict = _gate.resolve_cap_verdict(tmp_path)
+    assert verdict == _gate.CapVerdict(dormant=False, verified=False, plan="free", reason="local_fallback")
+
+
+def test_resolve_cap_verdict_gate_error_fails_closed_when_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    monkeypatch.setattr(entitlements, "current_identity", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    verdict = _gate.resolve_cap_verdict(tmp_path)
+    assert verdict == _gate.CapVerdict(dormant=True, verified=False, plan=None, reason="gate_error")
+
+
+# --- compute_usage_meter picks up the same central verdict --------------------
+
+
+def test_compute_usage_meter_overridden_by_signed_verdict_when_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Local estimate alone would say "under cap" (0 saved so far), but a
+    # trustworthy signed verdict says over -- the signed verdict must win, so
+    # `lc account cap` / `lc savings` can never disagree with what the MCP
+    # server actually enforces for this exact account+device.
+    monkeypatch.setattr(entitlements, "current_identity", lambda: ("acct_1", "device_1", "free"))
+    priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    tok = cv.sign_cap_token(_payload(over=True, expires=int(_t.time()) + 3600), private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+
+    sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
+    assert sub["savingsOverCap"] is True
+    assert sub["capVerdictVerified"] is True
+    assert sub["capVerdictReason"] == "signed"
+
+
+def test_compute_usage_meter_self_heals_from_wiped_local_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The exact "someone deleted sessions/**/savings.jsonl" scenario: no local
+    # ledger exists at all (aggregate_window_savings sums to 0), yet a fresh
+    # signed verdict is present. The DISPLAYED saved-so-far figure must come
+    # from the server's own accumulated total (account_id-keyed server-side,
+    # never a client-writable file) -- not silently reset to $0 just because
+    # the local mirror is gone.
+    monkeypatch.setattr(entitlements, "current_identity", lambda: ("acct_1", "device_1", "free"))
+    priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    payload = _payload(over=False, expires=int(_t.time()) + 3600)
+    payload["monthly_savings_usd"] = 17.5  # the server's true total
+    payload["cap_usd"] = 20.0
+    tok = cv.sign_cap_token(payload, private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    assert not (tmp_path / "sessions").exists()  # local ledger genuinely absent
+
+    sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
+    assert sub["monthlySavingsInUsd"] == 17.5
+    assert sub["monthlySavingsCapInUsd"] == 20.0
+    assert sub["savingsRemainingUsd"] == 2.5
+    assert sub["savingsOverCap"] is False
+
+
+def test_compute_usage_meter_unverified_dormant_when_configured_and_no_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(entitlements, "current_identity", lambda: None)
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+
+    sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
+    assert sub["savingsOverCap"] is True
+    assert sub["capVerdictVerified"] is False
+    assert sub["capVerdictReason"] == "no_token"
+
+
+def test_compute_usage_meter_untouched_when_unconfigured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(_gate, "_public_key_hex", lambda: "")  # matches conftest's default test posture
+    sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
+    assert sub["savingsOverCap"] is False  # 0 local savings, under any cap
+    assert "capVerdictVerified" not in sub
+    assert "capVerdictReason" not in sub
+
+
+# --- `lc account cap` wording: honest about "no verified credential" ----------
+
+
+def test_account_cap_cli_distinguishes_unverified_from_reached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from lemoncrow.gateway.cli import cli
+
+    monkeypatch.setattr(entitlements, "current_identity", lambda: None)  # logged out, no token anywhere
+    _priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+
+    root = tmp_path / ".lemoncrow"
+    result = CliRunner().invoke(cli, ["--root", str(root), "account", "cap"])
+    assert result.exit_code == 0, result.output
+    assert "status: dormant (no verified credential" in result.output
+    assert "status: reached" not in result.output
+    assert "status: active" not in result.output

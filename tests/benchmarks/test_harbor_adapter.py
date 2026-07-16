@@ -291,20 +291,38 @@ def test_agent_env_forwards_lemoncrow_auth_token(
     assert agent._agent_env["LEMONCROW_AUTH_TOKEN"] == "lc-faketoken"
 
 
+def test_agent_env_forwards_host_device_id_with_token(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token alone is NOT enough: the account's plan token and signed cap
+    verdict are bound to the device that logged in on the host. Without the
+    host device id the container's own /etc/machine-id wins, the plan degrades
+    to free, and the cap gate stays dormant (empty MCP tool list)."""
+    from lemoncrow.core.capabilities.licensing import store
+
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "hostdev12345")
+    assert agent._agent_env["LEMONCROW_DEVICE_ID"] == "hostdev12345"
+
+
 def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "")
     assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
+    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
 
 
-def test_install_forwards_lemoncrow_auth_token_to_init(
+def test_install_forwards_lemoncrow_credentials_to_init(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The `lemoncrow init` exec_as_root call builds its own env= (separate
-    from run()'s _agent_env) -- it must carry the same token or init fails
-    with the same interactive-login error inside the container."""
+    from run()'s _agent_env) -- it must carry the same token AND device id or
+    init runs device-mismatched inside the container (plan degrades to free)."""
+    from lemoncrow.core.capabilities.licensing import store
+
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "hostdev12345")
     calls: list[tuple[str, dict[str, str] | None]] = []
 
     async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
@@ -314,7 +332,10 @@ def test_install_forwards_lemoncrow_auth_token_to_init(
     asyncio.run(agent.install(None))  # type: ignore[arg-type]
     init_calls = [c for c in calls if "lemoncrow init" in c[0]]
     assert init_calls, "no `lemoncrow init` exec_as_root call captured"
-    assert init_calls[0][1] == {"LEMONCROW_AUTH_TOKEN": "lc-faketoken"}
+    assert init_calls[0][1] == {
+        "LEMONCROW_AUTH_TOKEN": "lc-faketoken",
+        "LEMONCROW_DEVICE_ID": "hostdev12345",
+    }
 
 
 def test_install_configures_and_probes_lemoncrow_mcp(

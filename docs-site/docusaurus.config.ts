@@ -4,7 +4,7 @@ import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
   title: "LemonCrow",
-  tagline: "Open-Core Runtime Engineering for Agents",
+  tagline: "Keep coding agents sharp on real codebases",
   favicon: "img/favicon.svg",
   url: "https://docs.lemoncrow.com",
   baseUrl: "/",
@@ -101,12 +101,15 @@ const config: Config = {
           title: "More",
           items: [
             { label: "LemonCrow Website", href: "https://lemoncrow.com" },
-            { label: "GitHub", href: "https://github.com/lemoncrowhq/lemoncrow" },
+            {
+              label: "GitHub",
+              href: "https://github.com/lemoncrowhq/lemoncrow",
+            },
             { label: "Contact", href: "mailto:contact@lemoncrow.com" },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Open source under MIT License.`,
+      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Published source is Apache-2.0; Pro engine is proprietary.`,
     },
     prism: {
       theme: prismThemes.github,

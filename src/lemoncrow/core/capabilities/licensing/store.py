@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -181,6 +182,10 @@ def delete_auth_base() -> None:
 # Used as a stable identifier for this machine across CLI sessions.
 
 
+DEVICE_ID_ENV_VAR = "LEMONCROW_DEVICE_ID"
+_DEVICE_ID_RE = re.compile(r"^[0-9A-Za-z_-]{4,64}$")
+
+
 def device_id_path() -> Path:
     return default_store_root() / "device_id"
 
@@ -224,11 +229,21 @@ def _read_os_machine_id() -> str | None:
     return None
 
 
-def load_or_create_device_id() -> str:
-    """Return a stable device ID for this machine.
+def stable_machine_device_id() -> str:
+    """The OS-machine-derived device id, IGNORING the ``LEMONCROW_DEVICE_ID``
+    override.
 
-    Derived from the OS machine ID (never changes across reboots or re-logins).
-    Falls back to a locally-generated UUID cached in ~/.lemoncrow/device_id.
+    The ANONYMOUS cap identity binds to THIS (see
+    ``licensing_gate._anonymous_cap_identity``), never the override: the server
+    derives an anonymous ``account_id`` FROM the device id (sha256), so an
+    overridable id would let a signed anon verdict be replayed on any machine by
+    exporting one env var (plus a throwaway token string to satisfy the override
+    gate in :func:`load_or_create_device_id`). The override stays honored for the
+    AUTHENTICATED path only, where the server keys the cap by ``account_id`` and
+    a forwarded, already-signed device id cannot dodge that account's cap.
+
+    Derived from the OS machine ID (stable across reboots/re-logins); falls back
+    to a locally-generated UUID cached in ~/.lemoncrow/device_id.
     """
     os_id = _read_os_machine_id()
     if os_id:
@@ -249,3 +264,29 @@ def load_or_create_device_id() -> str:
     except Exception:  # noqa: BLE001
         pass
     return device_id
+
+
+def load_or_create_device_id() -> str:
+    """Return a stable device ID for this machine (AUTHENTICATED-path resolver).
+
+    ``LEMONCROW_DEVICE_ID`` (validated) wins ONLY while an auth token is also
+    present (env or file) -- containers and CI runners have their own
+    ``/etc/machine-id``, so an environment that forwards an already-activated
+    auth token MUST forward the host's device id with it, or the account/plan
+    token/cap verdict (all bound to the device that logged in) never verify.
+
+    The gate on a real token matters: the server's cap accumulator is keyed
+    by account_id for an authenticated identity (see
+    services/license-issuer/src/usage.ts::accumulateUsage), so a forwarded
+    device id there cannot reset or dodge that account's cap -- it only lets
+    a container's LOCAL verification match a token the server already signed
+    for the real account. The ANONYMOUS identity has no such account_id and must
+    never honor this override -- it binds to :func:`stable_machine_device_id`
+    instead, so the anon path is override-immune even when a throwaway token is
+    present. With no token the override is ignored here too, falling through to
+    the same stable machine id.
+    """
+    env_id = os.environ.get(DEVICE_ID_ENV_VAR, "").strip()
+    if env_id and _DEVICE_ID_RE.fullmatch(env_id) and load_auth_token() is not None:
+        return env_id
+    return stable_machine_device_id()

@@ -111,3 +111,21 @@ def test_noop_when_no_workspace_settings_file(tmp_path: Path, monkeypatch: pytes
 
     assert not (workspace / ".claude" / "settings.json").exists()  # never created out of thin air
     assert (global_config / "settings.json").exists()  # global bootstrap still ran
+
+
+def test_plugin_bundled_settings_does_not_pin_a_static_agent() -> None:
+    """Regression for the "lemoncrow:code still active on a brand-new dormant
+    session" report: Claude Code merges a plugin-bundled ``settings.json``'s
+    ``agent`` key into the effective persona on every session, independent of
+    -- and regardless of -- whatever ``session_start_bootstrap`` pops from the
+    managed ``~/.claude/settings.json`` (or a workspace ``.claude/settings.json``,
+    see the tests above). ``scripts/install_claude.sh`` stages
+    ``integrations/claude/plugin/settings.json`` verbatim into the installed
+    plugin package, so a static ``"agent": "lemoncrow:code"`` here would
+    permanently re-assert the persona no matter how many settings.json files
+    the dormancy pop clears -- exactly what a live over-cap session showed.
+    ``subagentStatusLine`` isn't cap-gated and is fine to keep here.
+    """
+    plugin_settings_path = Path(__file__).resolve().parents[2] / "integrations" / "claude" / "plugin" / "settings.json"
+    data = json.loads(plugin_settings_path.read_text(encoding="utf-8"))
+    assert "agent" not in data

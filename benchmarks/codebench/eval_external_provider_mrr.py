@@ -2,8 +2,8 @@
 the same stdio/CLI surface. No provider gets in-process shortcuts.
 
 Providers: lemoncrow / ctags / ast-grep / serena / code-index-mcp / jcodemunch /
-cg / rg / cmm / fff. Same gold set and output JSON format as the retired
-fitness_explore_mrr.py; history + delta reporting live here now.
+cg / rg / cmm / fff / graphify. Same gold set and output JSON format as the
+retired fitness_explore_mrr.py; history + delta reporting live here now.
 
 Run via:
     uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider lemoncrow
@@ -188,6 +188,7 @@ _parser.add_argument(
         "cmm",
         "fff",
         "ccc",
+        "graphify",
     ],
 )
 _parser.add_argument("--full", action="store_true")
@@ -1250,6 +1251,128 @@ class CgProvider(Provider):
 
 
 # ---------------------------------------------------------------------------
+# graphify -- deterministic tree-sitter knowledge graph, queried over MCP
+# ---------------------------------------------------------------------------
+
+
+class GraphifyProvider(Provider):
+    """Persistent ``python -m graphify.serve --transport stdio`` shared across
+    all repos, same rationale as CgProvider: the server takes ``project_path``
+    per tool call, so one shared process serves every gold repo instead of
+    paying a fresh server-start cost per repo.
+
+    Per-repo graph build (``graphify extract --code-only --no-cluster``) is
+    local tree-sitter AST only -- no LLM call, no API key -- so it is
+    deterministic and comparable to the other purely-syntactic providers here
+    (ctags, ast-grep).
+    """
+
+    name = "graphify"
+
+    _mcp: _JsonRpcLineClient | None = None
+    _python_bin: Path | None = None
+    _graphify_bin: Path | None = None
+
+    # `NODE <label> [src=<path> loc=... community=...]` -- see graphify.serve's
+    # _subgraph_to_text. Node order in the response is seed-first then
+    # degree-sorted, which doubles as a relevance rank for MRR scoring.
+    _SRC_RE = re.compile(r"\[src=([^\s\]]+)")
+
+    @classmethod
+    def _ensure_tools(cls) -> tuple[Path, Path]:
+        if cls._python_bin is not None and cls._graphify_bin is not None:
+            return cls._python_bin, cls._graphify_bin
+        from benchmarks.mcp_tools.bench_external_indexers import ensure_graphify
+
+        python_bin, graphify_bin = ensure_graphify()
+        cls._python_bin, cls._graphify_bin = python_bin, graphify_bin
+        return python_bin, graphify_bin
+
+    @classmethod
+    def _ensure_mcp(cls) -> _JsonRpcLineClient:
+        if cls._mcp is not None:
+            return cls._mcp
+        python_bin, _ = cls._ensure_tools()
+        # No default graph -- every call passes project_path, matching
+        # CgProvider's projectPath-per-call shared-server pattern. A missing
+        # default graph.json is caught and degrades to pure multi-project mode
+        # (see graphify.serve's create_server), so this never blocks startup.
+        client = _JsonRpcLineClient([str(python_bin), "-m", "graphify.serve", "--transport", "stdio"])
+        client.start()
+        cls._mcp = client
+        import atexit
+
+        atexit.register(cls._teardown)
+        return client
+
+    @classmethod
+    def _teardown(cls) -> None:
+        if cls._mcp is not None:
+            with contextlib.suppress(Exception):
+                cls._mcp.stop()
+            cls._mcp = None
+
+    def start(self, ws: Path) -> None:
+        _, graphify_bin = self._ensure_tools()
+        self._ws = ws
+        graph_json = ws / "graphify-out" / "graph.json"
+        if not graph_json.exists():
+            print(f"{_TAG} graphify extract {ws.name} ...", file=sys.stderr, flush=True)
+            t1 = time.perf_counter()
+            r = subprocess.run(
+                [str(graphify_bin), "extract", str(ws), "--code-only", "--no-cluster"],
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
+            if r.returncode != 0 or not graph_json.exists():
+                raise RuntimeError(f"graphify extract failed: {(r.stderr or r.stdout)[:800]}")
+            print(f"{_TAG} graphify extract done in {time.perf_counter() - t1:.1f}s", file=sys.stderr)
+        # Warm-up: the server lazily loads/caches a project's graph on first
+        # touch (trigram index build on a cold repo) -- pay that here, not in
+        # the timed per-query stats.
+        self._query(ws.name, ws)
+
+    def stop(self) -> None:
+        pass  # shared MCP server stays alive; torn down atexit
+
+    def _query(self, question: str, ws: Path) -> list[str]:
+        cls = type(self)
+        try:
+            response = cls._ensure_mcp().call(
+                "tools/call",
+                {
+                    "name": "query_graph",
+                    "arguments": {"question": question, "project_path": str(ws)},
+                },
+                timeout=120,
+            )
+        except Exception:
+            cls._teardown()  # dead/hung server: restart lazily on the next call
+            return []
+        result = response.get("result", {})
+        if result.get("isError"):
+            return []
+        text = "\n".join(
+            c.get("text", "") for c in result.get("content", []) if isinstance(c, dict) and c.get("type") == "text"
+        )
+        seen: set[str] = set()
+        files: list[str] = []
+        for m in self._SRC_RE.finditer(text):
+            p = _rel(m.group(1), ws)
+            if p and p not in seen:
+                seen.add(p)
+                files.append(p)
+        return files
+
+    def search_symbol(self, query: str, ws: Path) -> list[str]:
+        return self._query(_sym(query), ws)
+
+    def search_text(self, query: str, ws: Path) -> list[str]:
+        return self._query(query, ws)
+
+
+# ---------------------------------------------------------------------------
 # cmm (codebase-memory-mcp)
 # ---------------------------------------------------------------------------
 
@@ -1839,8 +1962,47 @@ class LemonCrowProvider(Provider):
                 flush=True,
             )
 
+    @classmethod
+    def _forward_host_auth(cls) -> None:
+        """Copy the real host account's signed credentials into the isolated
+        bench store, once per run.
+
+        ``_STORE_ROOT`` (default ``/tmp/lemoncrow-bench-store``, see
+        ``LEMONCROW_BENCH_STORE``) is passed as ``LEMONCROW_ROOT`` to the spawned
+        server below -- an isolated store distinct from the real
+        ``~/.lemoncrow``. ``resolve_cap_verdict``'s real-account branch calls
+        ``entitlements.current_identity()`` with no args, which itself resolves
+        via ``default_store_root()`` (``LEMONCROW_ROOT`` env, else ``~``) -- so an
+        isolated store with no credentials of its own resolves as a brand-new
+        ANONYMOUS identity, capped at $20 of lifetime savings. That cap is keyed
+        off a stable OS/device fingerprint shared with the real host account, so
+        on any host that already exhausted it (e.g. from ordinary benchmark
+        usage), every isolated-root run is dormant on arrival and the MCP server
+        advertises zero tools -- every query returns [], and MRR silently reads
+        0.0000 with no error (confirmed via a real run: 2026-07-02's 0.8599
+        collapsed to 0.0000 once this device's cap tipped over). Missing files
+        are skipped; a host with no logged-in account behaves exactly as before.
+        """
+        import shutil
+
+        from lemoncrow.core.foundation.paths import default_store_root
+
+        host_store = default_store_root()
+        if host_store == cls._STORE_ROOT:
+            return
+        cls._STORE_ROOT.mkdir(parents=True, exist_ok=True)
+        for fname in ("auth_token", "auth_user.json", "auth.json"):
+            src = host_store / fname
+            if not src.is_file():
+                continue
+            dst = cls._STORE_ROOT / fname
+            if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
+                continue
+            shutil.copyfile(src, dst)
+
     def start(self, ws: Path) -> None:
         self._memo = {}
+        type(self)._forward_host_auth()
         self._route_db(ws)
         # When semantic search is enabled, frozen bench snapshots may have the
         # FTS index but no symbol vectors.  Without an explicit backfill the
@@ -2081,6 +2243,7 @@ _PROVIDERS: dict[str, type[Provider]] = {
     "cmm": CmmProvider,
     "fff": FffProvider,
     "ccc": CccProvider,
+    "graphify": GraphifyProvider,
 }
 
 # ---------------------------------------------------------------------------
@@ -2233,7 +2396,7 @@ if WORKERS <= 1:
         if r is not None:
             _repo_results.append(r)
 else:
-    _SINGLETON_PROVIDERS = frozenset({"cg", "serena", "code-index-mcp", "jcodemunch"})
+    _SINGLETON_PROVIDERS = frozenset({"cg", "serena", "code-index-mcp", "jcodemunch", "graphify"})
     if PROVIDER in _SINGLETON_PROVIDERS:
         print(
             f"{_TAG} WARNING: {PROVIDER} uses a shared MCP server — parallel workers "
