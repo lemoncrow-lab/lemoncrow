@@ -1,169 +1,134 @@
 # lemoncrow.com — Landing Page Copy
 
-_Copy blocks for the marketing site, top to bottom. Audience: people paying for Claude Code/Max who are not deep infrastructure buyers. Voice: plain, specific, and skeptical. Every number must link to raw runs or a live endpoint. Live badges support trust; they do not prove the headline by themselves._
-
----
+_Audience: daily coding-agent power users on real repositories. Primary promise: context sharpness. Cost is supporting evidence._
 
 ## Nav
 
-`LemonCrow` · How it saves · Proof · Pricing · Docs · [GitHub ⭐ `<live stars>`] · **[Install]**
-
----
+\`LemonCrow · Replay · Compare · Pricing · Docs · Install\`
 
 ## Hero
 
-### Honest and benchmark proven -- cut Claude Code costs by 30%, audited head-to-head (up to 67% on some workloads).
+**Badge:** Same model · Cleaner context
 
-LemonCrow is a 30-second install that helps Claude Code waste fewer tokens while you work. It cuts tool calls by up to 90% and input/output tokens by up to 80% -- and gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your subscription goes into fixing code instead of rereading the same noise.
+# Keep your coding agent sharp on real codebases.
 
-> In our same-model SWE-bench Verified run, LemonCrow was **29.5% cheaper** and solved **+12.0 percentage points more tasks** than the baseline. Same model. Same tasks. Same environment. Raw runs published.
+**Proof line:** +12.0pp resolved · 37.7% fewer turns — same model.
 
-```bash
-**[Install in 30 seconds]** · **[Check my savings first →]** · source-available · runs locally · free account to activate
+LemonCrow gives your existing agent a local code graph, exact-range tools, bounded output, and durable memory. It replaces grep dumps and repeated file reads with the smallest useful working set, so long sessions spend more context solving.
 
-_Small line:_ Keep using Claude Code. LemonCrow sits underneath it and makes the tool loop tighter.
-**[Install in 30 seconds]** · **[Check my savings first →]** · Apache-2.0 · runs locally · no account to start
+**Primary CTA:** Try it on a hard repo
 
-_Small line:_ Keep using Claude Code. LemonCrow sits underneath it and makes the tool loop tighter.
+**Secondary CTA:** See matched proof
 
----
-
-## Trust strip
-
-Three proof types, shown close to the headline:
-
-1. **Your own history:** run the read-only savings scan before installing.
-2. **Raw benchmark receipts:** every headline number links to committed per-task runs.
-3. **Live badges:** aggregate savings, tokens avoided, and routed calls update after real sessions.
-
-Live badge copy:
-
-`$<savings> saved by users` · `<tokens> tokens avoided` · `<calls> agent calls routed`
-
-_Caption:_ Live badges are not the benchmark. They show real usage adding up. The 30% claim comes from reproducible runs and can be checked against your own local history.
-
----
-
-## The install promise
-
-### Install once. Keep working normally.
-
-```bash
+\`\`\`bash
 curl -fsSL https://install.lemoncrow.com | bash
-    curl -fsSL https://install.lemoncrow.com | bash
-    cd your-project
-    lc account login
-    lc init
+\`\`\`
 
-Create a free account to activate the official install. Then open Claude Code like usual. LemonCrow adds better tools behind the scenes: smarter code search, exact file reads, compact command output, safer edits, and a running local savings meter. Anonymous remote telemetry is on by default (opt out anytime).
----
+Hero side panel:
 
-## Live savings demo
+- Find — ranked symbols, callers, and exact ranges.
+- Read — only the source needed for the next decision.
+- Carry — task state and useful memory across long sessions.
+- 92.8% resolved; 37.7% fewer turns; 23.7% faster.
 
-**Left panel:** Claude asks for context. Baseline dumps broad files and long command output. LemonCrow gives the agent only the useful ranges, relevant symbols, and compact results.
+## Context sharpness
 
-**Right panel:** savings meter accumulates while work continues.
+# Context gets noisy before it gets full.
 
-```text
-cost           −29.5%  benchmark receipt
-turns          −37.7%  fewer back-and-forth loops
-output tokens  −27.9%  less paid narration
-resolved       +12.0pp more tasks solved
-receipts       raw runs published
-```
+More context is not automatically better context. Search results, file reads, tool schemas, and discarded approaches share the same working window.
 
-_Caption:_ No fake counters. If a number is live, label it live. If a number is benchmarked, link the raw run. If it is estimated from the visitor's machine, say estimated.
+Three failure modes:
 
----
+1. Search noise — the investigation becomes baggage.
+2. Working-state drift — yesterday's path competes with today's task.
+3. Lossy handoffs — compaction keeps what it predicts the next step needs.
 
-## Why it saves
+Close: LemonCrow treats context as a working set—ranked code first, exact ranges on demand, bounded output, duplicate suppression, and persistent memory.
 
-**It reads less.** Claude gets the exact lines and symbols it needs, not whole files pasted into the chat.
+## How it works
 
-**It repeats less.** LemonCrow remembers useful session context so the agent does not pay again for the same discovery.
+# Install → map → stay sharp.
 
-**It talks less.** Outputs are shorter and more direct while preserving exact code, commands, and errors.
+1. Install the MCP server, agents, skills, and hooks.
+2. Build and incrementally refresh the local symbol/call graph.
+3. Use \`code_search\`, exact reads, bounded output, and durable state instead of a grep/read loop.
 
-**It makes agents more correct.** In our same-model benchmark, the tighter loop solved more tasks because the agent spent less context on noise and more on the fix.
+Show one call-graph visual. No second terminal demo.
 
-_The simple claim:_ LemonCrow does not make Claude a different model. It makes the work around Claude less wasteful.
+## Why a runtime
 
----
+# The runtime controls what enters the conversation.
 
-## Before / After
+- Map: find the right code first.
+- Bound: keep output proportional.
+- Carry: preserve what the task still needs.
 
-**Same fix. Fewer paid words. Same technical meaning.**
+Show the compact tool mapping. Move the four-layer architecture table to docs.
 
-| Baseline | With LemonCrow |
-| --- | --- |
-| "I looked into the failing test and it seems like the flakiness is caused by the retry logic using a real clock… I'd recommend injecting a fake clock so the test becomes deterministic." | "Root cause: retry test uses a real clock. Fix: inject a fake clock; test becomes deterministic." |
+## Matched proof
 
-_Caption:_ Shorter does not mean vague. Code, commands, filenames, and errors stay exact.
+# Cleaner context should finish more work—not just process fewer tokens.
 
----
+Flagship SWE-bench Verified:
 
-## Check your own savings
+- 92.8% vs 80.8% resolved.
+- +12.0 percentage points.
+- 37.7% fewer turns.
+- 23.7% faster.
+- 29.5% lower cost as a secondary note.
 
-### Do not take our 30% claim on faith.
+Link every result to \`BENCHMARKS.md\`. Keep the Terminal-Bench flat-accuracy result visible in the suite strip.
 
-```bash
-curl -fsSL https://savings.lemoncrow.com | bash
-```
+## Replay
 
-This scans your local Claude/Codex agent history and prints what LemonCrow could have saved. It is read-only, temporary, and does not need an LemonCrow account or provider API keys.
+# See the wandering before you install.
 
-**[Copy command]** · [What it reads →](../cli.md)
+Replay one recorded session without rerunning a model. Show repeated searches, oversized reads, and avoidable calls. Keep the screenshot and local command.
 
----
+## Local-first
 
-## Honesty block
+# Improve the agent without shipping your repo to another index.
 
-### How do you know the numbers are real?
+Say exactly:
 
-Bad answer: a big live badge with no method.
+- Parsing and indexing run locally.
+- Model calls still go to the provider already configured in the host.
+- Optional anonymous telemetry excludes source and prompts and can be disabled.
+- Published source/integrations are Apache-2.0; Pro engine is proprietary.
 
-Better answer:
+Do not claim every competitor requires uploading code.
 
-- Every headline benchmark links to raw per-task runs, costs, turn counts, and reproduction commands.
-- The savings scanner runs on your own machine, against your own agent history.
-- Live badges are labeled as aggregate usage, not proof of the 30% benchmark.
-- We publish rows where LemonCrow does not win. Terminal-Bench 2.1 is flat on accuracy (−0.2pp) and only cheaper on cost.
+## Developer to team
 
-The trust is the audit trail, not the animation.
+# Do not build another knowledge warehouse. Make existing knowledge executable.
 
-**[Read the raw runs →](https://github.com/lemoncrowhq/lemoncrow/tree/main/benchmarks)**
+Jira, Confluence, GitHub, and the repository remain sources of truth. LemonCrow selects what a change needs, preserves it during the run, and returns verified learnings for review.
 
----
+Cards:
 
-## Pricing
-
-**Free — $0.** Create a free account, activate the official local install, and get better search/read/edit/bash tools, agent skills, and local savings estimates. The engine saves up to **$20/mo**, then rests on your host's default tools.
-
-**Lite — $5/mo or $50/yr.** Same free engine, savings cap raised to **$200/mo**. For light users who just want it to keep saving longer.
-
-**Pro — $20/mo or $200/yr.** Uncapped, plus the gated capabilities for heavy users: large-repo search, session recall, savings optimization, model routing, and multi-worktree swarm.
-
-**Enterprise — custom.** Shared team context, governance, audit, SSO. Contact us.
-
-**[See the full plan matrix →](../pricing.md)**
----
-
-## Social proof [[PLACEHOLDER — fill only as earned, never fake]]
-
-`[GitHub stars, live]` · `[[Show HN thread — add when posted]]` · `[[Trending / Trendshift — add when ranked]]` · `[[press / creator mentions — add when real]]`
-
-_Until these are real, run only live badges, raw-run links, and the visitor's own savings scan._
-
----
+- LIVE — one developer, every host.
+- DIRECTION — source-linked engineering memory.
+- TEAM — shared, governed working set.
 
 ## Final CTA
 
-### Start saving Claude tokens in the next session.
+# Try it where your agent starts to wander.
 
-```bash
-curl -fsSL https://install.lemoncrow.com | bash
-```
+Keep the model, editor, and workflow already chosen. Add the runtime and judge it on a hard repository.
 
-**[Install in 30 seconds]** · **[Check savings first]** · **[Star on GitHub ⭐]**
+**Install on a hard repo** · **Inspect on GitHub**
 
-_Footer line:_ In our SWE-bench Verified run, LemonCrow cut 2,626 turns and about $69 from the baseline. Same model, same tasks, same environment.
+Team path: contact@lemoncrow.com
+
+## Removed from homepage
+
+- Live savings hero panel → \`/savings\`
+- Terminal demo → docs or product walkthrough
+- Before/after prose demo → \`/vs\`
+- Retrieval comparison and full MRR table → \`/vs\`
+- Savings estimator → \`/savings\`
+- Standalone honesty section → folded into matched proof
+- Newsletter section → footer
+- Rotating unshipped \`docs / knowledge\` hero terms → removed
+
+Nothing is deleted from the product or its dedicated page; the homepage no longer asks those sections to compete with the core promise.

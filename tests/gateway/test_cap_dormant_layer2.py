@@ -55,7 +55,23 @@ def test_dormant_clears_stale_free_override(monkeypatch: pytest.MonkeyPatch, tmp
     config.mkdir()
     (config / "settings.json").write_text(json.dumps({"agent": "lemoncrow:free"}), encoding="utf-8")
     pr.apply_session_start_files(root, plugin, config_dir=config)
-    assert _host_agent(config) == "<unset>"  # stale free override from older build removed
+    assert _host_agent(config) == "lemoncrow:code"  # stale free override upgraded, not just unset
+
+
+def test_active_restores_lemoncrow_code_after_a_prior_dormant_pop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # integrations/claude/plugin/settings.json deliberately carries no static
+    # `agent` default (it used to, and that re-asserted lemoncrow:code even
+    # while dormant) -- this write is now the ONLY thing that ever restores
+    # the persona once a prior dormant session popped it.
+    _patch_saved(monkeypatch, 3.0)  # under cap -> active
+    root, config, plugin = tmp_path / "root", tmp_path / "cfg", _plugin_root(tmp_path)
+    root.mkdir()
+    config.mkdir()
+    (config / "settings.json").write_text(json.dumps({}), encoding="utf-8")  # popped by an earlier dormant session
+    pr.apply_session_start_files(root, plugin, config_dir=config)
+    assert _host_agent(config) == "lemoncrow:code"
 
 
 def test_active_preserves_user_custom_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -87,7 +103,43 @@ def test_clear_dormant_agent_override_active_clears_only_stale_free(tmp_path: Pa
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"agent": "lemoncrow:free"}), encoding="utf-8")
     assert pr.clear_dormant_agent_override(path, dormant=False) is True
-    assert "agent" not in json.loads(path.read_text(encoding="utf-8"))
+    assert json.loads(path.read_text(encoding="utf-8"))["agent"] == "lemoncrow:code"
+
+
+def test_clear_dormant_agent_override_active_restores_after_a_prior_pop(tmp_path: Path) -> None:
+    # A file WE popped during dormancy carries the ownership marker, so a later
+    # active session restores lemoncrow:code and drops the marker.
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"other": True, pr._AGENT_OWNERSHIP_MARKER: True}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=False) is True
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["agent"] == "lemoncrow:code"
+    assert data["other"] is True
+    assert pr._AGENT_OWNERSHIP_MARKER not in data  # marker cleared on restore
+
+
+def test_clear_dormant_agent_override_ignores_foreign_settings_without_marker(tmp_path: Path) -> None:
+    # Absent agent key AND no ownership marker = a foreign file (a repo's own
+    # committed settings.json that never did a workspace install). Never inject
+    # our agent into it, in either direction -- that dirties a git-tracked file
+    # and points teammates at an agent they don't have.
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=False) is False
+    assert pr.clear_dormant_agent_override(path, dormant=True) is False
+    assert json.loads(path.read_text(encoding="utf-8")) == {"permissions": {"allow": ["Bash"]}}
+
+
+def test_clear_dormant_agent_override_pop_then_restore_round_trip(tmp_path: Path) -> None:
+    # Full owned-file cycle: pop (dormant) stamps the marker; restore (active)
+    # brings the agent back and removes the marker, leaving a clean file.
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"agent": "lemoncrow:code"}), encoding="utf-8")
+    assert pr.clear_dormant_agent_override(path, dormant=True) is True
+    popped = json.loads(path.read_text(encoding="utf-8"))
+    assert "agent" not in popped and popped[pr._AGENT_OWNERSHIP_MARKER] is True
+    assert pr.clear_dormant_agent_override(path, dormant=False) is True
+    assert json.loads(path.read_text(encoding="utf-8")) == {"agent": "lemoncrow:code"}
 
 
 def test_clear_dormant_agent_override_active_leaves_non_free_agent(tmp_path: Path) -> None:

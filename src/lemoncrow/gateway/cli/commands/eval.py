@@ -110,7 +110,19 @@ def eval_mcp(out: Path | None, tools: tuple[str, ...], jobs: int) -> None:
 # LemonCrow channels are env-toggled variants of the SAME shipped stdio surface
 # (--provider lemoncrow): zoekt, semantic, lexical, lexical+zoekt, lexical+zoekt+semantic.
 _LEMONCROW_CHANNELS = ["zoekt", "semantic", "lexical", "lexical+zoekt", "lexical+zoekt+semantic"]
-_EXTERNAL_CHANNELS = ["cg", "ctags", "ast-grep", "serena", "code-index-mcp", "jcodemunch", "rg", "cmm", "fff", "ccc"]
+_EXTERNAL_CHANNELS = [
+    "cg",
+    "ctags",
+    "ast-grep",
+    "serena",
+    "code-index-mcp",
+    "jcodemunch",
+    "rg",
+    "cmm",
+    "fff",
+    "ccc",
+    "graphify",
+]
 _RETRIEVAL_CHANNELS = _LEMONCROW_CHANNELS + _EXTERNAL_CHANNELS
 _ALL_CHANNEL = "all"
 
@@ -527,7 +539,7 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
     "Use 'all' to run every channel. "
     "LemonCrow (env-toggled variants of the shipped MCP surface): zoekt, "
     "semantic, lexical, lexical+zoekt, lexical+zoekt+semantic. "
-    "External: cg, ctags, ast-grep, serena, code-index-mcp, jcodemunch, rg, cmm, fff.",
+    "External: cg, ctags, ast-grep, serena, code-index-mcp, jcodemunch, rg, cmm, fff, graphify.",
 )
 @click.option("--full", is_flag=True, default=False, help="Run all available query pairs (no cap).")
 @click.option("--sample", type=int, default=0, help="Total queries to sample across repos (0 = default 500).")

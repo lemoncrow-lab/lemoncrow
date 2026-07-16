@@ -668,6 +668,37 @@ def ensure_universal_ctags() -> tuple[Path, Path]:
     return ctags, readtags
 
 
+GRAPHIFY_PACKAGE = "graphifyy"  # PyPI package name; the console script is `graphify`.
+
+
+def ensure_graphify() -> tuple[Path, Path]:
+    """Provision the `graphify` CLI (code-intel knowledge-graph tool) in an
+    isolated uv venv; return (python_bin, graphify_bin).
+
+    Idempotent: a prior install is reused. Isolating in its own venv (rather
+    than installing into the eval harness's own interpreter) avoids dependency
+    clashes with lemoncrow's own networkx/etc. pins -- same rationale as
+    ensure_code_index_runtime's `uv sync` into a dedicated checkout venv.
+    """
+    prefix = bench_tools_root() / "graphify"
+    python_bin = prefix / "bin" / "python"
+    graphify_bin = prefix / "bin" / "graphify"
+    if python_bin.exists() and graphify_bin.exists():
+        return python_bin, graphify_bin
+    proc = run_cmd(["uv", "venv", str(prefix)], timeout=120)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[:1200] or proc.stdout[:1200])
+    # `[mcp]` extra is required -- the bare package has no `mcp` dependency, so
+    # `python -m graphify.serve` (what GraphifyProvider drives every query
+    # through) raises ImportError and every query silently times out otherwise.
+    proc = run_cmd(["uv", "pip", "install", "--python", str(python_bin), f"{GRAPHIFY_PACKAGE}[mcp]"], timeout=600)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[:1200] or proc.stdout[:1200])
+    if not (python_bin.exists() and graphify_bin.exists()):
+        raise RuntimeError("graphify install did not produce python/graphify binaries")
+    return python_bin, graphify_bin
+
+
 def bench_lemoncrow(repo_root: Path, workspace_root: Path, query: str, iterations: int) -> ToolBenchResult:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))

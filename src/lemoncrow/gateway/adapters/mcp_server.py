@@ -11668,22 +11668,183 @@ def _auto_compact_output_enabled() -> bool:
     return os.environ.get("LEMONCROW_AUTO_COMPACT_OUTPUT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _snapshot_dormant() -> bool:
-    """Read the compiled cap authority; enforcement failures are dormant."""
-    try:
-        from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
+# None (not 0.0) baselines so the FIRST attempt always fires: time.monotonic()
+# is boot-relative, so a 0.0 baseline on a host whose uptime is below the
+# interval reads as "ran <interval> ago" and spuriously skips the first mint/
+# report/reconcile -- exactly the fresh-container/CI case the self-heal exists
+# for.
+_VERDICT_SELF_HEAL_INTERVAL_SECONDS = 120.0
+_verdict_self_heal_at: float | None = None
+_LEDGER_RECONCILE_INTERVAL_SECONDS = 600.0
+_ledger_reconcile_at: float | None = None
+_USAGE_REPORT_TICK_INTERVAL_SECONDS = 120.0
+_usage_report_tick_at: float | None = None
 
-        return cap_exhausted(_lemoncrow_root())
+
+def _tick_usage_report(root: Path) -> None:
+    """Opportunistically push the local savings total to the server, throttled.
+
+    Real reporting is otherwise host-stop-hook-driven (``maybe_report_usage``'s
+    own 30-minute on-disk watermark): a single long-running session that never
+    triggers a host stop event would never re-report, so local usage can run
+    well past the cap while the signed verdict -- and thus dormancy -- stays
+    stale for the entire session (only the next stop-hook, possibly hours
+    away, would catch it up). Ticking here, on the MCP request boundary that
+    already re-evaluates dormancy on every tool-list/tool-call, bounds that
+    lag to ~30 minutes even inside one long session. Cheap: maybe_report_usage
+    already throttles itself via an on-disk watermark, so most calls here are
+    a single fast disk read that no-ops.
+    """
+    global _usage_report_tick_at
+    now = time.monotonic()
+    if _usage_report_tick_at is not None and now - _usage_report_tick_at < _USAGE_REPORT_TICK_INTERVAL_SECONDS:
+        return
+    _usage_report_tick_at = now
+    try:
+        from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
+
+        maybe_report_usage(root)
+    except Exception:  # noqa: BLE001 — opportunistic; dormancy resolution stands
+        _log.exception("Opportunistic usage report tick failed")
+
+
+def _mint_missing_verdict(root: Path) -> bool:
+    """Throttled, forced attempt to mint the missing signed cap verdict.
+
+    Dormancy with reason ``no_token`` is recoverable: it means no verdict is
+    persisted for the current identity (fresh container with a forwarded
+    auth token, a login that happened offline, an expired token on an idle
+    host), not that the server judged the cap exhausted. Environments with
+    no background reconciler — Docker/Harbor containers, CI — would
+    otherwise stay dormant forever. Best-effort and throttled so an offline
+    host pays at most one short network attempt per interval.
+    """
+    global _verdict_self_heal_at
+    now = time.monotonic()
+    if _verdict_self_heal_at is not None and now - _verdict_self_heal_at < _VERDICT_SELF_HEAL_INTERVAL_SECONDS:
+        return False
+    _verdict_self_heal_at = now
+    try:
+        from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
+
+        return report_usage_once(root, force=True)
+    except Exception:  # noqa: BLE001 — healing is best-effort; dormancy stands
+        return False
+
+
+def _reconcile_ledger_gap(root: Path, server_saved_usd: float) -> None:
+    """Throttled: catch up the local savings ledger to a verified server total.
+
+    Only meaningful when the account HAS verified server-side savings ahead
+    of what the local ledger shows (see ``reconcile_local_savings_gap`` for
+    the max(local, server) semantics) -- for 99% of installs the ledger never
+    drifts from the server and this is a no-op scan. Throttled independently
+    from the no_token self-heal above: this repairs a display figure, not
+    dormancy, so it can run far less often.
+    """
+    global _ledger_reconcile_at
+    now = time.monotonic()
+    if _ledger_reconcile_at is not None and now - _ledger_reconcile_at < _LEDGER_RECONCILE_INTERVAL_SECONDS:
+        return
+    _ledger_reconcile_at = now
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import reconcile_local_savings_gap
+
+        reconcile_local_savings_gap(root, server_saved_usd)
+    except Exception:  # noqa: BLE001 — display repair is best-effort
+        pass
+
+
+_DORMANT_REFRESH_INTERVAL_SECONDS = 300.0  # 5 min; the hotpath tolerates staleness
+_dormant_lock = threading.Lock()
+_dormant_snapshot: bool | None = None
+_dormant_refresher_started = False
+
+
+def _resolve_dormant(root: Path, *, side_effects: bool) -> bool:
+    """Resolve the cap dormancy decision.
+
+    With ``side_effects`` (the background refresher only), ALSO run the
+    opportunistic usage-report tick, the no_token forced mint, and the ledger
+    reconcile — all network / heavy-ledger I/O that must never touch the request
+    hotpath.
+    """
+    from lemoncrow.pro.capabilities.licensing_gate import resolve_cap_verdict
+
+    if side_effects:
+        _tick_usage_report(root)
+    verdict = resolve_cap_verdict(root)
+    if side_effects and verdict.dormant and verdict.reason == "no_token" and _mint_missing_verdict(root):
+        verdict = resolve_cap_verdict(root)
+    elif side_effects and verdict.verified and verdict.server_saved_usd is not None:
+        _reconcile_ledger_gap(root, verdict.server_saved_usd)
+    return verdict.dormant
+
+
+def _refresh_dormant_snapshot() -> bool:
+    """Recompute dormancy WITH side effects and cache it. Runs on the background
+    refresher thread (and is what the cap-passthrough tests drive directly)."""
+    global _dormant_snapshot
+    try:
+        value = _resolve_dormant(_lemoncrow_root(), side_effects=True)
+    except Exception:  # noqa: BLE001 — a broken gate must never expose paid tools
+        _log.exception("Cap authority refresh failed; hiding LemonCrow tools")
+        value = True
+    with _dormant_lock:
+        _dormant_snapshot = value
+    return value
+
+
+def _dormant_refresh_loop() -> None:
+    while True:
+        _refresh_dormant_snapshot()
+        time.sleep(_DORMANT_REFRESH_INTERVAL_SECONDS)
+
+
+def _start_dormant_refresher() -> None:
+    """Start the background dormancy refresher once (called from ``serve()``).
+
+    Moves every network/ledger side effect of cap resolution off the request
+    path onto a ~5-minute background loop; the hotpath then only reads the
+    cached bool.
+    """
+    global _dormant_refresher_started
+    with _dormant_lock:
+        if _dormant_refresher_started:
+            return
+        _dormant_refresher_started = True
+    threading.Thread(target=_dormant_refresh_loop, name="lemoncrow-dormancy", daemon=True).start()
+
+
+def _snapshot_dormant() -> bool:
+    """Cached cap-authority decision for the request hotpath — an in-memory read.
+
+    A background thread (:func:`_start_dormant_refresher`, launched by
+    ``serve()``) refreshes it every ~5 min, doing all network/ledger work off
+    this path. Until the first refresh lands, resolve once synchronously WITHOUT
+    side effects (a cheap local verdict read) so a cold cache still fails closed.
+    """
+    global _dormant_snapshot
+    with _dormant_lock:
+        cached = _dormant_snapshot
+    if cached is not None:
+        return cached
+    try:
+        value = _resolve_dormant(_lemoncrow_root(), side_effects=False)
     except Exception:  # noqa: BLE001 — a broken gate must never expose paid tools
         _log.exception("Cap authority failed; hiding LemonCrow tools")
-        return True
+        value = True
+    with _dormant_lock:
+        if _dormant_snapshot is None:
+            _dormant_snapshot = value
+        return _dormant_snapshot
 
 
 def _savings_dormant() -> bool:
-    """Re-evaluate the cap on every tool-list and tool-call boundary.
-
-    A verdict that changes while an MCP connection is alive takes effect on the
-    next request, so crossing the cap cannot be grandfathered until restart.
+    """Cap gate for every tool-list and tool-call boundary — an in-memory read of
+    the cached cap-authority decision (:func:`_snapshot_dormant`). A verdict
+    change takes effect within the ~5-minute background refresh, so crossing the
+    cap is never grandfathered until restart.
     """
     return _snapshot_dormant()
 
@@ -11976,6 +12137,7 @@ def serve() -> None:
             executor = io_executor if _classify_cost(req) != _COST_CPU else cpu_executor
             executor.submit(_handle_and_write, req)
 
+    _start_dormant_refresher()
     reader = threading.Thread(target=_stdin_reader, daemon=True, name="mcp-stdin-reader")
     reader.start()
     try:
