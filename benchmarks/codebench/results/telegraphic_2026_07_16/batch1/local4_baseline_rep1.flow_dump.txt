@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,67 +58,66 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Here's a practical workflow for tracking down and fixing a Node.js memory leak.
+[assistant] Here's a practical playbook for tracking down and fixing memory leaks in a long-running Node.js process.
 
 ## 1. Confirm it's actually a leak
 
-Watch heap usage over time. A leak shows steady growth that never comes back down after GC.
+Run with GC exposed and watch heap growth over time:
+
+```bash
+node --expose-gc --max-old-space-size=512 app.js
+```
+
+Log heap usage periodically:
 
 ```js
 setInterval(() => {
   const m = process.memoryUsage();
-  console.log(`rss=${(m.rss/1e6).toFixed(0)}MB heap=${(m.heapUsed/1e6).toFixed(0)}MB`);
-}, 10000);
+  console.log(`rss=${(m.rss/1e6).toFixed(0)}MB heapUsed=${(m.heapUsed/1e6).toFixed(0)}MB external=${(m.external/1e6).toFixed(0)}MB`);
+}, 10_000);
 ```
 
-Or run with `node --expose-gc` and force GC before sampling to rule out normal churn. If heap climbs monotonically across hours/requests, it's a leak.
+A real leak = heap that trends upward across GC cycles and never returns to baseline under steady load. Sawtooth that returns to baseline is normal.
 
-## 2. Capture heap snapshots and diff them
+## 2. Capture and compare heap snapshots
 
-This is the highest-value step.
-
-```bash
-node --inspect your-app.js
-```
-
-Open `chrome://inspect` → **Memory** tab. Take a snapshot, exercise the app (run load for a while), take a second snapshot, then use the **Comparison** view. Sort by "Delta" to see which object types are accumulating.
-
-Programmatically you can also trigger snapshots:
+This is the single most effective technique. Take a snapshot, apply load, take another, and diff them.
 
 ```js
 const v8 = require('v8');
-v8.writeHeapSnapshot(`./heap-${Date.now()}.heapsnapshot`);
+const fs = require('fs');
+// call this on a signal or timer
+function snapshot() {
+  const name = `/tmp/heap-${process.hrtime.bigint()}.heapsnapshot`;
+  fs.writeFileSync(name, v8.getHeapSnapshot ? '' : '');
+  v8.writeHeapSnapshot(name);
+}
 ```
 
-Load the `.heapsnapshot` files into Chrome DevTools to compare.
+Then open both `.heapsnapshot` files in **Chrome DevTools** (chrome://inspect → Memory tab → Load). Use the **Comparison** view between snapshot 1 and 2 — sort by "Delta" to see which object types are accumulating (retained count going up = your leak source). The "Retainers" panel shows *what* is holding the objects alive.
 
-## 3. Look at the usual suspects
+You can also connect live: run `node --inspect app.js` and attach DevTools directly.
 
-Most Node leaks come from a handful of patterns:
+## 3. The usual suspects (in order of likelihood)
 
-- **Unbounded module-level collections** — a `Map`/array/cache at module scope that you only ever `.set()`/`.push()` to. Add eviction (LRU, TTL) or a size cap.
-- **Event listeners never removed** — `emitter.on(...)` in a hot path without a matching `off`/`removeListener`. Watch for the `MaxListenersExceededWarning`; that warning is often a leak signal.
-- **Timers holding closures** — `setInterval`/`setTimeout` that are never cleared keep everything their callback closes over alive.
-- **Closures capturing large objects** — a small long-lived callback pinning a big buffer/request object in scope.
-- **Global/singleton caches keyed by request** — e.g. keying by user or request id and never expiring.
-- **Streams not closed/consumed**, and dangling promises whose scope never resolves.
+- **Unbounded caches / Maps / arrays** — a module-level `Map` or array you `.push()` to but never evict. Fix: use `lru-cache`, bound the size, or use `WeakMap`/`WeakRef` where keys are objects.
+- **Event listener accumulation** — calling `emitter.on()` without ever `.off()`/`removeListener()`, especially per-request. Watch for the `MaxListenersExceededWarning`. Always pair add/remove, or use `{ once: true }`.
+- **Timers not cleared** — `setInterval`/`setTimeout` capturing large closures and never `clearInterval`'d.
+- **Closures over large objects** — a long-lived callback captures a big buffer or request context.
+- **Global/module state** — anything attached to `global`, or singletons that append.
+- **External/native memory** — Buffers, DB connection pools, streams not being consumed or destroyed. Check `external` and `rss`, not just `heapUsed`.
 
-## 4. Isolate with GC roots
+## 4. Tooling that speeds this up
 
-In the snapshot, pick a leaking object and look at **Retainers** — the chain of references keeping it alive traces straight back to the root cause (the Map, the emitter, the closure).
+- `clinic doctor` / `clinic heapprofiler` (`npm i -g clinic`) — generates flamegraphs and heap timelines automatically.
+- `node --heapsnapshot-near-heap-limit=3 --max-old-space-size=...` — auto-dumps a snapshot right before OOM, great for leaks that only show in production.
+- `process.memoryUsage()` fields matter: `heapUsed` (JS objects), `external` (C++/Buffers bound to JS), `arrayBuffers` (subset of external), `rss` (total). If `rss` grows but `heapUsed` is flat, look at Buffers/native addons, not JS objects.
 
-## 5. Fix and verify
+## 5. Verify the fix
 
-Apply the fix, then rerun step 1–2 and confirm the growth is gone under the same load. Don't trust the fix without re-measuring.
-
-## Helpful flags & tools
-
-- `--max-old-space-size=<MB>` — cap heap to make leaks crash faster (for reproduction, not a fix).
-- `--heapsnapshot-near-heap-limit=3` — auto-dump a snapshot when nearing OOM, great for production leaks you can't reproduce locally.
-- `clinic doctor` / `clinic heapprofiler` (the `clinic` npm package) — good guided profiling.
-- `node --prof` for CPU, but for leaks the heap snapshot diff is the tool that matters.
+Reproduce the leak with a load test (e.g. `autocannon` against an HTTP server), watch heap stabilize at a plateau across many GC cycles rather than climbing. Don't trust a short run — memory leaks often only manifest over hours.
 
 ---
 
-If you point me at the actual process, I can help dig in directly — share the entry file or the code path that runs continuously (timers, event emitters, caches), and I'll look for the specific leak. Want me to take a look at your code?
-[usage] input=2774 cache_read=7222 cache_write=2081 output=1212
+If you share the actual code or a heap snapshot diff, I can help pinpoint the specific retainer. What does the process do, and which metric is growing — `heapUsed` or `rss`/`external`?
+[usage] input=2973 cache_read=15023 cache_write=2081 output=1403

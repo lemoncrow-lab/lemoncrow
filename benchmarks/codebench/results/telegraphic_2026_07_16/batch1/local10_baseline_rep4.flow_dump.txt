@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,47 +58,44 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Use a **queue** for work distribution and a **topic** for event broadcasting. The core difference is how many consumers process each message.
+[assistant] Short answer: **use a queue when you want work processed once by one consumer; use a topic when you want the same event broadcast to many independent consumers.**
 
 ## Queue (point-to-point)
 
-Each message is delivered to **exactly one** consumer. Multiple consumers can read from the same queue, but they compete — a given message goes to only one of them.
+A message goes to a queue and is delivered to **exactly one** consumer, then removed. Multiple workers can pull from the same queue, but each message is handled by only one of them.
 
 **Use when:**
-- You're distributing *work* — tasks, jobs, commands
-- Each message should be processed once and only once
-- You want to scale throughput by adding more workers (competing consumers)
-- Load leveling — the queue buffers spikes so workers drain at their own pace
+- You're distributing **work/tasks** that should happen once (send this email, resize this image, charge this card).
+- You want to **load-balance** across a pool of interchangeable workers.
+- You need **backpressure / buffering** — the queue absorbs bursts and workers drain at their own pace.
+- Ordering or at-least-once processing of a unit of work matters, and duplicating it would be wrong or wasteful.
 
-**Examples:** order processing, image resizing jobs, sending emails, background task offloading.
+**Mental model:** a to-do list that N workers share.
 
 ## Topic (publish/subscribe)
 
-Each message is delivered to **every** subscriber. Publishers don't know or care who's listening.
+A message is published to a topic and delivered to **every** subscriber (each subscriber gets its own copy).
 
 **Use when:**
-- You're broadcasting *events* — "something happened"
-- Multiple independent consumers each need their own copy
-- You want to decouple producers from a growing set of consumers
-- Different subsystems react to the same event differently
+- You're broadcasting an **event/fact** that multiple systems care about ("OrderPlaced" → billing, inventory, analytics, email all react).
+- You want **decoupling** — the publisher doesn't know or care who's listening, and you can add new consumers later without touching the producer.
+- Different consumers do **different things** with the same message.
 
-**Examples:** an `OrderPlaced` event that triggers billing, inventory, *and* notifications — each a separate concern needing the same event.
+**Mental model:** a notification everyone subscribed gets.
 
-## Quick decision guide
+## The key question to ask
 
-| Question | Queue | Topic |
-|---|---|---|
-| How many consumers per message? | One | Many |
-| Semantics | Command ("do this") | Event ("this happened") |
-| Add consumers to... | Scale throughput | Add new reactions |
-| Coupling | Sender knows there's a job to do | Publisher doesn't know subscribers |
+> "Should this message be handled **once**, or by **everyone interested**?"
 
-## Practical notes
+- Once → **queue**
+- Everyone → **topic**
 
-- **Naming maps to intent:** commands (imperative) → queue; events (past tense) → topic.
-- **You often combine them.** A common pattern is topic → per-subscriber queue (e.g., SNS→SQS, or Kafka consumer groups, or a JMS durable subscription). The topic fans out; each subscriber's queue gives it durable, independently-scalable, competing-consumer processing. This gives you broadcast *and* work distribution.
-- **Consumer groups blur the line.** Kafka has no separate "queue" primitive — a topic with one consumer group acts like a queue (partitions split among group members); multiple groups make it act like a topic. Same log, different consumer topology.
-- **Durability differs by system.** Classic topics only deliver to *currently connected* subscribers unless you use durable subscriptions. Log-based systems (Kafka, Pulsar) retain messages so late/replaying consumers still get them.
+## Nuances worth knowing
 
-**Rule of thumb:** "One thing must handle this" → queue. "Anything interested may react" → topic.
-[usage] input=2774 cache_read=7222 cache_write=2079 output=897
+- **Consumer groups blur the line.** Kafka/Pub-Sub-style systems combine both: a *topic* fans out to multiple *groups* (pub/sub across groups), while *within* a group each message goes to one member (queue-like load balancing). This is often the best of both — publish once, and each downstream service scales its own worker pool.
+- **Same event, multiple concerns** is the classic sign you want a topic feeding several queues, rather than the producer calling each service directly.
+- **Fan-out per subscriber:** with topics, a slow consumer only backs up its own subscription, not the others.
+- **Delivery guarantees & ordering** are configured per-system, not inherent to queue-vs-topic — verify your broker's semantics (RabbitMQ, SQS/SNS, Kafka, Azure Service Bus, NATS all differ).
+
+**Rule of thumb:** commands/tasks → queue; events/notifications → topic. If you're unsure, ask whether adding a second consumer later should *split the load* (queue) or *each get a copy* (topic).
+[usage] input=2973 cache_read=15023 cache_write=2079 output=908

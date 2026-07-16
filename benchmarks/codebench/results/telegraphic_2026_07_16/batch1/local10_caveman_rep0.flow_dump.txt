@@ -5,17 +5,10 @@ When should I use a queue vs a topic in messaging systems?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] (empty response, status=200)
+[assistant] {"title": "Queue vs topic in messaging systems"}
+[usage] input=529 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
-[user] <session>
-When should I use a queue vs a topic in messaging systems?
-</session>
-
-Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] (empty response, status=529)
-
-=== Turn 3 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
 CronCreate
 CronDelete
@@ -44,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -62,25 +58,25 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Queue = one message, one consumer. Point-to-point. Work get done once.
+[assistant] Queue = point-to-point. One message, one consumer. Work distributed, each job done once.
 
-Topic = one message, many consumers. Publish/subscribe. All subscribers get copy.
+Topic = pub/sub. One message, many consumers. Each subscriber get own copy.
 
 **Use queue when:**
-- Task must run exactly once (order processing, payment, send email)
-- Load balancing across workers — many consumers pull, each message go to one
-- Buffer work, decouple producer speed from consumer speed
-- Care about "this job done"
+- Task processing, job done exactly once
+- Load balancing across workers (competing consumers)
+- Order matters, single consumer group
+- Example: order payment, image resize, email send
 
 **Use topic when:**
-- Many systems react to same event (order placed → inventory + billing + analytics + email all need know)
-- Producer no care who listen, or how many
-- Broadcast, event-driven fan-out
-- Add new consumer later without touch producer
+- Same event needed by many services
+- Broadcast, fan-out
+- Consumers independent, don't know each other
+- Example: `OrderPlaced` event feeds inventory + billing + analytics + notification, all separate
 
-**Quick test:** ask "if two services both want this message, is that bug or feature?"
-- Bug (double-charge) → queue
-- Feature (both react) → topic
+**Rule:** "who cares about this message?"
+- One owner does work = queue
+- Many react independently = topic
 
-**Note:** modern brokers blur line. Kafka topic + consumer groups = pub/sub AND load balance together (each partition to one consumer in group, but many groups each get full copy). RabbitMQ do both via exchanges. So pick by broker too, not just pattern.
-[usage] input=2774 cache_read=7231 cache_write=4058 output=392
+Note: modern brokers blur line. Kafka topic + consumer groups = both (fan-out across groups, queue-like within group). SQS = queue, SNS = topic, RabbitMQ = exchange routes to queues.
+[usage] input=2973 cache_read=15032 cache_write=4061 output=340

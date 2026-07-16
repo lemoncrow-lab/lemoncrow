@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,119 +58,76 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Here's a production-ready PostgreSQL connection pool setup using `pg` (node-postgres).
+[assistant] Use `pg` (node-postgres). Pool handle connection reuse + timeouts.
 
-## Install
-
-```bash
-npm install pg
-```
-
-## Pool configuration
-
-```javascript
-// db.js
+```js
 const { Pool } = require('pg');
 
 const pool = new Pool({
   host: process.env.PGHOST,
-  port: process.env.PGPORT || 5432,
+  port: 5432,
   user: process.env.PGUSER,
   password: <redacted>,
   database: process.env.PGDATABASE,
 
   // Pool sizing
   max: 20,                       // max clients in pool
-  min: 2,                        // keep warm connections (pg v8.10+)
+  min: 0,                        // keep-alive floor
+  idleTimeoutMillis: 30000,      // close idle client after 30s
+  maxUses: 7500,                 // recycle client after N queries (avoid leaks)
 
   // Timeouts
-  connectionTimeoutMillis: 5000, // fail if no connection acquired in 5s
-  idleTimeoutMillis: 30000,      // close idle clients after 30s
-  maxUses: 7500,                 // recycle a connection after N uses (avoids leaks)
+  connectionTimeoutMillis: 5000, // fail if no free client in 5s
+  statement_timeout: 10000,      // abort any query over 10s (server-side)
+  query_timeout: 10000,          // client-side query cap
+  idle_in_transaction_session_timeout: 10000, // kill stuck open txn
 
-  // Query-level timeouts (applied per connection)
-  statement_timeout: 10000,      // abort any statement running > 10s
-  query_timeout: 10000,          // client-side query timeout
-  idle_in_transaction_session_timeout: 10000, // kill idle-in-transaction
+  // TLS (prod)
+  ssl: process.env.PGSSL ? { rejectUnauthorized: true } : false,
+});
 
-  // TLS (managed providers usually need this)
-  ssl: process.env.PGSSL === 'true'
-    ? { rejectUnauthorized: true }
-    : false,
+// Pool-level error handler — REQUIRED. Idle client can error async (network drop).
+// Without this, unhandled error crash process.
+pool.on('error', (err) => {
+  console.error('idle client error', err);
 });
 ```
 
-## Error handling
+Query — always release client:
 
-The critical one people miss: **idle clients can emit errors** (network drop, server restart). If unhandled, this crashes the process.
-
-```javascript
-pool.on('error', (err, client) => {
-  // Error on an IDLE client in the pool — do not throw
-  console.error('Unexpected idle client error', err);
-});
-
-pool.on('connect', (client) => {
-  // optional: per-session settings
-  // client.query('SET search_path TO myschema');
-});
-```
-
-## Querying safely
-
-For simple queries, use `pool.query` — it acquires and releases automatically:
-
-```javascript
+```js
 async function getUser(id) {
-  const { rows } = await pool.query(
-    'SELECT * FROM users WHERE id = $1',
-    [id]
-  );
-  return rows[0];
-}
-```
-
-For transactions, check out a client and **always release in `finally`** — a leaked client permanently shrinks your pool:
-
-```javascript
-async function transferFunds(from, to, amount) {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, from]);
-    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, to]);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
+    const { rows } = await client.query('SELECT * FROM users WHERE id = $1', [id]);
+    return rows[0];
   } finally {
-    client.release(); // release(true) to destroy instead of returning to pool
+    client.release(); // release ALWAYS, even on throw. Else pool exhaust.
   }
 }
 ```
 
-## Graceful shutdown
+Simple queries — skip manual connect, pool auto-acquire+release:
 
-Drain the pool on exit so in-flight queries finish and sockets close cleanly:
-
-```javascript
-async function shutdown() {
-  await pool.end(); // waits for active clients to release
-  process.exit(0);
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-module.exports = { pool };
+```js
+const { rows } = await pool.query('SELECT 1');
 ```
 
-## Key points
+Graceful shutdown:
 
-- **`max`**: set to roughly `(total_cores * 2)` per instance, but stay under Postgres `max_connections` divided across all app instances. Use PgBouncer if you have many instances.
-- **`connectionTimeoutMillis`**: prevents requests hanging forever when the pool is exhausted — returns an error instead.
-- **`statement_timeout`**: server-side guard against runaway queries; `query_timeout` is the client-side counterpart. Set both.
-- **`pool.on('error')`**: mandatory — without it, an idle-client error is an uncaught exception that kills your process.
-- **`maxUses`**: mitigates slow memory/state buildup and helps rebalance after failovers.
+```js
+process.on('SIGTERM', async () => {
+  await pool.end(); // drain + close all clients
+  process.exit(0);
+});
+```
 
-Want a TypeScript version, or a variant using a connection string / a managed provider like Supabase or RDS?
-[usage] input=2774 cache_read=7231 cache_write=4075 output=1502
+Key points:
+- `pool.on('error')` mandatory — idle clients fail async, unhandled = crash.
+- `client.release()` in `finally` — leak = pool exhaustion = hang at `max`.
+- `connectionTimeoutMillis` guard pool-exhaust hang; `statement_timeout` guard runaway query.
+- `maxUses` recycle clients, dodge memory leak on long-lived clients.
+- Bad client: `client.release(err)` (pass error) destroy it instead of returning to pool.
+
+Want same for `pg` + TypeScript, or Knex/Prisma/Drizzle wrapper?
+[usage] input=2973 cache_read=15032 cache_write=4074 output=965

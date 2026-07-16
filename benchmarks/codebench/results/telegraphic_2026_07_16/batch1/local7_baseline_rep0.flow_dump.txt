@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,34 +58,25 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS errors come from the **browser enforcing the Same-Origin Policy** — not from a bug in your JavaScript. When your frontend (e.g. `http://localhost:3000`) makes a request to a different origin (e.g. `http://localhost:8000` or an API on another domain), the browser blocks the response unless the server explicitly opts in with the right headers.
+[assistant] CORS errors happen when your browser blocks a request because the server didn't explicitly say your frontend's origin is allowed to talk to it. It's a browser security mechanism, not a bug in your code per se — the request often *reaches* the server fine, but the browser throws away the response because the required headers are missing.
 
-## What's actually happening
+## The usual causes
 
-1. Your page's origin (scheme + host + port) differs from the API's origin.
-2. The browser sends the request (or a preflight `OPTIONS` first).
-3. The **server's response** lacks the `Access-Control-Allow-Origin` header matching your origin, so the browser refuses to hand the response to your JS — even though the server may have processed the request fine.
+1. **Server isn't sending `Access-Control-Allow-Origin`** — the API needs to return a header naming your frontend's origin (e.g. `Access-Control-Allow-Origin: http://localhost:3000`) or `*`.
+2. **Origin mismatch** — `localhost` vs `127.0.0.1`, `http` vs `https`, or a different port all count as *different origins*. The browser is strict about exact matches.
+3. **Preflight (`OPTIONS`) failing** — for non-simple requests (custom headers, `PUT`/`DELETE`, JSON bodies with certain content types), the browser first sends an `OPTIONS` request. If the server doesn't respond to it with the right `Access-Control-Allow-Methods` / `-Headers`, the real request never fires.
+4. **Credentials + wildcard conflict** — if you send cookies/auth (`credentials: 'include'`), the server **cannot** use `Access-Control-Allow-Origin: *`. It must echo the specific origin *and* send `Access-Control-Allow-Credentials: true`.
 
-Key point: CORS is fixed on the **server**, not the client. You can't make it go away with frontend code alone.
+## How to pin it down
 
-## Common messages and what they mean
-
-- *"No 'Access-Control-Allow-Origin' header is present"* → server isn't sending CORS headers at all.
-- *"Response to preflight request doesn't pass"* → the `OPTIONS` preflight isn't handled (triggered by custom headers, `PUT`/`DELETE`, or `Content-Type: application/json`).
-- *"...does not allow credentials"* → you're sending cookies/auth but the server doesn't set `Access-Control-Allow-Credentials: true` (and note: you **cannot** use `*` for the origin when credentials are involved).
-
-## Typical fixes by stack
-
-- **Express:** `app.use(require('cors')())`
-- **FastAPI:** `CORSMiddleware` with `allow_origins=[...]`
-- **Flask:** `flask-cors`
-- **Dev workaround:** proxy API calls through your dev server (e.g. Vite/CRA `proxy` config) so the browser sees one origin.
+Open the **Network tab**, click the failing request, and read the exact error text — the browser tells you *which* header is missing. Common messages:
+- `No 'Access-Control-Allow-Origin' header is present` → server sends nothing (cause #1)
+- `...does not match the supplied origin` → mismatch or credentials issue (#2/#4)
+- A red `OPTIONS` request → preflight failing (#3)
 
 ---
 
-To give you the exact fix, tell me (or point me at):
-- Your **backend framework** and the **frontend origin → API origin** involved
-- The **exact console error text**
+If you tell me **your stack** (Express, FastAPI, Next.js API routes, etc.) or point me at the server code, I can give you the exact fix. Want me to look through this repo for the server/API setup?
 
-If your backend is in this repo, I can look at it directly — just say the word and I'll find the server setup and show you what to add.
-[usage] input=2774 cache_read=7222 cache_write=2077 output=947
+Would you like me to investigate the code in this repo?
+[usage] input=2973 cache_read=15023 cache_write=2077 output=847

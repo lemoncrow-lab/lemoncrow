@@ -5,7 +5,7 @@ How does a hash table handle collisions?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Hash table collision handling techniques"}
+[assistant] {"title": "Hash table collision handling methods"}
 [usage] input=525 cache_read=0 cache_write=0 output=13
 
 === Turn 2 ===
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,40 +58,45 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] A hash table handles collisions—cases where two distinct keys hash to the same bucket index—using one of two main strategies:
+[assistant] A hash table handles collisions — two different keys hashing to the same bucket index — with a few well-established strategies. The two main families are **separate chaining** and **open addressing**.
 
-## 1. Separate Chaining
+## Separate Chaining
+
 Each bucket holds a secondary data structure (usually a linked list) of all entries that hash there.
 
-- **Insert:** Compute the index, then append/prepend to that bucket's list.
-- **Lookup:** Hash to the bucket, then scan the list comparing keys with `equals`.
-- **Delete:** Find and unlink the node.
-
 ```
-index 3 → [ ("cat",1) ] → [ ("act",9) ] → null
+index 3 → [ ("cat", 5) ] → [ ("dog", 9) ] → null
 ```
 
-- Simple; the table never "fills up."
-- Extra memory for pointers; poor cache locality.
-- Modern variants (e.g., Java's `HashMap` since 8) convert a bucket's list to a **balanced tree** once it grows past a threshold, improving worst case from O(n) to O(log n).
+- **Insert:** hash the key, append to that bucket's list.
+- **Lookup:** hash the key, then scan the list comparing keys with `==`.
+- **Delete:** unlink the node.
 
-## 2. Open Addressing
-All entries live in the array itself. On collision, you *probe* for another open slot using a defined sequence:
+Pros: simple, tolerates high load factors, deletion is easy. Cons: extra memory for pointers, poor cache locality. Java's `HashMap` uses this, and converts long chains into balanced trees (O(log n) per bucket) once a bucket gets big.
 
-| Scheme | Probe sequence | Trade-off |
-|--------|---------------|-----------|
-| **Linear probing** | `h, h+1, h+2, …` | Cache-friendly, but suffers *primary clustering* |
-| **Quadratic probing** | `h, h+1², h+2², …` | Reduces clustering; can miss slots unless sized carefully |
-| **Double hashing** | `h, h+g, h+2g, …` (step `g` from a second hash) | Best distribution, less clustering |
+## Open Addressing
 
-- Deletions need a **tombstone** marker so probe chains aren't broken.
-- Performance degrades sharply as the table fills, so a low **load factor** (α ≈ 0.5–0.7) is required.
+All entries live in the array itself. On collision, you **probe** for another open slot using a defined sequence.
 
-## Key underlying ideas
-- **Load factor (α = entries / buckets)** governs collision frequency. When it exceeds a threshold, the table **resizes** (typically doubles) and **rehashes** everything.
-- A **good hash function** that spreads keys uniformly is the first line of defense—collisions become rare rather than needing to be resolved often.
+- **Linear probing:** try `i+1, i+2, …`. Cache-friendly but suffers *primary clustering*.
+- **Quadratic probing:** try `i+1², i+2², …`. Reduces clustering.
+- **Double hashing:** step size comes from a second hash function — best distribution.
 
-**Rule of thumb:** chaining is more forgiving of high load factors and easy to implement; open addressing is more memory- and cache-efficient when you keep the table sparse.
+Lookup follows the same probe sequence until it finds the key or an empty slot. Deletion needs a **tombstone** marker so probe chains aren't broken. Python's `dict` and Go's map (a hybrid) use open addressing.
 
-Want an example implementation of either approach in a particular language?
-[usage] input=2774 cache_read=7222 cache_write=2072 output=803
+## Key concepts that make it work
+
+- **Load factor** (entries ÷ buckets): performance degrades as it approaches 1. Tables **resize and rehash** (typically doubling) past a threshold (e.g., 0.75) to keep operations amortized O(1).
+- **Good hash function:** spreads keys uniformly; a poor one funnels everything into few buckets, collapsing to O(n).
+
+| | Chaining | Open Addressing |
+|---|---|---|
+| Storage | external lists | in-array |
+| Max load factor | can exceed 1 | must stay < 1 |
+| Cache locality | poor | good |
+| Deletion | trivial | needs tombstones |
+
+Worst case for either is **O(n)** (all keys collide); the average case is **O(1)** with a decent hash and controlled load factor.
+
+Want me to show a concrete implementation in a particular language, or is this for something in your codebase?
+[usage] input=2973 cache_read=15023 cache_write=2072 output=839

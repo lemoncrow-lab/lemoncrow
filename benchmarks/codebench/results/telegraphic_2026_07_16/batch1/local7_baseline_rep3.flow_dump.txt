@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,35 +58,33 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS (Cross-Origin Resource Sharing) errors happen when your browser blocks a request because the page's origin doesn't match the server's origin, and the server didn't explicitly permit the cross-origin request. It's a browser security enforcement — the request often *reaches* the server fine, but the browser throws away the response because the right headers aren't there.
+[assistant] CORS errors come from the **browser** enforcing the Same-Origin Policy, not from your code being "broken" per se. When your frontend (say `http://localhost:3000`) makes a request to a different origin (`http://localhost:8000`, or an API on another domain), the browser requires the *server* to explicitly opt in via response headers. If those headers are missing or wrong, the browser blocks the response and logs a CORS error — even though the server may have processed the request fine.
 
-## What "origin" means
-An origin is **scheme + host + port**. All of these are different origins from `http://localhost:3000`:
-- `http://localhost:3001` (different port)
-- `https://localhost:3000` (different scheme)
-- `http://api.localhost:3000` (different host)
+## The key thing to understand
 
-So a frontend on `:3000` calling an API on `:8080` is cross-origin, even on the same machine.
+**CORS is fixed on the server, not the client.** You cannot fix a real CORS error purely in frontend code. The server that receives the request must send the right headers.
 
-## The fix is almost always on the server
-The **server** must send CORS headers. The most important:
-```
-Access-Control-Allow-Origin: https://your-frontend.com
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE
-Access-Control-Allow-Headers: Content-Type, Authorization
-```
+## Common causes
 
-Common gotchas:
-- **Credentials:** if you send cookies/auth (`credentials: 'include'`), you **cannot** use `Access-Control-Allow-Origin: *` — you must echo the specific origin, and also set `Access-Control-Allow-Credentials: true`.
-- **Preflight:** non-simple requests (custom headers, `PUT`/`DELETE`, JSON bodies) trigger an `OPTIONS` preflight first. Your server must respond to `OPTIONS` with `200/204` and the allow headers.
-- The error message text is often misleading — read whether it's an origin, method, header, or credentials mismatch.
+1. **Server doesn't send `Access-Control-Allow-Origin`** at all.
+2. **Origin mismatch** — server allows `http://localhost:3000` but you're on `http://127.0.0.1:3000` (these are different origins).
+3. **Credentials + wildcard** — if you send cookies/auth (`credentials: 'include'`), the server cannot use `Access-Control-Allow-Origin: *`; it must echo the specific origin and also send `Access-Control-Allow-Credentials: true`.
+4. **Preflight failure** — for non-simple requests (custom headers, `PUT`/`DELETE`, JSON content-type sometimes), the browser sends an `OPTIONS` request first. If the server doesn't handle `OPTIONS` and return the allow headers, everything fails.
+5. **Error responses lack headers** — a 500/404 from your API often skips CORS middleware, so the *real* error shows up as a CORS error masking the actual bug.
 
-## Quick reads on the error
-- "No `Access-Control-Allow-Origin` header" → server sends nothing; add the middleware.
-- "…does not equal the supplied origin" → wildcard `*` used with credentials, or wrong origin echoed.
-- "Method … not allowed by `Access-Control-Allow-Methods`" → preflight response missing your method.
+## How to diagnose
+
+- Open the **Network tab**, find the failing request, and read the **exact** error text (the console message names which header is missing).
+- Check whether there's a preflight `OPTIONS` request and whether it succeeded.
+- Look at the actual response headers the server returned.
+
+## Typical fixes (by stack)
+
+- **Express**: `app.use(cors({ origin: 'http://localhost:3000', credentials: true }))`
+- **FastAPI**: `CORSMiddleware` with `allow_origins=[...]`
+- **Local dev shortcut**: configure a dev-server **proxy** (Vite `server.proxy`, CRA `proxy`) so requests are same-origin and CORS never triggers.
 
 ---
 
-The right fix depends on your stack. If you tell me your **backend framework** (Express, FastAPI, Spring, etc.) and the exact error string, I can give you the precise config — or I can look through this repo if the server code is here. Want me to dig in?
-[usage] input=2774 cache_read=7222 cache_write=2077 output=933
+If you tell me **your stack** (frontend framework + backend) and paste the **exact error message** from the console, I can give you the precise fix. I can also look through your project code to spot the misconfiguration — just point me at it or let me know it's this repo.
+[usage] input=2973 cache_read=15023 cache_write=2077 output=998

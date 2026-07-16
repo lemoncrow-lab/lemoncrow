@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -57,71 +60,74 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - security-review: Complete a security review of the pending changes on the current branch
 [assistant] # Database Connection Pooling
 
-Connection pooling is a technique for managing database connections by **reusing a cache of open connections** instead of opening and closing a new one for every request.
+## The Problem
 
-## The Problem It Solves
+Opening a database connection is expensive. Each new connection typically requires:
 
-Opening a database connection is expensive. Each new connection requires:
+- A TCP handshake (and often TLS negotiation)
+- Authentication and authorization
+- Session/memory allocation on the database server
 
-- A TCP handshake
-- TLS negotiation (if encrypted)
-- Database authentication
-- Session/memory allocation on the DB server
+This can take tens to hundreds of milliseconds — often far longer than the query itself. If every request to your app opened a fresh connection, you'd waste most of your time on setup, and a busy app could exhaust the database's connection limit.
 
-This can take **tens of milliseconds** — often longer than the query itself. Under load, constantly opening/closing connections wastes resources and can exhaust the database's connection limit.
+## The Solution
 
-## How It Works
+A **connection pool** is a cache of open, reusable database connections maintained by your application (or a proxy). Instead of opening and closing connections per request, the app:
+
+1. **Borrows** an idle connection from the pool
+2. **Uses** it to run queries
+3. **Returns** it to the pool (rather than closing it) so the next request can reuse it
 
 ```
-┌─────────────┐      ┌──────────────────┐      ┌──────────┐
-│ App Threads │─────▶│   Connection     │─────▶│ Database │
-│  (borrow)   │◀─────│      Pool        │◀─────│          │
-└─────────────┘      │ [c1][c2][c3]...  │      └──────────┘
-                     └──────────────────┘
+Request A ──┐                    ┌── Conn 1 ──┐
+Request B ──┼──► [ POOL ] ◄──────┼── Conn 2 ──┼──► Database
+Request C ──┘   (borrow/return)  └── Conn 3 ──┘
 ```
-
-1. On startup, the pool opens a set of connections and keeps them alive.
-2. When code needs the DB, it **borrows** a connection from the pool.
-3. When done, the connection is **returned** to the pool — not closed.
-4. If all connections are busy, new requests **wait** (up to a timeout) for one to free up.
 
 ## Key Configuration Parameters
 
-| Setting | Meaning |
-|---|---|
-| **Min / initial size** | Connections kept open even when idle |
-| **Max size** | Upper cap — the main knob for protecting the DB |
-| **Connection timeout** | How long a caller waits for a free connection |
-| **Idle timeout** | When to close excess idle connections |
-| **Max lifetime** | Retire connections after a set age (avoids stale ones) |
-| **Validation / test query** | Check a connection is alive before handing it out |
+| Parameter | What it controls |
+|-----------|------------------|
+| **Min pool size** | Connections kept open even when idle (warm capacity) |
+| **Max pool size** | Upper cap on concurrent connections (protects the DB) |
+| **Connection timeout** | How long a request waits for a free connection before erroring |
+| **Idle timeout** | How long an unused connection stays open before being closed |
+| **Max lifetime** | Retire connections after a set age (avoids stale/leaked state) |
+| **Validation/health check** | Test a connection before handing it out (e.g. a lightweight ping) |
 
-## Sizing the Pool
+## Benefits
 
-Bigger is **not** better. A database has finite CPU and I/O; too many concurrent connections cause contention and slower overall throughput. A common starting formula:
+- **Lower latency** — skips repeated connection setup
+- **Throughput** — connection reuse handles more requests with less overhead
+- **Resource control** — caps total connections so one app can't overwhelm the DB
+- **Stability** — graceful queuing/backpressure under load instead of connection storms
+
+## Common Pitfalls
+
+- **Pool too small** → requests queue and time out under load
+- **Pool too large** → overwhelms the database (each connection consumes server memory/CPU); the DB, not the app, is often the real bottleneck
+- **Connection leaks** → borrowed connections never returned (forgetting to close/release), slowly draining the pool
+- **Stale connections** → the DB or a firewall silently drops an idle connection; without validation you hand out a dead one
+- **Sizing across many app instances** → 10 instances × 20 connections = 200 connections hitting the DB; size against the DB's global limit, not per-instance intuition
+
+## Where the Pool Lives
+
+- **In-process** — a library inside your app: HikariCP (Java), `pgbouncer`-free native pools, `database/sql` in Go, SQLAlchemy's pool (Python), `pg-pool` (Node)
+- **External proxy** — a middleware layer, useful when you have many app instances or serverless functions: **PgBouncer** / **Pgpool-II** (Postgres), **ProxySQL** (MySQL), **RDS Proxy** (AWS)
+
+External proxies especially help **serverless** environments, where thousands of short-lived function instances would otherwise each open their own connections and exhaust the database.
+
+## Rule of Thumb for Sizing
+
+A classic starting formula (from HikariCP) for CPU-bound workloads:
 
 ```
-pool_size ≈ (core_count × 2) + effective_spindle_count
+connections ≈ (core_count × 2) + effective_spindle_count
 ```
 
-Then tune based on real latency/throughput measurements. Also remember the **total** across all app instances must stay under the DB's `max_connections`.
-
-## Common Implementations
-
-- **Java** — HikariCP, Apache DBCP, c3p0
-- **Python** — SQLAlchemy's `QueuePool`, `psycopg_pool`
-- **Node.js** — `pg.Pool`, `mysql2` pool
-- **.NET** — built into ADO.NET (on by default)
-- **External/proxy** — PgBouncer, ProxySQL (pool in front of the DB, shared by many apps)
-
-## Things to Watch For
-
-- **Pool exhaustion** — leaked connections (never returned) or long-running queries starve everyone else. Usually surfaces as timeouts under load.
-- **Stale connections** — a firewall or DB restart can silently kill idle connections; use validation and `max lifetime`.
-- **Serverless/functions** — many short-lived instances can overwhelm a DB; an external pooler like PgBouncer helps here.
-- **Transaction scope** — hold a borrowed connection only as long as needed; don't do slow non-DB work while holding one.
+Smaller than most people expect. A few dozen well-used connections usually outperform hundreds of contended ones, because the database can only truly do so much work in parallel.
 
 ---
 
-Want me to go deeper on any part — sizing, PgBouncer's pooling modes (session vs. transaction vs. statement), or a code example in a specific language?
-[usage] input=2774 cache_read=7222 cache_write=2070 output=1175
+Want me to go deeper on any part — sizing for a specific database, serverless setups, or configuring a particular pool library?
+[usage] input=2973 cache_read=15023 cache_write=2070 output=1312

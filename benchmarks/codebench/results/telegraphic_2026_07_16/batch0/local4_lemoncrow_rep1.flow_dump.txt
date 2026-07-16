@@ -57,6 +57,8 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -71,6 +73,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -87,17 +90,27 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **merge** → non-destructive. Combines branches via a new merge commit; both histories preserved. Existing commits untouched.
+[assistant] **Merge** — combines branches with a merge commit; preserves true history, non-destructive. Branch's commits stay as-is; one new commit joins the two lineages.
 
-**rebase** → replays your commits onto a new base → linear history, no merge commit. Rewrites commits (new SHAs).
+**Rebase** — replays your branch's commits onto a new base; rewrites them as new commits with new hashes. Linear history, no merge commit.
 
-When:
-- **merge** — shared/public branches, feature→main integration, want true history + context of when branches joined. Safe with collaborators.
-- **rebase** — local cleanup before pushing; sync feature branch with main to keep linear history; tidy WIP commits (`rebase -i`).
+Same end state (files); different history shape.
+
+Use **merge** when:
+- Branch is shared/pushed (others based work on it) → rewriting breaks them.
+- You want to preserve exactly what happened, when.
+- Integrating a feature branch into `main` (merge commit documents the merge).
+
+Use **rebase** when:
+- Local, unpushed work → clean up before sharing.
+- Keep feature branch current: `git rebase main` instead of merging main in repeatedly → avoids clutter of merge commits.
+- You want linear, bisect-friendly history.
 
 Tradeoffs:
-- merge → honest history but cluttered graph; many merge commits, harder to read log.
-- rebase → clean linear log, easier `bisect`/revert; but rewrites SHAs → **never rebase pushed/shared commits** (breaks others' clones, forces `--force`). Replays can mean resolving same conflict repeatedly.
+- Rebase → cleaner linear log, easier `git bisect`/`git log`; but rewrites hashes (**never rebase public/shared commits** — golden rule), replays conflicts commit-by-commit, hides real integration timing.
+- Merge → true, safe history, conflicts resolved once; but noisy graph with many merge commits.
 
-Rule of thumb: rebase private work, merge public. Common flow: `rebase` local feature onto latest main, then `merge` (or fast-forward/PR) into main.
-[usage] input=3795 cache_read=8965 cache_write=0 output=372
+Common combo: rebase local feature onto latest `main` to tidy, then `--no-ff` merge into `main`.
+
+Recovery: both reversible via `git reflog` before GC.
+[usage] input=3994 cache_read=16766 cache_write=0 output=511

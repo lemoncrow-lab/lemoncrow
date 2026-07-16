@@ -5,8 +5,8 @@ What's the point of using a debouncer on a search input?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Understand debouncer for search input"}
-[usage] input=531 cache_read=0 cache_write=0 output=16
+[assistant] {"title": "Understand debouncing search inputs"}
+[usage] input=531 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,33 +58,28 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] A debouncer delays acting on the input until the user has stopped typing for a short interval (e.g. 300ms). Without it, every keystroke triggers work immediately. The main benefits:
+[assistant] A debouncer on a search input delays running the search until the user *stops* typing for a short window (e.g. 300ms). Without it, you'd fire a search on **every keystroke**. Here's what that buys you:
 
-**1. Fewer network requests**
-Typing "laptop" fires 6 requests (`l`, `la`, `lap`...) without debouncing, but only 1 with it. This cuts server load, saves bandwidth, and respects rate limits / API costs.
+**1. Fewer wasted requests**
+If someone types "laptop," an un-debounced input fires 6 searches: "l", "la", "lap", "lapt", "lapto", "laptop." Only the last one matters. Debouncing collapses that into a single request once they pause.
 
-**2. Avoids wasted work**
-The results for `l`, `la`, `lap` are thrown away the instant the user types the next character. You're rendering and discarding UI that the user never actually wanted.
+**2. Less backend / API load**
+Each keystroke-search hits your server, database, or a paid third-party API. Debouncing can cut request volume by ~80–90% on typical typing, which means lower cost and less strain on rate-limited services.
 
-**3. Prevents out-of-order results (race conditions)**
-Requests can resolve in any order. The response for `lap` might arrive *after* the response for `laptop`, leaving stale results on screen. Debouncing reduces how often this happens (though you should still cancel/ignore stale responses to fully solve it).
+**3. Avoids out-of-order / stale results**
+Rapid-fire requests can resolve out of order — the response for "lap" might arrive *after* "laptop" and overwrite the correct results with stale ones. Firing one request per pause sidesteps a whole class of race conditions (though you still want cancellation/latest-wins logic for robustness).
 
-**4. Smoother UI**
-Less re-rendering means no flicker, jank, or layout thrash as the user types quickly.
+**4. Smoother UX**
+The results panel doesn't flicker and re-render on every character. The user sees results settle once they've expressed a complete-enough query.
 
-**Rough shape:**
-```js
-useEffect(() => {
-  const id = setTimeout(() => runSearch(query), 300);
-  return () => clearTimeout(id); // cancel if query changes first
-}, [query]);
-```
+**5. Less client-side work**
+For local/in-memory filtering over a large dataset, re-filtering and re-rendering on every keystroke can jank the UI. Debouncing throttles that work.
 
 ---
 
-A couple of related distinctions worth knowing:
+**Quick nuance — debounce vs. throttle:**
+- **Debounce** = wait until activity *stops*, then fire once. Ideal for search-as-you-type, because you care about the *final* query, not intermediate states.
+- **Throttle** = fire at most once per N ms *during* activity. Better for things like scroll or resize where you want periodic updates.
 
-- **Debounce vs. throttle**: debounce waits for a *pause* (good for search — you only care about the final query). Throttle fires at a steady max rate (good for scroll/resize where you want periodic updates).
-- **Debounce isn't a substitute for cancellation.** For robustness, also cancel in-flight requests (`AbortController`) or discard responses that don't match the current query — otherwise a slow earlier request can still clobber newer results.
-- **Trade-off**: a longer delay saves more requests but makes results feel laggy. ~150–300ms is the usual sweet spot for search.
-[usage] input=2774 cache_read=7222 cache_write=2076 output=664
+**Common gotcha:** pick the delay carefully. Too short (~100ms) and you barely save anything; too long (~800ms+) and the input feels laggy. **250–400ms** is the usual sweet spot. And debouncing doesn't replace request cancellation — for network searches you still want to cancel or ignore superseded in-flight requests to guarantee the latest query wins.
+[usage] input=2973 cache_read=15023 cache_write=2076 output=736
