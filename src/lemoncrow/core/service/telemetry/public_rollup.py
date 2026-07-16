@@ -46,8 +46,15 @@ def publish_public_savings_rollup(
     tokens_saved: int,
     calls_avoided: int,
     turn_count: int,
-    turns_avoided: int = 0,
     source: str,
+    # mypyc note: keyword-only params below all carry defaults. Keep every
+    # non-default (required) kwonly param above this line -- mypyc's
+    # synthetic __bitmap tracking arg (added once a function has enough
+    # optional args) mis-scans a required kwonly param that comes AFTER an
+    # optional one as "positional-only", which then trips CPython's
+    # inspect.Signature ordering check ("non-default argument follows
+    # default argument") while generating the compiled function's docstring.
+    turns_avoided: int = 0,
     occurred_at: datetime | None = None,
     carry_usd: float = 0.0,
     carry_tokens: int = 0,
@@ -127,9 +134,11 @@ def _payload(
     tokens_saved: int,
     calls_avoided: int,
     turn_count: int,
-    turns_avoided: int = 0,
     source: str,
     occurred_at: datetime | None,
+    # mypyc note: see the matching comment in publish_public_savings_rollup --
+    # every non-default kwonly param must stay above this line.
+    turns_avoided: int = 0,
     carry_usd: float = 0.0,
     carry_tokens: int = 0,
     est_cost_usd: float = 0.0,
