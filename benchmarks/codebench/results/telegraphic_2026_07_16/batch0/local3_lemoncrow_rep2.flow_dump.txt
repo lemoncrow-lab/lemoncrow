@@ -19,18 +19,11 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
 claude.ai Gmail
 claude.ai Google Calendar
+claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
 
@@ -41,6 +34,8 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
 # MCP Server Instructions
 
@@ -56,6 +51,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -72,7 +68,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Using `node-postgres` (`pg`):
+[assistant] Use `pg` (node-postgres) `Pool`:
 
 ```js
 const { Pool } = require('pg');
@@ -80,57 +76,64 @@ const { Pool } = require('pg');
 const pool = new Pool({
   host: process.env.PGHOST,
   port: 5432,
-  database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
+  database: process.env.PGDATABASE,
 
+  // sizing
   max: 20,                       // max clients in pool
-  min: 0,
-  idleTimeoutMillis: 30_000,     // close idle client after 30s
-  connectionTimeoutMillis: 5_000, // fail acquire if no conn in 5s
-  maxUses: 7_500,                // recycle client after N queries
-  allowExitOnIdle: false,
-
-  // per-connection server-side timeouts
-  statement_timeout: 10_000,             // kill any query > 10s
-  query_timeout: 10_000,                 // client-side query cap
-  idle_in_transaction_session_timeout: 15_000,
+  min: 0,                        // keep-alive floor
+  // timeouts (ms)
+  connectionTimeoutMillis: 5000, // wait for a free/new client → else throw
+  idleTimeoutMillis: 30000,      // close idle clients
+  maxUses: 7500,                 // recycle a client after N queries (avoids leaks)
+  // query-level guards (pg >= 8.11)
+  statement_timeout: 10000,      // server cancels slow statements
+  query_timeout: 10000,          // client aborts slow queries
   keepAlive: true,
+  ssl: process.env.PGSSL ? { rejectUnauthorized: true } : false,
 });
 
-// CRITICAL: idle clients emit 'error' on backend/network drop.
-// Unhandled → process crash. Always attach.
+// CRITICAL: idle clients can emit async errors (server restart, network drop).
+// Without this handler the process crashes.
 pool.on('error', (err) => {
   console.error('idle client error', err);
 });
 ```
 
-Query safely — pool auto acquires/releases:
+Query with auto-release (release happens even on throw):
 
 ```js
-async function q(text, params) {
-  const res = await pool.query(text, params);
-  return res.rows;
+async function getUser(id) {
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+  return rows[0];
 }
 ```
 
-Manual client (transactions) — release in `finally`, always:
+Manual client only for transactions — always release in `finally`:
 
 ```js
-const client = await pool.connect();
-try {
-  await client.query('BEGIN');
-  // ...
-  await client.query('COMMIT');
-} catch (e) {
-  await client.query('ROLLBACK');
-  throw e;
-} finally {
-  client.release();  // release(true) to destroy a broken client
+async function tx(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await fn(client);
+    await client.query('COMMIT');
+    return r;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();   // pass true to destroy a suspect client
+  }
 }
 ```
 
-Shutdown: `await pool.end()` on `SIGTERM`/`SIGINT`.
+Shutdown: `await pool.end()` on SIGTERM/SIGINT.
 
-Key points → `connectionTimeoutMillis` guards pool acquisition; `statement_timeout` guards runaway queries; the `pool.on('error')` handler is mandatory (idle-client errors otherwise crash the process); never leak clients — `release()` in `finally`.
-[usage] input=3484 cache_read=8968 cache_write=0 output=744
+Key points:
+- `pool.on('error')` is mandatory — missing it → process crash on idle-client failure.
+- `connectionTimeoutMillis` bounds pool exhaustion; `statement_timeout`/`query_timeout` bound slow queries.
+- Set `max` to match DB `max_connections` ÷ instance count.
+- Never leak clients — prefer `pool.query()`; use `connect()` only for transactions, release in `finally`.
+[usage] input=3510 cache_read=16769 cache_write=0 output=911

@@ -5,7 +5,7 @@ How does git rebase differ from git merge?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Understand git rebase versus merge"}
+[assistant] {"title": "Compare git rebase and git merge"}
 [usage] input=526 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,53 +58,49 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Both integrate changes from one branch into another, but they do it differently and produce different history.
+[assistant] Git rebase and git merge both integrate changes from one branch into another, but they do it differently and produce different histories.
 
-## git merge
-
-Takes the changes from two branches and combines them with a **merge commit** that has two parents.
+## `git merge`
+Takes the changes from the source branch and combines them into the target branch with a **merge commit** that ties the two histories together.
 
 ```
       A---B---C  feature
      /         \
-D---E---F---G---M  main
+D---E---F---G---H  main   ← H is the merge commit
 ```
 
-- History is preserved exactly as it happened — non-destructive.
-- The merge commit `M` ties the two lines of development together.
-- If there's nothing new on `main`, it does a **fast-forward** (just moves the pointer, no merge commit) unless you pass `--no-ff`.
+- **Non-destructive**: existing commits are never changed.
+- History shows exactly what happened, including when branches diverged and joined.
+- Can clutter history with many merge commits on busy branches.
 
-## git rebase
-
-Takes your branch's commits, "replays" them one by one on top of the tip of another branch, **rewriting** them as new commits.
+## `git rebase`
+Takes your branch's commits and **replays them one by one on top of** the tip of the target branch, creating new commits with new hashes.
 
 ```
-Before:                    After: git rebase main (on feature)
-      A---B---C  feature          A'--B'--C'  feature
-     /                           /
-D---E---F---G  main       D---E---F---G  main
+              A'--B'--C'  feature
+             /
+D---E---F---G  main
 ```
 
-- Produces a **linear history** — no merge commit.
-- `A`, `B`, `C` become brand-new commits `A'`, `B'`, `C'` with new SHAs.
+- Produces a **linear, clean history** — as if you started your work from the latest `main`.
+- **Rewrites history**: the rebased commits are new objects (different SHAs).
+- Loses the explicit record of when/where the branch actually diverged.
 
-## Key differences
+## Key differences at a glance
 
-| | merge | rebase |
+| | `merge` | `rebase` |
 |---|---|---|
-| History | Preserves actual timeline, branchy | Linear, "as if written on top" |
-| Commits | Adds a merge commit | Rewrites existing commits (new SHAs) |
-| Traceability | Shows where/when branches diverged | Cleaner but loses that context |
-| Conflicts | Resolved once, in the merge commit | May resolve per-commit as each is replayed |
+| History shape | Non-linear, preserves branch topology | Linear |
+| Commits | Original, unchanged | Rewritten (new SHAs) |
+| Merge commit | Yes | No |
+| Traceability | Full record of what happened | Idealized/cleaner story |
+| Safety | Safe on shared branches | Risky on shared branches |
 
 ## The golden rule
+**Never rebase commits that have been pushed to a shared branch** others may have based work on. Rewriting shared history forces everyone else into painful conflicts. Rebase is best for cleaning up your *local*, not-yet-shared commits before merging.
 
-**Don't rebase commits that have been pushed and that others may have based work on.** Rebasing rewrites history; if someone else already pulled those commits, your rewrite diverges from their copy and creates a mess. Merging is always safe on shared branches.
+## Common workflow
+Many teams combine both: rebase your feature branch onto the latest `main` to keep it current and linear, then merge it in (sometimes with `--no-ff` to preserve a record of the feature).
 
-## Practical guidance
-- Use **rebase** to keep your local feature branch up to date and tidy *before* sharing it, or to clean up commits with `git rebase -i`.
-- Use **merge** to integrate a finished feature into a shared branch (e.g. `main`), preserving the record that the feature existed as a unit.
-- A common workflow: rebase your feature branch locally, then merge it into main with `--no-ff`.
-
-Want me to walk through a concrete example in this repo, or explain interactive rebase?
-[usage] input=2774 cache_read=7222 cache_write=2073 output=796
+Want me to walk through the actual commands, or how to resolve conflicts in either flow?
+[usage] input=2973 cache_read=15023 cache_write=2073 output=702

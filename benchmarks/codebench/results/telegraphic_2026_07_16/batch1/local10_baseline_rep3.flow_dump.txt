@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,38 +58,40 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Short version: **use a queue when a message should be processed by exactly one consumer, and a topic when it should be broadcast to many independent consumers.**
+[assistant] This is a conceptual architecture question, not a task about your codebase, so I'll answer directly.
 
-## Queue (point-to-point)
+## Queue vs. Topic
 
-A message goes onto the queue, and *one* consumer picks it up and processes it. If you scale to N workers, each message still goes to only one of them.
+The core distinction is **delivery semantics**: a queue delivers each message to *one* consumer; a topic delivers each message to *every* subscriber.
 
-**Use it for:**
-- Work distribution / load balancing — "process this order," "resize this image," "send this email." You want the job done once.
-- Competing consumers, where adding workers increases throughput.
-- Tasks where you care that the work happens, not who's listening.
+### Use a Queue (point-to-point) when...
 
-## Topic (publish/subscribe)
+- **One logical consumer should process each message.** Work should happen exactly once — you don't want two workers both charging the same credit card.
+- **You're distributing work (load balancing).** Multiple worker instances compete for messages off the same queue; each message goes to whichever worker is free. This is how you scale throughput horizontally.
+- **The sender doesn't care who handles it,** only that it gets handled. Command-style messages: "process this order," "resize this image."
+- **You need buffering / backpressure.** The queue absorbs spikes so a slow consumer isn't overwhelmed; work waits until a worker picks it up.
 
-A message is published and delivered to *every* subscriber. Each subscriber gets its own copy.
+### Use a Topic (publish/subscribe) when...
 
-**Use it for:**
-- Broadcasting events — "order placed" needs to trigger billing, inventory, analytics, and notifications, each independently.
-- Fan-out where consumers are decoupled and don't know about each other.
-- Event-driven architectures where multiple systems react to the same fact.
+- **Multiple independent consumers each need the same event.** One "OrderPlaced" event → billing, inventory, email, and analytics all react independently.
+- **The producer shouldn't know who's listening.** You add a new subscriber (e.g., a fraud-detection service) without touching the publisher. This decoupling is the main architectural win.
+- **You're broadcasting facts/events,** not assigning work. Event-style messages: "UserSignedUp," "PriceChanged."
 
-## The core question to ask
+### Quick decision test
 
-> *Should this message be handled once, or does everyone interested need to know about it?*
+Ask: *"If I add a second consumer, should the total work double or stay the same?"*
+- Stay the same (they share the load) → **Queue**
+- Double (each does its own thing) → **Topic**
 
-- **Once → queue.** Command/task semantics ("do this").
-- **Everyone → topic.** Event/notification semantics ("this happened").
+### The nuance worth knowing
 
-## A useful nuance
+Modern systems blur the line. **Kafka** and **consumer groups**, or **Azure Service Bus topics with subscriptions**, combine both: a topic fans out to multiple subscriber *groups* (pub/sub), while *within* each group, messages are load-balanced across instances (queue semantics). So the practical pattern is often:
 
-Modern systems blur the line. Kafka topics with **consumer groups**, or Azure Service Bus **topics with subscriptions**, give you both: fan-out *across* groups, but load-balanced (queue-like) *within* a group. So a single topic can broadcast "order placed" to the billing service and the analytics service, while each of those services still load-balances the event across its own worker pool.
+> One topic per event type → each interested service is its own subscriber group → instances within a service compete like a queue.
 
-**Rule of thumb:** model *commands* (imperative, one owner) as queues, and *events* (something that occurred, past tense) as topics.
+This gives you both broadcast decoupling *and* horizontal scaling at the same time.
 
-Want me to tailor this to a specific broker (RabbitMQ, Kafka, SQS/SNS, Service Bus)? The mechanics differ enough that concrete guidance depends on which you're using.
-[usage] input=2774 cache_read=7222 cache_write=2079 output=697
+---
+
+If you tell me which broker you're working with (RabbitMQ, Kafka, SQS/SNS, Service Bus, NATS…) or your specific use case, I can give concrete, mechanism-level guidance — the abstractions differ meaningfully across them.
+[usage] input=2973 cache_read=15023 cache_write=2079 output=829

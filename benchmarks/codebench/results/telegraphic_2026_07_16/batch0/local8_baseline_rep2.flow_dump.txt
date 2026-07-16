@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,41 +58,35 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local8_baseline_rep2 && ls -la && echo \"---package.json---\" && cat package.json 2>/dev/null && echo \"---tsconfig---\" && cat tsconfig.json 2>/dev/null", "description": "Inspect repo for existing config"}
-[usage] input=2774 cache_read=7222 cache_write=2116 output=245
+[assistant] Here's a multi-stage Dockerfile optimized for a small final image:[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local8_baseline_rep2/Dockerfile", "content": "# syntax=docker/dockerfile:1\n\n########################################\n# Stage 1: Build — compile TypeScript\n########################################\nFROM node:22-alpine AS build\nWORKDIR /app\n\n# Install ALL deps (incl. devDependencies like typescript) using the lockfile.\n# Copy manifests first so this layer is cached until dependencies change.\nCOPY package.json package-lock.json ./\nRUN npm ci\n\n# Copy source and compile TypeScript -> JavaScript (e.g. into ./dist)\nCOPY . .\nRUN npm run build\n\n########################################\n# Stage 2: Prune — production deps only\n########################################\nFROM node:22-alpine AS deps\nWORKDIR /app\n\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev\n\n########################################\n# Stage 3: Runtime — minimal final image\n########################################\nFROM node:22-alpine AS runtime\nENV NODE_ENV=production\nWORKDIR /app\n\n# Run as the built-in non-root user shipped with the node image\nUSER node\n\n# Bring in only what's needed to run: prod node_modules + compiled output\nCOPY --chown=node:node --from=deps  /app/node_modules ./node_modules\nCOPY --chown=node:node --from=build /app/dist         ./dist\nCOPY --chown=node:node package.json ./\n\n# Use `node` directly (not `npm start`) so signals reach the process\nCMD [\"node\", \"dist/index.js\"]\n"}
+[usage] input=2973 cache_read=15023 cache_write=2124 output=678
 
 === Turn 3 ===
-[user] [tool_result] Exit code 1
----package.json---
-[assistant] The repo is empty, so I'll write a general-purpose Dockerfile with sensible defaults you can adjust.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-227c5e985c25/local8_baseline_rep2/Dockerfile", "content": "# syntax=docker/dockerfile:1\n\n##########\n# Stage 1: deps — install ALL dependencies (incl. dev) for the build\n##########\nFROM node:22-alpine AS deps\nWORKDIR /app\n\n# Copy only manifests first so this layer is cached unless deps change\nCOPY package.json package-lock.json ./\nRUN npm ci\n\n##########\n# Stage 2: build — compile TypeScript -> JavaScript\n##########\nFROM node:22-alpine AS build\nWORKDIR /app\n\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN npm run build\n\n##########\n# Stage 3: prod-deps — install ONLY production dependencies\n##########\nFROM node:22-alpine AS prod-deps\nWORKDIR /app\n\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev\n\n##########\n# Stage 4: runtime — minimal final image\n##########\nFROM node:22-alpine AS runtime\nWORKDIR /app\n\nENV NODE_ENV=production\n\n# Run as the built-in non-root user provided by the node image\nUSER node\n\n# Bring in only what the running app needs: prod deps + compiled output\nCOPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules\nCOPY --from=build     --chown=node:node /app/dist ./dist\nCOPY --chown=node:node package.json ./\n\nEXPOSE 3000\nCMD [\"node\", \"dist/index.js\"]\n"}
-[usage] input=2 cache_read=9338 cache_write=3000 output=687
+[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local8_baseline_rep2/Dockerfile (file state is current in your context — no need to Read it back)
+[assistant] Done. Key size-minimizing decisions:
 
-=== Turn 4 ===
-[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-227c5e985c25/local8_baseline_rep2/Dockerfile (file state is current in your context — no need to Read it back)
-[assistant] I also added a `.dockerignore` — without it, `COPY . .` in the build stage would drag `node_modules`, `.git`, etc. into the build context and defeat the caching.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-227c5e985c25/local8_baseline_rep2/.dockerignore", "content": "node_modules\ndist\nnpm-debug.log\n.git\n.gitignore\n.env\n.env.*\nDockerfile\n.dockerignore\n*.md\n"}
-[usage] input=2 cache_read=12338 cache_write=759 output=220
+**Three stages, so build tooling never reaches the final image:**
+- **`build`** — installs *all* dependencies (`npm ci`) including `typescript` and other devDependencies, then runs `npm run build` to compile TS → JS.
+- **`deps`** — a separate clean install of **production-only** deps (`npm ci --omit=dev`). Kept separate from `build` so the pruned `node_modules` isn't contaminated by devDependencies.
+- **`runtime`** — copies in only the compiled `dist/` and the production `node_modules`. No source `.ts`, no compilers, no dev tooling.
 
-=== Turn 5 ===
-[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-227c5e985c25/local8_baseline_rep2/.dockerignore (file state is current in your context — no need to Read it back)
-[assistant] Done. Here's how the size minimization works:
+**Other choices worth noting:**
+- `node:22-alpine` base — Alpine keeps the runtime layer small. Swap the tag to your Node version. (If a native module fails to build against musl, use `node:22-slim` instead.)
+- Manifests copied before source so the `npm ci` layers stay cached until `package-lock.json` actually changes.
+- Runs as the non-root `node` user; `ENV NODE_ENV=production`.
+- `CMD ["node", "dist/index.js"]` rather than `npm start` — one fewer process, and signals (SIGTERM) reach Node directly for clean shutdown.
 
-**Multi-stage layout (4 stages):**
-- **`deps`** — `npm ci` with all deps (needs `typescript` etc. to compile).
-- **`build`** — compiles TS → JS via `npm run build`.
-- **`prod-deps`** — a *separate* `npm ci --omit=dev` so dev dependencies (TypeScript, `@types/*`, linters) never reach the final image.
-- **`runtime`** — copies only prod `node_modules` + compiled `dist/`. None of the build tooling, source `.ts` files, or dev deps are carried forward.
+**You'll likely want to adjust:**
+1. **`npm run build`** must exist and output to `dist/` (typically `"build": "tsc"` with `"outDir": "dist"` in `tsconfig.json`).
+2. **Entry point** — change `dist/index.js` if yours differs.
+3. Add a **`.dockerignore`** to keep `node_modules`, `.git`, and `dist` out of the build context:
 
-**Key size/quality choices:**
-- `node:22-alpine` base — much smaller than the default Debian-based image.
-- Manifests copied before source, so the `npm ci` layers stay cached until dependencies actually change.
-- Splitting `prod-deps` from `deps` is the main win — the final image gets a pruned dependency tree instead of the full dev toolchain.
-- `.dockerignore` keeps the build context lean and prevents host `node_modules` from clobbering the installed ones.
-- Runs as the non-root `node` user with `NODE_ENV=production`.
+```
+node_modules
+dist
+.git
+npm-debug.log
+```
 
-**Assumptions you may need to tweak** (repo was empty):
-- Build script is `npm run build` and emits to `dist/` with entrypoint `dist/index.js` — adjust `outDir`/paths to match your `tsconfig.json`.
-- App listens on `3000` — change `EXPOSE` to your port.
-- Pinned Node 22 LTS; a `package-lock.json` must exist for `npm ci`.
-
-If you want an even smaller image, the next step would be a `node:22-alpine` → `gcr.io/distroless/nodejs22` runtime, or bundling to a single file with esbuild/`ncc` to drop `node_modules` entirely.
-[usage] input=2 cache_read=13097 cache_write=292 output=619
+Want me to generate the `.dockerignore` or tailor the entry point / build script to your actual `package.json`?
+[usage] input=2 cache_read=17147 cache_write=3725 output=624

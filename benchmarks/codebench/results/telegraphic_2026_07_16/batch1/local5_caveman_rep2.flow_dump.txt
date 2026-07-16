@@ -5,8 +5,8 @@ What does the SQL EXPLAIN command tell me?
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Understanding SQL EXPLAIN command"}
-[usage] input=526 cache_read=0 cache_write=0 output=13
+[assistant] {"title": "Understand SQL EXPLAIN command"}
+[usage] input=526 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,28 +58,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] SQL `EXPLAIN` shows the **query execution plan** — how the database engine intends to run your query, before or without actually returning results. Key things it tells you:
+[assistant] EXPLAIN show query execution plan — how DB run query, not run it.
 
-- **Access method** — whether each table is hit by a full/sequential scan or an index scan/seek, and which index.
-- **Join strategy** — nested loop, hash join, or merge join, and the order tables are joined.
-- **Cost estimates** — the planner's guessed relative cost, plus estimated row counts and row width.
-- **Extra operations** — sorts, aggregations, temporary tables, filesorts, etc.
+Tell you:
+- **Scan type** — seq scan (full table) vs index scan. Seq scan on big table = missing index.
+- **Join method** — nested loop, hash join, merge join.
+- **Row estimates** — planner guess of rows per step. Way off = stale stats, run `ANALYZE`.
+- **Cost** — arbitrary units, startup cost..total cost. Compare plans, not real time.
+- **Order** — read inner/indented nodes first, bottom-up.
 
-### `EXPLAIN` vs `EXPLAIN ANALYZE`
-- `EXPLAIN` — the *estimated* plan only. Query is not executed (in Postgres).
-- `EXPLAIN ANALYZE` — actually **runs** the query and reports *real* timings and *actual* row counts alongside the estimates. Comparing estimated vs actual rows is how you spot bad statistics.
+`EXPLAIN` = estimate only, no run. `EXPLAIN ANALYZE` = actually run query, show real time + real rows. Use ANALYZE to catch bad estimates.
 
-> Caution: `EXPLAIN ANALYZE` executes the statement. For `INSERT`/`UPDATE`/`DELETE` it will modify data — wrap it in a transaction and `ROLLBACK` if you don't want the change to persist.
+```sql
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'x';
+```
 
-### What to look for
-- **Sequential/full scans** on big tables → often a missing index.
-- **Estimated rows wildly off from actual** → stale statistics; run `ANALYZE` / update stats.
-- **Expensive sorts or hash operations** → candidates for indexing or query rewrite.
+Warning: `EXPLAIN ANALYZE` runs the query for real. On `INSERT`/`UPDATE`/`DELETE` it will modify data — wrap in a transaction and `ROLLBACK`, or use plain `EXPLAIN`.
 
-### Dialect notes
-- **PostgreSQL** — richest output; supports `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for I/O detail.
-- **MySQL** — `EXPLAIN`, plus `EXPLAIN FORMAT=JSON` and `EXPLAIN ANALYZE` (8.0+).
-- **SQLite** — `EXPLAIN QUERY PLAN` gives the readable high-level version.
-
-Want an example plan broken down for a specific query and database?
-[usage] input=2774 cache_read=7231 cache_write=4056 output=715
+Which DB? Postgres, MySQL, SQLite output differ.
+[usage] input=2973 cache_read=15032 cache_write=4060 output=428

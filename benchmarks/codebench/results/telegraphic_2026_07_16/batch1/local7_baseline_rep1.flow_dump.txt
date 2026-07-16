@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,35 +58,33 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS errors come from the browser enforcing the **Same-Origin Policy**: when your frontend (e.g. `http://localhost:3000`) makes a request to a different origin (different scheme, host, *or* port — e.g. your API at `http://localhost:8080`), the browser requires the server to explicitly opt in via response headers. If those headers are missing or wrong, the browser blocks the response and logs a CORS error — **even though the request often reached the server and succeeded**. It's a browser-side enforcement, not a server error.
+[assistant] CORS (Cross-Origin Resource Sharing) errors happen when your browser blocks a request because the **server** didn't explicitly permit your frontend's origin. The key thing to understand: CORS is enforced by the browser, and the fix almost always lives on the **server/API side**, not the frontend.
 
-## How to read the error
-The exact wording tells you the fix. Common ones:
+## Why it happens
 
-- **"No 'Access-Control-Allow-Origin' header is present"** → server isn't sending CORS headers at all.
-- **"...does not match the supplied origin"** or Allow-Origin is `*` but credentials are used → origin/credentials misconfig.
-- **"Response to preflight request doesn't pass"** → the preflight `OPTIONS` request is failing (see below).
-- **"Method PUT is not allowed by Access-Control-Allow-Methods"** → method not whitelisted.
+Your browser makes a request from origin A (e.g. `http://localhost:3000`) to origin B (e.g. `http://localhost:8000` or `https://api.example.com`). If B's response doesn't include the right `Access-Control-Allow-Origin` header, the browser throws away the response and logs a CORS error — even though the request may have actually reached the server.
 
-## The usual fix: set headers on the server
-CORS is fixed on the **server** (the API), not the frontend. You need it to respond with:
+An "origin" = scheme + host + port. So `localhost:3000` → `localhost:8000` is cross-origin, and so is `http` → `https`.
 
-```
-Access-Control-Allow-Origin: http://localhost:3000
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
-Access-Control-Allow-Headers: Content-Type, Authorization
-```
+## The most common causes
 
-If your requests send cookies/credentials, you also need `Access-Control-Allow-Credentials: true` **and** the Allow-Origin must be an explicit origin (not `*`).
+1. **Server doesn't send `Access-Control-Allow-Origin`** at all.
+2. **Preflight failure** — for non-simple requests (custom headers, `PUT`/`DELETE`, JSON with certain content types), the browser first sends an `OPTIONS` request. If the server doesn't handle `OPTIONS` and return the right headers, it fails.
+3. **Credentials mismatch** — if you send cookies/auth (`credentials: 'include'`), the server must return a *specific* origin (not `*`) **and** `Access-Control-Allow-Credentials: true`.
+4. **A different error masquerading as CORS** — if the API is down, 500s, or the URL is wrong, the browser often reports it as a CORS error because the error response also lacks CORS headers.
 
-## Preflight requests
-For "non-simple" requests (custom headers like `Authorization`, methods like `PUT`/`DELETE`, or `Content-Type: application/json`), the browser first sends an `OPTIONS` "preflight" request. Your server must handle `OPTIONS` and return the CORS headers with a `2xx` status, or every real request fails.
+## How to diagnose
 
----
+- Read the **exact** error text in the console — it usually names the missing header.
+- Open the **Network tab**, find the failing request, and check for a preflight `OPTIONS` call and the response headers.
+- Note whether the request even reached the server (check server logs).
 
-If you tell me **your stack** (Express, Nginx, Flask, Spring, etc.) and paste the exact error line, I can give you the precise config. I can also look at your project directly — want me to check how your server is set up?
+## To get a specific fix
 
-A couple of common gotchas worth ruling out:
-- **Don't** try to fix CORS from frontend fetch options — that's not where it lives.
-- A `500`/`404` on the API can *surface* as a CORS error because the error response lacks the CORS headers; check the Network tab to see if the request actually reached the server.
-[usage] input=2774 cache_read=7222 cache_write=2077 output=1001
+The right fix depends on your stack. If you tell me:
+- What's making the request (fetch/axios, framework) and the **exact** console error
+- What the server is (Express, FastAPI, nginx, an API you don't control, etc.)
+- Whether you're sending cookies/auth
+
+...I can give you the precise config. I can also look through your code if you point me at the relevant files. Want me to dig into your repo?
+[usage] input=2973 cache_read=15023 cache_write=2077 output=920

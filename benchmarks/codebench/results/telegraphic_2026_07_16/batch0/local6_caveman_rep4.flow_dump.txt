@@ -5,7 +5,7 @@ We have a monolithic Django app that's getting slow. The team is debating micros
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Evaluate microservices migration for Django monolith"}
+[assistant] {"title": "Evaluate microservices migration from Django monolith"}
 [usage] input=552 cache_read=0 cache_write=0 output=19
 
 === Turn 2 ===
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,37 +58,39 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] No code here. Advice question. Caveman full fit.
+[assistant] Before split monolith, check these:
 
-**Before split, ask: is monolith actually the problem?** Most "slow" monolith = slow DB queries, missing indexes, N+1, no caching. Microservices fix none of that — add network latency on top. Profile first.
+**1. Where slow actually is**
+Profile first. Slow often = bad queries, no indexes, N+1, no caching, no connection pooling. Microservices fix none of that — add network latency on top. Measure before cut. Many "slow monolith" get fast with Django Debug Toolbar + query fix + Redis cache + Gunicorn worker tuning.
 
-**Key factors:**
+**2. Real reason to split**
+- Scaling one hot path independently (not whole app)
+- Team autonomy — many teams stepping on same code
+- Different runtime need (ML service, heavy async)
 
-**1. Measure real bottleneck.** APM (Django Silk, New Relic, Sentry). Find slow endpoints. Usual suspects:
-- N+1 queries — fix with `select_related`/`prefetch_related`
-- Missing indexes
-- No caching layer (Redis)
-- Sync work that should be async (Celery)
+Not valid reason: "monolith old" or "microservices modern."
 
-Often 80% speedup here, zero architecture change.
+**3. Domain boundaries clear?**
+Split need clean seams. If models tangled, foreign keys everywhere, no bounded context — you get distributed monolith: all coupling, plus network pain, plus distributed transactions. Worst of both. First enforce boundaries *inside* monolith (Django apps, service layer). If cannot draw clean line in-process, cannot draw it across network.
 
-**2. Scaling shape.** Microservices help when parts scale differently (one endpoint hammered, rest idle). If whole app scales together, horizontal scaling of monolith (more gunicorn workers/pods behind load balancer) simpler and cheaper.
+**4. Data ownership**
+Each service own its DB. Means: no cross-service JOIN, no shared transaction. Django ORM cross-model query gone. Need eventual consistency, sagas, event bus. Big cost. How much data currently JOINed across proposed boundaries?
 
-**3. Team size + ownership.** Microservices = org tool, not perf tool. Pay off when many teams need independent deploy. One small team + microservices = distributed monolith pain (deploy all together anyway, now with network calls).
+**5. Operational cost**
+Microservices need: service discovery, API gateway, distributed tracing, centralized logging, CI/CD per service, container orchestration (k8s), monitoring. Team ready to run this? One monolith deploy becomes N deploys + network debugging.
 
-**4. Data coupling.** Hardest part. Django ORM joins across tables = free. Split services = those joins become API calls + distributed transactions + eventual consistency. If domains tangled, splitting brutal. Map bounded contexts first.
+**6. Team size / maturity**
+Small team (< ~15 devs) usually faster on monolith. Microservices pay off when org big enough that coordination cost > infra cost.
 
-**5. Operational cost.** Each service needs: deploy pipeline, monitoring, logging, service discovery, auth between services, versioning. Distributed tracing now mandatory. Debugging one request spans many logs.
+**7. Transaction / consistency need**
+Strong consistency across boundaries hard in microservices. If business need ACID across the split — reconsider.
 
-**6. Failure modes.** In-process call never fails mid-way. Network call does — need retries, timeouts, circuit breakers, idempotency.
+## Recommendation
+1. Profile — fix DB/cache/query wins first. Cheap, big return.
+2. Modularize inside monolith — clean Django app boundaries, service layer, kill cross-boundary imports.
+3. Split only proven bottleneck — extract *one* service that has clear boundary + independent scaling need (strangler pattern). Not big-bang rewrite.
 
-**Recommended path:**
-1. Profile + fix DB/caching. Cheapest, biggest win.
-2. Scale monolith horizontally if load-bound.
-3. If still need split: **modular monolith** first — clean app boundaries, no cross-app model imports, service-layer interfaces. Gets 80% of decoupling, none of network cost.
-4. Extract single loud service only when one part has clear separate scaling/ownership need (e.g. video processing, notifications). Strangler-fig pattern, not big-bang rewrite.
+Modular monolith get 80% of benefit, 20% of cost. Reach for microservices when team + domain force it, not before.
 
-Short: fix perf in monolith now, restructure into modules, extract services one at a time only when real independent-scaling or team need proven.
-
-Want me to profile the actual slow endpoints if repo is here?
-[usage] input=2774 cache_read=7231 cache_write=4084 output=1151
+Want me look at the actual slow spots in code? Point me at the app.
+[usage] input=2973 cache_read=15032 cache_write=4085 output=930

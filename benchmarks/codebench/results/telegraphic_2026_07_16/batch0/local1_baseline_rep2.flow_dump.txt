@@ -5,8 +5,8 @@ Why is my React component re-rendering on every state update even though the pro
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Debug unnecessary React re-renders with object props"}
-[usage] input=545 cache_read=0 cache_write=0 output=17
+[assistant] {"title": "Prevent unnecessary React component re-renders"}
+[usage] input=545 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,67 +58,65 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a classic React re-render gotcha. Let me explain what's happening and how to fix it.
+[assistant] This is one of the most common React gotchas. The problem is almost certainly that **you're creating a new object every render**, so the prop *reference* changes even though the object's contents look identical.
 
 ## Why it happens
 
-React decides whether to re-render a child based on a **shallow (reference) comparison** of props (when using `React.memo`) or simply re-renders all children whenever the parent renders (default behavior). The problem with objects is that **a new object literal is a new reference every render**, even if its contents are identical:
+React (and `React.memo`) compares props by **reference** (`Object.is`), not by deep value. An object literal creates a brand-new reference every time the parent renders:
 
 ```jsx
 function Parent() {
   const [count, setCount] = useState(0);
 
-  // ⚠️ New object created on EVERY render
-  const config = { color: 'blue', size: 'large' };
+  // ❌ New object every render — different reference each time
+  const config = { theme: "dark", size: "large" };
 
   return <Child config={config} />;
 }
 ```
 
-`{ color: 'blue' }` !== `{ color: 'blue' }` — different references. So even `React.memo(Child)` sees "props changed" and re-renders.
+Even though `config` is *structurally* identical each render, `{...} !== {...}`, so `Child` sees a "changed" prop and re-renders.
 
-## Two things to check
+## Fixes
 
-**1. Is the child even memoized?** By default, a parent re-render re-renders *all* children regardless of props. `React.memo` is what enables the props-comparison shortcut:
+**1. Memoize the object with `useMemo`:**
 
 ```jsx
-const Child = React.memo(function Child({ config }) { /* ... */ });
+const config = useMemo(() => ({ theme: "dark", size: "large" }), []);
 ```
 
-**2. Is the object reference stable?** Wrap it in `useMemo` so the same reference is reused unless a dependency actually changes:
+The empty dependency array keeps the same reference until a dependency changes.
+
+**2. Hoist truly-static objects out of the component:**
 
 ```jsx
-function Parent() {
-  const [count, setCount] = useState(0);
-
-  const config = useMemo(
-    () => ({ color: 'blue', size: 'large' }),
-    [] // recompute only when deps change; [] = never
-  );
-
-  return <Child config={config} />;
-}
-```
-
-The same applies to **functions** (`useCallback`) and **arrays** passed as props — all are compared by reference.
-
-## Quick decision guide
-
-- Object built from props/state → `useMemo` with the right dependencies.
-- Function passed down → `useCallback`.
-- Truly static object → hoist it **outside** the component so it's created once:
-
-```jsx
-const CONFIG = { color: 'blue', size: 'large' }; // module scope, stable forever
+const CONFIG = { theme: "dark", size: "large" }; // module scope, stable forever
 
 function Parent() {
   return <Child config={CONFIG} />;
 }
 ```
 
-## Worth noting
+**3. Wrap the child in `React.memo`** so it skips re-renders when props are referentially equal — but this only helps *after* you've stabilized the object reference:
 
-Re-rendering isn't always a problem — React is fast, and premature memoization adds complexity. Only reach for `memo`/`useMemo` when you've confirmed a real performance cost (expensive child, large lists, etc.). Also, if you're on **React 19+ with the React Compiler**, much of this memoization is done automatically and you may not need `useMemo`/`useCallback` at all.
+```jsx
+const Child = React.memo(function Child({ config }) { /* ... */ });
+```
 
-Want to share your actual component? I can point to the exact line causing the new reference.
-[usage] input=2774 cache_read=7222 cache_write=2097 output=874
+`React.memo` alone won't help if you keep passing a fresh object.
+
+## The same trap applies to
+
+- **Inline functions**: `onClick={() => ...}` → use `useCallback`
+- **Arrays**: `items={[1, 2, 3]}` → `useMemo`
+- **Inline styles**: `style={{ color: "red" }}` → hoist or memoize
+
+## One caveat worth checking first
+
+If the component re-renders **without** `React.memo`, that's *expected* — a component re-renders whenever its parent re-renders, regardless of props. `React.memo` is what opts a component out of that. So:
+
+- If you haven't wrapped `Child` in `React.memo`, the object prop isn't the cause — the parent re-rendering is enough.
+- If you *have* wrapped it in `React.memo` and it still re-renders, the unstable object reference is your culprit.
+
+Want to share the actual component? I can point to the exact line creating the new reference.
+[usage] input=2973 cache_read=15023 cache_write=2105 output=879

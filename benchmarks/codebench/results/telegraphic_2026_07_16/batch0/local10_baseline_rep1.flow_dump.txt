@@ -5,8 +5,8 @@ Implement a React error boundary component that catches render errors, shows a f
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Implement React error boundary with fallback UI"}
-[usage] input=544 cache_read=0 cache_write=0 output=17
+[assistant] {"title": "Create React error boundary with retry"}
+[usage] input=544 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,56 +58,53 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep1 && ls -la && echo \"---PKG---\" && cat package.json 2>/dev/null", "description": "List files and read package.json"}
-[usage] input=2774 cache_read=7222 cache_write=2098 output=160
+[assistant] Let me look at the project structure to match conventions.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep1 && ls -la && echo \"---\" && cat package.json 2>/dev/null", "description": "List files and read package.json"}
+[usage] input=2973 cache_read=15023 cache_write=2106 output=180
 
 === Turn 3 ===
 [user] [tool_result] Exit code 1
----PKG---
-[assistant] [tool_use: Bash] {"command": "ls -la; echo \"---\"; git log --oneline -5 2>/dev/null; echo \"---find---\"; find . -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' -o -name '*.js' | grep -v node_modules | head -30", "description": "Inspect repo contents"}
-[usage] input=2 cache_read=9320 cache_write=2915 output=181
+---
+[assistant] [tool_use: Bash] {"command": "pwd && ls -la; echo \"---git---\"; git log --oneline -5 2>&1 | head", "description": "Inspect directory and git"}
+[usage] input=2 cache_read=17129 cache_write=3126 output=124
 
 === Turn 4 ===
-[user] [tool_result] ---
----find---
-[assistant] [tool_use: Bash] {"command": "ls -a1; echo \"==tsconfig==\"; ls *.json 2>/dev/null", "description": "Check for hidden config files"}
-[usage] input=2 cache_read=12235 cache_write=191 output=128
+[user] [tool_result] /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep1
+---git---
+fatal: not a git repository (or any of the parent directories): .git
+[assistant] Empty directory with no existing project. I'll create a self-contained, well-documented `ErrorBoundary` component in TypeScript (the common modern default).[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep1/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface FallbackProps {\n  /** The error that was thrown during rendering. */\n  error: Error;\n  /** Resets the boundary and re-renders the wrapped children. */\n  retry: () => void;\n}\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /**\n   * Custom fallback UI. May be a React node or a render function that\n   * receives the error and a `retry` callback. Defaults to a built-in UI.\n   */\n  fallback?: ReactNode | ((props: FallbackProps) => ReactNode);\n  /** Invoked whenever an error is caught, for external logging/reporting. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render errors from its subtree, shows a fallback UI with a retry\n * button, and logs the error details.\n *\n * Note: error boundaries only catch errors during rendering, in lifecycle\n * methods, and in constructors of the tree below them. They do NOT catch\n * errors in event handlers, async code, or the boundary itself.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    // Log the error details. Swap console for your reporting service\n    // (Sentry, Datadog, etc.) here or via the `onError` prop.\n    console.error(\"ErrorBoundary caught an error:\", error, info.componentStack);\n    this.props.onError?.(error, info);\n  }\n\n  retry = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n    const { children, fallback } = this.props;\n\n    if (error !== null) {\n      if (typeof fallback === \"function\") {\n        return fallback({ error, retry: this.retry });\n      }\n      if (fallback !== undefined) {\n        return fallback;\n      }\n      return <DefaultFallback error={error} retry={this.retry} />;\n    }\n\n    return children;\n  }\n}\n\nfunction DefaultFallback({ error, retry }: FallbackProps) {\n  return (\n    <div\n      role=\"alert\"\n      style={{\n        padding: \"1.5rem\",\n        border: \"1px solid #f0a0a0\",\n        borderRadius: 8,\n        background: \"#fff5f5\",\n        color: \"#742a2a\",\n        fontFamily: \"system-ui, sans-serif\",\n        maxWidth: 480,\n      }}\n    >\n      <h2 style={{ margin: \"0 0 0.5rem\", fontSize: \"1.1rem\" }}>\n        Something went wrong\n      </h2>\n      <p style={{ margin: \"0 0 1rem\", fontSize: \"0.9rem\" }}>\n        {error.message || \"An unexpected error occurred.\"}\n      </p>\n      <button\n        type=\"button\"\n        onClick={retry}\n        style={{\n          padding: \"0.5rem 1rem\",\n          border: \"none\",\n          borderRadius: 6,\n          background: \"#c53030\",\n          color: \"#fff\",\n          cursor: \"pointer\",\n          fontSize: \"0.9rem\",\n        }}\n      >\n        Try again\n      </button>\n    </div>\n  );\n}\n"}
+[usage] input=2 cache_read=20255 cache_write=195 output=1556
 
 === Turn 5 ===
-[user] [tool_result] Exit code 1
-==tsconfig==
-(eval):1: no matches found: *.json
-[assistant] The repo is empty, so I'll create a standalone TypeScript React error boundary component. Error boundaries must be class components (React has no hook equivalent for `componentDidCatch`).[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep1/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback renderer. Receives the caught error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Hook for reporting to an external logging service (Sentry, Datadog, etc.). */\n  onError?: (error: Error, errorInfo: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render errors in its subtree, displays a fallback UI with a retry\n * button, and logs the error details.\n *\n * Note: error boundaries only catch errors thrown during rendering, in\n * lifecycle methods, and in constructors of the tree below them. They do NOT\n * catch errors in event handlers, async code, or the boundary itself.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {\n    // Log the error details. Replace console.error with a real logging\n    // service in production, or pass an `onError` handler.\n    console.error(\"ErrorBoundary caught an error:\", error, errorInfo);\n    this.props.onError?.(error, errorInfo);\n  }\n\n  reset = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong</h2>\n          <p style={styles.message}>{error.message}</p>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Try again\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles = {\n  container: {\n    padding: \"1.5rem\",\n    border: \"1px solid #f5c2c7\",\n    borderRadius: \"8px\",\n    background: \"#fff5f5\",\n    color: \"#842029\",\n    maxWidth: \"480px\",\n    margin: \"1rem auto\",\n    fontFamily: \"system-ui, sans-serif\",\n  },\n  heading: {\n    margin: \"0 0 0.5rem\",\n    fontSize: \"1.125rem\",\n  },\n  message: {\n    margin: \"0 0 1rem\",\n    fontSize: \"0.9rem\",\n    wordBreak: \"break-word\" as const,\n  },\n  button: {\n    padding: \"0.5rem 1rem\",\n    border: \"none\",\n    borderRadius: \"6px\",\n    background: \"#842029\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n    fontSize: \"0.9rem\",\n  },\n} as const;\n"}
-[usage] input=2 cache_read=12426 cache_write=168 output=1401
-
-=== Turn 6 ===
-[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep1/ErrorBoundary.tsx (file state is current in your context — no need to Read it back)
-[assistant] Done. Created `ErrorBoundary.tsx` — a class-based error boundary (the only way to catch render errors in React, since there's no hook equivalent for `componentDidCatch`).
+[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep1/ErrorBoundary.tsx (file state is current in your context — no need to Read it back)
+[assistant] Created `ErrorBoundary.tsx`. It's a class component (required — error boundaries can't be functions since they rely on `getDerivedStateFromError`/`componentDidCatch`).
 
 **What it does:**
-- **Catches render errors** via `getDerivedStateFromError`, which flips state to show the fallback.
-- **Fallback UI with retry** — an accessible `role="alert"` panel showing the error message plus a "Try again" button. `reset()` clears the error state so the subtree re-mounts and re-attempts the render.
-- **Logs the error** in `componentDidCatch` (`console.error` with the error + component stack), and forwards to an optional `onError` prop so you can wire in Sentry/Datadog.
+- **Catches render errors** — `getDerivedStateFromError` stores the error and triggers the fallback render; catches errors in rendering, lifecycles, and constructors of the subtree.
+- **Fallback UI with retry** — default `DefaultFallback` shows the message and a "Try again" button that calls `retry()`, which clears the error state and re-renders `children`.
+- **Logs details** — `componentDidCatch` logs the error and component stack to the console, and forwards to an optional `onError` callback for wiring up a reporting service.
 
 **Usage:**
 
 ```tsx
+// Default fallback
 <ErrorBoundary onError={(err, info) => reportToSentry(err, info)}>
-  <App />
+  <MyApp />
+</ErrorBoundary>
+
+// Custom fallback via render prop (gets error + retry)
+<ErrorBoundary fallback={({ error, retry }) => (
+  <div>
+    <p>Failed: {error.message}</p>
+    <button onClick={retry}>Reload</button>
+  </div>
+)}>
+  <MyApp />
 </ErrorBoundary>
 ```
 
-Optionally supply a custom fallback:
+**Two caveats worth knowing:**
+1. Error boundaries do **not** catch errors in event handlers, async code (`setTimeout`, promises), or SSR — only render-path errors. Handle those with `try/catch`.
+2. If the underlying cause is deterministic (e.g. bad props), clicking retry will just re-throw. For those cases, pair retry with changing the input or add a `resetKeys` prop.
 
-```tsx
-<ErrorBoundary fallback={(error, reset) => <MyFallback error={error} onRetry={reset} />}>
-  <App />
-</ErrorBoundary>
-```
-
-Two things worth knowing about React error boundaries in general:
-- They **don't** catch errors in event handlers, async code, SSR, or the boundary itself — only errors thrown during render/lifecycle of the tree below.
-- A bare retry only helps if the underlying cause is transient (e.g. a flaky fetch). For a hard bug, the render will just fail again — often you'll pair retry with a `resetKeys`-style prop or a navigation reset.
-
-Want me to add a `package.json`/`tsconfig`, a test, or a `resetKeys` prop that auto-resets when props change?
-[usage] input=2 cache_read=12594 cache_write=1479 output=574
+I used `.tsx`/TypeScript since the directory was empty with no existing conventions — let me know if you'd prefer plain JS/`.jsx` and I'll convert it.
+[usage] input=2 cache_read=20450 cache_write=1638 output=630
