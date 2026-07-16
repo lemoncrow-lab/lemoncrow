@@ -1,5 +1,8 @@
 # LemonCrow Mini Eval
 
+> This is an experimental development evaluation. Automatic provider/model
+> routing is not part of the current product or plans.
+
 The **mini eval** is the cheapest credible benchmark in LemonCrow: a small,
 deterministic, cost-quality suite of 5–10 real tasks against this repository.
 It exists to answer one question fast and honestly — *did routing produce

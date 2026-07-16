@@ -22,7 +22,7 @@ For host integrations, background services, and the optional
 visualization stack, install from a repo checkout using the dev installer:
 
 ```bash
-git clone https://github.com/lemoncrowhq/lemoncrow.git
+git clone https://github.com/lemoncrow-lab/lemoncrow.git
 cd lemoncrow
 bash scripts/local.sh --local
 ```
@@ -53,19 +53,19 @@ lc background status
 Skip host integrations:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | bash -s -- --no-hosts
+curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | bash -s -- --no-hosts
 ```
 
 Skip auto-starting background services:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_SERVICECTL=1 bash
+curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_SERVICECTL=1 bash
 ```
 
 Skip auto-starting the visualization stack:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lemoncrowhq/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_STACK=1 bash
+curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_STACK=1 bash
 ```
 
 Install from a local checkout instead of GitHub:

@@ -10,10 +10,13 @@ FREE_FEATURES: frozenset[str] = frozenset(
         "search",
         "source_projection",
         "unlimited_repos",
+        "session_recall",
+        "swarm",
     }
 )
 
-# Stable paid key -> user-facing description.
+# Stable registered feature key -> user-facing description. Some registered
+# keys may also be granted by FREE_FEATURES for compatibility at existing gates.
 PRO_FEATURES: dict[str, str] = {
     "code_search": "Zoekt-backed fast code search across large repositories",
     "context_engine": "Native context engine + ANN symbol index for large repos",
@@ -26,21 +29,17 @@ PRO_FEATURES: dict[str, str] = {
     "prefix_cache": "Prefix-cache planning for warmer provider caches",
     "scoped_context": "Scoped-context pruning and line-level skimming",
     "budget_optimizer": "Per-session budget optimization",
-    "model_routing": "Automatic routing to cheaper models per turn",
-    "cross_vendor_routing": "Cross-vendor routing across providers",
     "swarm": "Multi-worktree swarm runs",
     "large_repo": "Very large repositories with no index or symbol caps",
     "shared_context": "Shared team context across repositories",
     "governance": "Governance policy, audit export, retention, and SSO",
 }
 
-# Lite matches the public product: single-repo Zoekt, cross-session recall, and
-# the basic optimizer. It does not inherit Pro routing, cross-vendor memory,
-# full dashboards, large-repo context, swarm, or Enterprise governance.
+# Legacy Lite subscriptions keep their historical paid grants even though Lite
+# is no longer offered publicly. Recall and swarm are now Free.
 LITE_FEATURES: frozenset[str] = frozenset(
     {
         "code_search",
-        "session_recall",
         "optimizer",
     }
 )
@@ -78,6 +77,8 @@ def plan_grants(plan: str, feature: str) -> bool:
 
 
 def minimum_plan(feature: str) -> str:
+    if feature in FREE_FEATURES:
+        return "Free"
     if feature in LITE_FEATURES:
         return "Lite"
     if feature in ENTERPRISE_FEATURES:

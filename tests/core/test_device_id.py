@@ -25,7 +25,7 @@ def test_device_id_env_override_ignored_without_a_token(monkeypatch: pytest.Monk
     """SECURITY: with no auth token, the caller is the anonymous identity --
     and the server derives that identity's account_id FROM the device id
     (sha256), not from anything account-keyed. Honoring the override here
-    would let anyone mint an unlimited stream of fresh $20/mo anonymous caps
+    would let anyone mint an unlimited stream of fresh $50 anonymous caps
     just by exporting one env var, no root/hardware change required (unlike
     the OS machine-id it would otherwise bypass). Must always fall through
     to the real OS-derived id in this case."""

@@ -1,108 +1,92 @@
-# Licensing & Pro features
+# Licensing & feature entitlements
 
-LemonCrow is open-core (Apache-2.0 source + a proprietary compiled engine) and runs locally. Existing paid Pro control surfaces
-are gated behind the signed-in account's plan. Free remains genuinely useful;
-Lite raises the savings cap; Pro and Enterprise cover the gated capabilities.
+LemonCrow is open-core and local-first. The official distribution uses a free
+account to establish a signed identity; Pro and Enterprise unlock advanced
+capabilities. Savings value is not the paid boundary for an authenticated
+account.
 
 > Customer-facing plans and prices: [Plans & Pricing](./pricing.md). This page
 > documents the technical entitlement design.
 
-- **Client (Apache-2.0):** `src/lemoncrow/core/capabilities/licensing/` — holds
-  the OAuth session and answers "is this feature unlocked?".
-- **Auth server (proprietary):** the landing site's `/api/auth/*` functions
-  plus the Stripe webhook. Google OAuth signs the user in, Stripe payments set
-  the account's plan, and `/api/auth/me` reports `{email, plan, device_id}` to
-  the CLI.
+- **Client (Apache-2.0):** `src/lemoncrow/core/capabilities/licensing/` stores
+  the OAuth session and answers whether a feature is unlocked.
+- **Auth server:** the landing site's `/api/auth/*` functions and Stripe
+  webhook establish the account plan and issue signed plan/cap verdicts.
 
 ## How entitlement works
 
-`lc account login` runs a browser OAuth flow against the auth server and stores a
-session token at `~/.lemoncrow/auth_token` (mode `0600`; override with the
-`LEMONCROW_AUTH_TOKEN` env var — handy for CI). Entitlement checks read the plan
-from `/api/auth/me`, cached on disk for 6 hours (`~/.lemoncrow/auth_user.json`),
-so normal operation makes a handful of auth calls a day. If the server is
-unreachable and no fresh cache exists, gated surfaces stay locked and the check
-retries hourly; Free surfaces are never affected.
+`lc account login` runs browser OAuth and stores a session token at
+`~/.lemoncrow/auth_token` (mode `0600`; `LEMONCROW_AUTH_TOKEN` can supply
+one in CI). Plan state from `/api/auth/me` is cached locally for six hours.
 
-`lc account logout` deletes the session and reverts to Free. There are no offline
-license keys, no device-bound leases, no local crypto, and no dev backdoor —
-the account's plan is the single source of truth, and every check fails closed
-to Free.
+Anonymous evaluation is device-bound and includes up to **$50 in measured
+savings over a rolling 30-day window**. At that point LemonCrow goes dormant and
+the host's built-in tools remain available. Creating or signing into a Free
+account removes this savings cap from the core runtime. A valid signed verdict
+is still required; missing, expired, copied, or malformed credentials fail
+closed when signing is configured.
 
-## Plans: Free / Lite / Pro / Enterprise
+## Plans: Free / Pro / Enterprise
 
-| Capability | Free | Lite | Pro | Enterprise |
+| Capability | Anonymous evaluation | Free account | Pro | Enterprise |
 | --- | :---: | :---: | :---: | :---: |
-| Code-nav MCP tools, host packaging, agents, skills, and benchmarks | ✅ | ✅ | ✅ | ✅ |
+| Grounded MCP tools, host packaging, agents, skills, hooks | ✅ | ✅ | ✅ | ✅ |
 | Normal-size repo map and context engine | ✅ | ✅ | ✅ | ✅ |
-| Local savings estimate and session replay | ✅ | ✅ | ✅ | ✅ |
-| Monthly savings before the engine goes dormant | $20 | $200 | ∞ | ∞ |
+| Local session replay, recall, and multi-worktree swarm | ✅ | ✅ | ✅ | ✅ |
+| Savings before dormancy | $50 / rolling 30 days | Uncapped | Uncapped | Uncapped |
 | Large-repo search and indexing | — | — | ✅ | ✅ |
-| Session recall and cross-vendor memory | — | — | ✅ | ✅ |
-| Reasoning library | — | — | ✅ | ✅ |
-| Savings engine, compression, and budget optimization | — | — | ✅ | ✅ |
-| Model routing | — | — | ✅ | ✅ |
-| Multi-worktree swarm | — | — | ✅ | ✅ |
+| Cross-vendor memory and reasoning library | — | — | ✅ | ✅ |
+| Optimization, compression, scoped pruning, and budget planning | — | — | ✅ | ✅ |
 | Shared team context, governance, audit, SSO | — | — | — | ✅ |
 
-Lite only raises the savings cap (`plugin_runtime.SAVINGS_CAP_BY_PLAN`); it does
-not unlock any `PRO_FEATURES`. Pro and Enterprise are in `PRO_PLANS` and grant
-the gated keys (Enterprise additionally grants `ENTERPRISE_FEATURES`).
+Lite is no longer sold publicly. Existing Lite subscriptions remain recognized
+and retain their historical grants; they are uncapped like every verified
+account.
 
-Feature keys remain in src/lemoncrow/core/capabilities/licensing/features.py.
-Customer-facing plans and prices: [Plans & Pricing](./pricing.md).
+Feature keys live in
+`src/lemoncrow/core/capabilities/licensing/features.py`. `session_recall`
+and `swarm` are explicit Free grants. Pro gates remain on advanced surfaces
+such as larger-repo indexing, knowledge extraction, deep memory, context
+compression, and savings optimization.
 
-A free account is required to activate the official install:
+## Account commands
 
 ```bash
-lc account login        # browser OAuth; stores the session token
-lc init                 # activates the official install
+lc account login        # create or sign in to a free account
+lc init                 # activate the official install
 lc account status       # show account and authentication state
 lc account subscription # show subscription details
-lc account cap          # show monthly savings-cap usage
-lc account logout       # removes the local session
+lc account cap          # show anonymous-cap or uncapped status
+lc account logout       # remove the local session and return to anonymous evaluation
 ```
-A paid account supports up to **three active CLI devices**; the auth server
-tracks the slots. LEMONCROW_PRO_URL overrides the buy link shown in upsells.
-## The entitlement contract
 
-Every gate calls one tiny API:
+Execution and repository data stay local. Signed entitlement and cap verdicts
+are cached for brief offline use, but expire after eight hours; after a longer
+offline period the runtime fails closed until it can refresh a signed verdict.
+Paid-feature checks separately fail closed to Free when no fresh verified plan
+exists.
+
+## The entitlement contract
 
 ```python
 from lemoncrow.core.capabilities import licensing
 
-licensing.is_pro()                    # bool
-licensing.has_feature("optimizer")    # non-Pro keys are always True
-licensing.require("optimizer")        # raises FeatureLocked if the plan doesn't grant it
+licensing.is_pro()
+licensing.has_feature("session_recall")  # True on Free
+licensing.has_feature("optimizer")       # True only when the plan grants it
+licensing.require("optimizer")
 ```
 
-Both check the signed-in account's **plan** — nothing else. Use
-`require_pro()` (`gateway/cli/commands/_shared.py`) for CLI surfaces; it wraps
-`has_feature` with the upsell message.
+When adding a feature, register its key, decide whether it belongs in
+`FREE_FEATURES`, `PRO_FEATURES`, or `ENTERPRISE_FEATURES`, and gate the
+activation point—not a read-only preview.
 
-## Gating a new feature
+## Open-core layout
 
-1. **Core:** add the key + description to `PRO_FEATURES` in `features.py`.
-2. **Seam:** at the point that *activates* the capability, branch on
-   `licensing.has_feature("<key>")` (or call `licensing.require("<key>")` /
-   `require_pro()` for a hard gate with an upsell). Prefer gating the
-   **write/apply/activate** action, not read-only previews — let users measure
-   the value before they pay for it.
+Everything lives in one repository. Only paths listed in
+`release/public-paths.txt` are included in the public mirror.
 
-Current gates (reference): `lc optimize apply`, `lc savings --deep`,
-and the `require_pro` CLI gates (recall, router, zoekt, knowledge, swarm,
-memory).
-
-## Open-core layout (what's public vs private)
-
-Everything lives in **one repo**. Only paths listed in
-`release/public-paths.txt` are included in the public mirror
-(`scripts/mirror.py`). Everything else is private by default — a new directory
-never leaks unless it's explicitly allowlisted.
-
-| Public (included via `public-paths.txt`)           | Private (excluded by default)                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------ |
-| Whole runtime, MCP server, SDK, CLI                | `internal/`, `docs-internal/`, `.planning/` (strategy)             |
-| License **client** (`licensing/`)                  | `services/` — auth/payments backend (Stripe, D1)                   |
-| `docs/`, `integrations/`, `tests/`, benchmarks     | `deploy/`, `release/` (publish machinery)                          |
-| `frontend/`, `landing/`, `docs-site/`              | Stripe secrets (never committed)                                   |
+| Public | Private |
+| --- | --- |
+| Runtime, MCP server, SDK, CLI, integrations, docs, tests, benchmarks | Auth/payment services, internal planning, deployment and release machinery |
+| Licensing client | Stripe and signing secrets |

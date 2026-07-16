@@ -87,40 +87,30 @@ def test_make_code_embedder_defaults_to_null_without_bge_extras(monkeypatch: pyt
     make_code_embedder.cache_clear()
 
 
-def test_make_code_embedder_defaults_to_bge_on_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without pins, auto-selects BGE-Code-v1 when extras are installed and a GPU has enough VRAM."""
-    from lemoncrow.infra.embeddings import factory as factory_mod
+def test_make_code_embedder_no_pin_stays_null_even_with_extras(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without an explicit pin, semantic search stays OFF (FTS-only) even when the torch extras are installed."""
     from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
     make_code_embedder.cache_clear()
     monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
     monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
     monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(factory_mod, "_gpu_has_sufficient_vram_for_bge", lambda: True)
 
     embedder = make_code_embedder()
+
+    assert isinstance(embedder, NullEmbedder)
+    make_code_embedder.cache_clear()
+
+
+def test_make_code_embedder_bge_requires_explicit_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BGE is only selected via an explicit pin (LEMONCROW_CODE_EMBEDDER=bge)."""
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+
+    make_code_embedder.cache_clear()
+
+    embedder = make_code_embedder(pin="bge")
 
     assert isinstance(embedder, BgeEmbedder)
-    make_code_embedder.cache_clear()
-
-
-def test_make_code_embedder_falls_back_to_sfr_without_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without pins, falls back to the small SFR model when there's no GPU / insufficient VRAM."""
-    from lemoncrow.infra.embeddings import factory as factory_mod
-    from lemoncrow.infra.embeddings.bge import BgeEmbedder
-    from lemoncrow.infra.embeddings.nomic import NomicEmbedder
-
-    make_code_embedder.cache_clear()
-    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
-    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
-    monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(factory_mod, "_gpu_has_sufficient_vram_for_bge", lambda: False)
-
-    embedder = make_code_embedder()
-
-    assert isinstance(embedder, NomicEmbedder)
-    assert embedder.dim == factory_mod._SFR_FALLBACK_DIM
-    assert "SFR-Embedding-Code-400M_R" in embedder.name
     make_code_embedder.cache_clear()
 
 

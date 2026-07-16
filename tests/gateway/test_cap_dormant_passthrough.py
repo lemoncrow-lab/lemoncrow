@@ -52,6 +52,24 @@ def test_authority_error_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mcp_server._savings_dormant() is True
 
 
+def test_dormant_tool_error_points_to_free_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.gateway.adapters import mcp_server
+
+    monkeypatch.setattr(mcp_server, "_savings_dormant", lambda: True)
+    response = mcp_server._handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "read", "arguments": {}},
+        }
+    )
+    assert response["error"]["code"] == -32601
+    assert "lc account login" in response["error"]["message"]
+    assert "uncapped Free" in response["error"]["message"]
+    assert "upgrade" not in response["error"]["message"].lower()
+
+
 # ── no_token self-heal ──────────────────────────────────────────────────────
 # Dormancy with reason "no_token" means no verdict is persisted for the
 # current identity (fresh container, offline login, expired token) — NOT that

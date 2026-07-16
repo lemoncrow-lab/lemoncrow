@@ -60,7 +60,7 @@ def test_dormant_pops_agent_from_workspace_settings_not_just_global(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, workspace, global_config = _setup(tmp_path, monkeypatch)
-    _patch_saved(monkeypatch, 25.0)  # > $20 free cap -> dormant
+    _patch_saved(monkeypatch, 55.0)  # > $50 anonymous cap -> dormant
 
     project_settings = workspace / ".claude" / "settings.json"
     project_settings.parent.mkdir(parents=True)
@@ -91,7 +91,7 @@ def test_active_leaves_workspace_agent_untouched(tmp_path: Path, monkeypatch: py
 
 def test_never_clobbers_a_users_custom_workspace_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _root, workspace, _global_config = _setup(tmp_path, monkeypatch)
-    _patch_saved(monkeypatch, 25.0)  # dormant
+    _patch_saved(monkeypatch, 55.0)  # dormant
 
     project_settings = workspace / ".claude" / "settings.json"
     project_settings.parent.mkdir(parents=True)

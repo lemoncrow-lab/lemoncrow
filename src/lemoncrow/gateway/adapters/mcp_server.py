@@ -2654,9 +2654,9 @@ def _price_avoided_calls_usd(
     """Price avoided tool-call round trips: context re-read + the turn's output.
 
     Each avoided call is an API round trip that would have (a) re-read the
-    current context (``ctx_tokens``, measured from the host transcript) at the
+    current context (ctx_tokens, measured from the host transcript) at the
     cache-read rate, and (b) produced the session's average per-turn output
-    (``avg_output_tokens``, measured) — billed at the output rate and
+    (avg_output_tokens, measured) — billed at the output rate and
     re-entering context as a cache write on the next turn. Per-request flat
     semantics, at the >200k premium rate when the live window itself ran
     long-context. Unknown model or unmeasured context → 0.0 (no guess).
@@ -10683,7 +10683,8 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             return _err(
                 rid,
                 -32601,
-                "tool unavailable: LemonCrow savings cap reached — upgrade or wait for the monthly reset",
+                "tool unavailable: LemonCrow anonymous savings cap reached — run `lc account login` "
+                "to unlock uncapped Free",
             )
         _tool_call_images.value = []
         args = params.get("arguments") or {}

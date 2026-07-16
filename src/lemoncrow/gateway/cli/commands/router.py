@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.gateway.cli.commands._shared import _emit
+
+_ROUTING_UNAVAILABLE = "Model routing is not available in this release."
 
 
-@click.group("router")
+@click.group("router", hidden=True)
 def router_daemon_group() -> None:
     """Local model-routing proxy daemon (start/stop/status/restart).
 
@@ -25,22 +27,8 @@ def router_daemon_group() -> None:
 @click.pass_context
 def router_start_cmd(ctx: click.Context, port: int, wire_host: str | None, as_json: bool) -> None:
     """Start the router proxy daemon (detached)."""
-    require_pro("model_routing", "The model-routing proxy daemon")
-
-    from lemoncrow.core.capabilities import router_daemon
-
-    result = router_daemon.start(ctx.obj["root"], port=port, wire_host=wire_host)
-    if as_json:
-        _emit(result, as_json=True)
-        return
-    if result.get("already_running"):
-        click.echo(f"Router already running (pid {result.get('pid')}, {result.get('base_url')}).")
-        return
-    click.echo(f"Router started: pid {result['pid']} — {result['base_url']}")
-    if result.get("host_wired"):
-        click.echo(f"Wired {result['host_wired']} -> {result['base_url']} (restored on stop).")
-    else:
-        click.echo(f"Point your host at it: export ANTHROPIC_BASE_URL={result['base_url']}")
+    del ctx, port, wire_host, as_json
+    raise click.ClickException(_ROUTING_UNAVAILABLE)
 
 
 @router_daemon_group.command("stop")
@@ -86,10 +74,5 @@ def router_status_cmd(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def router_restart_cmd(ctx: click.Context, port: int, wire_host: str | None, as_json: bool) -> None:
     """Stop (if running) and start a fresh daemon, picking up route.json."""
-    from lemoncrow.core.capabilities import router_daemon
-
-    result = router_daemon.restart(ctx.obj["root"], port=port, wire_host=wire_host)
-    if as_json:
-        _emit(result, as_json=True)
-        return
-    click.echo(f"Router restarted: pid {result.get('pid')} — {result.get('base_url')}")
+    del ctx, port, wire_host, as_json
+    raise click.ClickException(_ROUTING_UNAVAILABLE)
