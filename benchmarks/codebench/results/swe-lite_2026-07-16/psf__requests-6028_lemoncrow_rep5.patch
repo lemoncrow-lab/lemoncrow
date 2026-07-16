@@ -1,0 +1,34 @@
+diff --git a/requests/utils.py b/requests/utils.py
+index 1c2ae4e0..153776c7 100644
+--- a/requests/utils.py
++++ b/requests/utils.py
+@@ -974,6 +974,10 @@ def prepend_scheme_if_needed(url, new_scheme):
+     if not netloc:
+         netloc, path = path, netloc
+ 
++    if auth:
++        # parse_url doesn't provide the netloc with auth
++        # so we'll add it ourselves.
++        netloc = '@'.join([auth, netloc])
+     if scheme is None:
+         scheme = new_scheme
+     if path is None:
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index c2186b88..390d9ea5 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -602,6 +602,14 @@ def test_parse_header_links(value, expected):
+         ('example.com/path', 'http://example.com/path'),
+         ('//example.com/path', 'http://example.com/path'),
+         ('example.com:80', 'http://example.com:80'),
++        (
++            'http://user:pass@example.com/path?query',
++            'http://user:pass@example.com/path?query'
++        ),
++        (
++            'http://user@example.com/path?query',
++            'http://user@example.com/path?query'
++        ),
+     ))
+ def test_prepend_scheme_if_needed(value, expected):
+     assert prepend_scheme_if_needed(value, 'http') == expected

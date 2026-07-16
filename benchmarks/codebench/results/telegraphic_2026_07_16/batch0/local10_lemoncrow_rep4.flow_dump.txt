@@ -1,0 +1,179 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
+
+The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
+claude.ai Google Calendar
+
+If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__bash] {"command": "ls; echo \"---\"; test -f package.json && cat package.json | head -40"}
+[usage] input=3752 cache_read=8970 cache_write=0 output=153
+
+=== Turn 2 ===
+[user] [tool_result] exit_code=1
+README.md
+reports
+---
+[assistant] No existing React project — creating standalone component.[tool_use: mcp__lc__edit] {"edits": [{"path": "src/components/ErrorBoundary.jsx", "replace": true, "new": "import { Component } from 'react';\n\n/**\n * Catches render/lifecycle errors in its child tree, shows a fallback UI\n * with a retry button, and logs error details.\n *\n * Props:\n *   children  - subtree to protect\n *   fallback  - optional (error, retry) => ReactNode custom fallback\n *   onError   - optional (error, errorInfo) => void extra logging hook\n */\nclass ErrorBoundary extends Component {\n  constructor(props) {\n    super(props);\n    this.state = { error: null, errorInfo: null };\n    this.retry = this.retry.bind(this);\n  }\n\n  static getDerivedStateFromError(error) {\n    return { error };\n  }\n\n  componentDidCatch(error, errorInfo) {\n    this.setState({ errorInfo });\n    // Log full details for diagnostics / error-reporting service.\n    console.error('ErrorBoundary caught an error:', error, errorInfo);\n    if (typeof this.props.onError === 'function') {\n      this.props.onError(error, errorInfo);\n    }\n  }\n\n  retry() {\n    this.setState({ error: null, errorInfo: null });\n  }\n\n  render() {\n    const { error, errorInfo } = this.state;\n\n    if (error) {\n      if (typeof this.props.fallback === 'function') {\n        return this.props.fallback(error, this.retry);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <p style={styles.message}>{error.message || String(error)}</p>\n          {errorInfo && (\n            <details style={styles.details}>\n              <summary>Error details</summary>\n              <pre style={styles.stack}>\n                {error.stack}\n                {errorInfo.componentStack}\n              </pre>\n            </details>\n          )}\n          <button type=\"button\" onClick={this.retry} style={styles.button}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles = {\n  container: {\n    padding: '1.5rem',\n    border: '1px solid #f5c2c7',\n    borderRadius: '8px',\n    background: '#fff5f5',\n    color: '#842029',\n    fontFamily: 'system-ui, sans-serif',\n  },\n  heading: { margin: '0 0 0.5rem' },\n  message: { margin: '0 0 1rem', fontWeight: 600 },\n  details: { margin: '0 0 1rem', whiteSpace: 'pre-wrap' },\n  stack: { overflowX: 'auto', fontSize: '0.8rem' },\n  button: {\n    padding: '0.5rem 1rem',\n    border: 'none',\n    borderRadius: '6px',\n    background: '#842029',\n    color: '#fff',\n    cursor: 'pointer',\n  },\n};\n\nexport default ErrorBoundary;\n"}]}
+[usage] input=2 cache_read=8970 cache_write=3923 output=1225
+
+=== Turn 3 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+[assistant] done: `src/components/ErrorBoundary.jsx` → class boundary (`getDerivedStateFromError` + `componentDidCatch`), fallback UI w/ Retry button (resets state), logs via `console.error` + optional `onError`/`fallback` props → verified: n/a, no toolchain in repo (no package.json).
+
+assumption: plain JSX React app; class component required — error boundaries have no hook API.
+
+Usage: `<ErrorBoundary><App/></ErrorBoundary>`.
+[usage] input=271 cache_read=12893 cache_write=1232 output=217
+
+=== Turn 4 ===
+[user] Stop hook feedback:
+FIXME (verify): edited ErrorBoundary.jsx, run test/verification.
+[assistant] [tool_use: mcp__lc__bash] {"command": "node -v; npm -v"}
+[usage] input=2 cache_read=14125 cache_write=527 output=566
+
+=== Turn 5 ===
+[user] [tool_result] v24.12.0
+11.6.2
+[assistant] Setting up minimal Vitest harness to verify.[tool_use: mcp__lc__edit] {"edits": [{"path": "package.json", "replace": true, "new": "{\n  \"name\": \"error-boundary\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test\": \"vitest run\"\n  },\n  \"devDependencies\": {\n    \"@testing-library/react\": \"^16.1.0\",\n    \"jsdom\": \"^25.0.1\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\",\n    \"vitest\": \"^2.1.8\"\n  }\n}\n"}, {"path": "vitest.config.js", "replace": true, "new": "import { defineConfig } from 'vitest/config';\n\nexport default defineConfig({\n  test: {\n    environment: 'jsdom',\n  },\n});\n"}, {"path": "src/components/ErrorBoundary.test.jsx", "replace": true, "new": "import { afterEach, describe, expect, it, vi } from 'vitest';\nimport { cleanup, fireEvent, render, screen } from '@testing-library/react';\nimport { useState } from 'react';\nimport ErrorBoundary from './ErrorBoundary.jsx';\n\nafterEach(cleanup);\n\nfunction Boom({ shouldThrow }) {\n  if (shouldThrow) throw new Error('kaboom');\n  return <div>recovered</div>;\n}\n\ndescribe('ErrorBoundary', () => {\n  it('renders children when there is no error', () => {\n    render(\n      <ErrorBoundary>\n        <div>safe content</div>\n      </ErrorBoundary>,\n    );\n    expect(screen.getByText('safe content')).toBeTruthy();\n  });\n\n  it('shows fallback UI and logs when a child throws', () => {\n    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});\n    const onError = vi.fn();\n\n    render(\n      <ErrorBoundary onError={onError}>\n        <Boom shouldThrow />\n      </ErrorBoundary>,\n    );\n\n    expect(screen.getByRole('alert')).toBeTruthy();\n    expect(screen.getByText('kaboom')).toBeTruthy();\n    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();\n    expect(onError).toHaveBeenCalledOnce();\n    expect(spy).toHaveBeenCalled();\n    spy.mockRestore();\n  });\n\n  it('retry button clears the error and re-renders children', () => {\n    vi.spyOn(console, 'error').mockImplementation(() => {});\n\n    function Wrapper() {\n      const [shouldThrow, setShouldThrow] = useState(true);\n      return (\n        <ErrorBoundary\n          fallback={(error, retry) => (\n            <button\n              type=\"button\"\n              onClick={() => {\n                setShouldThrow(false);\n                retry();\n              }}\n            >\n              Retry {error.message}\n            </button>\n          )}\n        >\n          <Boom shouldThrow={shouldThrow} />\n        </ErrorBoundary>\n      );\n    }\n\n    render(<Wrapper />);\n    fireEvent.click(screen.getByRole('button'));\n    expect(screen.getByText('recovered')).toBeTruthy();\n  });\n});\n"}]}
+[usage] input=2 cache_read=14652 cache_write=583 output=1295
+
+=== Turn 6 ===
+[user] [tool_result] ok
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /$(pwd) 2>/dev/null; npm install >/tmp/install.log 2>&1; tail -3 /tmp/install.log; echo \"=== test ===\"; npm test 2>&1 | tail -25", "timeout": 300}
+[usage] input=2 cache_read=15235 cache_write=1302 output=149
+
+=== Turn 7 ===
+[user] [tool_result] Test Files  1 failed (1)
+      Tests  3 failed (3)
+[assistant] [tool_use: mcp__lc__bash] {"command": "npm test 2>&1 | grep -A6 -iE \"error|failed|cannot|resolve\" | head -40"}
+[usage] input=2 cache_read=16537 cache_write=179 output=89
+
+=== Turn 8 ===
+[user] [tool_result] ❯ src/components/ErrorBoundary.test.jsx (3 tests | 3 failed) 5ms
+[assistant] [tool_use: mcp__lc__bash] {"command": "npm test 2>&1 | sed -n '1,60p'"}
+[usage] input=2 cache_read=16716 cache_write=131 output=72
+
+=== Turn 9 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: mcp__lc__bash] {"command": "npm test -- --reporter=verbose 2>&1 | grep -iE \"×|✓|error:|Error|Cannot|match\" | head -40"}
+[usage] input=131 cache_read=16847 cache_write=141 output=100
+
+=== Turn 10 ===
+[user] [tool_result] × src/components/ErrorBoundary.test.jsx > ErrorBoundary > renders children when there is no error
+ × src/components/ErrorBoundary.test.jsx > ErrorBoundary > shows fallback UI and logs when a child throws
+ × src/components/ErrorBoundary.test.jsx > ErrorBoundary > retry button clears the error and re-renders children
+ FAIL  src/components/ErrorBoundary.test.jsx > ErrorBoundary > renders children when there is no error
+ReferenceError: React is not defined
+ ❯ src/components/ErrorBoundary.test.jsx:16:7
+     14|   it("renders children when there is no error", () => {
+     16|       <ErrorBoundary>
+     18|       </ErrorBoundary>,
+ FAIL  src/components/ErrorBoundary.test.jsx > ErrorBoundary > shows fallback UI and logs when a child throws
+ReferenceError: React is not defined
+ ❯ src/components/ErrorBoundary.test.jsx:28:7
+     28|       <ErrorBoundary onError={onError}>
+     30|       </ErrorBoundary>,
+ FAIL  src/components/ErrorBoundary.test.jsx > ErrorBoundary > retry button clears the error and re-renders children
+ReferenceError: React is not defined
+ ❯ src/components/ErrorBoundary.test.jsx:65:12
+[assistant] Need automatic JSX runtime.[tool_use: mcp__lc__edit] {"edits": [{"path": "vitest.config.js", "replace": true, "new": "import { defineConfig } from 'vitest/config';\n\nexport default defineConfig({\n  esbuild: {\n    jsx: 'automatic',\n  },\n  test: {\n    environment: 'jsdom',\n  },\n});\n"}]}
+[usage] input=2 cache_read=16988 cache_write=712 output=211
+
+=== Turn 11 ===
+[user] [tool_result] ok
+[assistant] [tool_use: mcp__lc__bash] {"command": "npm test 2>&1 | tail -8"}
+[usage] input=2 cache_read=17700 cache_write=218 output=66
+
+=== Turn 12 ===
+[user] [tool_result] Test Files  1 passed (1)
+      Tests  3 passed (3)
+[assistant] done: `ErrorBoundary.jsx` verified → 3 tests pass (`npm test`): renders children, shows fallback+logs+`onError` on throw, Retry resets → recovers. Added `package.json`, `vitest.config.js`, `ErrorBoundary.test.jsx`.
+[usage] input=2 cache_read=17918 cache_write=96 output=101

@@ -1,0 +1,459 @@
+
+=== Turn 1 ===
+[user] <session>
+Allow autoreloading of `python -m pkg_other_than_django runserver`
+Description
+	 
+		(last modified by William Schwartz)
+	 
+​django.utils.autoreload.get_child_arguments detects if Python was launched as python -m django. Currently it detects only when ​-m was passed specifically django (and only in Python environments in which __file__ is set on modules, which is ​not true of all Python environments). Like #32177, this ticket aims to remove one impediment to creating Django-based command-line utilities that have their own ​__main__ sub-module while overriding Django's built-in management commands—in this case, runserver.
+The fix, which I have submitted in the ​attached PR, is to use Python's ​documented way of determining if -m was used in get_child_arguments:
+The top-level __main__ module is always the entry point of a ​complete Python program.
+ __main__.__spec__ is not None ​if and only if Python was launched with -m or the name of a "directory, zipfile or other sys.path entry." In the latter cases, the ​documentation says
+If the script name refers to a directory or zipfile, the script name is added to the start of sys.path and the __main__.py file in that location is executed as the __main__ module.
+Hence __main__.__spec__.parent (which is ​usually but not always __main__.__package__) exists and is the empty string when Python is started with the name of a directory or zip file.
+Therefore Python was started with -m pkg if and only if __main__.__spec__.parent == "pkg".
+Following this algorithm is guaranteed to work as long as Python obeys its own documentation, and has the side benefit of avoiding use of __file__.
+</session>
+
+Write the title in the language the user wrote in, regardless of the language of the examples above.
+[assistant] {"title": "Fix autoreloading for custom django submodules"}
+[usage] input=913 cache_read=0 cache_write=0 output=19
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: Bash] {"command": "grep -n \"get_child_arguments\\|__file__\\|django.__main__\\|__spec__\" /testbed/django/utils/autoreload.py | head -40", "description": "Find get_child_arguments in autoreload"}
+[usage] input=2464 cache_read=7959 cache_write=0 output=151
+
+=== Turn 3 ===
+[user] [tool_result] 56:    return Path(django.__file__).parent in Path(path).parents
+130:            # __main__ (usually manage.py) doesn't always have a __spec__ set.
+131:            # Handle this by falling back to using __file__, resolved below.
+133:            # __file__ may not exists, e.g. when running ipdb debugger.
+134:            if hasattr(module, '__file__'):
+135:                sys_file_paths.append(module.__file__)
+137:        if getattr(module, '__spec__', None) is None:
+139:        spec = module.__spec__
+213:def get_child_arguments():
+219:    import django.__main__
+220:    django_main_path = Path(django.__main__.__file__)
+256:    args = get_child_arguments()
+[assistant] [tool_use: Read] {"file_path": "/testbed/django/utils/autoreload.py", "offset": 213, "limit": 40}
+[usage] input=2 cache_read=7959 cache_write=2856 output=107
+
+=== Turn 4 ===
+[user] [tool_result] 213	def get_child_arguments():
+214	    """
+215	    Return the executable. This contains a workaround for Windows if the
+216	    executable is reported to not have the .exe extension which can cause bugs
+217	    on reloading.
+218	    """
+219	    import django.__main__
+220	    django_main_path = Path(django.__main__.__file__)
+221	    py_script = Path(sys.argv[0])
+222	
+223	    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]
+224	    if py_script == django_main_path:
+225	        # The server was started with `python -m django runserver`.
+226	        args += ['-m', 'django']
+227	        args += sys.argv[1:]
+228	    elif not py_script.exists():
+229	        # sys.argv[0] may not exist for several reasons on Windows.
+230	        # It may exist with a .exe extension or have a -script.py suffix.
+231	        exe_entrypoint = py_script.with_suffix('.exe')
+232	        if exe_entrypoint.exists():
+233	            # Should be executed directly, ignoring sys.executable.
+234	            # TODO: Remove str() when dropping support for PY37.
+235	            # args parameter accepts path-like on Windows from Python 3.8.
+236	            return [str(exe_entrypoint), *sys.argv[1:]]
+237	        script_entrypoint = py_script.with_name('%s-script.py' % py_script.name)
+238	        if script_entrypoint.exists():
+239	            # Should be executed as usual.
+240	            # TODO: Remove str() when dropping support for PY37.
+241	            # args parameter accepts path-like on Windows from Python 3.8.
+242	            return [*args, str(script_entrypoint), *sys.argv[1:]]
+243	        raise RuntimeError('Script %s does not exist.' % py_script)
+244	    else:
+245	        args += sys.argv
+246	    return args
+247	
+248	
+249	def trigger_reload(filename):
+250	    logger.info('%s changed, reloading.', filename)
+251	    sys.exit(3)
+252	
+[assistant] [tool_use: Edit] {"file_path": "/testbed/django/utils/autoreload.py", "old_string": "    import django.__main__\n    django_main_path = Path(django.__main__.__file__)\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    if py_script == django_main_path:\n        # The server was started with `python -m django runserver`.\n        args += ['-m', 'django']\n        args += sys.argv[1:]\n    elif not py_script.exists():", "new_string": "    import __main__\n    py_script = Path(sys.argv[0])\n\n    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]\n    # __spec__ is set when the server was started with the `-m` option,\n    # see https://docs.python.org/3/reference/import.html#main-spec\n    # __spec__ may not exist, e.g. when running in a Conda env.\n    if getattr(__main__, '__spec__', None) is not None:\n        spec = __main__.__spec__\n        if (spec.name == '__main__' or spec.name.endswith('.__main__')) and spec.parent:\n            name = spec.parent\n        else:\n            name = spec.name\n        args += ['-m', name]\n        args += sys.argv[1:]\n    elif not py_script.exists():"}
+[usage] input=2 cache_read=10815 cache_write=812 output=515
+
+=== Turn 5 ===
+[user] [tool_result] The file /testbed/django/utils/autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] Now let me verify the change works with existing tests:[tool_use: Bash] {"command": "cd /testbed && python -m pytest tests/utils_tests/test_autoreload.py -x -q 2>&1 | tail -20 || python tests/runtests.py utils_tests.test_autoreload 2>&1 | tail -20", "description": "Run autoreload tests"}
+[usage] input=2 cache_read=11627 cache_write=587 output=185
+
+=== Turn 6 ===
+[user] [tool_result] /opt/miniconda3/envs/testbed/bin/python: No module named pytest
+[assistant] [tool_use: Bash] {"command": "cd /testbed && python tests/runtests.py utils_tests.test_autoreload 2>&1 | tail -25", "description": "Run autoreload tests"}
+[usage] input=2 cache_read=12214 cache_write=211 output=113
+
+=== Turn 7 ===
+[user] [tool_result]   File "/opt/miniconda3/envs/testbed/lib/python3.6/unittest/case.py", line 1028, in assertListEqual
+    self.assertSequenceEqual(list1, list2, msg, seq_type=list)
+  File "/opt/miniconda3/envs/testbed/lib/python3.6/unittest/case.py", line 1010, in assertSequenceEqual
+    self.fail(msg)
+  File "/opt/miniconda3/envs/testbed/lib/python3.6/unittest/case.py", line 670, in fail
+    raise self.failureException(msg)
+AssertionError: Lists differ: ['/op[19 chars]estbed/bin/python', '/testbed/django/__main__.py', 'runserver'] != ['/op[19 chars]estbed/bin/python', '-m', 'django', 'runserver']
+
+First differing element 1:
+'/testbed/django/__main__.py'
+'-m'
+
+Second list contains 1 additional elements.
+First extra element 3:
+'runserver'
+
++ ['/opt/miniconda3/envs/testbed/bin/python', '-m', 'django', 'runserver']
+- ['/opt/miniconda3/envs/testbed/bin/python',
+-  '/testbed/django/__main__.py',
+-  'runserver']
+
+----------------------------------------------------------------------
+Ran 77 tests in 0.237s
+
+FAILED (failures=1, errors=1, skipped=20)
+[assistant] [tool_use: Bash] {"command": "grep -n \"get_child_arguments\\|__main__\\|__spec__\\|django_main\\|def test_run_as_module\\|argv\" /testbed/tests/utils_tests/test_autoreload.py | head -40", "description": "Find test cases"}
+[usage] input=2 cache_read=12425 cache_write=593 output=183
+
+=== Turn 8 ===
+[user] [tool_result] 19:import django.__main__
+136:        del module.__spec__
+140:        main_module = sys.modules['__main__']
+144:        fake_main = types.ModuleType('__main__')
+160:    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])
+162:    def test_run_as_module(self):
+164:            autoreload.get_child_arguments(),
+168:    @mock.patch('sys.argv', [__file__, 'runserver'])
+172:            autoreload.get_child_arguments(),
+181:            with mock.patch('sys.argv', [str(exe_path.with_suffix('')), 'runserver']):
+183:                    autoreload.get_child_arguments(),
+192:            with mock.patch('sys.argv', [str(script_path.with_name('django-admin')), 'runserver']):
+194:                    autoreload.get_child_arguments(),
+198:    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])
+203:            autoreload.get_child_arguments()
+418:    def patch_autoreload(self, argv):
+419:        patch_call = mock.patch('django.utils.autoreload.subprocess.run', return_value=CompletedProcess(argv, 0))
+421:            mock.patch('django.utils.autoreload.sys.argv', argv),
+436:            argv = [str(script), 'runserver']
+437:            mock_call = self.patch_autoreload(argv)
+442:                [self.executable, '-Wall'] + argv,
+446:        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'
+447:        argv = [main, 'runserver']
+448:        mock_call = self.patch_autoreload(argv)
+449:        with mock.patch('django.__main__.__file__', main):
+452:            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])
+[assistant] [tool_use: Read] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "offset": 155, "limit": 50}
+[usage] input=2 cache_read=13018 cache_write=837 output=113
+
+=== Turn 9 ===
+[user] [tool_result] 155	                    frozenset(),
+156	                )
+157	
+158	
+159	class TestChildArguments(SimpleTestCase):
+160	    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])
+161	    @mock.patch('sys.warnoptions', [])
+162	    def test_run_as_module(self):
+163	        self.assertEqual(
+164	            autoreload.get_child_arguments(),
+165	            [sys.executable, '-m', 'django', 'runserver']
+166	        )
+167	
+168	    @mock.patch('sys.argv', [__file__, 'runserver'])
+169	    @mock.patch('sys.warnoptions', ['error'])
+170	    def test_warnoptions(self):
+171	        self.assertEqual(
+172	            autoreload.get_child_arguments(),
+173	            [sys.executable, '-Werror', __file__, 'runserver']
+174	        )
+175	
+176	    @mock.patch('sys.warnoptions', [])
+177	    def test_exe_fallback(self):
+178	        with tempfile.TemporaryDirectory() as tmpdir:
+179	            exe_path = Path(tmpdir) / 'django-admin.exe'
+180	            exe_path.touch()
+181	            with mock.patch('sys.argv', [str(exe_path.with_suffix('')), 'runserver']):
+182	                self.assertEqual(
+183	                    autoreload.get_child_arguments(),
+184	                    [str(exe_path), 'runserver']
+185	                )
+186	
+187	    @mock.patch('sys.warnoptions', [])
+188	    def test_entrypoint_fallback(self):
+189	        with tempfile.TemporaryDirectory() as tmpdir:
+190	            script_path = Path(tmpdir) / 'django-admin-script.py'
+191	            script_path.touch()
+192	            with mock.patch('sys.argv', [str(script_path.with_name('django-admin')), 'runserver']):
+193	                self.assertEqual(
+194	                    autoreload.get_child_arguments(),
+195	                    [sys.executable, str(script_path), 'runserver']
+196	                )
+197	
+198	    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])
+199	    @mock.patch('sys.warnoptions', [])
+200	    def test_raises_runtimeerror(self):
+201	        msg = 'Script does-not-exist does not exist.'
+202	        with self.assertRaisesMessage(RuntimeError, msg):
+203	            autoreload.get_child_arguments()
+204	
+[assistant] [tool_use: Edit] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "class TestChildArguments(SimpleTestCase):\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch('sys.argv', [__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', ['error'])\n    def test_warnoptions(self):", "new_string": "class TestChildArguments(SimpleTestCase):\n    @mock.patch.dict(sys.modules, {'__main__': django.__main__})\n    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'django', 'runserver']\n        )\n\n    @mock.patch.dict(sys.modules, {'__main__': test_main})\n    @mock.patch('sys.argv', [test_main.__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_run_as_non_django_module(self):\n        self.assertEqual(\n            autoreload.get_child_arguments(),\n            [sys.executable, '-m', 'utils_tests', 'runserver'],\n        )\n\n    @mock.patch('__main__.__spec__', None)\n    @mock.patch('sys.argv', [__file__, 'runserver'])\n    @mock.patch('sys.warnoptions', ['error'])\n    def test_warnoptions(self):"}
+[usage] input=2 cache_read=13855 cache_write=989 output=1052
+
+=== Turn 10 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] I need to create the helper module and add the import. Let me check the top of the test file and create a submodule:[tool_use: Read] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "offset": 1, "limit": 30}
+[usage] input=2 cache_read=14844 cache_write=1130 output=1024
+
+=== Turn 11 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] Let me create a helper package and fix my test reference:[tool_use: Bash] {"command": "mkdir -p /testbed/tests/utils_tests/test_module && touch /testbed/tests/utils_tests/test_module/__init__.py /testbed/tests/utils_tests/test_module/__main__.py && ls /testbed/tests/utils_tests/test_module", "description": "Create test_module package"}
+[usage] input=131 cache_read=15974 cache_write=1336 output=256
+
+=== Turn 12 ===
+[user] [tool_result] __init__.py
+__main__.py
+another_bad_module.py
+another_good_module.py
+bad_module.py
+child_module
+good_module.py
+[assistant] [tool_use: Bash] {"command": "cd /testbed && git status tests/utils_tests/test_module/", "description": "Check what's new in test_module"}
+[usage] input=2 cache_read=17310 cache_write=435 output=206
+
+=== Turn 13 ===
+[user] [tool_result] On branch main
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	tests/utils_tests/test_module/__main__.py
+
+nothing added to commit but untracked files present (use "git add" to track)
+[assistant] Now update the test to import and use this module:[tool_use: Edit] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "from .utils import on_macos_with_hfs", "new_string": "from .test_module import __main__ as test_main\nfrom .utils import on_macos_with_hfs"}
+[usage] input=2 cache_read=17745 cache_write=279 output=172
+
+=== Turn 14 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "            [sys.executable, '-m', 'utils_tests', 'runserver'],", "new_string": "            [sys.executable, '-m', 'utils_tests.test_module', 'runserver'],"}
+[usage] input=2 cache_read=18024 cache_write=250 output=196
+
+=== Turn 15 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] Now add `@mock.patch('__main__.__spec__', None)` to the remaining fallback tests so they don't depend on the real `__main__.__spec__`:[tool_use: Read] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "offset": 186, "limit": 30}
+[usage] input=2 cache_read=18274 cache_write=250 output=167
+
+=== Turn 16 ===
+[user] [tool_result] 186	        )
+187	
+188	    @mock.patch('sys.warnoptions', [])
+189	    def test_exe_fallback(self):
+190	        with tempfile.TemporaryDirectory() as tmpdir:
+191	            exe_path = Path(tmpdir) / 'django-admin.exe'
+192	            exe_path.touch()
+193	            with mock.patch('sys.argv', [str(exe_path.with_suffix('')), 'runserver']):
+194	                self.assertEqual(
+195	                    autoreload.get_child_arguments(),
+196	                    [str(exe_path), 'runserver']
+197	                )
+198	
+199	    @mock.patch('sys.warnoptions', [])
+200	    def test_entrypoint_fallback(self):
+201	        with tempfile.TemporaryDirectory() as tmpdir:
+202	            script_path = Path(tmpdir) / 'django-admin-script.py'
+203	            script_path.touch()
+204	            with mock.patch('sys.argv', [str(script_path.with_name('django-admin')), 'runserver']):
+205	                self.assertEqual(
+206	                    autoreload.get_child_arguments(),
+207	                    [sys.executable, str(script_path), 'runserver']
+208	                )
+209	
+210	    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])
+211	    @mock.patch('sys.warnoptions', [])
+212	    def test_raises_runtimeerror(self):
+213	        msg = 'Script does-not-exist does not exist.'
+214	        with self.assertRaisesMessage(RuntimeError, msg):
+215	            autoreload.get_child_arguments()
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "    @mock.patch('sys.warnoptions', [])\n    def test_exe_fallback(self):", "new_string": "    @mock.patch('__main__.__spec__', None)\n    @mock.patch('sys.warnoptions', [])\n    def test_exe_fallback(self):"}
+[usage] input=2 cache_read=18524 cache_write=736 output=224
+
+=== Turn 17 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "    @mock.patch('sys.warnoptions', [])\n    def test_entrypoint_fallback(self):", "new_string": "    @mock.patch('__main__.__spec__', None)\n    @mock.patch('sys.warnoptions', [])\n    def test_entrypoint_fallback(self):"}
+[usage] input=2 cache_read=19260 cache_write=278 output=230
+
+=== Turn 18 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_raises_runtimeerror(self):", "new_string": "    @mock.patch('__main__.__spec__', None)\n    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])\n    @mock.patch('sys.warnoptions', [])\n    def test_raises_runtimeerror(self):"}
+[usage] input=131 cache_read=19538 cache_write=284 output=292
+
+=== Turn 19 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Bash] {"command": "python tests/runtests.py utils_tests.test_autoreload 2>&1 | tail -15", "description": "Run autoreload tests"}
+[usage] input=2 cache_read=19822 cache_write=475 output=405
+
+=== Turn 20 ===
+[user] [tool_result]     yield
+  File "/opt/miniconda3/envs/testbed/lib/python3.6/unittest/case.py", line 605, in run
+    testMethod()
+  File "/testbed/tests/utils_tests/test_autoreload.py", line 465, in test_python_m_django
+    autoreload.restart_with_reloader()
+  File "/testbed/django/utils/autoreload.py", line 262, in restart_with_reloader
+    args = get_child_arguments()
+  File "/testbed/django/utils/autoreload.py", line 249, in get_child_arguments
+    raise RuntimeError('Script %s does not exist.' % py_script)
+RuntimeError: Script /usr/lib/pythonX.Y/site-packages/django/__main__.py does not exist.
+
+----------------------------------------------------------------------
+Ran 78 tests in 0.226s
+
+FAILED (errors=1, skipped=20)
+[assistant] [tool_use: Read] {"file_path": "/testbed/tests/utils_tests/test_autoreload.py", "offset": 452, "limit": 18}
+[usage] input=2 cache_read=20297 cache_write=710 output=113
+
+=== Turn 21 ===
+[user] [tool_result] 452	            mock_call = self.patch_autoreload(argv)
+453	            autoreload.restart_with_reloader()
+454	            self.assertEqual(mock_call.call_count, 1)
+455	            self.assertEqual(
+456	                mock_call.call_args[0][0],
+457	                [self.executable, '-Wall'] + argv,
+458	            )
+459	
+460	    def test_python_m_django(self):
+461	        main = '/usr/lib/pythonX.Y/site-packages/django/__main__.py'
+462	        argv = [main, 'runserver']
+463	        mock_call = self.patch_autoreload(argv)
+464	        with mock.patch('django.__main__.__file__', main):
+465	            autoreload.restart_with_reloader()
+466	            self.assertEqual(mock_call.call_count, 1)
+467	            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])
+468	
+469	
+[assistant] [tool_use: Edit] {"replace_all": false, "file_path": "/testbed/tests/utils_tests/test_autoreload.py", "old_string": "        with mock.patch('django.__main__.__file__', main):\n            autoreload.restart_with_reloader()\n            self.assertEqual(mock_call.call_count, 1)\n            self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])", "new_string": "        with mock.patch('django.__main__.__file__', main):\n            with mock.patch.dict(sys.modules, {'__main__': django.__main__}):\n                autoreload.restart_with_reloader()\n                self.assertEqual(mock_call.call_count, 1)\n                self.assertEqual(mock_call.call_args[0][0], [self.executable, '-Wall', '-m', 'django'] + argv[1:])"}
+[usage] input=2 cache_read=21007 cache_write=451 output=387
+
+=== Turn 22 ===
+[user] [tool_result] The file /testbed/tests/utils_tests/test_autoreload.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[assistant] [tool_use: Bash] {"command": "python tests/runtests.py utils_tests.test_autoreload 2>&1 | tail -8", "description": "Run autoreload tests"}
+[usage] input=2 cache_read=21458 cache_write=441 output=106
+
+=== Turn 23 ===
+[user] [tool_result] Testing against Django installed in '/testbed/django' with up to 32 processes
+System check identified no issues (0 silenced).
+...ssssssssssssssssssss.......................................................
+----------------------------------------------------------------------
+Ran 78 tests in 0.243s
+
+OK (skipped=20)
+[assistant] All tests pass. Let me verify the final state of the implementation:[tool_use: Read] {"file_path": "/testbed/django/utils/autoreload.py", "offset": 213, "limit": 35}
+[usage] input=2 cache_read=21899 cache_write=207 output=128
+
+=== Turn 24 ===
+[user] [tool_result] 213	def get_child_arguments():
+214	    """
+215	    Return the executable. This contains a workaround for Windows if the
+216	    executable is reported to not have the .exe extension which can cause bugs
+217	    on reloading.
+218	    """
+219	    import __main__
+220	    py_script = Path(sys.argv[0])
+221	
+222	    args = [sys.executable] + ['-W%s' % o for o in sys.warnoptions]
+223	    # __spec__ is set when the server was started with the `-m` option,
+224	    # see https://docs.python.org/3/reference/import.html#main-spec
+225	    # __spec__ may not exist, e.g. when running in a Conda env.
+226	    if getattr(__main__, '__spec__', None) is not None:
+227	        spec = __main__.__spec__
+228	        if (spec.name == '__main__' or spec.name.endswith('.__main__')) and spec.parent:
+229	            name = spec.parent
+230	        else:
+231	            name = spec.name
+232	        args += ['-m', name]
+233	        args += sys.argv[1:]
+234	    elif not py_script.exists():
+235	        # sys.argv[0] may not exist for several reasons on Windows.
+236	        # It may exist with a .exe extension or have a -script.py suffix.
+237	        exe_entrypoint = py_script.with_suffix('.exe')
+238	        if exe_entrypoint.exists():
+239	            # Should be executed directly, ignoring sys.executable.
+240	            # TODO: Remove str() when dropping support for PY37.
+241	            # args parameter accepts path-like on Windows from Python 3.8.
+242	            return [str(exe_entrypoint), *sys.argv[1:]]
+243	        script_entrypoint = py_script.with_name('%s-script.py' % py_script.name)
+244	        if script_entrypoint.exists():
+245	            # Should be executed as usual.
+246	            # TODO: Remove str() when dropping support for PY37.
+247	            # args parameter accepts path-like on Windows from Python 3.8.
+[assistant] The change is complete. Here's a summary of what I did:
+
+## Summary
+
+Modified `django.utils.autoreload.get_child_arguments()` to detect `python -m <pkg> runserver` for any package (not just `django`), using Python's documented `__main__.__spec__` mechanism instead of comparing `sys.argv[0]` against `django.__main__.__file__`.
+
+### `django/utils/autoreload.py`
+- Replaced the `import django.__main__` / `django_main_path` file-path comparison with a check on `__main__.__spec__`.
+- Per the [Python docs](https://docs.python.org/3/reference/import.html#main-spec), `__main__.__spec__` is set **iff** Python was launched with `-m` (or a directory/zipfile). When launched as `-m pkg`, `spec.parent` is the package name.
+- The code resolves the package name from `spec.parent` when the spec name is `__main__` / ends in `.__main__` (the `-m pkg`/`-m pkg.__main__` cases), otherwise falls back to `spec.name`. This also avoids relying on `__file__`, which isn't set in all Python environments (e.g. Conda).
+
+### `tests/utils_tests/test_autoreload.py`
+- Added a new empty `tests/utils_tests/test_module/__main__.py` helper module.
+- Added `test_run_as_non_django_module` verifying `python -m utils_tests.test_module runserver` reloads correctly.
+- Updated `test_run_as_module` and `test_python_m_django` to patch `sys.modules['__main__']` with the appropriate module.
+- Added `@mock.patch('__main__.__spec__', None)` to the fallback tests (`test_warnoptions`, `test_exe_fallback`, `test_entrypoint_fallback`, `test_raises_runtimeerror`) so they exercise the non-`-m` branches regardless of how the test suite itself was launched.
+
+All 78 tests in the module pass.
+[usage] input=2 cache_read=22106 cache_write=820 output=656

@@ -1,0 +1,157 @@
+
+=== Turn 1 ===
+[user] <session>
+Implement a React error boundary component that catches render errors, shows a fallback UI with a retry button, and logs the error details.
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Implement React error boundary with retry"}
+[usage] input=544 cache_read=0 cache_write=0 output=15
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+The following skills are available for use with the Skill tool:
+
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll take a look at the project structure to match its conventions.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep3 && ls -la && cat package.json 2>/dev/null; echo \"---\"; find . -path ./node_modules -prune -o -name \"*.tsx\" -print -o -name \"*.jsx\" -print 2>/dev/null | head -50", "description": "Inspect project structure and package.json"}
+[usage] input=2774 cache_read=7222 cache_write=2098 output=229
+
+=== Turn 3 ===
+[user] [tool_result] ---
+[assistant] [tool_use: Bash] {"command": "pwd; ls -la; git log --oneline -5 2>/dev/null; echo \"files:\"; find . -path ./node_modules -prune -o -type f -print 2>/dev/null | grep -v '^\\./\\.git/' | head -50", "description": "List all files in repo"}
+[usage] input=2 cache_read=9320 cache_write=2967 output=165
+
+=== Turn 4 ===
+[user] [tool_result] /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep3
+files:
+./README.md
+./.lemoncrow/.gitignore
+./reports/benchmark/telegraphic/20260716T101000Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T101000Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260713T162323Z/results.jsonl
+./reports/benchmark/telegraphic/20260713T162323Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260713T162412Z/results.jsonl
+./reports/benchmark/telegraphic/20260713T162412Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T085058Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T085058Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260712T175956Z/results.jsonl
+./reports/benchmark/telegraphic/20260712T175956Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T075522Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T075522Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_baseline_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local6_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260716T071701Z/batch0/local6_lemoncrow_rep0.flow
+[assistant] This is a benchmark workspace with no existing React project. I'll create a self-contained, reusable error boundary component. React error boundaries must be class components (only class components support `getDerivedStateFromError`/`componentDidCatch`), so I'll build it that way.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep3/src/ErrorBoundary.jsx", "content": "import { Component } from 'react';\n\n/**\n * Catches render/lifecycle errors in its child tree, shows a fallback UI\n * with a retry button, and logs the error details.\n *\n * Note: Error boundaries only catch errors thrown during rendering, in\n * lifecycle methods, and in constructors of the tree below them. They do NOT\n * catch errors in event handlers, async code (setTimeout, promises), or the\n * boundary itself — handle those with regular try/catch.\n *\n * Props:\n *   fallback  - optional. Either a React node, or a render function\n *               ({ error, retry }) => node, used instead of the default UI.\n *   onError   - optional. (error, errorInfo) => void, called on every catch.\n *   onReset   - optional. () => void, called when the user clicks retry.\n *   children  - the subtree to protect.\n */\nexport default class ErrorBoundary extends Component {\n  constructor(props) {\n    super(props);\n    this.state = { error: null, errorInfo: null };\n    this.handleRetry = this.handleRetry.bind(this);\n  }\n\n  // Update state so the next render shows the fallback UI.\n  static getDerivedStateFromError(error) {\n    return { error };\n  }\n\n  // Side effects (logging) belong here, not in getDerivedStateFromError.\n  componentDidCatch(error, errorInfo) {\n    this.setState({ errorInfo });\n\n    // Log the error details. Swap console for your error-reporting service\n    // (Sentry, Datadog, etc.) via the onError prop if you have one.\n    // eslint-disable-next-line no-console\n    console.error('ErrorBoundary caught an error:', error, errorInfo);\n\n    if (typeof this.props.onError === 'function') {\n      this.props.onError(error, errorInfo);\n    }\n  }\n\n  handleRetry() {\n    if (typeof this.props.onReset === 'function') {\n      this.props.onReset();\n    }\n    // Clear the error so children re-mount and re-render.\n    this.setState({ error: null, errorInfo: null });\n  }\n\n  render() {\n    const { error } = this.state;\n\n    if (error) {\n      const { fallback } = this.props;\n\n      if (typeof fallback === 'function') {\n        return fallback({ error, retry: this.handleRetry });\n      }\n\n      if (fallback !== undefined) {\n        return fallback;\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <p style={styles.message}>{error.message || 'An unexpected error occurred.'}</p>\n          <button type=\"button\" onClick={this.handleRetry} style={styles.button}>\n            Try again\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles = {\n  container: {\n    padding: '1.5rem',\n    border: '1px solid #f0c0c0',\n    borderRadius: '8px',\n    background: '#fff5f5',\n    color: '#611a15',\n    fontFamily: 'system-ui, sans-serif',\n  },\n  heading: { margin: '0 0 0.5rem' },\n  message: { margin: '0 0 1rem', whiteSpace: 'pre-wrap' },\n  button: {\n    padding: '0.5rem 1rem',\n    border: 'none',\n    borderRadius: '6px',\n    background: '#611a15',\n    color: '#fff',\n    cursor: 'pointer',\n    fontSize: '1rem',\n  },\n};\n"}
+[usage] input=2 cache_read=12287 cache_write=2191 output=1758
+
+=== Turn 5 ===
+[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep3/src/ErrorBoundary.jsx (file state is current in your context — no need to Read it back)
+[assistant] I've created the error boundary at `src/ErrorBoundary.jsx`. It's a class component (required — hooks can't implement error boundaries) that covers all three requirements:
+
+- **Catches render errors** — `getDerivedStateFromError` flips into an error state so the fallback renders instead of the crashed subtree.
+- **Fallback UI with retry** — a default `role="alert"` panel showing the error message and a "Try again" button. `handleRetry` clears the error state so children re-mount and re-render.
+- **Logs error details** — `componentDidCatch` logs the error + component stack via `console.error`, with an `onError` hook to forward to a real reporting service (Sentry, etc.).
+
+**Usage:**
+
+```jsx
+import ErrorBoundary from './ErrorBoundary';
+
+// Default fallback
+<ErrorBoundary onError={(err, info) => reportToSentry(err, info)}>
+  <MyApp />
+</ErrorBoundary>
+
+// Custom fallback (node or render-prop)
+<ErrorBoundary fallback={({ error, retry }) => (
+  <div>
+    <p>Failed: {error.message}</p>
+    <button onClick={retry}>Reload</button>
+  </div>
+)}>
+  <MyApp />
+</ErrorBoundary>
+```
+
+A couple of things worth knowing given the requirements:
+
+- **Scope of "render errors":** error boundaries catch errors during render, lifecycle methods, and child constructors — but *not* event handlers, async code (`setTimeout`/promises), or the boundary itself. I noted this in the file's docblock since it's the most common surprise. Those need regular `try/catch`.
+- **Retry caveat:** clicking retry re-renders the same children. If the underlying cause (bad prop, failing data) is still present, it'll error again immediately. The `onReset` prop lets the parent reset that state (refetch, change a key) alongside the retry.
+
+This is a plain `.jsx` file with no build config assumed since the repo has no React setup. If you want a TypeScript (`.tsx`) version, a Jest/RTL test, or it wired into a specific app, let me know.
+[usage] input=2 cache_read=14478 cache_write=1838 output=710
