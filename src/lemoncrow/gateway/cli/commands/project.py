@@ -397,16 +397,29 @@ def _get_files(root: Path) -> list[Path]:
     import subprocess
 
     try:
-        result = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        # ``--recurse-submodules`` surfaces tracked files inside submodules, but
+        # git rejects it combined with ``--others``, so untracked files come from
+        # a separate top-level-only call.
+        cached = subprocess.run(
+            ["git", "ls-files", "--cached", "--recurse-submodules"],
             cwd=root,
             capture_output=True,
             text=True,
             timeout=15,
         )
-        if result.returncode == 0 and result.stdout.strip():
+        others = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        lines = cached.stdout.splitlines() if cached.returncode == 0 else []
+        if others.returncode == 0:
+            lines += others.stdout.splitlines()
+        if cached.returncode == 0 and lines:
             paths = []
-            for line in result.stdout.splitlines():
+            for line in lines:
                 line = line.strip()
                 if not line:
                     continue

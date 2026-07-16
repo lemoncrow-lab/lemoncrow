@@ -290,20 +290,31 @@ def _file_metadata(path: str) -> tuple[str, str]:
 
 
 def _tracked_files(project_root: Path) -> list[str]:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(project_root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            capture_output=True,
-            check=False,
-            timeout=8,
+    # ``--recurse-submodules`` surfaces tracked files inside submodules, but git
+    # rejects it combined with ``--others``, so untracked files come from a
+    # separate top-level-only call.
+    paths: list[str] = []
+    for extra_args in (
+        ("--cached", "--recurse-submodules"),
+        ("--others", "--exclude-standard"),
+    ):
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project_root), "ls-files", "-z", *extra_args],
+                capture_output=True,
+                check=False,
+                timeout=8,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if result.returncode != 0:
+            return []
+        paths.extend(
+            path
+            for raw in result.stdout.split(b"\0")
+            if raw and (path := raw.decode("utf-8", errors="surrogateescape"))
         )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    return sorted(
-        path for raw in result.stdout.split(b"\0") if raw and (path := raw.decode("utf-8", errors="surrogateescape"))
-    )
+    return sorted(paths)
 
 
 def search_symbols(engine: Any, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
