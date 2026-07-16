@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowDownLeft,
   ArrowUpRight,
+  Boxes,
   Braces,
   Check,
   CircleDot,
@@ -17,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import CodeGraph from "../components/CodeGraph";
+import CodeGraph3D from "../components/CodeGraph3D";
 import {
   api,
   type CodeMapActivityEvent,
@@ -116,6 +118,43 @@ function FacetList({
   );
 }
 
+function CallList({
+  title,
+  icon,
+  nodes,
+  onPick,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  nodes: CodeMapNode[];
+  onPick: (node: CodeMapNode) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+        {icon} {title} · {nodes.length}
+      </div>
+      <ul className="max-h-40 space-y-0.5 overflow-y-auto pr-1">
+        {nodes.map((node) => (
+          <li key={node.id}>
+            <button
+              type="button"
+              onClick={() => onPick(node)}
+              title={`${node.qualified_name} — ${node.path}:${node.line}`}
+              className="flex w-full items-baseline gap-1.5 px-1.5 py-1 text-left text-[11px] text-neutral-300 transition hover:bg-neutral-900 hover:text-white"
+            >
+              <span className="truncate">{node.label}</span>
+              <span className="ml-auto shrink-0 text-[10px] text-neutral-500">
+                {node.path.split("/").pop()}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function CodeMap() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedProject = searchParams.get("repo") || undefined;
@@ -125,9 +164,8 @@ export default function CodeMap() {
   const [full, setFull] = useState<CodeMapFull | null>(null);
   const [focusGraph, setFocusGraph] = useState<CodeMapGraph>(EMPTY_GRAPH);
   const [viewMode, setViewMode] = useState<"full" | "focus">("full");
-  const [selectedCommunities, setSelectedCommunities] = useState<Set<string>>(
-    new Set()
-  );
+  const [dimension, setDimension] = useState<"2d" | "3d">("3d");
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [selectedFileTypes, setSelectedFileTypes] = useState<Set<string>>(
     new Set()
   );
@@ -167,14 +205,13 @@ export default function CodeMap() {
   );
   const graph = useMemo<CodeMapGraph>(() => {
     if (viewMode === "focus") return baseGraph;
-    const allCommunitiesSelected =
-      !full?.communities.length ||
-      selectedCommunities.size === full.communities.length;
+    const allGroupsSelected =
+      !full?.groups.length || selectedGroups.size === full.groups.length;
     const allFileTypesSelected =
       !full?.file_types.length ||
       selectedFileTypes.size === full.file_types.length;
     if (
-      allCommunitiesSelected &&
+      allGroupsSelected &&
       allFileTypesSelected &&
       selectedLanguage === "all"
     ) {
@@ -183,8 +220,7 @@ export default function CodeMap() {
     const nodes = baseGraph.nodes.filter((node) => {
       if (activeIds.has(node.id)) return true;
       const communityMatch =
-        !full?.communities.length ||
-        selectedCommunities.has(node.community || "root");
+        !full?.groups.length || selectedGroups.has(node.community || "root");
       const typeMatch =
         !full?.file_types.length ||
         selectedFileTypes.has(node.file_type || "other");
@@ -203,9 +239,9 @@ export default function CodeMap() {
   }, [
     activeIds,
     baseGraph,
-    full?.communities.length,
+    full?.groups.length,
     full?.file_types.length,
-    selectedCommunities,
+    selectedGroups,
     selectedFileTypes,
     selectedLanguage,
     viewMode,
@@ -262,9 +298,7 @@ export default function CodeMap() {
         if (cancelled) return;
         setFull(payload);
         setFocusGraph(EMPTY_GRAPH);
-        setSelectedCommunities(
-          new Set(payload.communities.map((facet) => facet.id))
-        );
+        setSelectedGroups(new Set(payload.groups.map((facet) => facet.id)));
         setSelectedFileTypes(
           new Set(payload.file_types.map((facet) => facet.id))
         );
@@ -326,7 +360,7 @@ export default function CodeMap() {
     };
   }, [projectRoot, query]);
 
-  const selectNode = useCallback((nodeId: string) => {
+  const selectNode = useCallback((nodeId: string | null) => {
     setSelectedId((current) => {
       if (current !== nodeId) setDetail(null);
       return nodeId;
@@ -519,17 +553,39 @@ export default function CodeMap() {
         : new Set(facets.map((facet) => facet.id))
     );
   };
-  const { incomingCount, outgoingCount } = useMemo(() => {
-    if (!selectedId) return { incomingCount: 0, outgoingCount: 0 };
-    let incoming = 0;
-    let outgoing = 0;
+  const { incomingCount, outgoingCount, callers, callees } = useMemo(() => {
+    const empty = {
+      incomingCount: 0,
+      outgoingCount: 0,
+      callers: [] as CodeMapNode[],
+      callees: [] as CodeMapNode[],
+    };
+    if (!selectedId) return empty;
+    const byId = new Map(baseGraph.nodes.map((node) => [node.id, node]));
+    const callerMap = new Map<string, CodeMapNode>();
+    const calleeMap = new Map<string, CodeMapNode>();
     for (const edge of baseGraph.edges) {
       if (edge.kind !== "calls") continue;
-      if (edge.target === selectedId) incoming += 1;
-      if (edge.source === selectedId) outgoing += 1;
+      if (edge.target === selectedId) {
+        const node = byId.get(edge.source);
+        if (node) callerMap.set(node.id, node);
+      }
+      if (edge.source === selectedId) {
+        const node = byId.get(edge.target);
+        if (node) calleeMap.set(node.id, node);
+      }
     }
-    return { incomingCount: incoming, outgoingCount: outgoing };
-  }, [baseGraph.edges, selectedId]);
+    const byLabel = (a: CodeMapNode, b: CodeMapNode) =>
+      a.label.localeCompare(b.label);
+    const callerList = [...callerMap.values()].sort(byLabel);
+    const calleeList = [...calleeMap.values()].sort(byLabel);
+    return {
+      incomingCount: callerList.length,
+      outgoingCount: calleeList.length,
+      callers: callerList,
+      callees: calleeList,
+    };
+  }, [baseGraph.edges, baseGraph.nodes, selectedId]);
   const graphCallCount = useMemo(
     () =>
       graph.edges.reduce(
@@ -654,6 +710,24 @@ export default function CodeMap() {
               <Layers3 size={12} /> Focus
             </button>
           </div>
+          <div className="flex border border-neutral-700 bg-neutral-900/70">
+            <button
+              type="button"
+              onClick={() => setDimension("2d")}
+              aria-pressed={dimension === "2d"}
+              className={`inline-flex items-center px-2.5 py-1.5 ${dimension === "2d" ? "bg-neutral-700 text-white" : "text-neutral-300"}`}
+            >
+              2D
+            </button>
+            <button
+              type="button"
+              onClick={() => setDimension("3d")}
+              aria-pressed={dimension === "3d"}
+              className={`inline-flex items-center gap-1.5 border-l border-neutral-700 px-2.5 py-1.5 ${dimension === "3d" ? "bg-neutral-700 text-white" : "text-neutral-300"}`}
+            >
+              <Boxes size={12} /> 3D
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setLiveEnabled((enabled) => !enabled)}
@@ -704,16 +778,12 @@ export default function CodeMap() {
         <div className="grid min-h-[650px] grid-cols-1 xl:grid-cols-[270px_minmax(0,1fr)_340px]">
           <aside className="order-2 border-t border-neutral-800 bg-neutral-950/55 xl:order-1 xl:border-r xl:border-t-0">
             <FacetList
-              title="Communities"
-              facets={full.communities}
-              selected={selectedCommunities}
-              onToggle={(id) => toggleFacet(setSelectedCommunities, id)}
+              title="Groups"
+              facets={full.groups}
+              selected={selectedGroups}
+              onToggle={(id) => toggleFacet(setSelectedGroups, id)}
               onAll={() =>
-                toggleAll(
-                  setSelectedCommunities,
-                  full.communities,
-                  selectedCommunities
-                )
+                toggleAll(setSelectedGroups, full.groups, selectedGroups)
               }
             />
             <FacetList
@@ -802,15 +872,27 @@ export default function CodeMap() {
           </aside>
 
           <div className="order-1 h-[60vh] min-h-[520px] xl:order-2 xl:h-[calc(100vh-250px)] xl:min-h-[650px]">
-            <CodeGraph
-              nodes={graph.nodes}
-              edges={graph.edges}
-              selectedId={selectedId}
-              activityByNode={activityByNode}
-              followNodeId={liveEnabled ? followNodeId : null}
-              onSelect={selectNode}
-              onExpand={focusNode}
-            />
+            {dimension === "3d" ? (
+              <CodeGraph3D
+                nodes={graph.nodes}
+                edges={graph.edges}
+                selectedId={selectedId}
+                activityByNode={activityByNode}
+                followNodeId={liveEnabled ? followNodeId : null}
+                onSelect={selectNode}
+                onExpand={focusNode}
+              />
+            ) : (
+              <CodeGraph
+                nodes={graph.nodes}
+                edges={graph.edges}
+                selectedId={selectedId}
+                activityByNode={activityByNode}
+                followNodeId={liveEnabled ? followNodeId : null}
+                onSelect={selectNode}
+                onExpand={focusNode}
+              />
+            )}
           </div>
 
           <aside className="order-3 border-t border-neutral-800 bg-neutral-950/60 xl:border-l xl:border-t-0">
@@ -846,6 +928,36 @@ export default function CodeMap() {
                           {outgoingCount} callees
                         </span>
                       </div>
+                      {(callers.length > 0 || callees.length > 0) && (
+                        <div className="mt-3 space-y-3">
+                          {callers.length > 0 && (
+                            <CallList
+                              title="Callers"
+                              icon={
+                                <ArrowDownLeft
+                                  size={11}
+                                  className="text-violet-300"
+                                />
+                              }
+                              nodes={callers}
+                              onPick={openSearchResult}
+                            />
+                          )}
+                          {callees.length > 0 && (
+                            <CallList
+                              title="Callees"
+                              icon={
+                                <ArrowUpRight
+                                  size={11}
+                                  className="text-cyan-300"
+                                />
+                              }
+                              nodes={callees}
+                              onPick={openSearchResult}
+                            />
+                          )}
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={() => focusNode(selectedNode.id)}

@@ -272,7 +272,7 @@ def test_build_full_graph_includes_every_symbol_file_and_resolved_call(tmp_path:
     )
     assert payload["total_symbols"] == 3, payload["total_symbols"]
     assert payload["truncated"] is False
-    assert payload["communities"][0]["count"] >= 1
+    assert payload["groups"][0]["count"] >= 1
     readme = next(node for node in payload["graph"]["nodes"] if node["label"] == "README.md")
     assert readme["file_type"] == "docs"
     assert readme["language"] == "Markdown"

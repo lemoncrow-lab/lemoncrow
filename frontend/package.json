@@ -11,6 +11,7 @@
     "test": "node ./scripts/run-vitest.mjs"
   },
   "dependencies": {
+    "3d-force-graph": "^1.80.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^1.16.0",
@@ -19,7 +20,8 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.26.0",
-    "sigma": "^3.0.3"
+    "sigma": "^3.0.3",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

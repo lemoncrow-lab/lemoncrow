@@ -105,7 +105,7 @@ export default function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold tracking-wide text-brand">
-              ❯ LEMONCROW - The Agents Runtime
+              ❯ LEMONCROW
             </h1>
           </div>
           <div className="flex items-center gap-3">
