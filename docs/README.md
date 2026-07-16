@@ -1,19 +1,19 @@
 # LemonCrow Documentation
 
-Welcome to [LemonCrow](https://lemoncrow.com) — the open-core runtime engineering platform for AI agents.
+Welcome to [LemonCrow](https://lemoncrow.com) — the open-core, local-first context and execution runtime for coding agents.
 
-LemonCrow is an MCP server + SDK middleware that gives every agent shared procedures, code intelligence, cost tracking, and cross-vendor routing — across Claude Code, Codex, Copilot, LangChain, and any MCP host.
+LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LangChain, and MCP-compatible hosts.
 
 ## Quick Links
 
-| Section                                           | Description                                             |
-| ------------------------------------------------- | --------------------------------------------------------- |
-| [Installation](./installation.md)                 | Install script, background services, modes, and storage |
-| [Plans & Pricing](./pricing.md)                   | Free vs Pro / Team / Enterprise, billing, activation    |
-| [CLI Reference](./cli.md)                         | Current public CLI reference                            |
+| Section                                           | Description                                                                                           |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [Installation](./installation.md)                 | Install script, background services, modes, and storage                                               |
+| [Plans & Pricing](./pricing.md)                   | Free vs Pro / Team / Enterprise, billing, activation                                                  |
+| [CLI Reference](./cli.md)                         | Current public CLI reference                                                                          |
 | [Benchmark Results](./benchmarks/results.md)      | Every suite, every number, every raw-run link -- and the retrieval eval vs 10 named code-search tools |
-| [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues  |
-| [Production Readiness](./production-readiness.md) | Production and self-hosted deployment checklist         |
+| [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues                                                |
+| [Production Readiness](./production-readiness.md) | Production and self-hosted deployment checklist                                                       |
 
 ## Host Integrations
 
