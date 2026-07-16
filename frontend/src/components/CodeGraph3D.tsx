@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import ForceGraph3D, { type ForceGraph3DInstance } from "3d-force-graph";
-import { Focus, Loader2 } from "lucide-react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { Focus } from "lucide-react";
 import type { CodeMapActivityKind, CodeMapEdge, CodeMapNode } from "../api";
 import {
   ACTIVITY_COLORS,
@@ -9,40 +10,38 @@ import {
   vivid,
 } from "../lib/graphColors";
 
-type FgNode = {
+type P3 = {
   id: string;
   label: string;
-  qualified_name: string;
+  qualified: string;
   path: string;
-  kind: string;
-  community: string;
   line: number;
+  community: string;
   degree: number;
-  val: number;
   raw: string;
-  base: string;
-  x?: number;
-  y?: number;
-  z?: number;
+  x: number;
+  y: number;
+  z: number;
 };
-type FgLink = { source: string | FgNode; target: string | FgNode };
 
-function endId(end: string | FgNode): string {
-  return typeof end === "object" ? end.id : end;
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
+function hexToRgb(hex: string): [number, number, number] {
+  const match = /^#?([\da-f]{6})$/i.exec(hex.trim());
+  if (!match) return [0.64, 0.64, 0.64];
+  const int = parseInt(match[1], 16);
+  return [
+    ((int >> 16) & 255) / 255,
+    ((int >> 8) & 255) / 255,
+    (int & 255) / 255,
+  ];
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Deterministic 3D seed: community centroids spread over a Fibonacci sphere,
-// members jittered around them, so the single force settle converges fast and
-// looks the same each load.
-function seed3d(nodes: FgNode[]): void {
-  const groups = new Map<string, FgNode[]>();
+// Tight clustered layout, computed once (no physics): each group is packed into
+// its own small sphere, groups spread over an outer shell. Fast and readable
+// instead of one diffuse cloud.
+function layout(nodes: P3[]): void {
+  const groups = new Map<string, P3[]>();
   for (const node of nodes) {
     const key = node.community || "root";
     const bucket = groups.get(key);
@@ -50,58 +49,43 @@ function seed3d(nodes: FgNode[]): void {
     else groups.set(key, [node]);
   }
   const names = [...groups.keys()].sort();
-  const count = names.length;
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  const radius = 170;
-  names.forEach((name, index) => {
-    const t = count <= 1 ? 0 : index / (count - 1);
-    const y = 1 - t * 2;
-    const ring = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = golden * index;
-    const cx = Math.cos(theta) * ring * radius;
-    const cy = y * radius;
-    const cz = Math.sin(theta) * ring * radius;
+  const shell = 28 + Math.sqrt(nodes.length) * 0.32;
+  names.forEach((name, gi) => {
     const members = groups.get(name) ?? [];
-    const spread = 6 + Math.sqrt(members.length) * 1.6;
-    for (const node of members) {
-      node.x = cx + (stableUnit(node.id + "x") - 0.5) * spread;
-      node.y = cy + (stableUnit(node.id + "y") - 0.5) * spread;
-      node.z = cz + (stableUnit(node.id + "z") - 0.5) * spread;
-    }
+    const t = names.length <= 1 ? 0.5 : gi / (names.length - 1);
+    const gy = 1 - t * 2;
+    const gring = Math.sqrt(Math.max(0, 1 - gy * gy));
+    const gtheta = GOLDEN * gi;
+    const cx = Math.cos(gtheta) * gring * shell;
+    const cy = gy * shell;
+    const cz = Math.sin(gtheta) * gring * shell;
+    const clusterR = 5 + Math.cbrt(members.length) * 3.8;
+    members.forEach((node, li) => {
+      const mt = (li + 0.5) / members.length;
+      const my = 1 - mt * 2;
+      const mring = Math.sqrt(Math.max(0, 1 - my * my));
+      const mtheta = GOLDEN * li;
+      const rad = clusterR * Math.cbrt(mt) * (0.6 + stableUnit(node.id) * 0.4);
+      node.x = cx + Math.cos(mtheta) * mring * rad;
+      node.y = cy + my * rad;
+      node.z = cz + Math.sin(mtheta) * mring * rad;
+    });
   });
-}
-
-function buildData(nodes: CodeMapNode[], edges: CodeMapEdge[], light: boolean) {
-  const chosen = nodes;
-  const idset = new Set(chosen.map((node) => node.id));
-  const fgNodes: FgNode[] = chosen.map((node) => {
-    const raw =
-      node.color ||
-      (node.focus ? "#c4b5fd" : (KIND_COLORS[node.kind] ?? "#a3a3a3"));
-    const degree = node.degree ?? 0;
-    return {
-      id: node.id,
-      label: node.label,
-      qualified_name: node.qualified_name,
-      path: node.path,
-      kind: node.kind,
-      community: node.community || "root",
-      line: node.line,
-      degree,
-      val: 1 + Math.sqrt(degree) * 0.8,
-      raw,
-      base: vivid(raw, light),
-    };
-  });
-  const links: FgLink[] = [];
-  for (const edge of edges) {
-    if (edge.kind !== "calls") continue;
-    if (idset.has(edge.source) && idset.has(edge.target)) {
-      links.push({ source: edge.source, target: edge.target });
-    }
+  // recenter the whole cloud on the origin so the initial fit is centered
+  let mx = 0;
+  let my = 0;
+  let mz = 0;
+  for (const node of nodes) {
+    mx += node.x;
+    my += node.y;
+    mz += node.z;
   }
-  seed3d(fgNodes);
-  return { nodes: fgNodes, links, total: nodes.length };
+  const inv = 1 / Math.max(1, nodes.length);
+  for (const node of nodes) {
+    node.x -= mx * inv;
+    node.y -= my * inv;
+    node.z -= mz * inv;
+  }
 }
 
 export default function CodeGraph3D({
@@ -122,8 +106,17 @@ export default function CodeGraph3D({
   onExpand: (nodeId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const fgRef = useRef<ForceGraph3DInstance | null>(null);
-  const nodesRef = useRef<FgNode[]>([]);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const pointsRef = useRef<THREE.Points | null>(null);
+  const incidentRef = useRef<THREE.LineSegments | null>(null);
+  const globalEdgesRef = useRef<THREE.LineSegments | null>(null);
+  const dataRef = useRef<P3[]>([]);
+  const indexRef = useRef<Map<string, number>>(new Map());
+  const lightRef = useRef(document.documentElement.classList.contains("light"));
   const selectedRef = useRef<string | null>(selectedId);
   const neighborsRef = useRef<Set<string>>(new Set());
   const activityRef = useRef(activityByNode);
@@ -131,209 +124,470 @@ export default function CodeGraph3D({
   const onExpandRef = useRef(onExpand);
   onSelectRef.current = onSelect;
   onExpandRef.current = onExpand;
-  const lightThemeRef = useRef(
-    document.documentElement.classList.contains("light")
-  );
-  const [computing, setComputing] = useState(false);
-  const [shown, setShown] = useState({ shown: 0, total: 0 });
+  const [failed, setFailed] = useState(false);
+  const [count, setCount] = useState(0);
 
-  const nodeColorFor = (node: FgNode): string => {
-    const light = lightThemeRef.current;
-    const kind = activityRef.current[node.id];
-    if (kind) return ACTIVITY_COLORS[kind][light ? 1 : 0];
+  const themeBg = () => (lightRef.current ? 0xf4f4f5 : 0x0a0a0a);
+
+  // rewrite the node color buffer from current selection/activity/theme state
+  const paint = () => {
+    const points = pointsRef.current;
+    const data = dataRef.current;
+    if (!points || !data.length) return;
+    const colorAttr = points.geometry.getAttribute(
+      "color"
+    ) as THREE.BufferAttribute;
+    const sizeAttr = points.geometry.getAttribute(
+      "size"
+    ) as THREE.BufferAttribute;
+    const light = lightRef.current;
     const selected = selectedRef.current;
-    if (selected) {
-      if (node.id === selected) return light ? "#7c3aed" : "#ddd6fe";
-      if (!neighborsRef.current.has(node.id))
-        return light ? "#d4d4d4" : "#2f2f2f";
+    const arr = colorAttr.array as Float32Array;
+    const sizes = sizeAttr.array as Float32Array;
+    for (let i = 0; i < data.length; i += 1) {
+      const node = data[i];
+      let hex: string;
+      let scale = 1;
+      const kind = activityRef.current[node.id];
+      if (kind) {
+        hex = ACTIVITY_COLORS[kind][light ? 1 : 0];
+        scale = 1.8;
+      } else if (selected && node.id === selected) {
+        hex = light ? "#7c3aed" : "#ddd6fe";
+        scale = 2.2;
+      } else if (selected && !neighborsRef.current.has(node.id)) {
+        hex = light ? "#d4d4d4" : "#2f2f2f";
+      } else {
+        hex = vivid(node.raw, light);
+      }
+      const [r, g, b] = hexToRgb(hex);
+      arr[i * 3] = r;
+      arr[i * 3 + 1] = g;
+      arr[i * 3 + 2] = b;
+      sizes[i] = (2 + Math.sqrt(node.degree) * 0.9) * scale;
     }
-    return node.base;
+    colorAttr.needsUpdate = true;
+    sizeAttr.needsUpdate = true;
   };
-  const linkColorFor = (link: FgLink): string => {
-    const light = lightThemeRef.current;
-    const source = endId(link.source);
-    const target = endId(link.target);
-    const kind = activityRef.current[source] || activityRef.current[target];
-    if (kind) return ACTIVITY_COLORS[kind][light ? 1 : 0];
-    const selected = selectedRef.current;
-    if (selected) {
-      if (source === selected) return light ? "#0e7490" : "#22d3ee"; // callee
-      if (target === selected) return light ? "#6d28d9" : "#a78bfa"; // caller
-      return light ? "#ececec" : "#242424";
+
+  // rebuild the highlighted caller/callee lines for the current selection
+  const paintIncident = () => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (incidentRef.current) {
+      scene.remove(incidentRef.current);
+      incidentRef.current.geometry.dispose();
+      (incidentRef.current.material as THREE.Material).dispose();
+      incidentRef.current = null;
     }
-    return light ? "#cbd5e1" : "#3f3f46";
-  };
-  const linkWidthFor = (link: FgLink): number => {
     const selected = selectedRef.current;
-    if (!selected) return 0.4;
-    return endId(link.source) === selected || endId(link.target) === selected
-      ? 1.4
-      : 0.3;
+    if (!selected) return;
+    const index = indexRef.current;
+    const data = dataRef.current;
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const light = lightRef.current;
+    const callee = hexToRgb(light ? "#0e7490" : "#22d3ee");
+    const caller = hexToRgb(light ? "#6d28d9" : "#a78bfa");
+    for (const edge of edges) {
+      if (edge.kind !== "calls") continue;
+      const out = edge.source === selected;
+      const inc = edge.target === selected;
+      if (!out && !inc) continue;
+      const a = index.get(edge.source);
+      const b = index.get(edge.target);
+      if (a === undefined || b === undefined) continue;
+      const na = data[a];
+      const nb = data[b];
+      positions.push(na.x, na.y, na.z, nb.x, nb.y, nb.z);
+      const c = out ? callee : caller;
+      colors.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+    }
+    if (!positions.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3)
+    );
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    const lines = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.85,
+      })
+    );
+    incidentRef.current = lines;
+    scene.add(lines);
   };
 
-  const applyStyles = () => {
-    const fg = fgRef.current;
-    if (!fg) return;
-    fg.nodeColor((node) => nodeColorFor(node as unknown as FgNode))
-      .linkColor((link) => linkColorFor(link as FgLink))
-      .linkWidth((link) => linkWidthFor(link as FgLink))
-      .linkDirectionalArrowColor((link) => linkColorFor(link as FgLink));
+  // faint grey lines for every resolved call, drawn behind the points
+  const buildGlobalEdges = () => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (globalEdgesRef.current) {
+      scene.remove(globalEdgesRef.current);
+      globalEdgesRef.current.geometry.dispose();
+      (globalEdgesRef.current.material as THREE.Material).dispose();
+      globalEdgesRef.current = null;
+    }
+    const index = indexRef.current;
+    const data = dataRef.current;
+    const positions: number[] = [];
+    for (const edge of edges) {
+      if (edge.kind !== "calls") continue;
+      const a = index.get(edge.source);
+      const b = index.get(edge.target);
+      if (a === undefined || b === undefined) continue;
+      const na = data[a];
+      const nb = data[b];
+      positions.push(na.x, na.y, na.z, nb.x, nb.y, nb.z);
+    }
+    if (!positions.length) return;
+    const light = lightRef.current;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3)
+    );
+    const lines = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({
+        color: light ? 0x9ca3af : 0x6b7280,
+        transparent: true,
+        opacity: light ? 0.26 : 0.36,
+      })
+    );
+    lines.renderOrder = -1;
+    globalEdgesRef.current = lines;
+    scene.add(lines);
   };
 
-  // create the renderer once
+  // create the scene once
   useEffect(() => {
-    if (!containerRef.current) return;
-    const fg = new ForceGraph3D(containerRef.current)
-      .backgroundColor(lightThemeRef.current ? "#f4f4f5" : "#0a0a0a")
-      .showNavInfo(false)
-      .nodeId("id")
-      .nodeRelSize(3)
-      .nodeResolution(6)
-      .nodeOpacity(0.92)
-      .nodeVal((node) => (node as unknown as FgNode).val)
-      .nodeColor((node) => nodeColorFor(node as unknown as FgNode))
-      .nodeLabel((node) => {
-        const n = node as unknown as FgNode;
-        const light = lightThemeRef.current;
-        return `<div style="background:${light ? "#ffffff" : "#171717"};color:${light ? "#171717" : "#f5f5f5"};border:1px solid ${light ? "#e5e5e5" : "#3f3f46"};padding:4px 8px;border-radius:4px;font:12px system-ui,sans-serif;max-width:340px"><b>${escapeHtml(n.label)}</b><br><span style="opacity:.65">${escapeHtml(n.path)}:${n.line}</span></div>`;
-      })
-      .linkColor((link) => linkColorFor(link as FgLink))
-      .linkWidth((link) => linkWidthFor(link as FgLink))
-      .linkOpacity(0.4)
-      .linkDirectionalArrowLength(2.4)
-      .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowColor((link) => linkColorFor(link as FgLink))
-      .enableNodeDrag(false)
-      .warmupTicks(0)
-      .cooldownTicks(120)
-      .onEngineStop(() => {
-        setComputing(false);
-        fg.zoomToFit(600, 60);
-      })
-      .onNodeClick((node) =>
-        onSelectRef.current((node as unknown as FgNode).id)
-      )
-      .onNodeRightClick((node) =>
-        onExpandRef.current((node as unknown as FgNode).id)
-      )
-      .onBackgroundClick(() => onSelectRef.current(null));
-    fgRef.current = fg;
+    const container = containerRef.current;
+    if (!container) return;
+    THREE.ColorManagement.enabled = false;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 20000);
+    camera.position.set(0, 0, 600);
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    } catch {
+      setFailed(true);
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(themeBg(), 1);
+    container.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.12;
+    controls.zoomToCursor = true;
+    sceneRef.current = scene;
+    cameraRef.current = camera;
+    rendererRef.current = renderer;
+    controlsRef.current = controls;
 
     const resize = () => {
-      const el = containerRef.current;
-      if (!el) return;
-      fg.width(el.clientWidth).height(el.clientHeight);
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / Math.max(1, h);
+      camera.updateProjectionMatrix();
     };
     resize();
     const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
 
     const themeObserver = new MutationObserver(() => {
-      const light = document.documentElement.classList.contains("light");
-      lightThemeRef.current = light;
-      fg.backgroundColor(light ? "#f4f4f5" : "#0a0a0a");
-      for (const node of nodesRef.current) node.base = vivid(node.raw, light);
-      applyStyles();
+      lightRef.current = document.documentElement.classList.contains("light");
+      renderer.setClearColor(themeBg(), 1);
+      const ge = globalEdgesRef.current;
+      if (ge) {
+        const m = ge.material as THREE.LineBasicMaterial;
+        m.color.setHex(lightRef.current ? 0x9ca3af : 0x6b7280);
+        m.opacity = lightRef.current ? 0.26 : 0.36;
+      }
+      paint();
+      paintIncident();
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
 
+    // picking
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points = { threshold: 3.5 };
+    const pointer = new THREE.Vector2();
+    let downX = 0;
+    let downY = 0;
+    const pick = (clientX: number, clientY: number): number | null => {
+      const points = pointsRef.current;
+      if (!points) return null;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(points);
+      if (!hits.length) return null;
+      // pick the point nearest the cursor ray (not just the frontmost within
+      // the threshold), so the selected node is the one under the pointer
+      let best = hits[0];
+      for (const hit of hits) {
+        if ((hit.distanceToRay ?? Infinity) < (best.distanceToRay ?? Infinity))
+          best = hit;
+      }
+      return best.index ?? null;
+    };
+    const onDown = (event: PointerEvent) => {
+      downX = event.clientX;
+      downY = event.clientY;
+    };
+    const onUp = (event: PointerEvent) => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return;
+      const idx = pick(event.clientX, event.clientY);
+      if (idx === null) onSelectRef.current(null);
+      else onSelectRef.current(dataRef.current[idx].id);
+    };
+    const onDouble = (event: MouseEvent) => {
+      const idx = pick(event.clientX, event.clientY);
+      if (idx !== null) onExpandRef.current(dataRef.current[idx].id);
+    };
+    const onMove = (event: PointerEvent) => {
+      const tip = tooltipRef.current;
+      if (!tip) return;
+      const idx = pick(event.clientX, event.clientY);
+      if (idx === null) {
+        tip.style.display = "none";
+        return;
+      }
+      const node = dataRef.current[idx];
+      const rect = container.getBoundingClientRect();
+      tip.style.display = "block";
+      tip.style.left = `${event.clientX - rect.left + 12}px`;
+      tip.style.top = `${event.clientY - rect.top + 12}px`;
+      tip.textContent = `${node.label} — ${node.path}:${node.line}`;
+    };
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointerup", onUp);
+    renderer.domElement.addEventListener("dblclick", onDouble);
+    renderer.domElement.addEventListener("pointermove", onMove);
+
+    let raf = 0;
+    const animate = () => {
+      raf = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
     return () => {
+      cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       themeObserver.disconnect();
-      fg._destructor();
-      fgRef.current = null;
+      renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointerup", onUp);
+      renderer.domElement.removeEventListener("dblclick", onDouble);
+      renderer.domElement.removeEventListener("pointermove", onMove);
+      controls.dispose();
+      renderer.dispose();
+      if (renderer.domElement.parentElement === container)
+        container.removeChild(renderer.domElement);
+      pointsRef.current = null;
+      sceneRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // (re)build the graph data, settle once, then freeze
+  // (re)build the point cloud when data changes
   useEffect(() => {
-    const fg = fgRef.current;
-    if (!fg) return;
-    const data = buildData(nodes, edges, lightThemeRef.current);
-    nodesRef.current = data.nodes;
-    setShown({ shown: data.nodes.length, total: data.total });
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!scene || !camera || !controls) return;
+
+    if (pointsRef.current) {
+      scene.remove(pointsRef.current);
+      pointsRef.current.geometry.dispose();
+      (pointsRef.current.material as THREE.Material).dispose();
+      pointsRef.current = null;
+    }
+
+    const data: P3[] = nodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      qualified: node.qualified_name,
+      path: node.path,
+      line: node.line,
+      community: node.community || "root",
+      degree: node.degree ?? 0,
+      raw:
+        node.color ||
+        (node.focus ? "#c4b5fd" : (KIND_COLORS[node.kind] ?? "#a3a3a3")),
+      x: 0,
+      y: 0,
+      z: 0,
+    }));
+    layout(data);
+    dataRef.current = data;
+    indexRef.current = new Map(data.map((node, i) => [node.id, i]));
+    setCount(data.length);
+
+    const positions = new Float32Array(data.length * 3);
+    const colors = new Float32Array(data.length * 3);
+    const sizes = new Float32Array(data.length);
+    const light = lightRef.current;
+    for (let i = 0; i < data.length; i += 1) {
+      positions[i * 3] = data[i].x;
+      positions[i * 3 + 1] = data[i].y;
+      positions[i * 3 + 2] = data[i].z;
+      const [r, g, b] = hexToRgb(vivid(data[i].raw, light));
+      colors[i * 3] = r;
+      colors[i * 3 + 1] = g;
+      colors[i * 3 + 2] = b;
+      sizes[i] = 2 + Math.sqrt(data[i].degree) * 0.9;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+    const material = new THREE.ShaderMaterial({
+      vertexShader: `
+        attribute float size;
+        attribute vec3 color;
+        varying vec3 vColor;
+        void main() {
+          vColor = color;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * (320.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          vec2 d = gl_PointCoord - vec2(0.5);
+          if (dot(d, d) > 0.25) discard;
+          gl_FragColor = vec4(vColor, 1.0);
+        }`,
+    });
+    const points = new THREE.Points(geo, material);
+    pointsRef.current = points;
+    scene.add(points);
+    buildGlobalEdges();
+
+    // reset selection scope + repaint
     const selected = selectedRef.current;
     const set = new Set<string>();
     if (selected) set.add(selected);
     neighborsRef.current = set;
-    setComputing(true);
-    // Larger graphs get fewer settle ticks and lower-poly nodes so the
-    // single settle stays quick and rendering stays smooth.
-    const heavy = data.nodes.length > 8000;
-    fg.cooldownTicks(heavy ? 30 : 120).nodeResolution(heavy ? 3 : 6);
-    fg.graphData({ nodes: data.nodes, links: data.links });
+    paint();
+    paintIncident();
+
+    // fit camera to the cloud on the next frame, once the container has its
+    // final size (fitting synchronously here can use a stale aspect ratio)
+    geo.computeBoundingSphere();
+    requestAnimationFrame(fit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges]);
 
-  // selection -> recolor only
   useEffect(() => {
     selectedRef.current = selectedId;
     const set = new Set<string>();
     if (selectedId) {
       set.add(selectedId);
-      for (const link of edges) {
-        if (link.kind !== "calls") continue;
-        if (link.source === selectedId) set.add(link.target);
-        if (link.target === selectedId) set.add(link.source);
+      for (const edge of edges) {
+        if (edge.kind !== "calls") continue;
+        if (edge.source === selectedId) set.add(edge.target);
+        if (edge.target === selectedId) set.add(edge.source);
       }
     }
     neighborsRef.current = set;
-    applyStyles();
+    paint();
+    paintIncident();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, edges]);
 
-  // activity highlight -> recolor only
   useEffect(() => {
     activityRef.current = activityByNode;
-    applyStyles();
+    paint();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityByNode]);
 
-  // follow the live cursor by flying the camera to the node
   useEffect(() => {
-    const fg = fgRef.current;
-    if (!fg || !followNodeId || computing) return;
-    const node = nodesRef.current.find(
-      (candidate) => candidate.id === followNodeId
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || !followNodeId) return;
+    const idx = indexRef.current.get(followNodeId);
+    if (idx === undefined) return;
+    const node = dataRef.current[idx];
+    const target = new THREE.Vector3(node.x, node.y, node.z);
+    controls.target.copy(target);
+    const dir = camera.position.clone().sub(target).normalize();
+    camera.position.copy(target.clone().add(dir.multiplyScalar(120)));
+    controls.update();
+  }, [followNodeId]);
+
+  // distance so a sphere of `radius` fits BOTH viewport dimensions (the wide
+  // aspect made the vertical extent overflow with a fixed multiplier)
+  const fitDistance = (radius: number): number => {
+    const camera = cameraRef.current;
+    if (!camera) return radius * 2.4;
+    const vFov = (camera.fov * Math.PI) / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    return (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.25;
+  };
+
+  const fit = () => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    const points = pointsRef.current;
+    if (!camera || !controls || !points) return;
+    if (!points.geometry.boundingSphere)
+      points.geometry.computeBoundingSphere();
+    const sphere = points.geometry.boundingSphere;
+    if (!sphere) return;
+    controls.target.copy(sphere.center);
+    const dist = fitDistance(sphere.radius);
+    camera.position.set(
+      sphere.center.x,
+      sphere.center.y,
+      sphere.center.z + dist
     );
-    if (!node || node.x === undefined) return;
-    const distance = 90;
-    const distRatio =
-      1 + distance / Math.hypot(node.x, node.y ?? 0, (node.z ?? 0) || 1);
-    fg.cameraPosition(
-      {
-        x: (node.x ?? 0) * distRatio,
-        y: (node.y ?? 0) * distRatio,
-        z: (node.z ?? 0) * distRatio,
-      },
-      { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
-      800
+    camera.near = Math.max(0.1, dist / 100);
+    camera.far = dist * 10;
+    camera.updateProjectionMatrix();
+    controls.update();
+  };
+
+  if (failed) {
+    return (
+      <div className="flex h-full min-h-[420px] items-center justify-center bg-surface-sunken p-6 text-sm text-neutral-300">
+        WebGL is unavailable, so the 3D map can’t render. Switch to the 2D view.
+      </div>
     );
-  }, [followNodeId, computing]);
+  }
 
   return (
     <div className="relative h-full min-h-[420px] overflow-hidden bg-surface-sunken">
       <div ref={containerRef} className="absolute inset-0" />
-      {computing && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center gap-3 bg-surface-sunken text-sm text-neutral-300">
-          <Loader2 className="animate-spin text-brand-300" size={18} />
-          Building 3D layout…
-        </div>
-      )}
+      <div
+        ref={tooltipRef}
+        className="pointer-events-none absolute z-30 hidden max-w-xs truncate border border-neutral-700 bg-neutral-950/95 px-2 py-1 text-[11px] text-neutral-100 shadow-lg"
+      />
       <button
         type="button"
-        onClick={() => fgRef.current?.zoomToFit(500, 60)}
+        onClick={fit}
         className="absolute bottom-4 left-4 border border-neutral-700 bg-neutral-950/90 p-2 text-neutral-300 shadow-lg transition hover:bg-neutral-800 hover:text-white"
         aria-label="Fit graph"
       >
         <Focus size={15} />
       </button>
       <div className="absolute bottom-4 right-4 border border-neutral-800 bg-neutral-950/85 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-300">
-        {shown.shown.toLocaleString()} nodes · 3D
+        {count.toLocaleString()} nodes · 3D
       </div>
     </div>
   );
