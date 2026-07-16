@@ -86,7 +86,7 @@ def main() -> int:
                 method = update_data.get("method", "auto")
                 msg = (
                     f"lc updated from {prev_ver} → {cur_ver} (via {method}). "
-                    "Release notes: https://github.com/lemoncrowhq/lemoncrow/releases"
+                    "Release notes: https://github.com/lemoncrow-lab/lemoncrow/releases"
                 )
                 sys.stdout.write(json.dumps({"systemMessage": msg}) + "\n")
                 sys.stdout.flush()

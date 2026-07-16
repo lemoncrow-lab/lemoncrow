@@ -22,7 +22,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/lemoncrowhq/lemoncrow/edit/main/docs/",
+          editUrl: "https://github.com/lemoncrow-lab/lemoncrow/edit/main/docs/",
         },
         blog: {
           showReadingTime: true,
@@ -55,7 +55,7 @@ const config: Config = {
           label: "Docs",
         },
         {
-          href: "https://github.com/lemoncrowhq/lemoncrow/blob/main/BENCHMARKS.md",
+          href: "https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md",
           label: "Benchmarks",
           position: "left",
         },
@@ -70,7 +70,7 @@ const config: Config = {
           position: "right",
         },
         {
-          href: "https://github.com/lemoncrowhq/lemoncrow",
+          href: "https://github.com/lemoncrow-lab/lemoncrow",
           label: "GitHub",
           position: "right",
           className: "header-github-link",
@@ -103,7 +103,7 @@ const config: Config = {
             { label: "LemonCrow Website", href: "https://lemoncrow.com" },
             {
               label: "GitHub",
-              href: "https://github.com/lemoncrowhq/lemoncrow",
+              href: "https://github.com/lemoncrow-lab/lemoncrow",
             },
             { label: "Contact", href: "mailto:contact@lemoncrow.com" },
           ],
