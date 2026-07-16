@@ -24,6 +24,8 @@ import time
 from pathlib import Path
 from typing import Protocol
 
+from lemoncrow.core.foundation.paths import default_store_root
+
 from benchmarks.codebench.run import (
     CA_CERT,
     REPO_ROOT,
@@ -33,6 +35,19 @@ from benchmarks.codebench.run import (
     _parse_claude_result,
     _wait_port,
 )
+
+# Host store files that carry an already-signed (locally-verifiable, no network
+# round-trip needed) cap verdict for a real logged-in account. Forwarded
+# read-only into every lemoncrow-arm container so it authenticates as the
+# host's account instead of bootstrapping a brand-new anonymous identity per
+# run -- an anonymous identity is capped at $20 of lifetime savings, and that
+# cap is keyed off a stable OS/device fingerprint the container shares with
+# the host, so on any host that has already exhausted it (e.g. from prior
+# benchmark runs), every container-side anonymous bootstrap is dormant on
+# arrival and the MCP server advertises zero tools -- see incontainer_entry.sh's
+# `lemoncrow mcp --host claude check` preflight. Missing files are skipped;
+# a host with no logged-in account behaves exactly as before (anonymous).
+_HOST_AUTH_FILES: tuple[str, ...] = ("auth_token", "auth_user.json", "auth.json")
 
 
 class RunnableInstance(Protocol):
@@ -383,6 +398,29 @@ def _docker_run_cmd(
     if arm == "lemoncrow":
         cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:auto')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
+        host_store = default_store_root()
+        for fname in _HOST_AUTH_FILES:
+            fpath = host_store / fname
+            if fpath.is_file():
+                cmd += ["-v", f"{fpath}:/root/.lemoncrow/{fname}:ro"]
+        # The mounted files alone are NOT sufficient: _entitled_plan() (see
+        # entitlements.py) distrusts the cached plan unless the LOCAL device id
+        # matches the one baked into the cached credentials at login time. Every
+        # container gets its own fresh /etc/machine-id, so without this override
+        # load_or_create_device_id() computes a device id that can never match --
+        # the plan silently downgrades to "free" even with valid mounted auth,
+        # and a free identity on a host that has exhausted its anon cap is
+        # dormant on arrival (confirmed via a real run: files mounted correctly,
+        # cap verdict still resolved reason="no_token"/plan=None until this env
+        # var was added). --agent-env-from-host isn't in play here (this is a
+        # plain docker env, not codebench's own agent-env plumbing), so read it
+        # straight off the host store.
+        with contextlib.suppress(Exception):
+            from lemoncrow.core.capabilities.licensing import store as _lc_auth_store
+
+            _device_id = _lc_auth_store.load_or_create_device_id()
+            if _device_id:
+                cmd += ["-e", f"LEMONCROW_DEVICE_ID={_device_id}"]
         # Overlay the live repo source onto the baked-in (pure-Python) install so
         # tool-behavior changes take effect without rebuilding 12 overlay images.
         cmd += [

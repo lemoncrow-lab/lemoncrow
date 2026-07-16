@@ -61,6 +61,7 @@ echo "◆ Including distribution scripts..."
 cp -f scripts/install.sh bundle/scripts/install.sh
 cp -f scripts/sessions.sh bundle/scripts/sessions.sh
 cp -f scripts/bundle.sh bundle/scripts/bundle.sh
+cp -f scripts/uninstall.sh bundle/scripts/uninstall.sh
 
 # Export the locked dependency set as a constraints file. The bundle ships a
 # prebuilt wheel (no uv.lock / source), so on a cold end-user machine
@@ -104,6 +105,10 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/install_codex.sh scripts/install_copilot.sh \
           scripts/install_cursor.sh scripts/install_hermes.sh \
           scripts/install_opencode.sh \
+          scripts/uninstall_antigravity.sh scripts/uninstall_claude.sh \
+          scripts/uninstall_codex.sh scripts/uninstall_copilot.sh \
+          scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
+          scripts/uninstall_opencode.sh \
           scripts/build_host_skills.sh scripts/sync_agent_context.py; do
     [[ -f "$s" ]] && cp -f "$s" "bundle/scripts/$(basename "$s")"
 done

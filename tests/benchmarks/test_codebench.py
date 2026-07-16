@@ -49,6 +49,7 @@ def _load(module_name: str) -> ModuleType:
 CODEBENCH = _load("benchmarks.codebench.run")
 RATE_LIMIT = _load("benchmarks.codebench.rate_limit")
 TASKS = _load("benchmarks.codebench.tasks")
+INCONTAINER = _load("benchmarks.codebench.incontainer")
 
 
 def test_arm_specs_resolve_persona_by_capability() -> None:
