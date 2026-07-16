@@ -1,116 +1,95 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Graph from "graphology";
-import forceAtlas2, { inferSettings } from "graphology-layout-forceatlas2";
+import { inferSettings } from "graphology-layout-forceatlas2";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import Sigma from "sigma";
 import { EdgeArrowProgram } from "sigma/rendering";
-import { Focus, Minus, Plus } from "lucide-react";
+import { Focus, Loader2, Minus, Plus } from "lucide-react";
 import type { CodeMapActivityKind, CodeMapEdge, CodeMapNode } from "../api";
 import {
-  buildCodeMapHierarchy,
-  buildCodeMapView,
-  nextCodeMapDetailStep,
-  type CodeMapDetail,
-  type CodeMapExpansion,
-} from "../lib/codeMapLod";
+  ACTIVITY_COLORS,
+  KIND_COLORS,
+  stableUnit,
+  vivid,
+} from "../lib/graphColors";
 
-const KIND_COLORS: Record<string, [string, string]> = {
-  class: ["#fbbf24", "#b45309"],
-  method: ["#67e8f9", "#0e7490"],
-  function: ["#67e8f9", "#0e7490"],
-  async_function: ["#a5b4fc", "#4f46e5"],
-  interface: ["#c4b5fd", "#7c3aed"],
-  type: ["#c4b5fd", "#7c3aed"],
-  module: ["#86efac", "#15803d"],
-  reference: ["#a3a3a3", "#525252"],
-};
-
-const ACTIVITY_COLORS: Record<CodeMapActivityKind, [string, string]> = {
-  search: ["#c4b5fd", "#7c3aed"],
-  read: ["#67e8f9", "#0e7490"],
-  edit: ["#fbbf24", "#b45309"],
-  verify: ["#4ade80", "#15803d"],
-};
-
-function stableUnit(value: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 4294967295;
+// Theme-aware hover label. Sigma's default hover badge is hard-coded white, so
+// in dark mode the light label text rendered white-on-white. Draw our own
+// readable badge with theme-matched background and text.
+function drawHoverBadge(
+  context: CanvasRenderingContext2D,
+  data: { x: number; y: number; size: number; label?: string | null },
+  settings: { labelSize: number; labelFont: string; labelWeight: string }
+): void {
+  const label = typeof data.label === "string" ? data.label : "";
+  if (!label) return;
+  const light = document.documentElement.classList.contains("light");
+  const size = settings.labelSize;
+  context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
+  const padX = 7;
+  const padY = 5;
+  const width = context.measureText(label).width + padX * 2;
+  const height = size + padY * 2;
+  const x = data.x + data.size + 3;
+  const y = data.y - height / 2;
+  context.fillStyle = light ? "#ffffff" : "#171717";
+  context.strokeStyle = light ? "#e5e5e5" : "#3f3f46";
+  context.lineWidth = 1;
+  context.beginPath();
+  if (context.roundRect) context.roundRect(x, y, width, height, 4);
+  else context.rect(x, y, width, height);
+  context.fill();
+  context.stroke();
+  context.fillStyle = light ? "#171717" : "#f5f5f5";
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillText(label, x + padX, data.y);
 }
 
 function nodeSize(node: CodeMapNode): number {
   const degree = Math.sqrt(node.degree ?? 0);
-  if (node.node_type === "community") {
-    return Math.min(
-      6.5,
-      2.4 + Math.sqrt(node.aggregate_count ?? 1) * 0.06 + degree * 0.1
-    );
-  }
-  if (node.node_type === "file") return Math.min(2.3, 0.8 + degree * 0.12);
-  return Math.min(2.8, 0.65 + degree * 0.16);
+  if (node.node_type === "file") return Math.min(3.4, 1.1 + degree * 0.16);
+  return Math.min(3, 0.7 + degree * 0.2);
 }
 
-function initialPosition(
-  node: CodeMapNode,
-  index: number,
-  count: number,
-  communityIndex: number,
-  localIndex: number
-) {
-  if (node.focus && count < 500) return { x: 0, y: 0 };
-  const localAngle = stableUnit(node.id) * Math.PI * 2;
-  if (count > 500) {
+// Deterministic cluster seed: groups are dropped onto a golden-angle
+// spiral, members scattered around their community centroid. ForceAtlas2 then
+// refines this ONCE; the seed only makes that single settle converge fast and
+// look the same on every load.
+function seedPositions(
+  nodes: CodeMapNode[]
+): Map<string, { x: number; y: number }> {
+  const groups = new Map<string, CodeMapNode[]>();
+  for (const node of nodes) {
+    const key = node.community || "root";
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(node);
+    else groups.set(key, [node]);
+  }
+  const names = [...groups.keys()].sort();
+  const positions = new Map<string, { x: number; y: number }>();
+  names.forEach((name, communityIndex) => {
+    const members = groups.get(name) ?? [];
+    // Spread community centroids far apart on a golden-angle spiral, and give
+    // each cluster a footprint proportional to how many nodes it holds so big
+    // packages get their own breathing room instead of one shared blob.
     const groupAngle = communityIndex * 2.399963229728653;
     const groupRadius =
       communityIndex === 0 ? 0 : 24 * Math.sqrt(communityIndex);
-    const localRadius =
-      0.5 + 0.2 * Math.sqrt(localIndex) + stableUnit(`${node.id}:${index}`);
-    return {
-      x:
-        Math.cos(groupAngle) * groupRadius + Math.cos(localAngle) * localRadius,
-      y:
-        Math.sin(groupAngle) * groupRadius + Math.sin(localAngle) * localRadius,
-    };
-  }
-  const ring = 1 + (index % Math.max(1, Math.ceil(Math.sqrt(count)))) * 0.12;
-  return { x: Math.cos(localAngle) * ring, y: Math.sin(localAngle) * ring };
-}
-
-function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>) {
-  if (left.size !== right.size) return false;
-  for (const value of left) if (!right.has(value)) return false;
-  return true;
-}
-
-function viewportExpansion(renderer: Sigma, graph: Graph): CodeMapExpansion {
-  const { width, height } = renderer.getDimensions();
-  const margin = 80;
-  const communityIds = new Set<string>();
-  const fileIds = new Set<string>();
-  graph.forEachNode((nodeId, attributes) => {
-    if (attributes.nodeType !== "community" && attributes.nodeType !== "file")
-      return;
-    const point = renderer.graphToViewport({
-      x: Number(attributes.x),
-      y: Number(attributes.y),
+    const cx = Math.cos(groupAngle) * groupRadius;
+    const cy = Math.sin(groupAngle) * groupRadius;
+    const spread = 2 + Math.sqrt(members.length) * 0.45;
+    const count = Math.max(1, members.length);
+    members.forEach((node, localIndex) => {
+      const angle = stableUnit(node.id) * Math.PI * 2;
+      const radius = spread * (0.3 + 0.7 * Math.sqrt(localIndex / count));
+      positions.set(node.id, {
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
     });
-    if (
-      point.x < -margin ||
-      point.x > width + margin ||
-      point.y < -margin ||
-      point.y > height + margin
-    )
-      return;
-    if (attributes.nodeType === "community") communityIds.add(nodeId);
-    else {
-      fileIds.add(nodeId);
-      communityIds.add(`community::${attributes.community || "root"}`);
-    }
   });
-  return { communityIds, fileIds };
+  return positions;
 }
 
 export default function CodeGraph({
@@ -127,25 +106,22 @@ export default function CodeGraph({
   selectedId: string | null;
   activityByNode: Record<string, CodeMapActivityKind>;
   followNodeId: string | null;
-  onSelect: (nodeId: string) => void;
+  onSelect: (nodeId: string | null) => void;
   onExpand: (nodeId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef(new Graph({ type: "directed", multi: false }));
   const rendererRef = useRef<Sigma | null>(null);
   const layoutRef = useRef<FA2Layout | null>(null);
-  const layoutTimerRef = useRef<number | null>(null);
-  const rebuildFrameRef = useRef<number | null>(null);
-  const revealFrameRef = useRef<number | null>(null);
-  const scopeTimerRef = useRef<number | null>(null);
-  const scopeUpdateRef = useRef<() => void>(() => undefined);
-  const rebuildingRef = useRef(false);
+  const settleTimerRef = useRef<number | null>(null);
+  const followFrameRef = useRef<number | null>(null);
+  // Settled positions survive rebuilds: switching Full <-> Focus and back, or
+  // toggling a facet filter off and on, reuses the frozen layout instantly
+  // instead of re-running physics (which is what looked like "dancing").
   const positionCacheRef = useRef(new Map<string, { x: number; y: number }>());
-  const detailStepRef = useRef(0);
-  const showAllRef = useRef(false);
-  const detailRef = useRef<CodeMapDetail>("overview");
   const selectedRef = useRef<string | null>(selectedId);
   const hoveredRef = useRef<string | null>(null);
+  const neighborsRef = useRef<Set<string>>(new Set());
   const activityRef = useRef(activityByNode);
   const pulseRef = useRef(false);
   const onSelectRef = useRef(onSelect);
@@ -156,77 +132,9 @@ export default function CodeGraph({
     document.documentElement.classList.contains("light")
   );
   const [renderingUnavailable, setRenderingUnavailable] = useState(false);
-  const [detailStep, setDetailStep] = useState(0);
-  const [showAll, setShowAll] = useState(false);
-  const [expansion, setExpansion] = useState<CodeMapExpansion>({
-    communityIds: new Set(),
-    fileIds: new Set(),
-  });
-  showAllRef.current = showAll;
+  const [computing, setComputing] = useState(false);
 
-  const hierarchy = useMemo(
-    () => buildCodeMapHierarchy(nodes, edges),
-    [edges, nodes]
-  );
-  const forcedNodeIds = useMemo(
-    () => [
-      ...(followNodeId ? [followNodeId] : []),
-      ...Object.keys(activityByNode),
-    ],
-    [activityByNode, followNodeId]
-  );
-  const view = useMemo(
-    () =>
-      buildCodeMapView(
-        hierarchy,
-        detailStep,
-        expansion,
-        forcedNodeIds,
-        selectedId,
-        showAll
-      ),
-    [detailStep, expansion, forcedNodeIds, hierarchy, selectedId, showAll]
-  );
-  detailRef.current = view.detail;
-  const displayNodes = view.nodes;
-  const displayEdges = view.edges;
-  const sourceNodeById = hierarchy.nodeById;
-  const fileIdByPath = useMemo(
-    () => new Map(hierarchy.fileNodes.map((node) => [node.path, node.id])),
-    [hierarchy.fileNodes]
-  );
-  const nodeIds = useMemo(
-    () => new Set(displayNodes.map((node) => node.id)),
-    [displayNodes]
-  );
-  const displaySelectedId = useMemo(() => {
-    if (!selectedId) return null;
-    if (nodeIds.has(selectedId)) return selectedId;
-    const source = sourceNodeById.get(selectedId);
-    if (!source) return null;
-    const fileId = fileIdByPath.get(source.path);
-    if (fileId && nodeIds.has(fileId)) return fileId;
-    return `community::${source.community || "root"}`;
-  }, [fileIdByPath, nodeIds, selectedId, sourceNodeById]);
-  const displayActivity = useMemo(() => {
-    const projected: Record<string, CodeMapActivityKind> = {};
-    for (const [nodeId, kind] of Object.entries(activityByNode)) {
-      if (nodeIds.has(nodeId)) {
-        projected[nodeId] = kind;
-        continue;
-      }
-      const source = sourceNodeById.get(nodeId);
-      if (!source) continue;
-      const fileId = fileIdByPath.get(source.path);
-      const target =
-        fileId && nodeIds.has(fileId)
-          ? fileId
-          : `community::${source.community || "root"}`;
-      if (nodeIds.has(target)) projected[target] = kind;
-    }
-    return projected;
-  }, [activityByNode, fileIdByPath, nodeIds, sourceNodeById]);
-
+  // ---- create the renderer once -------------------------------------- //
   useEffect(() => {
     if (!containerRef.current) return;
     const graph = graphRef.current;
@@ -235,102 +143,115 @@ export default function CodeGraph({
       renderer = new Sigma(graph, containerRef.current, {
         allowInvalidContainer: true,
         defaultNodeColor: "#67e8f9",
-        defaultEdgeColor: "#525252",
+        defaultEdgeColor: "#3f3f46",
         edgeProgramClasses: { arrow: EdgeArrowProgram },
-        labelColor: {
-          color: lightThemeRef.current ? "#262626" : "#e5e5e5",
-        },
-        labelDensity: 0.8,
-        labelGridCellSize: 90,
+        labelColor: { color: lightThemeRef.current ? "#262626" : "#e5e5e5" },
+        labelDensity: 0.7,
+        labelGridCellSize: 120,
         labelRenderedSizeThreshold: 7,
-        minCameraRatio: 0.08,
-        maxCameraRatio: 5,
+        minCameraRatio: 0.02,
+        maxCameraRatio: 8,
         renderEdgeLabels: false,
         zIndex: true,
+        defaultDrawNodeHover: drawHoverBadge,
         nodeReducer: (nodeId, data) => {
           const selected = selectedRef.current;
           const hovered = hoveredRef.current;
           const activeKind = activityRef.current[nodeId];
-          const related =
-            !selected ||
-            nodeId === selected ||
-            (graph.hasNode(selected) && graph.areNeighbors(nodeId, selected));
+          const dimmed =
+            Boolean(selected) &&
+            !activeKind &&
+            !neighborsRef.current.has(nodeId);
+          const color = activeKind
+            ? ACTIVITY_COLORS[activeKind][lightThemeRef.current ? 1 : 0]
+            : nodeId === selected
+              ? lightThemeRef.current
+                ? "#7c3aed"
+                : "#ddd6fe"
+              : dimmed
+                ? lightThemeRef.current
+                  ? "#d4d4d4"
+                  : "#303030"
+                : String(data.baseColor ?? "#a3a3a3");
+          const base = Number(data.baseSize ?? 1);
+          const highlighted =
+            nodeId === selected || nodeId === hovered || Boolean(activeKind);
           return {
             ...data,
-            color: activeKind
-              ? ACTIVITY_COLORS[activeKind][lightThemeRef.current ? 1 : 0]
-              : nodeId === selected
-                ? lightThemeRef.current
-                  ? "#7c3aed"
-                  : "#ddd6fe"
-                : related
-                  ? String(
-                      data.baseColor ||
-                        (KIND_COLORS[String(data.kind)] ?? ["#a3a3a3"])[0]
-                    )
-                  : lightThemeRef.current
-                    ? "#a3a3a3"
-                    : "#525252",
+            color,
             size: activeKind
-              ? Number(data.baseSize) * (pulseRef.current ? 2 : 1.45)
+              ? base * (pulseRef.current ? 1.9 : 1.5)
               : nodeId === hovered
-                ? Number(data.baseSize) * 1.3
-                : Number(data.baseSize),
-            highlighted:
-              nodeId === selected || nodeId === hovered || Boolean(activeKind),
-            forceLabel:
-              nodeId === selected || nodeId === hovered || Boolean(activeKind),
-            zIndex:
-              nodeId === selected || nodeId === hovered || activeKind
-                ? 3
-                : related
-                  ? 2
-                  : 1,
+                ? base * 1.4
+                : base,
+            highlighted,
+            forceLabel: highlighted,
+            zIndex: highlighted ? 3 : dimmed ? 0 : 1,
           };
         },
         edgeReducer: (edgeId, data) => {
-          const selected = selectedRef.current;
-          const focus = selected || hoveredRef.current;
-          const extremities = graph.extremities(edgeId);
-          const related = !focus || extremities.includes(focus);
-          const overviewEdge =
-            detailRef.current === "overview" &&
-            edgeId.startsWith("community-call::");
+          const focus = selectedRef.current || hoveredRef.current;
+          const [source, target] = graph.extremities(edgeId);
           const activeKind =
-            activityRef.current[extremities[0]] ||
-            activityRef.current[extremities[1]];
-          const aggregate = data.kind === "aggregate";
+            activityRef.current[source] || activityRef.current[target];
+          if (activeKind) {
+            return {
+              ...data,
+              hidden: false,
+              color: ACTIVITY_COLORS[activeKind][lightThemeRef.current ? 1 : 0],
+              size: pulseRef.current ? 2.2 : 1.6,
+              zIndex: 3,
+            };
+          }
+          if (focus) {
+            // Callers (target === focus) AND callees (source === focus) both
+            // light up; every other call edge stays faint grey for context.
+            const related = source === focus || target === focus;
+            if (related) {
+              if (data.kind === "calls") {
+                // Direction-coded to match the detail panel legend:
+                // callee (focus -> target) = cyan, caller (source -> focus) =
+                // violet.
+                const callee = source === focus;
+                return {
+                  ...data,
+                  hidden: false,
+                  color: callee
+                    ? lightThemeRef.current
+                      ? "#0e7490"
+                      : "#22d3ee"
+                    : lightThemeRef.current
+                      ? "#6d28d9"
+                      : "#a78bfa",
+                  size: 1.6,
+                  zIndex: 3,
+                };
+              }
+              // contains / other incident edges: neutral highlight
+              return {
+                ...data,
+                hidden: false,
+                color: lightThemeRef.current ? "#7c3aed" : "#c4b5fd",
+                size: 1,
+                zIndex: 2,
+              };
+            }
+            return {
+              ...data,
+              hidden: data.kind !== "calls",
+              color: String(data.baseColor ?? "#3f3f46"),
+              size: Number(data.baseSize ?? 0.2),
+              zIndex: 0,
+            };
+          }
+          // Resting view: show the call graph faintly, hide file->symbol
+          // membership clutter until something is selected.
           return {
             ...data,
-            color: activeKind
-              ? ACTIVITY_COLORS[activeKind][lightThemeRef.current ? 1 : 0]
-              : focus && related
-                ? lightThemeRef.current
-                  ? "#7c3aed"
-                  : "#c4b5fd"
-                : aggregate
-                  ? lightThemeRef.current
-                    ? "#a3a3a3"
-                    : "#737373"
-                  : data.kind === "contains"
-                    ? lightThemeRef.current
-                      ? "#e5e5e5"
-                      : "#303030"
-                    : lightThemeRef.current
-                      ? "#d4d4d4"
-                      : "#525252",
-            size: activeKind
-              ? pulseRef.current
-                ? 2.4
-                : 1.7
-              : focus && related
-                ? 1.1
-                : aggregate
-                  ? Number(data.baseSize ?? 0.4)
-                  : data.kind === "contains"
-                    ? 0.08
-                    : 0.18,
-            hidden: !activeKind && (focus ? !related : !overviewEdge),
+            hidden: data.kind !== "calls",
+            color: String(data.baseColor ?? "#3f3f46"),
+            size: Number(data.baseSize ?? 0.2),
+            zIndex: 0,
           };
         },
       });
@@ -341,343 +262,247 @@ export default function CodeGraph({
     rendererRef.current = renderer;
 
     const themeObserver = new MutationObserver(() => {
-      lightThemeRef.current =
-        document.documentElement.classList.contains("light");
+      const light = document.documentElement.classList.contains("light");
+      lightThemeRef.current = light;
       renderer.setSetting("labelColor", {
-        color: lightThemeRef.current ? "#262626" : "#e5e5e5",
+        color: light ? "#262626" : "#e5e5e5",
       });
-      renderer.refresh();
+      // Re-theme resting base colors in place (no relayout) so a live theme
+      // toggle recolors every node/edge, not just labels and the selection.
+      graph.forEachNode((id, attr) => {
+        const themed = vivid(
+          String(attr.rawColor ?? attr.baseColor ?? "#a3a3a3"),
+          light
+        );
+        graph.setNodeAttribute(id, "baseColor", themed);
+      });
+      graph.forEachEdge((id, attr) => {
+        const isCall = attr.kind === "calls";
+        graph.setEdgeAttribute(
+          id,
+          "baseColor",
+          isCall
+            ? light
+              ? "#cbd5e1"
+              : "#3f3f46"
+            : light
+              ? "#e5e5e5"
+              : "#262626"
+        );
+      });
+      renderer.refresh({ skipIndexation: true });
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
 
-    const openNode = (node: string, expand: boolean) => {
-      if (graph.getNodeAttribute(node, "nodeType") === "community") {
-        const position = renderer.getNodeDisplayData(node);
-        const nextStep = Math.max(detailStepRef.current, 2);
-        setExpansion((current) => {
-          const communityIds = new Set(current.communityIds);
-          communityIds.add(node);
-          return { communityIds, fileIds: current.fileIds };
-        });
-        detailStepRef.current = nextStep;
-        setDetailStep(nextStep);
-        if (position) {
-          renderer
-            .getCamera()
-            .animate(
-              { x: position.x, y: position.y, ratio: 0.5 },
-              { duration: 420 }
-            );
-        }
-        return;
-      }
-      if (expand) onExpandRef.current(node);
-      else onSelectRef.current(node);
-    };
-    renderer.on("clickNode", ({ node }) => openNode(node, false));
+    renderer.on("clickNode", ({ node }) => onSelectRef.current(node));
+    renderer.on("clickStage", () => onSelectRef.current(null));
     renderer.on("doubleClickNode", ({ node, preventSigmaDefault }) => {
       preventSigmaDefault();
-      openNode(node, true);
+      onExpandRef.current(node);
     });
-    const updateScope = () => {
-      if (scopeTimerRef.current) window.clearTimeout(scopeTimerRef.current);
-      scopeTimerRef.current = window.setTimeout(() => {
-        scopeTimerRef.current = null;
-        if (showAllRef.current) return;
-        const next = viewportExpansion(renderer, graph);
-        setExpansion((current) =>
-          sameSet(current.communityIds, next.communityIds) &&
-          sameSet(current.fileIds, next.fileIds)
-            ? current
-            : next
-        );
-      }, 120);
-    };
-    scopeUpdateRef.current = updateScope;
-    const camera = renderer.getCamera();
-    const handleCameraUpdate = ({ ratio }: { ratio: number }) => {
-      if (rebuildingRef.current || showAllRef.current) return;
-      const next = nextCodeMapDetailStep(detailStepRef.current, ratio);
-      if (next !== detailStepRef.current) {
-        detailStepRef.current = next;
-        setDetailStep(next);
-      }
-      updateScope();
-    };
-    camera.on("updated", handleCameraUpdate);
     renderer.on("enterNode", ({ node }) => {
       hoveredRef.current = node;
       containerRef.current?.classList.add("cursor-pointer");
-      renderer.refresh();
+      renderer.refresh({ skipIndexation: true, schedule: true });
     });
     renderer.on("leaveNode", () => {
       hoveredRef.current = null;
       containerRef.current?.classList.remove("cursor-pointer");
-      renderer.refresh();
+      renderer.refresh({ skipIndexation: true, schedule: true });
     });
 
     return () => {
-      if (layoutTimerRef.current) window.clearTimeout(layoutTimerRef.current);
-      if (rebuildFrameRef.current)
-        window.cancelAnimationFrame(rebuildFrameRef.current);
-      if (revealFrameRef.current)
-        window.cancelAnimationFrame(revealFrameRef.current);
-      if (scopeTimerRef.current) window.clearTimeout(scopeTimerRef.current);
-      scopeUpdateRef.current = () => undefined;
+      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+      if (followFrameRef.current)
+        window.cancelAnimationFrame(followFrameRef.current);
       layoutRef.current?.kill();
-      camera.off("updated", handleCameraUpdate);
+      layoutRef.current = null;
       themeObserver.disconnect();
       renderer.kill();
       rendererRef.current = null;
     };
   }, []);
 
+  // ---- build the whole graph, settle ONCE, then freeze --------------- //
   useEffect(() => {
+    const renderer = rendererRef.current;
     const graph = graphRef.current;
-    rebuildingRef.current = true;
-    if (rebuildFrameRef.current)
-      window.cancelAnimationFrame(rebuildFrameRef.current);
-    graph.forEachNode((id, attributes) => {
-      positionCacheRef.current.set(id, { x: attributes.x, y: attributes.y });
-    });
+    if (!renderer) return;
+
     layoutRef.current?.kill();
     layoutRef.current = null;
-    if (layoutTimerRef.current) window.clearTimeout(layoutTimerRef.current);
-    if (revealFrameRef.current)
-      window.cancelAnimationFrame(revealFrameRef.current);
-    const nextNodeIds = new Set(displayNodes.map((node) => node.id));
-    const removalCount = graph
-      .nodes()
-      .reduce((count, nodeId) => count + (nextNodeIds.has(nodeId) ? 0 : 1), 0);
-    if (removalCount > 5_000) {
-      graph.clear();
-    } else {
-      graph.clearEdges();
-      for (const nodeId of graph.nodes()) {
-        if (!nextNodeIds.has(nodeId)) graph.dropNode(nodeId);
-      }
+    if (settleTimerRef.current) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
     }
-    if (hoveredRef.current && !nextNodeIds.has(hoveredRef.current))
-      hoveredRef.current = null;
 
-    const communityOrder = [
-      ...new Set(displayNodes.map((node) => node.community || "root")),
-    ].sort();
-    const communityIndexes = new Map(
-      communityOrder.map((community, index) => [community, index])
-    );
-    const localIndexes = new Map<string, number>();
-    const revealTargets = new Map<string, number>();
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    const animateReveal = !reducedMotion && displayNodes.length <= 5_000;
+    graph.clear();
+    if (!nodes.length) {
+      renderer.refresh();
+      return;
+    }
 
-    displayNodes.forEach((node, index) => {
-      const community = node.community || "root";
-      const parentId =
-        node.node_type === "symbol"
-          ? fileIdByPath.get(node.path)
-          : node.node_type === "file"
-            ? `community::${community}`
-            : undefined;
-      const clusterKey = parentId || community;
-      const localIndex = localIndexes.get(clusterKey) ?? 0;
-      localIndexes.set(clusterKey, localIndex + 1);
-      const parentPosition =
-        parentId && graph.hasNode(parentId)
-          ? {
-              x: Number(graph.getNodeAttribute(parentId, "x")),
-              y: Number(graph.getNodeAttribute(parentId, "y")),
-            }
-          : parentId
-            ? positionCacheRef.current.get(parentId)
-            : undefined;
-      const angle = stableUnit(node.id) * Math.PI * 2;
-      const spread =
-        node.node_type === "symbol"
-          ? 0.08 + Math.sqrt(localIndex) * 0.025
-          : 0.35 + Math.sqrt(localIndex) * 0.11;
-      const position =
-        positionCacheRef.current.get(node.id) ??
-        (parentPosition
-          ? {
-              x: parentPosition.x + Math.cos(angle) * spread,
-              y: parentPosition.y + Math.sin(angle) * spread,
-            }
-          : initialPosition(
-              node,
-              index,
-              displayNodes.length,
-              communityIndexes.get(community) ?? 0,
-              localIndex
-            ));
+    const cache = positionCacheRef.current;
+    const seeds = nodes.every((node) => cache.has(node.id))
+      ? cache
+      : seedPositions(nodes);
+    let missing = false;
+    for (const node of nodes) {
+      if (!cache.has(node.id)) missing = true;
+      const seed = cache.get(node.id) ?? seeds.get(node.id) ?? { x: 0, y: 0 };
       const size = nodeSize(node);
-      const color =
+      const rawColor =
         node.color ||
-        (node.focus ? "#c4b5fd" : (KIND_COLORS[node.kind] ?? ["#a3a3a3"])[0]);
-      const attributes = {
-        ...position,
+        (node.focus ? "#c4b5fd" : (KIND_COLORS[node.kind] ?? "#a3a3a3"));
+      const color = vivid(rawColor, lightThemeRef.current);
+      graph.addNode(node.id, {
+        x: seed.x,
+        y: seed.y,
+        size,
+        baseSize: size,
         label: node.label,
         color,
         baseColor: color,
-        size,
-        baseSize: size,
+        rawColor,
         kind: node.kind,
         nodeType: node.node_type,
         community: node.community,
         path: node.path,
-        forceLabel:
-          (node.node_type === "community" &&
-            (node.aggregate_count ?? 0) >= 10) ||
-          Boolean(node.focus),
+        forceLabel: Boolean(node.focus),
         zIndex: node.focus ? 2 : 1,
-      };
-      if (graph.hasNode(node.id)) {
-        graph.mergeNodeAttributes(node.id, attributes);
-      } else {
-        const startSize = animateReveal ? Math.max(0.15, size * 0.16) : size;
-        graph.addNode(node.id, {
-          ...attributes,
-          size: startSize,
-          baseSize: startSize,
-        });
-        if (animateReveal) revealTargets.set(node.id, size);
-      }
-    });
-    displayEdges.forEach((edge) => {
-      if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) return;
-      const key = graph.hasEdge(edge.source, edge.target)
-        ? `${edge.id}:${edge.depth}`
-        : edge.id;
-      if (!graph.hasEdge(key)) {
-        graph.addDirectedEdgeWithKey(key, edge.source, edge.target, {
-          type:
-            (view.detail === "symbols" || view.detail === "full") &&
-            edge.kind === "calls"
-              ? "arrow"
-              : "line",
-          kind: edge.kind,
-          color: edge.kind === "contains" ? "#404040" : "#737373",
-          size:
-            edge.kind === "contains"
-              ? 0.08
-              : edge.kind === "aggregate"
-                ? Math.min(0.65, 0.28 + Math.log2(edge.weight ?? 1) * 0.08)
-                : 0.18,
-          baseSize:
-            edge.kind === "aggregate"
-              ? Math.min(0.65, 0.28 + Math.log2(edge.weight ?? 1) * 0.08)
-              : edge.kind === "contains"
-                ? 0.08
-                : 0.18,
-        });
-      }
-    });
-
-    rendererRef.current?.setSetting("labelRenderedSizeThreshold", 4.5);
-    if (graph.order > 1 && graph.order <= 1_200) {
-      if (reducedMotion) {
-        if (graph.order <= 500) {
-          forceAtlas2.assign(graph, {
-            iterations: 24,
-            settings: { ...inferSettings(graph), gravity: 1.4, slowDown: 8 },
-          });
-        }
-      } else {
-        const layout = new FA2Layout(graph, {
-          settings: {
-            ...inferSettings(graph),
-            gravity: graph.order > 500 ? 0.5 : 1.4,
-            scalingRatio: graph.order > 500 ? 7 : 2,
-            linLogMode: graph.order > 500,
-            slowDown: graph.order > 500 ? 12 : 8,
-            barnesHutOptimize: graph.order > 80,
-          },
-        });
-        layoutRef.current = layout;
-        layout.start();
-        layoutTimerRef.current = window.setTimeout(
-          () => layout.stop(),
-          detailStep === 0 ? 450 : 320
-        );
-      }
+      });
     }
-    rendererRef.current?.refresh();
-    if (revealTargets.size) {
-      const startedAt = performance.now();
-      const reveal = (now: number) => {
-        const progress = Math.min(1, (now - startedAt) / 180);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        for (const [nodeId, target] of revealTargets) {
-          if (!graph.hasNode(nodeId)) continue;
-          const size = Math.max(0.15, target * (0.16 + eased * 0.84));
-          graph.setNodeAttribute(nodeId, "size", size);
-          graph.setNodeAttribute(nodeId, "baseSize", size);
-        }
-        rendererRef.current?.refresh();
-        if (progress < 1) {
-          revealFrameRef.current = window.requestAnimationFrame(reveal);
-        } else {
-          revealFrameRef.current = null;
-        }
-      };
-      revealFrameRef.current = window.requestAnimationFrame(reveal);
+    for (const edge of edges) {
+      if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
+      if (graph.hasEdge(edge.source, edge.target)) continue;
+      const isCall = edge.kind === "calls";
+      const baseColor = isCall
+        ? lightThemeRef.current
+          ? "#cbd5e1"
+          : "#3f3f46"
+        : lightThemeRef.current
+          ? "#e5e5e5"
+          : "#262626";
+      graph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
+        type: isCall ? "arrow" : "line",
+        kind: edge.kind,
+        color: baseColor,
+        baseColor,
+        size: isCall ? 0.35 : 0.12,
+        baseSize: isCall ? 0.35 : 0.12,
+      });
     }
-    rebuildFrameRef.current = window.requestAnimationFrame(() => {
-      rebuildingRef.current = false;
-      rebuildFrameRef.current = null;
-      scopeUpdateRef.current();
-    });
-  }, [detailStep, displayEdges, displayNodes, fileIdByPath, view.detail]);
 
-  useEffect(() => {
-    selectedRef.current = displaySelectedId;
-    activityRef.current = displayActivity;
-    rendererRef.current?.refresh();
-  }, [displayActivity, displaySelectedId]);
+    // recompute neighbours of the current selection against the new graph
+    const set = new Set<string>();
+    const sel = selectedRef.current;
+    if (sel && graph.hasNode(sel)) {
+      set.add(sel);
+      graph.forEachNeighbor(sel, (neighbor) => set.add(neighbor));
+    }
+    neighborsRef.current = set;
 
-  useEffect(() => {
-    if (!Object.keys(displayActivity).length) return;
-    const timer = window.setInterval(() => {
-      pulseRef.current = !pulseRef.current;
-      rendererRef.current?.refresh();
-    }, 620);
-    return () => window.clearInterval(timer);
-  }, [displayActivity]);
-
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    const source = followNodeId ? sourceNodeById.get(followNodeId) : undefined;
-    if (!renderer || !followNodeId || !source) return;
-    const requiredStep = source.node_type === "symbol" ? 6 : 3;
-    if (!graphRef.current.hasNode(followNodeId)) {
-      const nextStep = Math.max(detailStepRef.current, requiredStep);
-      detailStepRef.current = nextStep;
-      setDetailStep(nextStep);
+    if (!missing) {
+      // Every node already has a frozen position -> no physics, instant.
+      setComputing(false);
+      renderer.refresh();
       return;
     }
-    const frame = window.requestAnimationFrame(() => {
+
+    // One-shot settle behind an opaque overlay, then stop forever.
+    setComputing(true);
+    renderer.refresh();
+    const large = graph.order > 2000;
+    const layout = new FA2Layout(graph, {
+      settings: {
+        ...inferSettings(graph),
+        barnesHutOptimize: graph.order > 500,
+        // Gentle separation: moderate gravity keeps the graph cohesive and the
+        // gaps between groups filled, with only slight repulsion so
+        // clusters are distinguishable without flying apart into islands.
+        gravity: 0.45,
+        scalingRatio: large ? 5 : 3,
+        slowDown: 10,
+        linLogMode: true,
+      },
+    });
+    layoutRef.current = layout;
+    layout.start();
+    const duration = Math.min(6000, 900 + graph.order * 0.08);
+    settleTimerRef.current = window.setTimeout(() => {
+      layout.stop();
+      layout.kill();
+      layoutRef.current = null;
+      settleTimerRef.current = null;
+      graph.forEachNode((id, attr) =>
+        cache.set(id, { x: Number(attr.x), y: Number(attr.y) })
+      );
+      // refresh neighbour set once positions are final (selection unchanged)
+      const nset = new Set<string>();
+      const s = selectedRef.current;
+      if (s && graph.hasNode(s)) {
+        nset.add(s);
+        graph.forEachNeighbor(s, (neighbor) => nset.add(neighbor));
+      }
+      neighborsRef.current = nset;
+      setComputing(false);
+      renderer.refresh();
+      renderer.getCamera().animatedReset({ duration: 320 });
+    }, duration);
+  }, [nodes, edges]);
+
+  // ---- selection: recolor only (no relayout) ------------------------- //
+  useEffect(() => {
+    selectedRef.current = selectedId;
+    const graph = graphRef.current;
+    const set = new Set<string>();
+    if (selectedId && graph.hasNode(selectedId)) {
+      set.add(selectedId);
+      graph.forEachNeighbor(selectedId, (neighbor) => set.add(neighbor));
+    }
+    neighborsRef.current = set;
+    rendererRef.current?.refresh({ skipIndexation: true });
+  }, [selectedId]);
+
+  // ---- activity highlight: recolor only ------------------------------ //
+  useEffect(() => {
+    activityRef.current = activityByNode;
+    rendererRef.current?.refresh({ skipIndexation: true });
+  }, [activityByNode]);
+
+  useEffect(() => {
+    if (!Object.keys(activityByNode).length) return;
+    const timer = window.setInterval(() => {
+      pulseRef.current = !pulseRef.current;
+      rendererRef.current?.refresh({ skipIndexation: true, schedule: true });
+    }, 620);
+    return () => window.clearInterval(timer);
+  }, [activityByNode]);
+
+  // ---- follow the live cursor without moving any node ---------------- //
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !followNodeId || computing) return;
+    if (!graphRef.current.hasNode(followNodeId)) return;
+    followFrameRef.current = window.requestAnimationFrame(() => {
       const position = renderer.getNodeDisplayData(followNodeId);
       if (!position) return;
       const state = renderer.getCamera().getState();
-      renderer.getCamera().animate(
-        {
-          x: position.x,
-          y: position.y,
-          ratio: Math.min(
-            state.ratio,
-            source.node_type === "symbol" ? 0.17 : 0.42
-          ),
-        },
-        { duration: 520 }
-      );
+      renderer
+        .getCamera()
+        .animate(
+          { x: position.x, y: position.y, ratio: Math.min(state.ratio, 0.35) },
+          { duration: 480 }
+        );
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [displayNodes, followNodeId, sourceNodeById]);
+    return () => {
+      if (followFrameRef.current)
+        window.cancelAnimationFrame(followFrameRef.current);
+    };
+  }, [followNodeId, computing]);
 
   const camera = () => rendererRef.current?.getCamera();
 
@@ -716,8 +541,14 @@ export default function CodeGraph({
         ref={containerRef}
         className="absolute inset-0"
         role="img"
-        aria-label={`Interactive source map showing ${displayNodes.length} visible nodes and ${displayEdges.length} relationships; ${view.hiddenCount} nodes remain grouped. Zoom in to unfold them progressively.`}
+        aria-label={`Interactive source map showing ${nodes.length} nodes and ${edges.length} relationships. Drag to pan, scroll to zoom, click a node to inspect, double-click to focus its callers and callees.`}
       />
+      {computing && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center gap-3 bg-surface-sunken text-sm text-neutral-300">
+          <Loader2 className="animate-spin text-brand-300" size={18} />
+          Computing layout…
+        </div>
+      )}
       <div className="absolute bottom-4 left-4 flex border border-neutral-700 bg-neutral-950/90 shadow-lg">
         <button
           type="button"
@@ -737,48 +568,16 @@ export default function CodeGraph({
         </button>
         <button
           type="button"
-          className="border-r border-neutral-700 p-2 text-neutral-300 transition hover:bg-neutral-800 hover:text-white"
-          onClick={() => {
-            showAllRef.current = false;
-            setShowAll(false);
-            detailStepRef.current = 0;
-            setDetailStep(0);
-            void camera()?.animatedReset({ duration: 260 });
-          }}
+          className="p-2 text-neutral-300 transition hover:bg-neutral-800 hover:text-white"
+          onClick={() => void camera()?.animatedReset({ duration: 260 })}
           aria-label="Fit graph"
         >
           <Focus size={15} />
         </button>
-        <button
-          type="button"
-          aria-pressed={showAll}
-          onClick={() => {
-            const next = !showAllRef.current;
-            showAllRef.current = next;
-            setShowAll(next);
-            if (!next) scopeUpdateRef.current();
-          }}
-          className={
-            showAll
-              ? "bg-brand-500/20 px-3 text-[10px] font-semibold uppercase tracking-wider text-brand-200"
-              : "px-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-300 transition hover:bg-neutral-800 hover:text-white"
-          }
-        >
-          {showAll ? "Grouped" : "All points"}
-        </button>
       </div>
       <div className="absolute bottom-4 right-4 border border-neutral-800 bg-neutral-950/85 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-300">
-        {nodeIds.size.toLocaleString()} visible ·{" "}
-        {showAll
-          ? "all points"
-          : view.detail === "overview"
-            ? "grouped overview"
-            : view.detail === "files"
-              ? "local files"
-              : "local symbols"}
-        {view.hiddenCount > 0
-          ? ` · ${view.hiddenCount.toLocaleString()} grouped`
-          : ""}
+        {nodes.length.toLocaleString()} nodes · {edges.length.toLocaleString()}{" "}
+        edges
       </div>
     </div>
   );
