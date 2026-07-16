@@ -7,6 +7,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from lemoncrow.core.capabilities.licensing import cap_verdict as cv
 
+_TYPESCRIPT_TEST_SEED = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+_TYPESCRIPT_FREE_TOKEN = (
+    "eyJ2IjoyLCJ0eXAiOiJjYXAiLCJhY2NvdW50X2lkIjoiYWNjdF9yZXZpZXciLCJkZXZpY2VfaWQiOiJkZXZpY2Vf"
+    "cmV2aWV3IiwicGxhbiI6ImZyZWUiLCJzYXZpbmdzX292ZXJfY2FwIjpmYWxzZSwibW9udGhseV9zYXZpbmdzX3Vz"
+    "ZCI6OTk5OSwiY2FwX3VzZCI6bnVsbCwiaXNzdWVkX2F0IjoxODAwMDAwMDAwLCJleHBpcmVzX2F0IjoxODAwMDI4"
+    "ODAwfQ.pZU8v48JPhLGUi7Z3FLe9LzAkMgnNoAizj3XUMb0i9xnLbIhLa-aIiO05fINS39ZIfy7AHyRMoYXNIs8SJIeCw"
+)
+_TYPESCRIPT_ANONYMOUS_TOKEN = (
+    "eyJ2IjoyLCJ0eXAiOiJjYXAiLCJhY2NvdW50X2lkIjoiYW5vbjpyZXZpZXciLCJkZXZpY2VfaWQiOiJhbm9ueW1v"
+    "dXNfZGV2aWNlX3JldmlldyIsInBsYW4iOiJhbm9ueW1vdXMiLCJzYXZpbmdzX292ZXJfY2FwIjp0cnVlLCJtb250"
+    "aGx5X3NhdmluZ3NfdXNkIjo1NSwiY2FwX3VzZCI6NTAsImlzc3VlZF9hdCI6MTgwMDAwMDAwMCwiZXhwaXJlc19h"
+    "dCI6MTgwMDAyODgwMH0.Rv1w0cSvi3k188RAkC880mAyoVRmNCMh6JhVR7_N5es6OlwOxUB6pv5Jv1ba0KDEcZ"
+    "qax6JeMemJEWGg-hdTBg"
+)
+
 
 def _keypair() -> tuple[str, str]:
     priv = Ed25519PrivateKey.generate()
@@ -57,6 +72,44 @@ def test_roundtrip_over_and_under() -> None:
     tok_under = cv.sign_cap_token(_payload(over=False, expires=2000), private_key_hex=priv)
     assert _cap_over(tok_over, now=1500, public_key_hex=pub) is True
     assert _cap_over(tok_under, now=1500, public_key_hex=pub) is False
+
+
+@pytest.mark.parametrize(
+    ("token", "account_id", "device_id", "plan", "over", "cap"),
+    [
+        (_TYPESCRIPT_FREE_TOKEN, "acct_review", "device_review", "free", False, None),
+        (_TYPESCRIPT_ANONYMOUS_TOKEN, "anon:review", "anonymous_device_review", "anonymous", True, 50.0),
+    ],
+)
+def test_typescript_issuer_tokens_verify_in_python(
+    token: str,
+    account_id: str,
+    device_id: str,
+    plan: str,
+    over: bool,
+    cap: float | None,
+) -> None:
+    from cryptography.hazmat.primitives import serialization
+
+    from lemoncrow.pro.capabilities import licensing_gate
+
+    public_hex = (
+        Ed25519PrivateKey.from_private_bytes(_TYPESCRIPT_TEST_SEED)
+        .public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        .hex()
+    )
+    payload = licensing_gate._cap_payload(
+        token,
+        now=1_800_000_001,
+        account_id=account_id,
+        device_id=device_id,
+        plan=plan,
+        public_key_hex=public_hex,
+    )
+    assert payload is not None
+    assert payload["savings_over_cap"] is over
+    assert payload["cap_usd"] == cap
 
 
 def test_expired_token_is_none_fail_closed() -> None:
@@ -148,7 +201,7 @@ def _use_key(monkeypatch: pytest.MonkeyPatch, pub: str) -> None:
     monkeypatch.setattr(_g, "_public_key_hex", lambda: pub)
 
 
-def test_cap_exhausted_trusts_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authenticated_account_ignores_legacy_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         entitlements,
         "current_identity",
@@ -158,7 +211,7 @@ def test_cap_exhausted_trusts_signed_over(monkeypatch: pytest.MonkeyPatch, tmp_p
     _use_key(monkeypatch, pub)
     tok = cv.sign_cap_token(_payload(over=True, expires=int(_t.time()) + 3600), private_key_hex=priv)
     _seed_token(tmp_path, tok)
-    assert pr.cap_exhausted(tmp_path) is True  # signed over-cap -> dormant
+    assert pr.cap_exhausted(tmp_path) is False  # verified account -> uncapped core
 
 
 def test_cap_exhausted_signed_under(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -201,7 +254,7 @@ def test_free_under_cap_active(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert pr.cap_exhausted(tmp_path) is False  # valid under-cap free verdict -> active
 
 
-def test_free_over_cap_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_free_over_cap_verdict_remains_active(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         entitlements,
         "current_identity",
@@ -211,7 +264,35 @@ def test_free_over_cap_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     _use_key(monkeypatch, pub)
     tok = cv.sign_cap_token(_payload(over=True, expires=int(_t.time()) + 3600), private_key_hex=priv)
     _seed_token(tmp_path, tok)
-    assert pr.cap_exhausted(tmp_path) is True  # signed over-cap -> dormant
+    assert pr.cap_exhausted(tmp_path) is False  # signed-in Free is uncapped
+
+
+def test_anonymous_over_cap_verdict_is_dormant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import hashlib
+
+    from lemoncrow.core.capabilities.licensing import store
+
+    stable_id = "stable-anonymous-machine"
+    device_hash = hashlib.sha256(stable_id.encode("utf-8")).hexdigest()
+    monkeypatch.setattr(entitlements, "current_identity", lambda: None)
+    monkeypatch.setattr(store, "stable_machine_device_id", lambda: stable_id)
+    priv, pub = _keypair()
+    _use_key(monkeypatch, pub)
+    payload = _payload(over=True, expires=int(_t.time()) + 3600)
+    payload.update(
+        account_id="anon:test-account",
+        device_id=device_hash,
+        plan="anonymous",
+        cap_usd=50.0,
+    )
+    tok = cv.sign_cap_token(payload, private_key_hex=priv)
+    _seed_token(tmp_path, tok)
+    verdict = _gate.resolve_cap_verdict(tmp_path)
+    assert verdict.dormant is True
+    assert verdict.verified is True
+    assert verdict.plan == "anonymous"
+    assert verdict.reason == "signed_anonymous"
+    assert verdict.server_cap_usd == 50.0
 
 
 def test_configured_machine_without_token_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -312,7 +393,7 @@ def test_resolve_cap_verdict_signed_identity(monkeypatch: pytest.MonkeyPatch, tm
         plan="pro",
         reason="signed",
         server_saved_usd=42.0,
-        server_cap_usd=20.0,
+        server_cap_usd=None,
     )
 
 
@@ -346,13 +427,11 @@ def test_resolve_cap_verdict_gate_error_fails_closed_when_configured(
 # --- compute_usage_meter picks up the same central verdict --------------------
 
 
-def test_compute_usage_meter_overridden_by_signed_verdict_when_configured(
+def test_compute_usage_meter_ignores_legacy_over_cap_for_verified_account(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Local estimate alone would say "under cap" (0 saved so far), but a
-    # trustworthy signed verdict says over -- the signed verdict must win, so
-    # `lc account cap` / `lc savings` can never disagree with what the MCP
-    # server actually enforces for this exact account+device.
+    # Older servers may briefly return a signed Free verdict carrying the old
+    # cap. A verified account remains active and uncapped during rollout.
     monkeypatch.setattr(entitlements, "current_identity", lambda: ("acct_1", "device_1", "free"))
     priv, pub = _keypair()
     _use_key(monkeypatch, pub)
@@ -360,7 +439,8 @@ def test_compute_usage_meter_overridden_by_signed_verdict_when_configured(
     _seed_token(tmp_path, tok)
 
     sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
-    assert sub["savingsOverCap"] is True
+    assert sub["savingsOverCap"] is False
+    assert sub["monthlySavingsCapInUsd"] is None
     assert sub["capVerdictVerified"] is True
     assert sub["capVerdictReason"] == "signed"
 
@@ -386,8 +466,8 @@ def test_compute_usage_meter_self_heals_from_wiped_local_ledger(
 
     sub = pr.compute_usage_meter(tmp_path, subscription={"plan": "free"})
     assert sub["monthlySavingsInUsd"] == 17.5
-    assert sub["monthlySavingsCapInUsd"] == 20.0
-    assert sub["savingsRemainingUsd"] == 2.5
+    assert sub["monthlySavingsCapInUsd"] is None
+    assert sub["savingsRemainingUsd"] is None
     assert sub["savingsOverCap"] is False
 
 

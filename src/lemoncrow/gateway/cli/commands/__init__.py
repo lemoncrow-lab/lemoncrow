@@ -130,6 +130,14 @@ def register(cli: click.Group) -> None:
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
+    try:
+        from .map import map_cmd
+
+        _h(map_cmd)  # compatibility shortcut; Map is a tab in `lc dashboard open`
+        cli.add_command(map_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
     # ── hidden internal commands (used by dev.sh, not user-facing) ───────────
     try:
         from .background import background_group
@@ -343,30 +351,27 @@ def register(cli: click.Group) -> None:
                 _click.echo(render_overview(ctx.obj["root"]))
 
         @dashboard_group.command("open")
-        @_click.option("--port", default=3125, show_default=True, help="LemonCrow web UI (frontend) port")
-        def dashboard_open_cmd(port: int) -> None:
-            """Open the LemonCrow analytics web UI in your browser.
-
-            Targets the frontend (Vite) on port 3125 — the backend service on
-            8787 only serves the JSON API, not the dashboard.
-            """
-            import urllib.request
+        @_click.option(
+            "--port", default=None, type=int, help="Exact frontend port; otherwise discover the running dashboard"
+        )
+        @_click.pass_context
+        def dashboard_open_cmd(ctx: _click.Context, port: int | None) -> None:
+            """Open the already-running LemonCrow web UI."""
             import webbrowser
 
-            # Frontend root ('/') redirects to the dashboard home ('/overview').
-            url = f"http://localhost:{port}/"
-            try:
-                urllib.request.urlopen(url, timeout=2)
-            except Exception:  # noqa: BLE001
+            from lemoncrow.infra.runtime.dashboard_url import discover_dashboard_url
+
+            frontend_url = discover_dashboard_url(ctx.obj["root"], requested_port=port)
+            if frontend_url is None:
+                requested = f" on port {port}" if port is not None else ""
                 _click.echo(
-                    f"  LemonCrow web UI not running on port {port}.\n\n"
-                    f"  Start the full stack (backend + web UI):\n"
-                    f"    lc stack start\n"
-                    f"  Or just the frontend:\n"
-                    f"    lcd frontend-start\n\n"
+                    f"  LemonCrow dashboard is not running{requested}.\n\n"
+                    f"  Start it once:\n"
+                    f"    lc stack start\n\n"
                     f"  Then run: lc dashboard open"
                 )
                 return
+            url = f"{frontend_url.rstrip('/')}/"
             _click.echo(f"  ◆ Opening LemonCrow dashboard: {url}")
             webbrowser.open(url)
 

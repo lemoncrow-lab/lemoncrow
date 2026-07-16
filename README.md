@@ -6,13 +6,13 @@
 
 # LemonCrow Runtime
 
-### Keep your coding agent sharp on real codebases.
+### Keep your coding agent sharp on real codebases
 
 LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls. On matched SWE-bench Verified runs: **+12.0pp resolved**, **37.7% fewer turns**, and **23.7% faster** — same model.
 
 [![License](https://img.shields.io/badge/License-Apache--2.0%20%2B%20proprietary%20engine-blue?style=flat-square)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow/releases)
-[![Stars](https://img.shields.io/github/stars/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow)
+[![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
+[![Stars](https://img.shields.io/github/stars/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow)
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
@@ -23,9 +23,9 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 [![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
 [![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
-**Matched proof, same model:** 92.8% vs 80.8% resolved · 37.7% fewer turns · 23.7% faster · [raw runs published](BENCHMARKS.md)
+**Matched proof, same model:** 92.8% vs 80.8% resolved · 37.7% fewer turns · 23.7% faster · [raw runs published](BENCHMARKS.md) · [see live savings](https://lemoncrow.com/savings)
 
-[Install](#install-in-30-seconds) · [What changes](#what-changes-for-you) · [Results](#results) · [Code-search benchmark](#one-shot-code-search-vs-10-named-tools) · [Pricing](https://lemoncrow.com/pricing)
+[Install](#install-in-30-seconds) · [Working set](#the-clean-working-set) · [Results](#results) · [Code-search benchmark](#one-shot-code-search-vs-10-named-tools) · [Pricing](https://lemoncrow.com/pricing)
 
 [![LemonCrow running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://lemoncrow.com/#terminal)
 
@@ -41,7 +41,7 @@ Run this once:
 
     curl -fsSL https://install.lemoncrow.com | bash
 
-Then create or sign in to a free LemonCrow account and activate it inside the project where you use Claude Code:
+Then create or sign in to a free LemonCrow account and activate it inside the project where you use your coding agent:
 
     cd your-project
     lc account login
@@ -59,27 +59,44 @@ Check that everything is connected:
 lc doctor
 ```
 
-## What changes for you
+> **Account boundary:** anonymous evaluation includes up to **$50 in measured
+> savings** over a rolling 30-day window. Creating or signing into a Free
+> account is required for uncapped core usage. Recall, handovers, verification,
+> and local multi-worktree swarm are included in Free.
 
-LemonCrow does not ask you to learn a new coding app. It improves the work Claude Code already does:
+## The clean working set
 
-| Before                                                                   | With LemonCrow                                                                                        |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| The agent greps, opens broad files, and carries the exploration forward. | Ranked search returns the relevant symbol, relationships, and exact ranges in one call.               |
-| Repeated reads and long logs remain in the working context.              | Outlines, bounded output, duplicate suppression, and recoverable spills keep the working set focused. |
-| Compaction or a new session can lose an earlier decision.                | Durable memory, compaction manifests, and handover packets preserve useful task state.                |
-| A complex task consumes turns assembling context before the fix.         | Matched SWE-bench Verified: +12.0pp resolved, 37.7% fewer turns, and 23.7% faster.                    |
+LemonCrow keeps your existing coding agent and changes the working set around
+it:
+
+| Stage      | Runtime behavior                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Find**   | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration.                           |
+| **Read**   | Return an outline or only the requested lines; cap noisy command and web output with recoverable spill files.                         |
+| **Carry**  | Preserve useful task state through memory, deduplication, compaction manifests, and handover packets—not the raw transcript forever. |
+| **Verify** | Notice code changes without tests or checks, then nudge the agent before it declares completion.                                        |
+
+Open the existing dashboard with `lc dashboard open`, then choose **Map**. The
+browser opens the full tracked source map: files, indexed symbols, and only
+uniquely resolved call edges. Communities stay spatially grouped; filters split
+source, tests, Markdown/docs, config, data, assets, and languages. Search any
+symbol, click it for its exact source range, or double-click to focus callers
+and callees. Live mode adds glow, edge flow, and camera-follow from the local
+run ledger; switching it off leaves the same zoomable, clickable graph in
+place. Raw source, diffs, stdout, and stderr never enter the map feed.
 
 ### What actually gets replaced
 
-`lc init` gives Claude Code 5 tools and hides the built-ins behind them — one way to do each job, not two.
+On Claude Code, `lc init` gives the agent five grounded tools and hides the
+equivalent built-ins—one way to do each job, not two. Other hosts use the
+strongest equivalent controls they expose.
 
 **Find things in one shot** -- no wandering the codebase call after call.
 
 | LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
 | -------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
-| `read`         | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                                                                                       |
+| `read`         | Read                             | Returns an outline or the exact `:L10-L40` range, budgeted, instead of the full file                                                                                      |
 | `edit`         | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                                                                                       |
 | `bash`         | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                                                                                        |
 | `web_fetch`    | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                                                                                                |
@@ -157,16 +174,20 @@ Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; t
 
 ## Results
 
-Measured on the same model, same tasks, and same environment:
+These are fixed results from pinned benchmark runs—not a live counter. Every
+headline number links back to committed raw runs and methodology in
+[BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
+verification harness were held constant. Community telemetry remains separate:
+[see live savings](https://lemoncrow.com/savings).
 
 | Benchmark                                            | Baseline correct | LemonCrow correct | Correct delta | Baseline cost | LemonCrow cost |         Cost delta |
-| ---------------------------------------------------- | ---------------: | ----------------: | ------------: | ------------: | -------------: | -----------------: | --- |
-| SWE-bench Verified, 50 tasks x 5 reps                |            80.8% |         **92.8%** |  **+12.0 pp** |       $234.84 |    **$165.45** |  **29.5% cheaper** |     |
-| SWE-bench Lite, 10 tasks x 3 reps                    |            93.3% |          **100%** |   **+6.7 pp** |        $12.38 |     **$10.79** |  **12.9% cheaper** |     |
-| SWE-bench Pro, 10 tasks x 5 reps                     |            88.0% |         **90.0%** |   **+2.0 pp** |        $39.01 |     **$30.61** |  **21.5% cheaper** |     |
-| Exploration tasks across 7 large repos x 5 reps      |                - |                 - |             - |        $19.11 |      **$6.29** |    **67% cheaper** |     |
-| Telegraphic Q&A, 20 prompts x 5 reps                 |                - |                 - |             - |         $8.93 |      **$5.34** |  **40.2% cheaper** |     |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard\* |   78.9% expected |             78.7% |       -0.2 pp |        $96.76 |    **$69.52**† | **28.1% cheaper**† |     |
+| ---------------------------------------------------- | ---------------: | ----------------: | ------------: | ------------: | -------------: | -----------------: |
+| SWE-bench Verified, 50 tasks x 5 reps                |            80.8% |         **92.8%** |  **+12.0 pp** |       $234.84 |    **$165.45** |  **29.5% cheaper** |
+| SWE-bench Lite, 10 tasks x 5 reps                    |            98.0% |              96.0% |       -2.0 pp |        $19.83 |     **$17.51** |  **11.7% cheaper** |
+| SWE-bench Pro, 10 tasks x 5 reps                     |            88.0% |         **90.0%** |   **+2.0 pp** |        $39.01 |     **$30.61** |  **21.5% cheaper** |
+| Exploration tasks across 7 large repos x 5 reps      |                - |                 - |             - |        $19.11 |      **$6.29** |    **67% cheaper** |
+| Telegraphic Q&A, 20 prompts x 5 reps                 |                - |                 - |             - |         $7.73 |      **$4.59** |  **40.7% cheaper** |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard\* |   78.9% expected |             78.7% |       -0.2 pp |        $96.76 |    **$69.52**† | **28.1% cheaper**† |
 
 <sub>\* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
 
@@ -202,7 +223,7 @@ Exploration detail (7 large repos × 5 reps, read-only Q&A, no edits):
 | output                        |        426,367 |          68,893 |     **-83.8%** |
 | input + cache write           |      3,097,547 |         439,348 |     **-85.8%** |
 
-Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08).
+Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_16`](benchmarks/codebench/results/telegraphic_2026_07_16/).
 
 ## One-shot code search vs 10 named tools
 
@@ -219,24 +240,15 @@ The search is the engine: right code in front of the agent on the first try. MRR
 
 No one had scored these 10 tools against each other on a shared query set before -- each publishes its own number, on its own terms, against its own baseline.
 
-## Why it works
-
-The model is capable; the working set around it gets noisy. LemonCrow controls what enters the conversation and what survives it.
-
-- **Map:** ranked symbols, callers, callees, usages, and exact ranges before broad file exploration.
-- **Bound:** outlines, capped output, recoverable spills, and duplicate suppression instead of context dumps.
-- **Carry:** persistent memory, compaction support, and handover packets instead of reconstructing task state.
-- **Verify:** grounded edits, hooks, and outcome checks keep the tighter path accountable.
-
 ## What you get
 
 - Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.
 - Runs locally by default.
 - Open-source runtime (Apache-2.0); the compiled engine (`lemoncrow.pro`) is proprietary and required at runtime.
-- Free account required to activate the official install.
+- Anonymous evaluation is capped at $50 in measured savings; a free account unlocks uncapped core usage.
 - Live local stats for cost, tokens, and savings; anonymous remote telemetry is on by default (opt out anytime).
-- Lite: keeps the savings engine running (cap raised to $200/mo) for $5/month or $50/year.
-- Pro: uncapped, plus all gated features (large-repo search, recall, routing, swarm) for $20/month or $200/year.
+- Free: grounded local tools, recall, handovers, verification, and swarm.
+- Pro: larger-repo indexing, cross-vendor memory, compression, optimization, and reusable knowledge for $20/month or $200/year.
 
 ## Learn more
 
@@ -250,11 +262,11 @@ The model is capable; the working set around it gets noisy. LemonCrow controls w
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=lemoncrowhq%2Flemoncrow&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=lemoncrow-lab%2Flemoncrow&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrowhq/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lemoncrow-lab/lemoncrow&type=date&theme=dark&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lemoncrow-lab/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lemoncrow-lab/lemoncrow&type=date&legend=top-left&sealed_token=NdXY4u9dzzr-g_ahRPzkwBVWWX4kTV8uKk0z1K8bGEhBe8-O6CzxUvJNT3Gt-CnxpX5sLlgBnzjyCaSZp6tnTqtJg0dBKOi3QJ3QGd9JHBrUsu7ZxA5-mcoC5vS16ryI6UKqLwYMada9aB9aPVRK2AjDCdt-2c--Sg3Zybv5_NgZWwggYuuV0gZceADH" />
  </picture>
 </a>
 

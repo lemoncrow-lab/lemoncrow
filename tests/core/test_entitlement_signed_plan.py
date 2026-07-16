@@ -140,6 +140,35 @@ def test_forged_pro_without_token_is_free(monkeypatch: pytest.MonkeyPatch) -> No
     assert ent._entitled_plan({"user_id": "acct_1", "device_id": "device_1", "plan": "pro"}) == "free"
 
 
+def test_current_identity_requires_server_signed_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, public = _keypair()
+    _use_key(monkeypatch, public)
+    monkeypatch.setattr(
+        ent,
+        "auth_user",
+        lambda: {"user_id": "acct_1", "device_id": "device_1", "plan": "free"},
+    )
+    assert ent.current_identity() is None
+
+
+def test_current_identity_accepts_server_signed_free(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = int(time.time())
+    private, public = _keypair()
+    _use_key(monkeypatch, public)
+    token = _plan_token(private, "free", issued=now, expires=now + 3600)
+    monkeypatch.setattr(
+        ent,
+        "auth_user",
+        lambda: {
+            "user_id": "acct_1",
+            "device_id": "device_1",
+            "plan": "free",
+            "plan_token": token,
+        },
+    )
+    assert ent.current_identity() == ("acct_1", "device_1", "free")
+
+
 def test_copied_plan_token_on_another_device_is_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

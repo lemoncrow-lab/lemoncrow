@@ -1025,6 +1025,18 @@ def benchmark_codebench_cmd(
         "Reads credentials from .env or the current environment."
     ),
 )
+@click.option(
+    "--competitor",
+    "competitors",
+    multiple=True,
+    type=click.Path(path_type=Path, dir_okay=False, exists=True),
+    metavar="MANIFEST.json",
+    help=(
+        "Benchmark a GitHub tool as a 3rd arm (baseline vs lemoncrow vs <tool>). "
+        "Pass a competitor manifest JSON describing how to clone/install/wire the "
+        "tool; it runs on the same model, so the delta is the tool. Repeatable."
+    ),
+)
 @click.option("--estimate-only", is_flag=True, help="Print the cost estimate and exit without spending.")
 @click.option(
     "--capture/--no-capture",
@@ -1046,6 +1058,7 @@ def benchmark_local_cmd(
     cli_driver: str,
     setup: tuple[str, ...],
     provider: str | None,
+    competitors: tuple[Path, ...],
     estimate_only: bool,
     capture: bool,
     yes: bool,
@@ -1112,6 +1125,8 @@ def benchmark_local_cmd(
             cmd.extend(["--prompt", prompt])
         for cmd_str in setup:
             cmd.extend(["--setup", cmd_str])
+        for manifest in competitors:
+            cmd.extend(["--competitor", str(Path(manifest).expanduser().resolve())])
         cmd.extend(agent_env_args)
         cmd.append("--capture" if capture else "--no-capture")
         if estimate:
@@ -1316,7 +1331,7 @@ def benchmark_telegraphic_cmd(
         mitmdump = which("mitmdump")
         if mitmdump is None:
             raise click.ClickException(
-                "--capture needs mitmdump, but it is not on PATH " "(uv sync); pass --no-capture to skip wire capture."
+                "--capture needs mitmdump, but it is not on PATH (uv sync); pass --no-capture to skip wire capture."
             )
 
     from benchmarks.telegraphic.report import load_results, render_report

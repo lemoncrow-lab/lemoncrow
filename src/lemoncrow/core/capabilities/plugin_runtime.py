@@ -68,17 +68,18 @@ UPDATE_CHECK_THROTTLE_SECONDS = 30 * 60
 BILLING_WINDOW_DAYS = 30
 SUBSCRIPTION_WARN_FRACTION = 0.8
 
-# Savings cap ($ saved per BILLING_WINDOW_DAYS) by plan tier. None = uncapped.
-# This is the product's tiering axis: the savings engine runs until a plan's
-# cumulative $-saved crosses its cap, then goes dormant (degrade to host default,
-# never block — see cap_exhausted / the dormant Layer-2 seam). Free is always
-# capped; paid tiers raise or remove the ceiling. The hosted auth server may
-# override per account via subscriptionStatus.monthlySavingsCapInUsd.
-FREE_SAVINGS_CAP_USD = 20.0
-LITE_SAVINGS_CAP_USD = 200.0
+# Savings cap ($ saved per BILLING_WINDOW_DAYS) by access state.
+# Anonymous evaluation is capped; creating a free account removes the savings
+# cap from the core runtime. Pro and Enterprise are differentiated by feature
+# grants, not by how much value the local runtime has already produced. The
+# hosted auth server may override this via
+# subscriptionStatus.monthlySavingsCapInUsd.
+ANONYMOUS_SAVINGS_CAP_USD = 50.0
 SAVINGS_CAP_BY_PLAN: dict[str, float | None] = {
-    "free": FREE_SAVINGS_CAP_USD,
-    "lite": LITE_SAVINGS_CAP_USD,
+    "anonymous": ANONYMOUS_SAVINGS_CAP_USD,
+    "local": ANONYMOUS_SAVINGS_CAP_USD,
+    "free": None,
+    "lite": None,  # legacy paid accounts remain uncapped
     "pro": None,
     "enterprise": None,
 }
@@ -540,29 +541,31 @@ def _plan_key(subscription: dict[str, Any]) -> str:
     """Normalize a subscription blob's plan/status to a lowercase tier key.
 
     Hosted blobs use ``FREE``/``LOCAL``/``PRO``/``LITE``/``ENTERPRISE`` in
-    ``status`` or ``plan``; the anonymous trial stamps ``plan=LOCAL``. All of
-    those collapse to ``free`` for cap purposes.
+    ``status`` or ``plan``; the anonymous trial stamps ``plan=LOCAL``.
+    Anonymous/local identities stay distinct from signed-in Free accounts.
     """
-    raw = str(subscription.get("plan") or subscription.get("status") or "free").strip().lower()
+    raw = str(subscription.get("plan") or subscription.get("status") or "anonymous").strip().lower()
     if raw in ("", "local", "anonymous"):
-        return "free"
+        return "anonymous"
     return raw
 
 
 def _savings_cap_usd(subscription: dict[str, Any]) -> float | None:
     """Resolve the monthly savings cap ($) for this plan; ``None`` = uncapped.
 
-    A valid server cap wins. Otherwise fall back to the canonical per-plan
-    default; malformed overrides and unknown plan names receive the Free cap.
+    A valid server cap wins. Otherwise fall back to the canonical access-state
+    default; malformed overrides retain that fallback and unknown plan names
+    fail closed to the anonymous cap.
     """
+    fallback = SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription), ANONYMOUS_SAVINGS_CAP_USD)
     raw = subscription.get("monthlySavingsCapInUsd")
     if raw is not None:
         try:
             cap = float(raw)
         except (TypeError, ValueError):
-            return FREE_SAVINGS_CAP_USD
-        return cap if cap > 0.0 else FREE_SAVINGS_CAP_USD
-    return SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription), FREE_SAVINGS_CAP_USD)
+            return fallback
+        return cap if cap > 0.0 else fallback
+    return fallback
 
 
 def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -624,9 +627,9 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
     subscription["warning"] = warning
     subscription["overLimit"] = over_limit
 
-    # Savings cap (the product tiering axis) — independent of the spend limit
-    # above. Free/Lite cap cumulative $-saved; Pro+ are uncapped. Additive and
-    # non-blocking: cap_exhausted() reads savingsOverCap to drive dormancy.
+    # Savings cap — independent of the spend limit above. Anonymous evaluation
+    # caps cumulative $-saved; every server-verified account is uncapped.
+    # Additive and non-blocking: cap_exhausted() drives dormancy.
     savings_cap = _savings_cap_usd(subscription)
     subscription["monthlySavingsCapInUsd"] = savings_cap
     if server_meter and isinstance(subscription.get("savingsOverCap"), bool):
@@ -728,20 +731,20 @@ def cap_exhausted(root: str | Path) -> bool:
 
 
 def cap_nudge_text(root: str | Path) -> str:
-    """User-facing one-line cap notice (value-framed, with the upgrade link)."""
-    from lemoncrow.core.capabilities import licensing
-
+    """Tell anonymous users how to unlock uncapped Free access."""
     sub = _read_json(subscription_state_path(root), {})
     sub = sub if isinstance(sub, dict) else {}
     cap = sub.get("monthlySavingsCapInUsd")
     saved = sub.get("monthlySavingsInUsd")
-    url = licensing.pro_url()
     if isinstance(cap, (int, float)) and isinstance(saved, (int, float)):
         return (
-            f"LemonCrow savings cap reached (~${saved:.0f} of ${cap:.0f} this month). "
-            f"Running on host defaults — upgrade to keep saving: {url}"
+            f"LemonCrow anonymous savings cap reached (~${saved:.0f} of ${cap:.0f} this month). "
+            "Running on host defaults — run `lc account login` to unlock uncapped Free."
         )
-    return f"LemonCrow savings cap reached — running on host defaults. Upgrade to keep saving: {url}"
+    return (
+        "LemonCrow anonymous savings cap reached — running on host defaults. "
+        "Run `lc account login` to unlock uncapped Free."
+    )
 
 
 def build_cap_nudge(root: str | Path, *, session_id: str, host: str = "claude") -> str | None:
@@ -1240,7 +1243,8 @@ def session_start_bootstrap(
     # Refresh the meter first so the dormant decision reads fresh cap state.
     # Dormant = the plan's savings cap is exhausted: the plugin goes quiet
     # (degrade to the host default agent, never block) until the cap resets or
-    # the user upgrades. Auto-recovers on a later session start once under cap.
+    # the user signs in or the rolling window drops below cap. Auto-recovers on
+    # a later session start once active again.
     auth = claim_anonymous_trial(root)
     refresh_subscription_meter(root)
     dormant = cap_exhausted(root)
@@ -1723,7 +1727,7 @@ def _codex_native_tool_nudge(root: str | Path, payload: dict[str, Any]) -> dict[
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     replacement_tool, _rationale = replacement
-    return {"message": f"Policy: native tool '{tool_name}' was used where {replacement_tool} should be preferred."}
+    return {"message": f"Policy: native tool '{tool_name}' was used. Use {replacement_tool} from next turn."}
 
 
 _CTX_NUDGE_DEFAULT_TOKENS = 160_000

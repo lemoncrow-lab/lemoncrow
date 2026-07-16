@@ -6,13 +6,6 @@ This roadmap tracks shipped capabilities against what's in active development. D
 
 ## Shipped capabilities
 
-### Model routing
-
-- Per-turn model routing (`ModelRouter`) with session-phase awareness
-- Cross-vendor routing — scores across available providers per turn
-- Complexity scoring, cache-cost awareness, stickiness, success prediction
-- Quality-aware routing with execution contracts
-
 ### Context & memory
 
 - Dynamic context compaction with LLM hints (task type, risk level, must-keep)
@@ -45,7 +38,7 @@ This roadmap tracks shipped capabilities against what's in active development. D
 - MCP server (local and remote modes)
 - OpenAI-compatible `/v1/chat/completions` gateway
 - Runtime commands: runs, ledger, swarm, lessons, benchmarks
-- Outcome capture (feedback loop for routing decisions)
+- Outcome capture for agent-run evaluation
 - `lc insights` weekly summary with spend trends and opportunities
 - Lesson promotion with PR bot
 - Live reviewer agent
@@ -74,6 +67,7 @@ Future team context must be reviewable, permission-aware, tied to source and com
 
 | Area                  | Description                                                                              |
 | --------------------- | ---------------------------------------------------------------------------------------- |
+| Model routing         | Provider/model evaluation and reliability work; not available in current plans           |
 | Optimization advisor  | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
 | Cross-machine sync    | Encrypted workspace sync across machines                                                 |
 | Web dashboard         | Browser-based spend trends and management                                                |

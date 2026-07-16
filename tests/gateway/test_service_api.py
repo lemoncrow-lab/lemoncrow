@@ -81,6 +81,90 @@ def test_config_returns_runtime_settings(app_no_auth: TestClient) -> None:
     assert data["lemoncrow_root"]
 
 
+def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
+    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service import code_map
+
+    project = tmp_path / "repo"
+    project.mkdir()
+    engine = object()
+    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
+    monkeypatch.setattr(code_map, "get_engine", lambda value: engine)
+    monkeypatch.setattr(
+        code_map,
+        "build_overview",
+        lambda selected_engine, root: {
+            "project": {"root": str(root), "label": root.name},
+            "index": {"symbols_indexed": 3},
+            "graph": {"focus": "root", "nodes": [], "edges": [], "truncated": False},
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
+        "build_full_graph",
+        lambda selected_engine, root: {
+            "project": {"root": str(root), "label": root.name},
+            "total_symbols": 3,
+            "total_files": 1,
+            "communities": [],
+            "file_types": [],
+            "languages": [],
+            "graph": {"focus": "root", "nodes": [], "edges": [], "truncated": False},
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
+        "search_symbols",
+        lambda selected_engine, query, limit: [{"id": "root", "label": query, "score": 1.0}],
+    )
+    monkeypatch.setattr(
+        code_map,
+        "build_neighborhood",
+        lambda selected_engine, symbol_id, depth, limit: {
+            "focus": symbol_id,
+            "nodes": [{"id": symbol_id}],
+            "edges": [],
+            "depth": depth,
+            "truncated": False,
+        },
+    )
+
+    overview = app_no_auth.get("/v1/code-map/overview", params={"project_root": str(project)})
+    full = app_no_auth.get("/v1/code-map/full", params={"project_root": str(project)})
+    search = app_no_auth.get(
+        "/v1/code-map/search",
+        params={"project_root": str(project), "q": "chargeCard", "limit": 999},
+    )
+    graph = app_no_auth.get(
+        "/v1/code-map/neighborhood",
+        params={"project_root": str(project), "symbol_id": "root", "depth": 9, "limit": 999},
+    )
+
+    assert overview.status_code == 200
+    assert overview.json()["project"]["root"] == str(project)
+    assert full.status_code == 200
+    assert full.json()["total_symbols"] == 3
+    assert search.status_code == 200
+    assert search.json()["results"][0]["label"] == "chargeCard"
+    assert graph.status_code == 200
+    assert graph.json()["depth"] == 2
+
+
+def test_code_map_requires_auth_when_service_auth_is_enabled(
+    app_with_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service import code_map
+
+    project = tmp_path / "repo"
+    project.mkdir()
+    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
+
+    denied = app_with_auth.get("/v1/code-map/overview", params={"project_root": str(project)})
+
+    assert denied.status_code == 401
+
+
 def test_claude_code_router_endpoint_evaluates_request(
     app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -7,6 +7,7 @@ hidden ``stack run`` supervisor stays ``hidden=True`` and invocable.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -91,6 +92,14 @@ def stack_start(ctx: click.Context, with_docs: bool) -> None:
     ]
     env = os.environ.copy()
     env["LEMONCROW_ROOT"] = str(root)
+    # The supervisor changes cwd to the installed package checkout. Preserve
+    # the repository that invoked ``lc stack start`` so map/code APIs resolve
+    # the user's workspace instead of LemonCrow's own source directory.
+    if not env.get("LEMONCROW_WORKSPACE_ROOT"):
+        from lemoncrow.core.foundation.paths import resolve_workspace_root
+
+        with contextlib.suppress(RuntimeError):
+            env["LEMONCROW_WORKSPACE_ROOT"] = str(resolve_workspace_root())
     with _stack_log_path(root).open("a", encoding="utf-8") as log_file:
         proc = subprocess.Popen(
             command,
@@ -233,6 +242,7 @@ def stack_run(
             frontend_host,
             "--port",
             str(frontend_port),
+            "--strictPort",
         ],
         cwd=frontend_dir,
         env=frontend_env,

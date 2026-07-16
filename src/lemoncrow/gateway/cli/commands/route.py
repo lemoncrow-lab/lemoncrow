@@ -6,12 +6,14 @@ from typing import Any
 import click
 
 from lemoncrow.core.foundation.models import to_jsonable
-from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.gateway.cli.commands._shared import _emit
+
+_ROUTING_UNAVAILABLE = "Cross-vendor routing is not available in this release."
 
 
-@click.group("route")
+@click.group("route", hidden=True)
 def route_public_group() -> None:
-    """Cross-vendor routing helpers."""
+    """Experimental cross-vendor routing helpers."""
 
 
 @route_public_group.command("configure")
@@ -25,23 +27,8 @@ def route_configure_public_cmd(
     risk_class: str,
     as_json: bool,
 ) -> None:
-    require_pro("cross_vendor_routing", "Cross-vendor routing")
-
-    from lemoncrow.pro.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
-
-    try:
-        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).configure(
-            enabled_vendors=list(vendors) or None,
-            risk_class=risk_class,  # type: ignore[arg-type]
-        )
-    except RouteConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"Saved {payload['path']}")
-    click.echo("Enabled vendors: " + ", ".join(payload["enabled_vendors"]))
+    del ctx, vendors, risk_class, as_json
+    raise click.ClickException(_ROUTING_UNAVAILABLE)
 
 
 @route_public_group.command("plan")
@@ -63,32 +50,17 @@ def route_plan_cmd(
     turn_number: int,
     as_json: bool,
 ) -> None:
-    require_pro("cross_vendor_routing", "Cross-vendor routing")
-
-    from lemoncrow.pro.capabilities.cross_vendor_routing.advisor import CrossVendorRouteAdvisor
-    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import RouteConfigError
-
-    try:
-        payload = CrossVendorRouteAdvisor(ctx.obj["root"]).recommend(
-            tool_name=tool_name,
-            task_text=task_text,
-            actual_vendor=actual_vendor,
-            session_state={
-                "expected_input_tokens": expected_input_tokens,
-                "expected_output_tokens": expected_output_tokens,
-                "turn_number": turn_number,
-            },
-        )
-    except RouteConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"Recommendation: {payload['model']}")
-    click.echo(f"  vendor: {payload['vendor']}")
-    click.echo(f"  predicted cost: ${payload['predicted_cost_usd']:.6f}")
-    if payload.get("fallback"):
-        click.echo(f"  fallback: {payload['fallback']}")
+    del (
+        ctx,
+        tool_name,
+        task_text,
+        actual_vendor,
+        expected_input_tokens,
+        expected_output_tokens,
+        turn_number,
+        as_json,
+    )
+    raise click.ClickException(_ROUTING_UNAVAILABLE)
 
 
 @route_public_group.command("status")

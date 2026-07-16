@@ -76,7 +76,7 @@ This checklist is the release gate for LemonCrow Phase D hardening.
 
 - Built-in seed blocks under `src/lemoncrow/infra/seed_playbooks/` and built-in rubrics under `src/lemoncrow/core/rubrics/` remain source-controlled artifacts.
 - Domain bundle metadata exposed through `lc domain list` and `lc domain info` should match the shipped content.
-- New or updated knowledge artifacts require a clean `lc init` against a fresh store plus targeted benchmark or eval evidence when they affect routing, retrieval, or savings claims.
+- New or updated knowledge artifacts require a clean `lc init` against a fresh store plus targeted benchmark or eval evidence when they affect execution policy, retrieval, or savings claims.
 - `lc benchmark packs` remains the benchmark-only coverage surface; there is no public `lc pack install` workflow on the current CLI.
 - Runtime-learned Playbooks are review/promote candidates, not auto-published governance records.
 

@@ -1,6 +1,6 @@
 # LemonCrow OpenAI-Compatible Gateway
 
-LemonCrow's service exposes a standards-compliant `/v1/chat/completions` streaming endpoint. Any TUI that supports custom OpenAI-compatible providers can use LemonCrow as its brain — routing, caching, subagents, memory, and verification all stay inside LemonCrow.
+LemonCrow's service exposes a standards-compliant `/v1/chat/completions` streaming endpoint. Any TUI that supports custom OpenAI-compatible providers can use LemonCrow as its brain—request handling, caching, subagents, memory, and verification all stay inside LemonCrow.
 
 ## Start the gateway
 
@@ -45,7 +45,7 @@ Options for standalone mode:
       }
     }
   },
-  "model": "lemoncrowhq/lemoncrow-default"
+  "model": "lemoncrow-lab/lemoncrow-default"
 }
 ```
 
@@ -126,7 +126,7 @@ TUI  ──POST /v1/chat/completions──►  openai_gateway/app.py
                                               │
                                   InteractiveRuntime.handle_user_message()
                                               │
-                               LemonCrow routing / caching / subagents
+                               LemonCrow execution / caching / subagents
 ```
 
 Key properties:
@@ -136,14 +136,15 @@ Key properties:
 - **Streaming by default** — set `"stream": false` in the request body for a buffered response.
 - **Tool calls visible** — tool calls LemonCrow makes during execution are forwarded as OpenAI function-call deltas so capable TUIs can display them.
 
-## Available models
+## Available model
 
-| Model ID          | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `lemoncrow-default` | LemonCrow's auto-selected route (balanced)     |
-| `lemoncrow-auto`    | Same as default                              |
-| `lemoncrow-cheap`   | Routes to cheapest available provider        |
-| `lemoncrow-best`    | Routes to highest-quality available provider |
+Use `lemoncrow-default`, which runs the service's configured model. Automatic
+provider/model routing is still under development and is not included in
+current plans.
+
+| Model ID            | Description                         |
+| ------------------- | ----------------------------------- |
+| `lemoncrow-default` | The model configured for the service |
 
 ---
 

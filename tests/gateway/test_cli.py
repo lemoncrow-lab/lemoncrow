@@ -410,6 +410,42 @@ def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.Mo
     assert "docs are no longer part of the managed stack" in res.output
 
 
+def test_map_prints_current_workspace_url_without_opening_browser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "repo with spaces"
+    workspace.mkdir()
+    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setattr(
+        "lemoncrow.gateway.cli.commands.map.discover_dashboard_url",
+        lambda root: "http://127.0.0.1:3225",
+    )
+    opened: list[str] = []
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.map.webbrowser.open", opened.append)
+
+    res = _invoke(tmp_path / "runtime", "map", "--no-open")
+
+    assert res.exit_code == 0, res.output
+    assert "http://127.0.0.1:3225/map?repo=" in res.output
+    assert "repo+with+spaces" in res.output
+    assert opened == []
+
+
+def test_dashboard_open_discovers_the_existing_frontend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "lemoncrow.infra.runtime.dashboard_url.discover_dashboard_url",
+        lambda root, requested_port=None: "http://127.0.0.1:3225",
+    )
+    opened: list[str] = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+
+    res = _invoke(tmp_path / "runtime", "dashboard", "open")
+
+    assert res.exit_code == 0, res.output
+    assert "http://127.0.0.1:3225/" in res.output
+    assert opened == ["http://127.0.0.1:3225/"]
+
+
 def test_background_install_writes_native_stack_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "a"
     unit_dir = tmp_path / "systemd-user"

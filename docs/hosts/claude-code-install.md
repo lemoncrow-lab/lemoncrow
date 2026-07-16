@@ -195,8 +195,8 @@ Without developer mode, `record` remains the most reliable active surface and
 some other tools may still appear as passive compatibility stubs.
 
 Host-native file reads, search, shell, slash commands, and agents remain the raw
-control surface when you do not need LemonCrow-specific context, routing, or trace
-behavior.
+control surface when you do not need LemonCrow-specific context, verification,
+or trace behavior.
 
 ## Troubleshooting
 

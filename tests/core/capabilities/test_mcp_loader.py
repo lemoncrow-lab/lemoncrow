@@ -198,7 +198,7 @@ def test_discover_reads_claude_plugin_mcp_configs(monkeypatch, tmp_path):
 
 
 def test_discover_excludes_lemoncrow_self_entry_from_plugin_config(monkeypatch, tmp_path):
-    """The installed lemoncrow plugin's own .mcp.json (cache/lemoncrowhq/lemoncrow/<ver>/.mcp.json)
+    """The installed lemoncrow plugin's own .mcp.json (cache/lemoncrow-lab/lemoncrow/<ver>/.mcp.json)
     must never be spawned as a discovered server -- discover_mcp_configs() is the
     shared primitive behind the TUI's spawn-everything loop."""
     monkeypatch.setattr(loader, "_MCP_CONFIG_PATHS", [tmp_path / "missing.json"])

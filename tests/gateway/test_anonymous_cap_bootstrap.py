@@ -86,13 +86,13 @@ def test_bootstrap_refreshes_subscription_json_immediately(monkeypatch: pytest.M
 
     monkeypatch.setattr(usage_report, "report_usage_once", lambda _root, **_kw: True)
     monkeypatch.setattr(store, "load_auth_token", lambda: None)
-    # The CURRENT identity (post-logout) is free, distinct from the stale
-    # "pro" blob already on disk -- this is what actually distinguishes "the
-    # cache got refreshed" from "the stale file was echoed back unchanged".
-    monkeypatch.setattr(plugin_runtime, "resolve_subscription", lambda _root: {"plan": "free"})
+    # The CURRENT identity (post-logout) is anonymous/local, distinct from the
+    # stale "pro" blob already on disk -- this is what actually distinguishes
+    # "the cache got refreshed" from "the stale file was echoed back unchanged".
+    monkeypatch.setattr(plugin_runtime, "resolve_subscription", lambda _root: {"plan": "LOCAL"})
 
     class _Win:
-        saved_usd = 25.0  # > $20 free cap
+        saved_usd = 55.0  # > $50 anonymous cap
         spend_usd = 0.0
 
     monkeypatch.setattr(savings_summary, "aggregate_window_savings", lambda *a, **k: _Win())

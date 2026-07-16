@@ -3140,6 +3140,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     """Construct the FastAPI instance."""
     from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.middleware.gzip import GZipMiddleware
 
     app = FastAPI(
         title="LemonCrow",
@@ -3151,6 +3152,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     # CORS for the local web UI: loopback origins only (any port). A wildcard
     # origin with credentials would let any website a browser visits drive
     # this API with the user's cookies/credentials.
+    app.add_middleware(GZipMiddleware, minimum_size=1_000)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
@@ -6940,6 +6942,100 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             raise HTTPException(status_code=404, detail=f"unknown swarm run: {run_id}")
         state = stop_swarm_run(root=Path(cfg.lemoncrow_root), state_path=state_path, cleanup=cleanup)
         return state.model_dump(mode="json")
+
+    # ------------------------------------------------------------------ #
+    # Local code map                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _code_map_context(project_root: str | None) -> tuple[Any, Path]:
+        from lemoncrow.core.service import code_map
+
+        try:
+            resolved = code_map.resolve_project_root(project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return code_map.get_engine(str(resolved)), resolved
+
+    @app.get("/v1/code-map/projects", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_projects() -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        return {"projects": code_map.list_projects()}
+
+    @app.get("/v1/code-map/overview", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_overview(project_root: str | None = Query(default=None)) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, resolved = _code_map_context(project_root)
+        return code_map.build_overview(engine, resolved)
+
+    @app.get("/v1/code-map/full", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_full(project_root: str | None = Query(default=None)) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, resolved = _code_map_context(project_root)
+        return code_map.build_full_graph(engine, resolved)
+
+    @app.get("/v1/code-map/search", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_search(
+        q: str = Query(min_length=1, max_length=240),
+        project_root: str | None = Query(default=None),
+        limit: int = Query(default=20, ge=1),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        return {"query": q, "results": code_map.search_symbols(engine, q, limit=min(limit, 40))}
+
+    @app.get("/v1/code-map/neighborhood", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_neighborhood(
+        symbol_id: str = Query(min_length=1, max_length=240),
+        project_root: str | None = Query(default=None),
+        depth: int = Query(default=1, ge=1),
+        limit: int = Query(default=80, ge=4),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        try:
+            return code_map.build_neighborhood(
+                engine,
+                symbol_id,
+                depth=min(depth, 2),
+                limit=min(limit, 160),
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/v1/code-map/symbol", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_symbol(
+        symbol_id: str = Query(min_length=1, max_length=240),
+        project_root: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        try:
+            return code_map.symbol_detail(engine, symbol_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/v1/code-map/activity", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_activity(
+        project_root: str | None = Query(default=None),
+        after: str | None = Query(default=None, max_length=80),
+        limit: int = Query(default=60, ge=1),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, resolved = _code_map_context(project_root)
+        return code_map.recent_activity(
+            Path(cfg.lemoncrow_root),
+            resolved,
+            after=after,
+            limit=min(limit, 200),
+            engine=engine,
+        )
 
     return app
 

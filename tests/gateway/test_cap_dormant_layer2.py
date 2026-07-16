@@ -39,7 +39,7 @@ def _host_agent(config: Path) -> object:
 
 
 def test_dormant_unsets_host_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch_saved(monkeypatch, 25.0)  # > $20 free cap -> dormant
+    _patch_saved(monkeypatch, 55.0)  # > $50 anonymous cap -> dormant
     root, config, plugin = tmp_path / "root", tmp_path / "cfg", _plugin_root(tmp_path)
     root.mkdir()
     config.mkdir()

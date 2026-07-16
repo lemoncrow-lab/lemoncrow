@@ -996,16 +996,19 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": None if st["service_running"] else "not running — start: lc stack start",
             },
         )
+        from lemoncrow.infra.runtime.dashboard_url import discover_dashboard_url
+
+        frontend_url = discover_dashboard_url(root)
         add(
             "Services",
             "stack_frontend",
             {
                 "ok": True,
                 "optional": True,
-                "installed": bool(st["frontend_running"]),
+                "installed": frontend_url is not None,
                 "pid": st["frontend_pid"],
-                "url": st.get("frontend_url"),
-                "hint": None if st["frontend_running"] else "not running — start: lc stack start",
+                "url": frontend_url,
+                "hint": None if frontend_url else "not running — start: lc stack start",
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -1533,24 +1536,23 @@ def _oauth_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
         from lemoncrow.core.capabilities.licensing import pro_url
 
         click.secho(
-            f"You're on Free (savings engine active up to $20/mo). Lite ($5/mo or $50/yr) "
-            f"raises that cap to $200/mo; Pro ($20/mo or $200/yr) is uncapped and unlocks "
-            f"large-repo search & indexing, cross-session memory, the savings engine, model "
-            f"routing, and multi-repo swarm — upgrade at {pro_url()}",
+            "Free is active — uncapped core tools, local recall, verification, and swarm. "
+            f"Pro adds larger-repo indexing, cross-vendor memory, compression, optimization, "
+            f"and reusable knowledge — upgrade at {pro_url()}",
             fg="cyan",
         )
     elif result.plan == "lite":
         click.secho(
-            "Lite is active — your savings cap is raised to $200/mo. Upgrade to Pro for "
-            "uncapped savings plus large-repo search, cross-session memory, model routing "
-            "& swarm. Thanks for supporting LemonCrow!",
+            "Legacy Lite is active and uncapped. Upgrade to Pro for larger-repo indexing, "
+            "cross-vendor memory, compression, optimization, and reusable knowledge. "
+            "Thanks for supporting LemonCrow!",
             fg="cyan",
         )
     elif result.plan in ("pro", "enterprise"):
         click.secho(
-            "Pro is active — uncapped savings plus large-repo search, cross-session memory, "
-            "savings engine, model routing & multi-repo swarm all unlocked. Thanks for "
-            "supporting LemonCrow!",
+            "Pro is active — larger-repo indexing, cross-vendor memory, compression, "
+            "optimization, and reusable knowledge are unlocked. Thanks for supporting "
+            "LemonCrow!",
             fg="cyan",
         )
     if not verdict_verified:

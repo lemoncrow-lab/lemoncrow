@@ -23,30 +23,6 @@ logger = logging.getLogger(__name__)
 _PIN_CHOICES = frozenset({"openai", "letta", "null"})
 _CODE_PIN_CHOICES = frozenset({"openai", "letta", "null", "ollama", "bge", "nomic", "hf"})
 
-# Auto-select fallback for CPU-only / low-VRAM machines when no embedder pin
-# is set. Real embedding dim is 1024 -- see BENCHMARKS.md's embedder sweep.
-_SFR_FALLBACK_MODEL = "Salesforce/SFR-Embedding-Code-400M_R"
-_SFR_FALLBACK_DIM = 1024
-_BGE_MIN_FREE_VRAM_MB = 4096
-
-
-def _gpu_has_sufficient_vram_for_bge(min_free_mb: int = _BGE_MIN_FREE_VRAM_MB) -> bool:
-    """True when a CUDA GPU with at least *min_free_mb* free VRAM is present.
-
-    BGE-Code-v1 is a ~1.5B-param model; below this threshold (or with no GPU
-    at all) it is impractically slow to load/run, so the auto-select default
-    falls back to the much smaller SFR-Embedding-Code-400M_R instead.
-    """
-    try:
-        import torch
-
-        if not torch.cuda.is_available():
-            return False
-        free_bytes, _ = torch.cuda.mem_get_info()
-        return (free_bytes // (1024 * 1024)) >= min_free_mb
-    except Exception:  # noqa: BLE001 -- torch not installed or query failed
-        return False
-
 
 @runtime_checkable
 class TaskAwareEmbedder(Protocol):
@@ -130,6 +106,12 @@ def _make_available_ollama_code_embedder(model: str) -> OllamaEmbedder:
 
 
 def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embedder:
+    """Return the code-search embedder.
+
+    Semantic embedding is strictly opt-in: without an explicit pin
+    (``LEMONCROW_CODE_EMBEDDER`` / ``LEMONCROW_EMBEDDER``), returns the null
+    embedder (FTS-only) regardless of which extras are installed.
+    """
     chosen = (pin or os.getenv("LEMONCROW_CODE_EMBEDDER") or os.getenv("LEMONCROW_EMBEDDER") or "").strip().lower()
     if chosen and chosen not in _CODE_PIN_CHOICES:
         raise ValueError(f"Unknown code embedder pin {chosen!r}; must be one of {sorted(_CODE_PIN_CHOICES)}")
@@ -164,21 +146,11 @@ def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embe
             return NullEmbedder()
     if chosen == "null":
         return NullEmbedder()
-    # No pin set: auto-select semantic search when the extras are installed,
-    # per BgeEmbedder.is_available()'s documented contract and BENCHMARKS.md's
-    # "Semantic Code Search Embedder Sweep" (BGE-Code-v1 has the best MRR).
-    # GPUs below the VRAM threshold -- or no GPU at all -- get the much
-    # smaller SFR-Embedding-Code-400M_R so indexing stays fast enough to be
-    # usable. Neither extra installed: no semantic search (FTS-only).
-    if BgeEmbedder.is_available():
-        if _gpu_has_sufficient_vram_for_bge():
-            return BgeEmbedder()
-        from .nomic import NomicEmbedder as _ST  # same ST wrapper, model-agnostic
-
-        sfr = _ST(_SFR_FALLBACK_MODEL, query_prefix="", doc_prefix="")
-        sfr.dim = _SFR_FALLBACK_DIM
-        sfr.name = f"sfr:{_SFR_FALLBACK_MODEL}"
-        return sfr
+    # No pin set: semantic search stays OFF (FTS-only). Auto-selecting a local
+    # model whenever the torch extras happen to be importable silently turned
+    # every index run into a model-loading (and, without CUDA, hours-long CPU
+    # embedding) job. Semantic search must be opted into explicitly via
+    # LEMONCROW_CODE_EMBEDDER (as the benchmarks do).
     return NullEmbedder()
 
 

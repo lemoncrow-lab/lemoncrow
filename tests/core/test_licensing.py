@@ -70,8 +70,10 @@ def _sign_in(monkeypatch: pytest.MonkeyPatch, *, plan: str, email: str = "dev@ex
 def test_signed_out_locks_pro_features() -> None:
     assert licensing.is_pro() is False
     assert licensing.has_feature("optimizer") is False
-    # Non-Pro capabilities are always allowed.
+    # Local Free capabilities are always allowed.
     assert licensing.has_feature("search") is True
+    assert licensing.has_feature("session_recall") is True
+    assert licensing.has_feature("swarm") is True
     with pytest.raises(licensing.FeatureLocked):
         licensing.require("optimizer")
     st = licensing.status()
@@ -93,11 +95,13 @@ def test_free_plan_stays_locked(monkeypatch: pytest.MonkeyPatch) -> None:
     assert licensing.is_pro() is False
     assert licensing.has_feature("optimizer") is False
     assert licensing.has_feature("source_projection") is True
+    assert licensing.has_feature("session_recall") is True
+    assert licensing.has_feature("swarm") is True
     assert licensing.has_feature("unknown_paid_typo") is False
     assert licensing.status().reason == "signed in on the free plan"
 
 
-def test_lite_plan_has_only_lite_features(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_lite_plan_keeps_its_historical_features(monkeypatch: pytest.MonkeyPatch) -> None:
     _sign_in(monkeypatch, plan="lite")
     assert licensing.is_pro() is True
     assert licensing.has_feature("code_search") is True
@@ -111,7 +115,8 @@ def test_lite_plan_has_only_lite_features(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_pro_does_not_inherit_enterprise_features(monkeypatch: pytest.MonkeyPatch) -> None:
     _sign_in(monkeypatch, plan="pro")
-    assert licensing.has_feature("model_routing") is True
+    assert licensing.has_feature("model_routing") is False
+    assert licensing.has_feature("cross_vendor_routing") is False
     assert licensing.has_feature("swarm") is True
     assert licensing.has_feature("large_repo") is False
     assert licensing.has_feature("shared_context") is False
@@ -122,6 +127,8 @@ def test_enterprise_plan_unlocks(monkeypatch: pytest.MonkeyPatch) -> None:
     _sign_in(monkeypatch, plan="enterprise")
     assert licensing.is_pro() is True
     assert licensing.has_feature("governance") is True
+    assert licensing.has_feature("model_routing") is False
+    assert licensing.has_feature("cross_vendor_routing") is False
 
 
 def test_fetch_populates_cache_when_stale(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
+from lemoncrow.gateway.cli.commands._shared import _emit
 
 
 class _RecallGroup(click.Group):
@@ -41,8 +41,6 @@ def recall_group() -> None:
 @click.pass_context
 def recall_index_cmd(ctx: click.Context, window_days: int, max_sessions: int, as_json: bool) -> None:
     """Incrementally index past session transcripts for recall."""
-    require_pro("session_recall", "Session recall over all past sessions")
-
     from lemoncrow.core.capabilities.session_recall import index_sessions
 
     result = index_sessions(ctx.obj["root"], window_days=window_days, max_sessions=max_sessions)
@@ -61,8 +59,6 @@ def recall_index_cmd(ctx: click.Context, window_days: int, max_sessions: int, as
 @click.pass_context
 def recall_search_cmd(ctx: click.Context, query: str, top_k: int, as_json: bool) -> None:
     """Semantically search across all indexed sessions."""
-    require_pro("session_recall", "Session recall over all past sessions")
-
     from lemoncrow.core.capabilities.session_recall import recall
 
     results = recall(ctx.obj["root"], query, top_k=top_k)
