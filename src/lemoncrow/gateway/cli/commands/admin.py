@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from importlib import resources
 from pathlib import Path
@@ -71,15 +72,93 @@ def _detect_git_root(search_path: Path) -> Path | None:
 from lemoncrow.core.foundation.paths import ensure_gitignore as _ensure_gitignore  # noqa: E402
 
 
-def _bootstrap_anonymous_verdict(root: Path) -> bool:
-    """Best-effort first signed verdict for an explicit anonymous transition."""
+def _bootstrap_cap_verdict(root: Path) -> bool:
+    """Best-effort first signed cap-verdict token for an identity transition.
+
+    Call this after ANY event that changes which identity `store.load_auth_token()`
+    resolves to (login -- anonymous, token, or OAuth -- and logout): the signed
+    verdict is bound to (account_id, device_id, plan), so switching identity
+    always starts with zero verdict for the new one. Without this, the account
+    stays fail-closed dormant (licensing_gate.resolve_cap_verdict) until the
+    background `lc servicectl` reconciler's next tick -- up to 30 minutes, and
+    only if that service happens to be running.
+
+    Forced: an explicit transition must mint NOW, bypassing both the 30-minute
+    reporting throttle and the unchanged-totals short-circuit -- a logout right
+    after a report, or a re-login with unchanged savings, would otherwise skip
+    the mint and leave the fresh identity dormant.
+    """
 
     try:
-        from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
+        from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
 
-        return maybe_report_usage(root)
-    except Exception:  # noqa: BLE001 — offline init/logout remains usable but fail-closed
-        return False
+        verified = report_usage_once(root, force=True)
+    except Exception:  # noqa: BLE001 — offline login/logout remains usable but fail-closed
+        verified = False
+    # subscription.json is the ONLY thing the statusline (a bash script, too
+    # cheap to spawn the full CLI on every render) reads for the plan icon and
+    # capped/dormant dot -- otherwise it stays on whatever the PREVIOUS
+    # identity's cache said until the next SessionStart/Stop hook happens to
+    # rewrite it, which is exactly the same "wait for session start" lag
+    # already fixed for the `agent` override below.
+    with suppress(Exception):
+        from lemoncrow.core.capabilities.plugin_runtime import refresh_subscription_meter
+
+        refresh_subscription_meter(root)
+    _sync_dormant_agent_override(root)
+    return verified
+
+
+def _sync_dormant_agent_override(root: Path) -> None:
+    """Mirror EVERY host's Layer-2 dormant-agent surface right now, instead of
+    waiting for that host's next SessionStart hook to do it.
+
+    SessionStart-driven sync (session_start_bootstrap/apply_session_start_files,
+    reset_host_agents_for_dormancy, reset_lemoncrow_global_dormancy -- all in
+    plugin_runtime.py) is inherently one session behind: it only runs when a
+    NEW session starts, so an identity transition mid-session (login/logout)
+    would otherwise leave a stale agent selection in place until the user
+    starts yet another session, for every host, not just Claude. Every call
+    below reuses the SAME guarded/idempotent primitives those hooks call --
+    best-effort, never raises, never touches a user's own custom (non-
+    `lemoncrow:*`) agent, and a safe no-op for any host that isn't installed
+    (Codex/OpenCode's global- and workspace-scope helpers both no-op cleanly
+    when their target directories don't exist).
+
+    Claude: pops/restores the `agent` key in both the global and any
+    workspace-local settings.json. Codex/OpenCode: stashes/restores the
+    `lemoncrow.*` agent files, both workspace-scoped (cwd) and global-mode
+    ($CODEX_HOME/$OPENCODE_CONFIG_HOME).
+    """
+    try:
+        from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
+
+        dormant = cap_exhausted(root)
+    except Exception:  # noqa: BLE001 — can't resolve dormancy; nothing to sync
+        return
+
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
+    for host in ("codex", "opencode"):
+        with suppress(Exception):
+            from lemoncrow.core.capabilities.plugin_runtime import reset_host_agents_for_dormancy
+
+            reset_host_agents_for_dormancy(host, workspace, dormant=dormant)
+        with suppress(Exception):
+            from lemoncrow.core.capabilities.plugin_runtime import reset_lemoncrow_global_dormancy
+
+            reset_lemoncrow_global_dormancy(host, dormant=dormant)
+
+    try:
+        from lemoncrow.core.capabilities.plugin_runtime import clear_dormant_agent_override
+
+        config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
+        global_settings = config_dir / "settings.json"
+        clear_dormant_agent_override(global_settings, dormant=dormant)
+        project_settings = Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()) / ".claude" / "settings.json"
+        if project_settings.resolve() != global_settings.resolve():
+            clear_dormant_agent_override(project_settings, dormant=dormant)
+    except Exception:  # noqa: BLE001 — best-effort; the next SessionStart still covers it
+        pass
 
 
 _RUNTIME_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "general", "explore", "plan", "research", "review")
@@ -656,7 +735,7 @@ def init(
                     "A free LemonCrow account is required to activate this install. Run lc account login, then retry lc init."
                 )
             click.echo("No LemonCrow account found — starting login...")
-            _oauth_login(as_json=False)
+            _oauth_login(ctx.obj["root"], as_json=False)
             if not load_auth_token():
                 raise click.ClickException("Login did not complete. Run lc account login, then retry lc init.")
     else:
@@ -690,7 +769,7 @@ def init(
         # Anonymous enforcement needs a server-signed, stable machine identity.
         # Bootstrap it during the explicit transition instead of waiting for the
         # background reconciler; an offline request simply leaves the gate closed.
-        _bootstrap_anonymous_verdict(root)
+        _bootstrap_cap_verdict(root)
     click.echo(
         f"  {click.style('✓', fg='green')} {click.style('store', fg=(155, 117, 217))} {click.style(f'initialized at {store.knowledge.root}', dim=True)}"
     )
@@ -1352,8 +1431,8 @@ def _auth_status(root: Path, as_json: bool) -> None:
             return
         click.secho("⚠ Could not reach auth server", fg="yellow")
     else:
-        # No OAuth token — check plugin-runtime auth state (written by `login --token`),
-        # which lives at root/auth.json and is distinct from the global licensing store.
+        # No OAuth token — check any plugin-runtime auth state at root/auth.json
+        # (distinct from the global licensing store; e.g. an anonymous trial).
         import json as _json2
 
         from lemoncrow.core.capabilities.plugin_runtime import auth_state_path as _auth_state_path
@@ -1388,22 +1467,23 @@ def account_group(ctx: click.Context) -> None:
 
 
 @account_group.command("login")
-@click.option("--token", default=None, help="Credentials JSON, base64 payload, or refresh token.")
 @click.option("--anonymous", "anonymous", is_flag=True, help="Start a local anonymous trial.")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option("--dev", "dev_mode", is_flag=True, help="Login against local dev server (http://localhost:4321).")
 @click.pass_context
-def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: bool, dev_mode: bool) -> None:
-    """Create local LemonCrow auth state for plugin operations."""
-    from lemoncrow.core.capabilities.plugin_runtime import (
-        claim_anonymous_trial,
-        parse_login_token,
-        write_auth_state,
-    )
+def login_cmd(ctx: click.Context, anonymous: bool, as_json: bool, dev_mode: bool) -> None:
+    """Create local LemonCrow auth state for plugin operations.
+
+    Interactive OAuth is the only real login path (``--anonymous`` starts a
+    local trial). The former ``--token`` flow persisted credentials to a file
+    the identity resolver never read, so it silently logged in as anonymous;
+    removed rather than half-fixed.
+    """
+    from lemoncrow.core.capabilities.plugin_runtime import claim_anonymous_trial
 
     if anonymous:
         payload = {"auth": claim_anonymous_trial(ctx.obj["root"]), "mode": "anonymous"}
-        _bootstrap_anonymous_verdict(ctx.obj["root"])
+        _bootstrap_cap_verdict(ctx.obj["root"])
         if as_json:
             _emit(payload, as_json=True)
             return
@@ -1411,23 +1491,11 @@ def login_cmd(ctx: click.Context, token: str | None, anonymous: bool, as_json: b
         auth = auth_payload if isinstance(auth_payload, dict) else {}
         label = "anonymous trial" if auth.get("isAnonymous") else auth.get("email") or auth.get("userId")
         click.echo(f"logged in: {label}")
-    elif token:
-        payload = {
-            "auth": write_auth_state(ctx.obj["root"], parse_login_token(token)),
-            "mode": "token",
-        }
-        if as_json:
-            _emit(payload, as_json=True)
-            return
-        auth_payload = payload.get("auth")
-        auth = auth_payload if isinstance(auth_payload, dict) else {}
-        label = auth.get("email") or auth.get("userId")
-        click.echo(f"logged in: {label}")
     else:
-        _oauth_login(as_json, dev_mode=dev_mode)
+        _oauth_login(ctx.obj["root"], as_json, dev_mode=dev_mode)
 
 
-def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
+def _oauth_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
     """Run the OAuth browser flow and persist the returned session token."""
     from lemoncrow.core.capabilities.licensing.oauth_flow import run_oauth_login
 
@@ -1435,8 +1503,16 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
 
     if result is None:
         click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
-        click.echo("  Fallback: lc account login --token <token> (from your account page).", err=True)
+        click.echo("  Retry: lc account login (re-opens the browser sign-in).", err=True)
         raise SystemExit(1)
+
+    # The signed cap verdict is bound to (account_id, device_id, plan): logging
+    # in switches identity, so any verdict token from a prior identity (or none
+    # at all) doesn't cover this one. Without bootstrapping here, the account
+    # stays fail-closed dormant (licensing_gate.resolve_cap_verdict) -- MCP
+    # tools hidden -- until the background reconciler's next tick, up to 30 min
+    # later and only if that service is running. See _bootstrap_cap_verdict.
+    verdict_verified = _bootstrap_cap_verdict(root)
 
     plan_label = result.plan if result.plan_verified else "unknown (could not verify)"
     if as_json:
@@ -1447,6 +1523,7 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
                 "plan_verified": result.plan_verified,
                 "device_id": result.device_id,
                 "mode": "oauth",
+                "cap_verdict_verified": verdict_verified,
             },
             as_json=True,
         )
@@ -1476,6 +1553,12 @@ def _oauth_login(as_json: bool, dev_mode: bool = False) -> None:
             "supporting LemonCrow!",
             fg="cyan",
         )
+    if not verdict_verified:
+        click.secho(
+            "  Warning: couldn't verify a signed cap credential for this device (offline or "
+            "server unreachable) — LemonCrow tools will stay disabled until this succeeds.",
+            fg="yellow",
+        )
 
 
 @account_group.command("logout")
@@ -1491,12 +1574,24 @@ def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
     delete_auth_user()
     delete_auth_base()
     payload = logout_local(ctx.obj["root"], claim_trial=not no_trial)
+    verdict_verified = True
     if not no_trial:
-        _bootstrap_anonymous_verdict(ctx.obj["root"])
+        # Best-effort: mints a fresh signed anonymous cap-verdict token so tools
+        # stay usable post-logout. If this fails (offline, server unreachable),
+        # MCP tools stay hidden until the background reconciler retries or the
+        # user logs back in -- surface that instead of a silent "✓ Logged out".
+        verdict_verified = _bootstrap_cap_verdict(ctx.obj["root"])
     if as_json:
+        payload["anonymous_verdict_verified"] = verdict_verified
         _emit(payload, as_json=True)
         return
     click.secho("✓ Logged out", fg="green")
+    if not no_trial and not verdict_verified:
+        click.secho(
+            "  Warning: couldn't verify a new anonymous session (offline or server "
+            "unreachable) — LemonCrow tools will stay disabled until this succeeds.",
+            fg="yellow",
+        )
 
 
 def _account_subscription(root: Path) -> dict[str, Any]:
@@ -1549,6 +1644,12 @@ def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
         "over_cap": bool(subscription.get("savingsOverCap")),
         "remaining_usd": subscription.get("savingsRemainingUsd"),
         "saved_usd": subscription.get("monthlySavingsInUsd", 0.0),
+        # capVerdictVerified/Reason come from the same signed-verdict
+        # resolution the MCP server enforces (licensing_gate.resolve_cap_verdict
+        # via compute_usage_meter) -- this over_cap can never disagree with
+        # which tools are actually visible in the session.
+        "verified": subscription.get("capVerdictVerified"),
+        "reason": subscription.get("capVerdictReason"),
     }
     if as_json:
         _emit(payload, as_json=True)
@@ -1558,7 +1659,10 @@ def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"saved: ${float(payload['saved_usd'] or 0.0):.2f}")
     if payload["remaining_usd"] is not None:
         click.echo(f"remaining: ${float(payload['remaining_usd']):.2f}")
-    click.echo(f"status: {'reached' if payload['over_cap'] else 'active'}")
+    if payload["over_cap"] and not payload["verified"]:
+        click.echo("status: dormant (no verified credential — log in or check network; tools disabled)")
+    else:
+        click.echo(f"status: {'reached' if payload['over_cap'] else 'active'}")
 
 
 @click.command("status")

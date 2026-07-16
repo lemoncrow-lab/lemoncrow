@@ -256,10 +256,13 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
         }
     )
 
-    login = _invoke(root, "account", "login", "--token", token, "--json")
-    assert login.exit_code == 0, login.output
-    login_payload = json.loads(login.output)
-    assert login_payload["auth"]["email"] == "dev@example.com"
+    # `--token` login was removed (it never wrote the token where the identity
+    # resolver reads it); seed the same auth state directly via the primitives
+    # that path used, then exercise the read-side status/subscription CLIs.
+    from lemoncrow.core.capabilities.plugin_runtime import parse_login_token, write_auth_state
+
+    login_auth = write_auth_state(root, parse_login_token(token))
+    assert login_auth["email"] == "dev@example.com"
 
     status = _invoke(root, "account", "status", "--json")
     assert status.exit_code == 0, status.output
@@ -273,11 +276,19 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
 
     cap = _invoke(root, "account", "cap", "--json")
     assert cap.exit_code == 0, cap.output
+    # conftest.py strips the pinned Ed25519 key for the whole suite by default
+    # (is_configured() == False), so compute_usage_meter's signed-verdict
+    # override (licensing_gate.resolve_cap_verdict) stays inert here and the
+    # local estimate applies unchanged -- verified/reason are the additive
+    # fields that surface only once a key is pinned. See
+    # tests/core/test_cap_verdict.py for the verified, signed-token case.
     assert json.loads(cap.output) == {
         "cap_usd": 200.0,
         "over_cap": False,
         "remaining_usd": 200.0,
         "saved_usd": 0.0,
+        "verified": None,
+        "reason": None,
     }
 
     share = _invoke(root, "share", "--json")

@@ -14,6 +14,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from contextlib import suppress
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -45,6 +46,7 @@ def publish_public_savings_rollup(
     tokens_saved: int,
     calls_avoided: int,
     turn_count: int,
+    turns_avoided: int = 0,
     source: str,
     occurred_at: datetime | None = None,
     carry_usd: float = 0.0,
@@ -54,6 +56,9 @@ def publish_public_savings_rollup(
     domain: str = "code",
     output_saved_tokens: int = 0,
     output_saved_usd: float = 0.0,
+    tokens_processed: int = 0,
+    calls_made: int = 0,
+    time_spent_seconds: float = 0.0,
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -72,6 +77,7 @@ def publish_public_savings_rollup(
             tokens_saved=tokens_saved,
             calls_avoided=calls_avoided,
             turn_count=turn_count,
+            turns_avoided=turns_avoided,
             source=source,
             occurred_at=occurred_at,
             carry_usd=carry_usd,
@@ -81,6 +87,9 @@ def publish_public_savings_rollup(
             domain=domain,
             output_saved_tokens=output_saved_tokens,
             output_saved_usd=output_saved_usd,
+            tokens_processed=tokens_processed,
+            calls_made=calls_made,
+            time_spent_seconds=time_spent_seconds,
         )
         if payload is None:
             return False
@@ -118,6 +127,7 @@ def _payload(
     tokens_saved: int,
     calls_avoided: int,
     turn_count: int,
+    turns_avoided: int = 0,
     source: str,
     occurred_at: datetime | None,
     carry_usd: float = 0.0,
@@ -127,6 +137,9 @@ def _payload(
     domain: str = "code",
     output_saved_tokens: int = 0,
     output_saved_usd: float = 0.0,
+    tokens_processed: int = 0,
+    calls_made: int = 0,
+    time_spent_seconds: float = 0.0,
 ) -> dict[str, Any] | None:
     session = str(session_id or "").strip()
     if not session:
@@ -139,14 +152,37 @@ def _payload(
     tokens = int(tokens_saved or 0)
     calls = int(calls_avoided or 0)
     turns = max(0, int(turn_count or 0))
+    turns_av = max(0, int(turns_avoided or 0))
     carry_s = max(0.0, float(carry_usd or 0.0))
     carry_t = max(0, int(carry_tokens or 0))
     cost = max(0.0, float(est_cost_usd or 0.0))
     time_s = float(time_saved_seconds or 0.0)
     out_tok = max(0, int(output_saved_tokens or 0))
     out_usd = max(0.0, float(output_saved_usd or 0.0))
+    # Real totals (not savings) -- the baseline "tokens saved" etc. are a
+    # fraction of. Absent (0) for hosts/paths that haven't computed them yet
+    # (see aggregate_usage_totals_since_day) -- the server treats 0 as "not
+    # reported", not "processed nothing".
+    tok_proc = max(0, int(tokens_processed or 0))
+    calls_made_n = max(0, int(calls_made or 0))
+    time_spent = max(0.0, float(time_spent_seconds or 0.0))
     # Skip only a wholly empty rollup; a negative-but-nonzero one is real signal.
-    if not (saved or tokens or calls or turns or carry_s or carry_t or cost or time_s or out_tok or out_usd):
+    if not (
+        saved
+        or tokens
+        or calls
+        or turns
+        or turns_av
+        or carry_s
+        or carry_t
+        or cost
+        or time_s
+        or out_tok
+        or out_usd
+        or tok_proc
+        or calls_made_n
+        or time_spent
+    ):
         return None
     at = occurred_at or datetime.now(UTC)
     if at.tzinfo is None:
@@ -166,10 +202,14 @@ def _payload(
         "carry_usd": round(carry_s, 6),
         "carry_tokens": carry_t,
         "turn_count": turns,
+        "turns_avoided": turns_av,
         "est_cost_usd": round(cost, 6),
         "time_saved_seconds": round(time_s, 3),
         "output_saved_tokens": out_tok,
         "output_saved_usd": round(out_usd, 6),
+        "tokens_processed": tok_proc,
+        "calls_made": calls_made_n,
+        "time_spent_seconds": round(time_spent, 3),
         "occurred_at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }
 
@@ -227,6 +267,7 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
 
     from lemoncrow.core.capabilities.savings_summary import (
         aggregate_savings_since_day,
+        aggregate_usage_totals_since_day,
         estimate_time_saved_seconds,
     )
 
@@ -234,12 +275,23 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
     if last_day is None:
         return {"flushed": False, "reason": "no_new_days"}, checkpoint_day
 
+    # Independent pass (real per-session transcript parse, not the $-savings
+    # ledger) -- see aggregate_usage_totals_since_day's docstring for why this
+    # is deliberately not folded into the totals dict above. Best-effort: a
+    # transcript-read failure here must not block the $ figures below from
+    # reporting, so a raise here degrades to "not reported" (0), not a
+    # skipped flush.
+    usage_totals: dict[str, float | int] = {"tokens_processed": 0, "calls_made": 0, "time_spent_seconds": 0.0}
+    with suppress(Exception):
+        usage_totals = aggregate_usage_totals_since_day(root, since_day=checkpoint_day, today=today)
+
     ok = publish_public_savings_rollup(
         session_id=f"daily-rollup-{last_day}",
         saved_usd=float(totals["saved_usd"]),
         tokens_saved=int(totals["tokens_saved"]),
         calls_avoided=int(totals["calls_avoided"]),
         turn_count=int(totals["turn_count"]),
+        turns_avoided=int(totals["turns_avoided"]),
         source="claude",
         carry_usd=float(totals["carry_usd"]),
         est_cost_usd=float(totals["est_cost_usd"]),
@@ -249,6 +301,9 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         ),
         output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
         output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
+        tokens_processed=int(usage_totals["tokens_processed"]),
+        calls_made=int(usage_totals["calls_made"]),
+        time_spent_seconds=float(usage_totals["time_spent_seconds"]),
     )
     if not ok:
         # Failed POST: keep the old checkpoint so these days are retried on

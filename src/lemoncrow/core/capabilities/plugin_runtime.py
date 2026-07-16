@@ -154,6 +154,109 @@ def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
         _write_json(subscription_state_path(root_path), sub)
 
 
+# _price_savings_row drops cost_saved_usd entirely when tokens<=0, so the
+# correction row needs SOME positive token figure to be honored -- but the
+# real historical count is unrecoverable (that IS the gap) and, worse, a
+# per-token-rate-derived guess routinely blows past that same function's
+# 2_000_000 per-row sanity cap for any gap over ~$6 (a MULTI-DAY accumulated
+# gap, unlike the single-event savings that cap was written to bound) --
+# which zeroes the row it was meant to protect, INCLUDING cost_saved_usd.
+# A fixed minimal placeholder sidesteps both failure modes; only the dollar
+# figure (exact, from the server) is meaningful here, never "tokens kept out".
+_RECONCILE_PLACEHOLDER_TOKENS = 1
+_RECONCILE_HOST = "_reconcile"
+_RECONCILE_SESSION_ID = "ledger-gap"
+_RECONCILE_MIN_GAP_USD = 0.01
+
+
+def reconcile_local_savings_gap(root: str | Path, server_saved_usd: float) -> bool:
+    """Close a gap between the server's verified savings total and the local
+    ledger, without re-scanning any host transcript.
+
+    The server accumulates savings per ACCOUNT (server-side, never a
+    client-writable file -- see services/license-issuer/src/usage.ts). If
+    ``sessions/**/savings.jsonl`` is lost (deleted, disk issue, a stale
+    machine restored from an old snapshot) while real LemonCrow usage already
+    happened, the local ledger under-reports relative to what the server
+    already knows. This writes ONE correction row for exactly that shortfall,
+    dated now, into a fixed reconciliation slot.
+
+    max(local, server) semantics, never a blind overwrite: only fires when
+    the server is AHEAD of the local total (a genuine gap to fill). When
+    local is ahead -- fresh real usage the throttled ~30 min report hasn't
+    pushed up yet -- the server figure is simply stale, not the local ledger
+    being wrong, so this is a no-op and the higher local total stands.
+    Idempotent: re-fires cheaply as a no-op once the gap is closed, and
+    overwrites its own prior guess (a fixed path, not an accumulating row),
+    so repeated calls or a naturally-closing gap never double count.
+    """
+    try:
+        from datetime import UTC, datetime
+
+        from lemoncrow.core.capabilities.savings_summary import reconcile_savings_aggregate
+
+        root_path = Path(root)
+        # reconcile_savings_aggregate (not aggregate_window_savings): the
+        # latter reads through an in-process TTL cache that a write earlier
+        # in THIS same call wouldn't yet be visible through -- this one
+        # always folds fresh from disk, so both the read here and the fold
+        # after the write below see the true current state.
+        local_total = _aggregate_lifetime_saved_usd(reconcile_savings_aggregate(root_path))
+        gap = round(float(server_saved_usd) - local_total, 4)
+        if gap <= _RECONCILE_MIN_GAP_USD:
+            return False
+        now = datetime.now(UTC)
+        sidecar = (
+            root_path
+            / "sessions"
+            / now.strftime("%Y")
+            / now.strftime("%m")
+            / now.strftime("%d")
+            / _RECONCILE_HOST
+            / _RECONCILE_SESSION_ID
+            / "savings.jsonl"
+        )
+        row = {
+            "tool": "reconcile",
+            "kind": "backfill",
+            "tokens": _RECONCILE_PLACEHOLDER_TOKENS,
+            "calls": 0,
+            "model": "",
+            "ts": now.replace(tzinfo=None).isoformat(),
+            "cost_saved_usd": gap,
+        }
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        reconcile_savings_aggregate(root_path)  # fold + persist immediately, not on the next TTL
+        return True
+    except Exception:  # noqa: BLE001 -- best-effort self-heal must never raise
+        return False
+
+
+def _aggregate_lifetime_saved_usd(agg: dict[str, Any]) -> float:
+    """Sum ``saved_usd`` across every day-bucket of every session in a
+    reconciled aggregate (the ``reconcile_savings_aggregate`` return shape).
+
+    Mirrors ``aggregate_window_savings.saved_usd`` = col 0 (context savings)
+    PLUS col 6 (model-routing credit): routing rides its own day-bucket column
+    yet is folded into the headline saved_usd on every other surface AND into
+    the figure reported to the server. Summing col 0 alone understated the
+    local total by the account's routing credit, so the reconcile comparison
+    saw a permanent phantom gap and re-corrected it every day.
+    """
+    total = 0.0
+    for entry in agg.get("sessions", {}).values():
+        days = entry.get("days") if isinstance(entry, dict) else None
+        if not isinstance(days, dict):
+            continue
+        for bucket in days.values():
+            if isinstance(bucket, list) and bucket:
+                total += float(bucket[0])
+                if len(bucket) > 6:
+                    total += float(bucket[6])
+    return total
+
+
 def _summarize_ab_calibration(root: str | Path) -> dict[str, Any]:
     """Summarise rolling A/B measurements from ``savings_calibration.jsonl``.
 
@@ -538,6 +641,50 @@ def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None
         subscription["savingsRemainingUsd"] = None
         subscription["savingsCapFraction"] = 0.0
         subscription["savingsOverCap"] = False
+
+    # Single source of truth: when a signed-verdict authority is configured
+    # (every real build), its resolved dormancy decision overrides whatever
+    # the local estimate above computed — this is the SAME decision the MCP
+    # server enforces (licensing_gate.resolve_cap_verdict), so `lc account
+    # cap` / `lc savings` / the statusline can never disagree with which
+    # tools are actually visible. Only skipped when unconfigured (dev build,
+    # no pinned key): resolve_cap_verdict's own fallback there already calls
+    # back into this function, so calling it here too would recurse.
+    try:
+        from lemoncrow.pro.capabilities.licensing_gate import is_configured, resolve_cap_verdict
+
+        if is_configured():
+            verdict = resolve_cap_verdict(root_path)
+            subscription["savingsOverCap"] = verdict.dormant
+            subscription["capVerdictVerified"] = verdict.verified
+            subscription["capVerdictReason"] = verdict.reason
+            # The signed verdict's dollar figure is the server's own
+            # accumulated total (account_id-keyed server-side, never a
+            # client-writable file -- see resolve_cap_verdict/CapVerdict).
+            # It outranks BOTH the raw local-ledger recompute above and the
+            # unsigned server_meter figure: whenever a fresh verdict is
+            # verified, this self-heals the display even if every local
+            # sessions/**/savings.jsonl was deleted -- the next verified
+            # verdict (session start, MCP self-heal, periodic reconciler)
+            # restores the true number here regardless of local state.
+            if verdict.verified and verdict.server_saved_usd is not None:
+                subscription["monthlySavingsInUsd"] = round(verdict.server_saved_usd, 4)
+                if verdict.server_cap_usd is not None:
+                    subscription["monthlySavingsCapInUsd"] = verdict.server_cap_usd
+                    subscription["savingsRemainingUsd"] = round(
+                        max(0.0, verdict.server_cap_usd - verdict.server_saved_usd), 4
+                    )
+                    subscription["savingsCapFraction"] = (
+                        round(verdict.server_saved_usd / verdict.server_cap_usd, 4)
+                        if verdict.server_cap_usd > 0.0
+                        else 0.0
+                    )
+                else:
+                    subscription["savingsRemainingUsd"] = None
+                    subscription["savingsCapFraction"] = 0.0
+    except Exception:
+        logging.exception("Recovered from broad exception handler")
+
     if over_limit:
         subscription["message"] = f"Monthly limit reached — ${spend_usd:.2f} of ${limit_usd:.2f} used"
     elif warning:
@@ -1108,14 +1255,30 @@ def session_start_bootstrap(
 
     # Layer 2 is enforced server-side (the MCP server hides all lc tools when
     # dormant), so no special fallback agent is needed: with no lc tools
-    # visible, the model runs on the host built-ins on its own. When dormant we
-    # simply unset any host `agent` override so the default persona applies;
-    # never clobber a user's custom agent. (Also clears the stale lemoncrow:free
-    # override written by an earlier build.)
+    # visible, the model runs on the host built-ins on its own.
+    #
+    # This block fully OWNS the `agent` key across both directions --
+    # integrations/claude/plugin/settings.json (the plugin-bundled defaults
+    # Claude Code merges in on every session, independent of this write)
+    # deliberately declares no static `agent`, because that default would
+    # re-assert lemoncrow:code no matter what gets popped here while dormant
+    # (see scripts/install_claude.sh's staging comment). So when dormant, pop
+    # it so the host default persona applies; when active, (re)set it to
+    # lemoncrow:code -- covers both a fresh install (key never existed) and
+    # recovering from a prior dormant pop (the key is simply absent and
+    # nothing else would ever restore it now that the static default is
+    # gone). Never clobber a user's own custom agent: only touch a slot that
+    # is empty or already ours (current lemoncrow:code, or the legacy
+    # lemoncrow:free placeholder from an earlier build).
+    current_agent = updated_host.get("agent")
+    owns_agent_slot = current_agent is None or (
+        isinstance(current_agent, str) and (current_agent == "" or current_agent.startswith("lemoncrow:"))
+    )
     if dormant:
-        updated_host.pop("agent", None)
-    elif updated_host.get("agent") == "lemoncrow:free":
-        updated_host.pop("agent", None)
+        if owns_agent_slot:
+            updated_host.pop("agent", None)
+    elif owns_agent_slot:
+        updated_host["agent"] = "lemoncrow:code"
 
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
     if payload:
@@ -1164,40 +1327,59 @@ def apply_session_start_files(
         current_version=current_version,
     )
     # host_settings already carries the Layer-2 agent handling computed in
-    # session_start_bootstrap: when dormant the `agent` host-setting is cleared
-    # (popped), never set to a free agent. Effect is next-session by design (the
-    # host reads `agent` at session start); the current session's tools already
-    # degraded via Layer 1.
+    # session_start_bootstrap: popped when dormant, (re)set to lemoncrow:code
+    # when active. Effect is next-session by design (the host reads `agent`
+    # at session start); the current session's tools already degraded via
+    # Layer 1.
     _write_json(settings_path, result["host_settings"])
     if mcp_path.exists():
         _write_json(mcp_path, result["mcp_json"])
     return result
 
 
-def clear_dormant_agent_override(path: str | Path, *, dormant: bool) -> bool:
-    """Mirror the Layer-2 ``agent`` pop into a settings.json that isn't the
-    host's global config — e.g. a project-local ``.claude/settings.json``
-    written by ``install_claude.sh --workspace``, which the global-config
-    write in :func:`apply_session_start_files` never touches (it only reads
-    ``CLAUDE_CONFIG_DIR``/``~/.claude``).
+# Sentinel key stamped into a settings.json when WE pop its `agent` slot during
+# dormancy, so a later active session can tell "absent because we popped it"
+# (restore lemoncrow:code) from "absent because this file was never ours" (a
+# foreign committed settings.json -- leave it untouched). Dropped again on
+# restore, so an active file carries only the plain `agent` key.
+_AGENT_OWNERSHIP_MARKER = "lemoncrowAgentPopped"
 
-    No-ops unless *path* already exists and its ``agent`` key is a value we
-    own (``lemoncrow:*``) — never clobbers a user's own custom agent. Returns
-    whether the file was rewritten.
+
+def clear_dormant_agent_override(path: str | Path, *, dormant: bool) -> bool:
+    """Mirror the Layer-2 ``agent`` pop/restore into a settings.json that
+    isn't the host's global config — e.g. a project-local
+    ``.claude/settings.json`` written by ``install_claude.sh --workspace``,
+    which the global-config write in :func:`apply_session_start_files` never
+    touches (it only reads ``CLAUDE_CONFIG_DIR``/``~/.claude``).
+
+    No-ops unless *path* already exists and its ``agent`` slot is PROVABLY ours
+    — a ``lemoncrow:*`` value, or a key we popped during a prior dormant session
+    (recorded by the ownership marker below). An absent ``agent`` key with no
+    marker is a FOREIGN file (a repo's own committed ``.claude/settings.json``
+    that never did a workspace install): we must never inject our agent there —
+    it dirties a git-tracked file and points teammates at an agent they do not
+    have. Never clobbers a user's own custom agent. Returns whether the file was
+    rewritten.
     """
     path = Path(path)
     data = _read_json(path, None)
     if not isinstance(data, dict):
         return False
     current = data.get("agent")
-    if not isinstance(current, str) or not current.startswith("lemoncrow:"):
+    owns_by_value = isinstance(current, str) and (current == "" or current.startswith("lemoncrow:"))
+    owns_by_marker = current is None and bool(data.get(_AGENT_OWNERSHIP_MARKER))
+    if not (owns_by_value or owns_by_marker):
         return False
     if dormant:
+        if current is None:
+            return False  # already popped -- the ownership marker stands
         data.pop("agent", None)
-    elif current == "lemoncrow:free":
-        data.pop("agent", None)
+        data[_AGENT_OWNERSHIP_MARKER] = True  # remember the slot is ours to restore
     else:
-        return False
+        if current == "lemoncrow:code" and _AGENT_OWNERSHIP_MARKER not in data:
+            return False  # already set -- nothing to restore or clean
+        data["agent"] = "lemoncrow:code"
+        data.pop(_AGENT_OWNERSHIP_MARKER, None)  # restored -- drop the marker
     _write_json(path, data)
     return True
 
@@ -2587,6 +2769,12 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         from lemoncrow.core.capabilities.savings_summary import estimate_time_saved_seconds
         from lemoncrow.core.service.telemetry.public_rollup import publish_public_savings_rollup
 
+        started_at_ms = int(state.get("started_at_ms", 0) or 0)
+        last_event_at_ms = int(state.get("last_event_at_ms", 0) or 0)
+        time_spent_seconds = (
+            max(0.0, (last_event_at_ms - started_at_ms) / 1000) if started_at_ms and last_event_at_ms else 0.0
+        )
+
         publish_public_savings_rollup(
             session_id=session_id,
             saved_usd=saved_usd,
@@ -2602,6 +2790,9 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
             ),
             output_saved_tokens=output_saved_tokens,
             output_saved_usd=output_saved_usd,
+            tokens_processed=total_tokens,
+            calls_made=total_tool_calls,
+            time_spent_seconds=time_spent_seconds,
         )
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")

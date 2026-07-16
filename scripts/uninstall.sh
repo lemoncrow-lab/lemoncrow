@@ -258,7 +258,7 @@ if command -v lc &>/dev/null; then
     esac
 
     info "Stopping LemonCrow background service controller..."
-    run "lc servicectl stop 2>/dev/null || true"
+    run "lc servicectl stop --force 2>/dev/null || true"
     info "Stopping LemonCrow visualization stack..."
     run "lc stack stop 2>/dev/null || true"
 else

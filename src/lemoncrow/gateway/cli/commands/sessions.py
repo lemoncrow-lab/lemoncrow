@@ -1767,6 +1767,117 @@ def _stream_hosts_live(
     return collected_rows
 
 
+@session_group.command("backfill")
+@click.option(
+    "--host",
+    "hosts_filter",
+    multiple=True,
+    type=click.Choice(list(SUPPORTED_SESSION_IMPORT_HOSTS)),
+    help="Host(s) to backfill (default: claude, codex, opencode).",
+)
+@click.option(
+    "--limit",
+    default=200,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Max transcripts to scan per host, most recent first.",
+)
+@click.option(
+    "--min-saved",
+    "min_saved_usd",
+    default=0.01,
+    show_default=True,
+    type=float,
+    help="Skip sessions with less than this much estimated savings.",
+)
+@click.option("--dry-run", is_flag=True, help="Report what would be backfilled without writing anything.")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON.")
+@click.pass_context
+def session_backfill_cmd(
+    ctx: click.Context,
+    hosts_filter: tuple[str, ...],
+    limit: int,
+    min_saved_usd: float,
+    dry_run: bool,
+    as_json: bool,
+) -> None:
+    """Backfill the savings ledger from sessions LemonCrow never saw.
+
+    Reconstructs the counterfactual saving for each qualifying past session
+    (the same estimate ``lc session replay`` shows) and persists it into the
+    savings ledger, so historical usage in ~/.claude, ~/.codex, ~/.opencode
+    (and other supported hosts) counts toward `lc savings` / `lc account
+    cap`. Only sessions that never ran with LemonCrow get a row; sessions
+    already tracked (live or previously backfilled) are always skipped, so
+    re-running is safe and never double-counts.
+    """
+    from lemoncrow.core.capabilities.savings_summary import reconcile_savings_aggregate
+    from lemoncrow.core.capabilities.session_backfill import backfill_host_savings
+
+    root: Path = ctx.obj["root"]
+    hosts = list(hosts_filter) if hosts_filter else ["claude", "codex", "opencode"]
+    per_host: dict[str, Any] = {}
+    total_saved = 0.0
+    total_sessions = 0
+    errored: list[str] = []
+    for host in hosts:
+        if not as_json:
+            click.echo(f"Scanning up to {limit} {host} session(s)…", err=True)
+        result = backfill_host_savings(root, host, limit=limit, min_saved_usd=min_saved_usd, dry_run=dry_run)
+        if result.load_error:
+            errored.append(host)
+            if not as_json:
+                click.secho(f"  {host}: could not read sessions — {result.load_error}", fg="red", err=True)
+        per_host[host] = {
+            "scanned": result.scanned,
+            "backfilled": len(result.backfilled),
+            "already_tracked": result.already_tracked,
+            "ran_with_lemoncrow": result.ran_with_lemoncrow,
+            "below_threshold": result.below_threshold,
+            "unparseable": result.unparseable,
+            "saved_usd": result.total_saved_usd,
+            "load_error": result.load_error,
+        }
+        total_saved += result.total_saved_usd
+        total_sessions += len(result.backfilled)
+
+    # Every host failing to even read its store is an error, not "nothing to
+    # do": exit nonzero so a scripted run can tell a broken store from an empty
+    # one. A partial failure stays exit 0 with a stderr warning per host.
+    all_failed = bool(hosts) and len(errored) == len(hosts)
+
+    if not dry_run and total_sessions:
+        reconcile_savings_aggregate(root)
+
+    if as_json:
+        _emit(
+            {
+                "dry_run": dry_run,
+                "hosts": per_host,
+                "sessions_backfilled": total_sessions,
+                "saved_usd": round(total_saved, 4),
+                "errors": errored,
+            },
+            as_json=True,
+        )
+        if all_failed:
+            ctx.exit(1)
+        return
+
+    for host, stats in per_host.items():
+        click.echo(
+            f"  {host}: {stats['scanned']} scanned, {stats['backfilled']} backfilled "
+            f"(${stats['saved_usd']:.2f}) · {stats['already_tracked']} already tracked, "
+            f"{stats['ran_with_lemoncrow']} ran with LemonCrow, {stats['below_threshold']} below threshold"
+        )
+    verb = "Would backfill" if dry_run else "Backfilled"
+    click.secho(f"{verb} {total_sessions} session(s), ${total_saved:.2f} estimated savings.", fg="green")
+    if not dry_run and total_sessions:
+        click.echo("  lc savings   (see the updated total)")
+    if all_failed:
+        ctx.exit(1)
+
+
 @session_group.command("list")
 @click.option(
     "--host",

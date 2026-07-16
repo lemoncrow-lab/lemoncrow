@@ -312,6 +312,28 @@ def servicectl_start(
     click.echo(f"started servicectl (pid {proc.pid})")
 
 
+def _signal_process_group(pid: int, sig: int) -> None:
+    """Signal the controller's whole process group, tolerating a pid that is
+    alive but not a group leader.
+
+    The controller starts with ``start_new_session=True`` (gid == pid), so
+    ``killpg`` is correct for a genuinely-started controller. But a stale
+    pidfile whose pid has been recycled by an unrelated, non-leader process
+    makes ``killpg`` raise ``ProcessLookupError`` (no group with that pgid),
+    which would otherwise crash ``lc servicectl stop`` with a traceback and
+    leave the pidfile in place forever. Fall back to signalling just the pid,
+    and treat an already-gone process as success (the caller's running-check
+    clears the pidfile).
+    """
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
 @servicectl_group.command("stop")
 @click.option("--force", is_flag=True, help="Use SIGKILL if SIGTERM does not stop the process.")
 @click.option("--json", "as_json", is_flag=True)
@@ -332,7 +354,13 @@ def servicectl_stop(ctx: click.Context, force: bool, as_json: bool) -> None:
             click.echo("servicectl is not running")
         return
 
-    os.kill(pid, signal.SIGTERM)
+    # The controller is started with start_new_session=True (its own process
+    # group, gid == pid) and its periodic tick spawns child subprocesses
+    # (import/recall-index/workspace-prune) that inherit that group. Signal
+    # the whole group, not just the controller pid, or a long-running child
+    # (workspace prune can run up to 10 minutes) survives as an orphan and
+    # keeps writing into the store after this command reports "stopped".
+    _signal_process_group(pid, signal.SIGTERM)
     deadline = time.time() + 5
     while _pid_is_running(pid) and time.time() < deadline:
         time.sleep(0.1)
@@ -343,7 +371,7 @@ def servicectl_stop(ctx: click.Context, force: bool, as_json: bool) -> None:
             else:
                 click.echo(f"servicectl (pid {pid}) did not stop after SIGTERM; retry with --force", err=True)
             ctx.exit(1)
-        os.kill(pid, signal.SIGKILL)
+        _signal_process_group(pid, signal.SIGKILL)
         kill_deadline = time.time() + 5
         while _pid_is_running(pid) and time.time() < kill_deadline:
             time.sleep(0.1)

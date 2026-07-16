@@ -3,8 +3,10 @@
 The client sends monotonic cumulative totals. The server owns the per-device
 watermark and derives the delta transactionally, so local watermark deletion,
 concurrent reporters, and lost-response retries cannot reset or double-count
-usage. Anonymous clients also refresh their signed verdict every two hours,
-well before its eight-hour expiry, even when no new usage was recorded.
+usage. Every identity — anonymous AND authenticated — refreshes its signed
+cap verdict every two hours, well before its eight-hour expiry, even when no
+new usage was recorded: an idle-but-under-cap account must never go dormant
+just because no new savings landed.
 """
 
 from __future__ import annotations
@@ -131,8 +133,16 @@ def report_usage_once(
     http_post: _HttpPost | None = None,
     now: int | None = None,
     watermark: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> bool:
-    """Post a cumulative device total and persist a fresh signed verdict."""
+    """Post a cumulative device total and persist a fresh signed verdict.
+
+    ``force`` skips the nothing-changed short-circuit: identity transitions
+    (login/logout/init) and the MCP server's dormant self-heal need a fresh
+    mint even when the cumulative totals are unchanged, because the signed
+    verdict is bound to (account, device, plan) and the previous identity's
+    token no longer verifies.
+    """
     token = store.load_auth_token()
     is_anon = not token
     machine_hash = _machine_hash()
@@ -144,11 +154,21 @@ def report_usage_once(
     wm = _read_watermark(root, identity) if watermark is None else watermark
 
     try:
-        from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
+        from lemoncrow.core.capabilities.savings_summary import (
+            aggregate_window_savings,
+            synthetic_backfill_saved_usd,
+        )
 
         lifetime = aggregate_window_savings(Path(root), days=_LIFETIME_DAYS)
         saved_usd = round(max(0.0, float(getattr(lifetime, "saved_usd", 0.0))), 4)
         spend_usd = round(max(0.0, float(getattr(lifetime, "spend_usd", 0.0))), 4)
+        # Synthetic reconcile/backfill rows correct only the LOCAL display; never
+        # report them as this device's measured savings. The server derives a
+        # per-device delta from the cumulative we send, so re-reporting reconcile
+        # rows (derived FROM the server figure) makes it double-count them as
+        # fresh usage -- a runaway account-inflation loop -- and backfilled
+        # estimates would consume the plan's real cap for savings never delivered.
+        saved_usd = round(max(0.0, saved_usd - synthetic_backfill_saved_usd(root)), 4)
     except Exception:  # noqa: BLE001
         return False
 
@@ -156,10 +176,14 @@ def report_usage_once(
     prior_spend = float(wm.get("reported_spend_usd") or 0.0)
     need_bootstrap = is_anon and not anon_token
     last_verdict = float(wm.get("verdict_at") or 0.0)
-    need_refresh = is_anon and stamp - last_verdict >= VERDICT_REFRESH_SECONDS
+    # ALL identities re-mint on this cadence, not just anonymous ones: an
+    # authenticated identity's first report fires through it too (its
+    # watermark starts empty), and an idle authenticated device keeps a live
+    # verdict instead of going dormant when the old token expires.
+    need_refresh = stamp - last_verdict >= VERDICT_REFRESH_SECONDS
     has_new_usage = saved_usd > prior_saved or spend_usd > prior_spend
     counter_regressed = saved_usd < prior_saved or spend_usd < prior_spend
-    if not has_new_usage and not counter_regressed and not need_bootstrap and not need_refresh:
+    if not force and not has_new_usage and not counter_regressed and not need_bootstrap and not need_refresh:
         return False
 
     payload: dict[str, Any] = {

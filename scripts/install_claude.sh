@@ -257,6 +257,14 @@ if [[ -n "$INCLUDE_SKILLS" ]]; then
     SKILL_BUILDER_ARGS+=("--include-skills=${INCLUDE_SKILLS}")
 fi
 run bash "$SKILL_BUILDER" "${SKILL_BUILDER_ARGS[@]}"
+# NOTE: integrations/claude/plugin/settings.json must NOT carry an "agent"
+# key. Claude Code merges a plugin-bundled settings.json's "agent" default
+# every session regardless of what session_start_bootstrap() pops from the
+# managed ~/.claude/settings.json (or a workspace .claude/settings.json) --
+# a static value here would permanently re-assert lemoncrow:code and make
+# the dormant-agent pop below (and the analogous write further down) a
+# no-op. The "agent" default is instead seeded only into CLAUDE_SETTINGS
+# below, the one location the dormancy Layer 2 can actually clear.
 run cp "${SOURCE_PLUGIN_DIR}/settings.json" "$STAGING_DIR/"
 # .mcp.json is deliberately NOT staged into the plugin (neither mode). Any
 # server Claude Code discovers inside an installed plugin package gets

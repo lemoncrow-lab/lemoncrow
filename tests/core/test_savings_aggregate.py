@@ -19,6 +19,7 @@ from lemoncrow.core.capabilities import savings_summary as ss
 from lemoncrow.core.capabilities.savings_summary import (
     _read_historical_savings_many,
     _window_from_aggregate,
+    aggregate_usage_totals_since_day,
     recompute_savings_aggregate,
     reconcile_savings_aggregate,
 )
@@ -174,6 +175,68 @@ def test_carry_attributed_per_day(tmp_path: Path) -> None:
     _assert_windows_equal(w, _windows(recompute_savings_aggregate(root)))
 
 
+def _write_transcript(claude_root: Path, session_id: str, events: list[dict[str, Any]]) -> Path:
+    p = claude_root / "projects" / "proj" / f"{session_id}.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in events) + "\n", encoding="utf-8")
+    return p
+
+
+def _assistant_turn(ts_epoch: float, *, in_t: int, out_t: int, tool: str | None = None) -> dict[str, Any]:
+    content: list[dict[str, Any]] = [{"type": "text", "text": "ok"}]
+    if tool:
+        content = [{"type": "tool_use", "name": tool, "id": f"tu-{ts_epoch}", "input": {}}]
+    return {
+        "type": "assistant",
+        "timestamp": datetime.fromtimestamp(ts_epoch, UTC).isoformat().replace("+00:00", "Z"),
+        "message": {
+            "id": f"msg-{ts_epoch}",
+            "model": "claude-sonnet-4-6",
+            "usage": {"input_tokens": in_t, "output_tokens": out_t},
+            "content": content,
+        },
+    }
+
+
+def test_aggregate_usage_totals_since_day_reads_real_transcript_usage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tokens_processed/calls_made/time_spent_seconds are real per-session
+    transcript totals (read_transcript_stats), not derived from the $-savings
+    ledger -- independent of aggregate_savings_since_day's bucket machinery."""
+    root = tmp_path / ".lemoncrow"
+    claude_root = tmp_path / "claude_home"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_root))
+
+    in_range_ts = NOW - 1 * DAY
+    _append(root, "aggtest-usage", [_end_row(in_range_ts, 1.0)])
+    _write_transcript(
+        claude_root,
+        "aggtest-usage",
+        [
+            _assistant_turn(in_range_ts, in_t=100, out_t=50, tool="Bash"),
+            _assistant_turn(in_range_ts + 330, in_t=80, out_t=30),
+        ],
+    )
+
+    # A second session outside the (since_day, today) window must be excluded.
+    out_of_range_ts = NOW - 10 * DAY
+    _append(root, "aggtest-old", [_end_row(out_of_range_ts, 1.0)])
+    _write_transcript(
+        claude_root,
+        "aggtest-old",
+        [_assistant_turn(out_of_range_ts, in_t=999, out_t=999, tool="Bash")],
+    )
+
+    since_day = ss._day_key(NOW - 2 * DAY)
+    today = ss._day_key(NOW)
+    totals = aggregate_usage_totals_since_day(root, since_day=since_day, today=today)
+
+    assert totals["tokens_processed"] == 260  # (100+50) + (80+30), old session excluded
+    assert totals["calls_made"] == 1  # one tool_use, in the in-range session only
+    assert totals["time_spent_seconds"] == pytest.approx(330.0)
+
+
 def test_first_savings_ts_folds_min(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     p1 = _append(root, "aggtest-t1", [_row(NOW - 3600, 10, 0.1)])
@@ -189,3 +252,25 @@ def test_first_savings_ts_folds_min(tmp_path: Path) -> None:
     assert first_after_old == pytest.approx(NOW - 9 * DAY)
     _append(root, "aggtest-t2", [_row(NOW - 60, 5, 0.05)])
     assert reconcile_savings_aggregate(root)["first_ts"] == pytest.approx(first_after_old)
+
+
+def test_turn_cut_rows_populate_turns_avoided(tmp_path: Path) -> None:
+    """turn_cut rows (whole avoided turns) sum into the daily rollup's
+    turns_avoided, and still count toward calls_avoided (the credit rides
+    the row's ``calls`` field)."""
+    from lemoncrow.core.capabilities.savings_summary import aggregate_savings_since_day
+
+    root = tmp_path / ".lemoncrow"
+    yday = NOW - DAY
+    _append(
+        root,
+        "turncut-1",
+        [
+            _row(yday, 1000, 0.5, calls=2),
+            json.dumps({"ts": _iso(yday), "kind": "turn_cut", "calls": 7, "calls_usd": 0.3}),
+        ],
+    )
+    totals, last_day = aggregate_savings_since_day(root, since_day="2000-01-01", today=_iso(NOW)[:10])
+    assert last_day == _iso(yday)[:10]
+    assert totals["turns_avoided"] == 7
+    assert totals["calls_avoided"] == 9  # 2 tool calls + 7 turn_cut credit

@@ -2366,7 +2366,9 @@ _SAVINGS_AGGREGATE_FILENAME = "savings_aggregate.json"
 # shared _is_read_lever rule) and carry_tokens (column 9, from the
 # session_end row's carry_tokens field); version gate forces a from-scratch
 # rebuild of any persisted v1/v2 aggregate on first read.
-_SAVINGS_AGGREGATE_VERSION = 3
+# v4: day buckets grew turns_avoided (column 12), summed from turn_cut rows'
+# whole-avoided-turn credit, so the daily public rollup can surface it.
+_SAVINGS_AGGREGATE_VERSION = 4
 
 _aggregate_lock = threading.Lock()
 _aggregate_state: dict[str, dict[str, Any]] = {}  # root_str -> aggregate
@@ -2416,7 +2418,7 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
     days: dict[str, list[float]] = {}
 
     def _bucket(ts: float) -> list[float]:
-        return days.setdefault(_day_key(ts), [0.0] * 12)
+        return days.setdefault(_day_key(ts), [0.0] * 13)
 
     end_ts = 0.0
     end_spend = 0.0
@@ -2455,6 +2457,12 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
             b[0] += row_usd
             b[1] += row_tok
             b[2] += row_calls
+            if str(row.get("kind") or "") == "turn_cut":
+                # Whole avoided turns (bench-calibrated turn-cut credit): the
+                # count rides row["calls"] (already inside b[2]/b[0]). Tracked
+                # separately in col 12 so the daily public rollup can surface
+                # "turns saved" distinctly from tool-call avoidance.
+                b[12] += row_calls
             if row_usd > 0 or row_tok > 0:
                 b[3] += 1
             if str(row.get("kind") or "") == "output_style":
@@ -2858,6 +2866,43 @@ def aggregate_window_savings(root: str | Path, *, days: int) -> WindowSavings:
     )
 
 
+def synthetic_backfill_saved_usd(root: str | Path) -> float:
+    """Total $ from synthetic ``kind == "backfill"`` rows across the whole ledger.
+
+    Both writers of these rows -- ``reconcile_local_savings_gap`` (self-heal a
+    lost ledger) and ``lc session backfill`` (estimate never-tracked history) --
+    stamp ``kind: "backfill"``. They exist ONLY to correct the LOCAL display
+    total and must be subtracted from the cumulative
+    :func:`usage_report.report_usage_once` sends the server: the server derives a
+    per-device delta from that cumulative, so re-reporting reconcile rows (which
+    are themselves derived FROM the server's own figure) makes it double-count
+    them as fresh device usage -- a runaway account-inflation loop across devices
+    -- and backfilled estimates would consume the plan's real cap for savings
+    that were never actually delivered through LemonCrow.
+
+    Priced through the shared :func:`_price_savings_row` so it subtracts exactly
+    the dollars those rows contributed to the reported ``saved_usd``.
+    """
+    total = 0.0
+    for p, _mtime, _size in _scan_savings_files(Path(root)):
+        try:
+            with p.open(encoding="utf-8") as fh:
+                for raw in fh:
+                    if '"backfill"' not in raw:  # cheap pre-filter before JSON parse
+                        continue
+                    try:
+                        row = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if str(row.get("kind") or "") != "backfill":
+                        continue
+                    _pt, usd, _c, _cu, _up = _price_savings_row(row)
+                    total += usd
+        except OSError:
+            continue
+    return round(total, 6)
+
+
 def aggregate_savings_since_day(
     root: str | Path, *, since_day: str, today: str
 ) -> tuple[dict[str, float | int], str | None]:
@@ -2881,6 +2926,7 @@ def aggregate_savings_since_day(
         "tokens_saved": 0,
         "calls_avoided": 0,
         "turn_count": 0,
+        "turns_avoided": 0,
         "est_cost_usd": 0.0,
         "carry_usd": 0.0,
         "output_saved_tokens": 0,
@@ -2899,9 +2945,113 @@ def aggregate_savings_since_day(
             totals["carry_usd"] = float(totals["carry_usd"]) + float(vals[5])
             totals["output_saved_tokens"] = int(totals["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
             totals["output_saved_usd"] = float(totals["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
+            totals["turns_avoided"] = int(totals["turns_avoided"]) + int(vals[12] if len(vals) > 12 else 0)
             if last_day is None or day > last_day:
                 last_day = day
     return totals, last_day
+
+
+def _usage_epoch(ts: object) -> float | None:
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return (dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt).timestamp()
+
+
+def _session_real_usage(host: str, session_id: str) -> tuple[int, int, float]:
+    """Real (not saved) tokens-processed / tool-calls / wall-time for ONE
+    session, for ANY host.
+
+    Claude keeps its precise per-turn API accounting
+    (:func:`read_transcript_stats`, incl. subagent transcripts). Every other
+    host is derived from the shared host-agnostic turn parser
+    (``parse_session_turns`` via ``locate_transcript``) so codex/opencode/copilot
+    sessions count toward the daily public rollup instead of silently
+    contributing zero. ``tokens_processed`` is input+output on both paths (cache
+    tokens excluded), and tool calls reuse the same ``{tool_call, file_edit,
+    shell_command}`` classification :func:`session_replay.build_replay` uses.
+    """
+    if host == "claude":
+        candidates = claude_transcript_candidates(session_id)
+        if not candidates:
+            return 0, 0, 0.0
+        stats = read_transcript_stats(candidates[0])
+        if stats is None or not stats.turn_usage:
+            return 0, 0, 0.0
+        epochs = [e for e in (_usage_epoch(r.get("ts") or "") for r in stats.turn_usage) if e is not None]
+        span = max(0.0, max(epochs) - min(epochs)) if epochs else 0.0
+        return stats.total_tokens, stats.tool_calls, span
+
+    from lemoncrow.core.capabilities.session_replay import locate_transcript
+    from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
+
+    path = locate_transcript(host, session_id)
+    if path is None:
+        return 0, 0, 0.0
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0, 0, 0.0
+    turns = parse_session_turns(content, host)
+    tool_kinds = {"tool_call", "file_edit", "shell_command"}
+    calls = sum(1 for t in turns if t.get("kind") in tool_kinds)
+    tokens = 0
+    turn_epochs: list[float] = []
+    for t in turns:
+        tok = t.get("tokens")
+        if isinstance(tok, dict):
+            for k in ("input", "output", "input_tokens", "output_tokens"):
+                v = tok.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    tokens += int(v)
+        e = _usage_epoch(t.get("at") or "")
+        if e is not None:
+            turn_epochs.append(e)
+    span = max(0.0, max(turn_epochs) - min(turn_epochs)) if turn_epochs else 0.0
+    return tokens, calls, span
+
+
+def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today: str) -> dict[str, float | int]:
+    """Real (not saved) tokens processed / calls made / session time, across
+    EVERY host's sessions, for the daily public rollup window.
+
+    Per session, the whole session's real usage is attributed to its
+    FIRST-activity day (earliest savings day-bucket) and counted only in the
+    single flush window that day falls in -- a session active across several
+    flushes is counted exactly once. Real usage is resolved per host by
+    :func:`_session_real_usage` (Claude via the precise ``read_transcript_stats``
+    accounting, other hosts via the shared ``parse_session_turns`` classifier),
+    so codex/opencode/copilot are no longer silently dropped.
+
+    Independent of :func:`aggregate_savings_since_day`'s bucket/cache machinery
+    on purpose: this must never risk the $ figures the statusline, ``/savings``,
+    and cap-gating already rely on being exactly right.
+    """
+    root_path = Path(root)
+    agg = reconcile_savings_aggregate(root_path)
+    totals: dict[str, float | int] = {
+        "tokens_processed": 0,
+        "calls_made": 0,
+        "time_spent_seconds": 0.0,
+    }
+
+    for session_key, entry in agg.get("sessions", {}).items():
+        days = entry.get("days") or {}
+        if not days:
+            continue
+        first_day = min(days)
+        if not (since_day < first_day < today):
+            continue
+        key_path = Path(str(session_key))
+        host = key_path.parent.name or "claude"
+        tokens, calls, seconds = _session_real_usage(host, key_path.name)
+        totals["tokens_processed"] = int(totals["tokens_processed"]) + tokens
+        totals["calls_made"] = int(totals["calls_made"]) + calls
+        totals["time_spent_seconds"] = float(totals["time_spent_seconds"]) + seconds
+    return totals
 
 
 def _first_savings_ts(root: Path) -> float:
@@ -2969,6 +3119,12 @@ def _resolve_lemoncrow_root(lemoncrow_root: str | Path | None) -> Path:
     if env_root:
         return Path(env_root)
     return Path.home() / ".lemoncrow"
+
+
+# Stable substring of the login-nudge frame text, so savings_segment can tell
+# when that frame is the one being rendered (to stamp the once-per-day marker
+# at display time rather than at build time).
+_LOGIN_NUDGE_MARK = "/lemoncrow account login"
 
 
 def savings_frames(
@@ -3104,10 +3260,12 @@ def savings_frames(
     if summary.status_text:
         frames.append((False, _colorize_tip(summary.status_text, C_DIM, C_BRAND, C_RESET)))
 
-    # Login nudge frame (free/unauthenticated only): fold a sign-in reminder
-    # into the rotating frames so free users see it on every cycle, instead of
-    # the once-a-day statusline.sh marker (which this replaces). Same auth
-    # signal as the MCP FeatureLocked path -- LEMONCROW_AUTH_TOKEN env, then
+    # Login nudge frame (free/unauthenticated only): a sign-in reminder folded
+    # into the rotating frames. Throttled to once per calendar day (same
+    # cadence/marker-file pattern as the old statusline.sh LOGIN_SEG and the
+    # STALE_SEG/TIP_SEG nudges below it) -- showing it on every rotation was
+    # reported as way too naggy for free users mid-session. Same auth signal
+    # as the MCP FeatureLocked path -- LEMONCROW_AUTH_TOKEN env, then
     # <root>/auth_token (see licensing/store.py load_auth_token). Read from the
     # resolved `root` directly (not load_auth_token, which keys off
     # default_store_root and would ignore the lemoncrow_root param). The
@@ -3121,9 +3279,22 @@ def savings_frames(
     except OSError:
         _signed_in = True  # unknown auth state -> never nag
     if not _signed_in:
-        frames.append(
-            (False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow account login{C_DIM} to unlock Pro{C_RESET}")
-        )
+        _today = time.strftime("%Y-%m-%d")
+        _login_marker = root / "login_nudge_shown_date"
+        try:
+            _login_last = _login_marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            _login_last = ""
+        if _login_last != _today:
+            # The marker is stamped at DISPLAY time (savings_segment), NOT on
+            # build: stamping here let the FIRST of the many per-day builds
+            # "consume" the day before the nudge was ever the rendered frame, so
+            # the next rebuild seconds later dropped it and the reminder was
+            # marked shown without ever appearing. Kept in the rotation until
+            # actually displayed.
+            frames.append(
+                (False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow account login{C_DIM} to unlock Pro{C_RESET}")
+            )
 
     # Frame 0 (cost+savings+carry) gets 3 slots at 5s each = ~15s; others get 5s
     # each. Weighting frame 0 higher than this made the line feel static — the
@@ -3174,7 +3345,16 @@ def savings_segment(
         return ""
     root = _resolve_lemoncrow_root(lemoncrow_root)
     idx = _get_frame_index(root / "statusline_frame_state.json", len(frames))
-    return frames[idx]
+    chosen = frames[idx]
+    if _LOGIN_NUDGE_MARK in chosen:
+        # Stamp the once-per-day nudge marker only now that it is the frame we
+        # actually return (savings_frames builds it but no longer stamps).
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "login_nudge_shown_date").write_text(time.strftime("%Y-%m-%d"), encoding="utf-8")
+        except OSError:
+            logging.exception("Recovered from broad exception handler")
+    return chosen
 
 
 def dynamic_status_line(

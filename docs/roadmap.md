@@ -7,12 +7,14 @@ This roadmap tracks shipped capabilities against what's in active development. D
 ## Shipped capabilities
 
 ### Model routing
+
 - Per-turn model routing (`ModelRouter`) with session-phase awareness
 - Cross-vendor routing — scores across available providers per turn
 - Complexity scoring, cache-cost awareness, stickiness, success prediction
 - Quality-aware routing with execution contracts
 
 ### Context & memory
+
 - Dynamic context compaction with LLM hints (task type, risk level, must-keep)
 - Sleeptime summarization and deduplication
 - Persistent memory store (SQLite/PostgreSQL) with archival recall
@@ -21,12 +23,14 @@ This roadmap tracks shipped capabilities against what's in active development. D
 - Symbol-based memory recall
 
 ### Cost tracking
+
 - Per-session cost reports with actual vs counterfactual costs
 - `lc savings` and `lc dashboard` commands
 - Aggregate cost and token savings with reset support
 - Counterfactual pricing engine
 
 ### Code intelligence
+
 - Symbol-first code index with multi-language support
 - AST pattern matching (ast-grep) with rewrite support
 - Call graph (callers/callees) with centrality scoring
@@ -37,6 +41,7 @@ This roadmap tracks shipped capabilities against what's in active development. D
 - Repo-map with PageRank
 
 ### CLI & service surface
+
 - MCP server (local and remote modes)
 - OpenAI-compatible `/v1/chat/completions` gateway
 - Runtime commands: runs, ledger, swarm, lessons, benchmarks
@@ -47,22 +52,32 @@ This roadmap tracks shipped capabilities against what's in active development. D
 - Background services with auto-update
 
 ### Host integrations
+
 - Claude Code, Codex, Copilot, OpenCode, Cursor, Antigravity, Hermes
 - SDK adapters (Anthropic tools, OpenAI SDK hooks, LangChain middleware)
 
 ### Storage & telemetry
+
 - SQLite and PostgreSQL storage backends
 - pgvector for embedding similarity search
 - OpenTelemetry → PostHog + GCP, local-first, anonymous
 
+## Product direction
+
+LemonCrow is not building a general-purpose organizational knowledge warehouse. External systems such as Jira, Confluence, GitHub, and repositories remain sources of truth. The direction is the execution last mile:
+
+\`code + ticket + docs → task working set → agent run → tests/review → source-linked memory\`
+
+Future team context must be reviewable, permission-aware, tied to source and commit provenance, checked for staleness, and promoted from verified outcomes rather than raw transcripts. These are direction statements, not shipped-feature claims.
+
 ## Active development
 
-| Area | Description |
-|------|-------------|
-| Optimization advisor | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
-| Cross-machine sync | Encrypted workspace sync across machines |
-| Web dashboard | Browser-based spend trends and management |
-| Benchmark publication | One-command export to publishable JSON + markdown |
+| Area                  | Description                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| Optimization advisor  | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
+| Cross-machine sync    | Encrypted workspace sync across machines                                                 |
+| Web dashboard         | Browser-based spend trends and management                                                |
+| Benchmark publication | One-command export to publishable JSON + markdown                                        |
 
 ## Not planned
 

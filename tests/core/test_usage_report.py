@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,49 @@ def _patch(
         return {"capVerdictToken": "signed.cap.token"}
 
     return posted, _post
+
+
+def test_synthetic_reconcile_backfill_rows_excluded_from_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Reconcile self-heal + `lc session backfill` rows (kind=backfill) correct
+    # only the LOCAL display; reporting them as this device's cumulative would
+    # make the server double-count them (runaway account inflation) and consume
+    # the plan cap with never-delivered estimates.
+    from lemoncrow.core.capabilities.licensing import store
+
+    monkeypatch.setattr(store, "load_auth_token", lambda: "tok")
+    monkeypatch.setattr(store, "load_auth_base", lambda: "https://api.test")
+    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "device-1")
+
+    def _seed(rel: tuple[str, ...], row: dict) -> None:
+        p = tmp_path.joinpath("sessions", *rel, "savings.jsonl")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    _seed(
+        ("2026", "01", "01", "claude", "real"),
+        {"tool": "code_search", "tokens": 1000, "cost_saved_usd": 10.0, "ts": "2026-01-01T00:00:00"},
+    )
+    _seed(
+        ("2026", "01", "02", "_reconcile", "ledger-gap"),
+        {"tool": "reconcile", "kind": "backfill", "tokens": 1, "cost_saved_usd": 6.0, "ts": "2026-01-02T00:00:00"},
+    )
+    _seed(
+        ("2026", "01", "03", "codex", "sid9"),
+        {"tool": "code_search", "kind": "backfill", "tokens": 500, "cost_saved_usd": 4.0, "ts": "2026-01-03T00:00:00"},
+    )
+
+    posted: list[dict] = []
+
+    def _post(url: str, payload: dict, tok: str) -> dict:
+        posted.append(payload)
+        return {"capVerdictToken": "signed.cap.token"}
+
+    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
+    # Display total across all rows is $20; only the $10 of real measured
+    # savings may reach the server.
+    assert posted[-1]["cumulative_saved_usd"] == 10.0
 
 
 def test_reports_cumulative_total_then_skips_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -152,6 +196,44 @@ def test_anonymous_refreshes_verdict_without_new_usage(monkeypatch: pytest.Monke
         is True
     )  # type: ignore[arg-type]
     assert calls[0] == calls[1]
+
+
+def test_authenticated_first_report_mints_at_zero_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A fresh pro login with no local savings yet MUST still mint a verdict:
+    # the gate is fail-closed, so "no token" means dormant/empty tool list.
+    # (This was the login-then-still-dormant bug: bootstrap was anon-only.)
+    posted, post = _patch(monkeypatch, token="tok", saved=0.0)
+    assert ur.report_usage_once(tmp_path, http_post=post, now=1_000_000) is True  # type: ignore[arg-type]
+    assert posted[-1]["url"].endswith("/api/usage/report")
+
+
+def test_authenticated_refreshes_verdict_without_new_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Verdict tokens expire in ~8h. An idle-but-under-cap authenticated device
+    # must re-mint on the same 2h cadence as anonymous ones, or an overnight
+    # pause turns a paying account dormant.
+    posted, post = _patch(monkeypatch, token="tok", saved=25.0)
+    start = 1_000_000
+    assert ur.report_usage_once(tmp_path, http_post=post, now=start) is True  # type: ignore[arg-type]
+    assert ur.report_usage_once(tmp_path, http_post=post, now=start + 60) is False  # type: ignore[arg-type]
+    assert (
+        ur.report_usage_once(
+            tmp_path,
+            http_post=post,  # type: ignore[arg-type]
+            now=start + ur.VERDICT_REFRESH_SECONDS + 1,
+        )
+        is True
+    )
+    assert len(posted) == 2
+
+
+def test_force_mints_even_when_nothing_changed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Identity transitions (login/logout) and the MCP server's dormant
+    # self-heal pass force=True: unchanged totals must not skip the mint.
+    posted, post = _patch(monkeypatch, token="tok", saved=25.0)
+    assert ur.report_usage_once(tmp_path, http_post=post, now=1_000_000) is True  # type: ignore[arg-type]
+    assert ur.report_usage_once(tmp_path, http_post=post, now=1_000_001) is False  # type: ignore[arg-type]
+    assert ur.report_usage_once(tmp_path, http_post=post, now=1_000_002, force=True) is True  # type: ignore[arg-type]
+    assert len(posted) == 2
 
 
 def test_anonymous_presents_cached_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

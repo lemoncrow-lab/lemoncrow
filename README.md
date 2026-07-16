@@ -6,9 +6,9 @@
 
 # LemonCrow Runtime
 
-### Honest and benchmark proven — a faster Agent: one-shot code search, **37.7% fewer turns**, **23.7% less wall-clock** (and average 30% cheaper)
+### Keep your coding agent sharp on real codebases.
 
-Keep using Claude Code normally — LemonCrow sits underneath it and gives the agent better search, shorter file reads, compact command output, and reusable memory.
+LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls. On matched SWE-bench Verified runs: **+12.0pp resolved**, **37.7% fewer turns**, and **23.7% faster** — same model.
 
 [![License](https://img.shields.io/badge/License-Apache--2.0%20%2B%20proprietary%20engine-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrowhq/lemoncrow?style=flat-square)](https://github.com/lemoncrowhq/lemoncrow/releases)
@@ -23,18 +23,13 @@ Keep using Claude Code normally — LemonCrow sits underneath it and gives the a
 [![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-coming_soon-lightgray?style=flat-square)](scripts/install_hermes.sh)
 [![Antigravity](https://img.shields.io/badge/Antigravity-coming_soon-lightgray?style=flat-square)](integrations/antigravity)
 
-**Live savings and time saved across LemonCrow sessions**
+**Matched proof, same model:** 92.8% vs 80.8% resolved · 37.7% fewer turns · 23.7% faster · [raw runs published](BENCHMARKS.md)
 
-[![Cost saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dsavings&style=for-the-badge&color=04ba0d)](https://lemoncrow.com)
-[![Tokens less](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dtokens&style=for-the-badge&color=7904b8)](https://lemoncrow.com)
-[![Calls avoided](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dcalls&style=for-the-badge&color=eae4ed)](https://lemoncrow.com)
-[![Time saved](https://img.shields.io/endpoint?url=https%3A%2F%2Flemoncrow.com%2Fapi%2Fbadge%3Fmetric%3Dtime&style=for-the-badge&color=9b75d9)](https://lemoncrow.com)
-
-[Install](#install-in-30-seconds) · [Check your savings first](#check-your-own-savings) · [Why trust the numbers?](#why-trust-the-numbers) · [Results](#results) · [Pricing](https://lemoncrow.com/pricing)
+[Install](#install-in-30-seconds) · [What changes](#what-changes-for-you) · [Results](#results) · [Code-search benchmark](#one-shot-code-search-vs-10-named-tools) · [Pricing](https://lemoncrow.com/pricing)
 
 [![LemonCrow running inside Claude Code -- statusline tracking cost, context, and savings live](docs/assets/terminal-demo.gif)](https://lemoncrow.com/#terminal)
 
-*Click for the full walkthrough on [lemoncrow.com](https://lemoncrow.com/#terminal).*
+_Click for the full walkthrough on [lemoncrow.com](https://lemoncrow.com/#terminal)._
 
 </div>
 
@@ -68,12 +63,12 @@ lc doctor
 
 LemonCrow does not ask you to learn a new coding app. It improves the work Claude Code already does:
 
-| Before                                                       | With LemonCrow                                                                   |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Claude greps, reads a whole file, greps again to find code.  | One-shot code search returns the symbol, its callers, and exact ranges in a single call. |
-| The same context gets rediscovered again and again.          | Useful session context can be reused, not re-searched.                         |
-| Long grep-and-read loops burn turns and wall-clock time.     | Fewer round-trips: 37.7% fewer turns, 23.7% less wall-clock on SWE-bench Verified. |
-| Speed and savings are hard to see.                           | A local meter shows turns, tokens, and cost dropping in real time.             |
+| Before                                                                   | With LemonCrow                                                                                        |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| The agent greps, opens broad files, and carries the exploration forward. | Ranked search returns the relevant symbol, relationships, and exact ranges in one call.               |
+| Repeated reads and long logs remain in the working context.              | Outlines, bounded output, duplicate suppression, and recoverable spills keep the working set focused. |
+| Compaction or a new session can lose an earlier decision.                | Durable memory, compaction manifests, and handover packets preserve useful task state.                |
+| A complex task consumes turns assembling context before the fix.         | Matched SWE-bench Verified: +12.0pp resolved, 37.7% fewer turns, and 23.7% faster.                    |
 
 ### What actually gets replaced
 
@@ -81,26 +76,26 @@ LemonCrow does not ask you to learn a new coding app. It improves the work Claud
 
 **Find things in one shot** -- no wandering the codebase call after call.
 
-| LemonCrow tool  | Replaces (hidden from the model) | Why                                                                                                      |
-| --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `code_search` | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
-| `read`        | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                      |
-| `edit`        | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                      |
-| `bash`        | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                       |
-| `web_fetch`   | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                               |
+| LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
+| -------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source -- no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
+| `read`         | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                                                                                       |
+| `edit`         | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                                                                                       |
+| `bash`         | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                                                                                        |
+| `web_fetch`    | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                                                                                                |
 
 What's unchanged: Claude Code itself, the model, your workflow. Full internals: [Architecture](docs/architecture.md).
 
 ### Why a runtime, not just tools
 
-A bare MCP server is a library the model can call *if* it remembers to. A runtime decides what's callable at all — four jobs, four layers:
+A bare MCP server is a library the model can call _if_ it remembers to. A runtime decides what's callable at all — four jobs, four layers:
 
-| Layer                           | Without it                                        | With it                                                                                |
-| -------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Agents** — process isolation  | a "read-only" agent can still edit                | `explore`/`plan`/`research`/`review` hard-deny `edit`/`write` at the host-config level |
-| **Skills** — standard library   | multi-step procedures re-improvised every session | encoded once, invoked the same way every time                                          |
+| Layer                           | Without it                                        | With it                                                                                                                        |
+| ------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Agents** — process isolation  | a "read-only" agent can still edit                | `explore`/`plan`/`research`/`review` hard-deny `edit`/`write` at the host-config level                                         |
+| **Skills** — standard library   | multi-step procedures re-improvised every session | encoded once, invoked the same way every time                                                                                  |
 | **Hooks** — interrupts          | wasteful re-reads; "done" without a check         | bad calls denied before they run; on Claude Code, session close blocked until verification ran (advisory on other hosts today) |
-| **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — LemonCrow tools are the only surface for those jobs                     |
+| **MCP tools** — syscall surface | agents fall back to grep-and-read under pressure  | natives hidden — LemonCrow tools are the only surface for those jobs                                                           |
 
 ### The engine underneath — not just for code
 
@@ -129,8 +124,8 @@ Packaged in [integrations/skills/](integrations/skills/):
 
 | Skill         | What it does                                                 |
 | ------------- | ------------------------------------------------------------ |
-| `lc`     | manage LemonCrow itself via the CLI                            |
-| `benchmark`   | measure savings on *your* repo — offline scan or live A/B    |
+| `lc`          | manage LemonCrow itself via the CLI                          |
+| `benchmark`   | measure savings on _your_ repo — offline scan or live A/B    |
 | `orchestrate` | one structured multi-step task, routed to the right surface  |
 | `swarm`       | N parallel attempts in isolated worktrees — best result wins |
 | `perf-review` | gate a change on measured performance, not read code         |
@@ -164,16 +159,16 @@ Works on Claude Code, Codex, and opencode sessions. The saving is an estimate; t
 
 Measured on the same model, same tasks, and same environment:
 
-| Benchmark                                           | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |        LemonCrow cost | Cost delta |
-| ----------------------------------------------------- | -----------------: | ----------------: | --------------: | ---------------------: | --------------------: | -----------: |
-| SWE-bench Verified, 50 tasks x 5 reps               |            80.8% |       **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** |   **29.5% cheaper** |            |
-| SWE-bench Lite, 10 tasks x 3 reps                   |            93.3% |        **100%** |   **+6.7 pp** |   $12.38 |**$10.79** |   **12.9% cheaper** |            |
-| SWE-bench Pro, 10 tasks x 5 reps                    |            88.0% |       **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** |   **21.5% cheaper** |            |
-| Exploration tasks across 7 large repos x 5 reps     |                - |               - |             - |    $19.11 |**$6.29** |     **67% cheaper** |            |
-| Telegraphic Q&A, 20 prompts x 5 reps                |                - |               - |             - |     $8.93 |**$5.34** |   **40.2% cheaper** |            |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard* |   78.9% expected |           78.7% |       -0.2 pp | $96.76 |**$69.52**† | **28.1% cheaper**† |            |
+| Benchmark                                            | Baseline correct | LemonCrow correct | Correct delta | Baseline cost | LemonCrow cost |         Cost delta |
+| ---------------------------------------------------- | ---------------: | ----------------: | ------------: | ------------: | -------------: | -----------------: | --- |
+| SWE-bench Verified, 50 tasks x 5 reps                |            80.8% |         **92.8%** |  **+12.0 pp** |       $234.84 |    **$165.45** |  **29.5% cheaper** |     |
+| SWE-bench Lite, 10 tasks x 3 reps                    |            93.3% |          **100%** |   **+6.7 pp** |        $12.38 |     **$10.79** |  **12.9% cheaper** |     |
+| SWE-bench Pro, 10 tasks x 5 reps                     |            88.0% |         **90.0%** |   **+2.0 pp** |        $39.01 |     **$30.61** |  **21.5% cheaper** |     |
+| Exploration tasks across 7 large repos x 5 reps      |                - |                 - |             - |        $19.11 |      **$6.29** |    **67% cheaper** |     |
+| Telegraphic Q&A, 20 prompts x 5 reps                 |                - |                 - |             - |         $8.93 |      **$5.34** |  **40.2% cheaper** |     |
+| Terminal-Bench 2.1, 89 tasks vs public leaderboard\* |   78.9% expected |             78.7% |       -0.2 pp |        $96.76 |    **$69.52**† | **28.1% cheaper**† |     |
 
-<sub>* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
+<sub>\* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
@@ -182,41 +177,41 @@ Measured on the same model, same tasks, and same environment:
 SWE-bench Verified detail (250 runs a side) — one-shot search collapses the grep-and-read loop, so turns, wall-clock, and tool calls drop together:
 
 | Metric               | Baseline | LemonCrow |            Delta |
-| ---------------------- | ---------: | --------: | -----------------: |
-| Turns                |    6,962 |   4,336 |  **37.7% fewer** |
-| Wall-clock           |    14.3h |   10.9h | **23.7% faster** |
-| Total tool calls     |    6,700 |   4,167 |       **-37.8%** |
-| Output tokens        |    3.04M |   2.19M |  **27.9% fewer** |
-| Bash                 |    3,327 |   1,785 |       **-46.3%** |
-| Read                 |    1,733 |   1,050 |       **-39.4%** |
-| Edit + Write         |    1,628 |     759 |       **-53.4%** |
-| Search (code_search) |        - |     568 |     lemoncrow-only |
+| -------------------- | -------: | --------: | ---------------: |
+| Turns                |    6,962 |     4,336 |  **37.7% fewer** |
+| Wall-clock           |    14.3h |     10.9h | **23.7% faster** |
+| Total tool calls     |    6,700 |     4,167 |       **-37.8%** |
+| Output tokens        |    3.04M |     2.19M |  **27.9% fewer** |
+| Bash                 |    3,327 |     1,785 |       **-46.3%** |
+| Read                 |    1,733 |     1,050 |       **-39.4%** |
+| Edit + Write         |    1,628 |       759 |       **-53.4%** |
+| Search (code_search) |        - |       568 |   lemoncrow-only |
 
 Exploration detail (7 large repos × 5 reps, read-only Q&A, no edits):
 
-| Tool                          | Baseline calls | LemonCrow calls |        Delta |
-| ------------------------------- | ---------------: | --------------: | -------------: |
-| Read                          |            672 |            23 |   **-96.6%** |
-| Bash                          |            508 |            71 |   **-86.0%** |
-| Search (code_search)          |              - |            23 | lemoncrow-only |
-| Agent + orchestration calls\* |             79 |             1 |   **-98.7%** |
-| Total tool calls              |          1,259 |           118 |   **-90.6%** |
-| input                         |        286,191 |       205,967 |   **-28.0%** |
-| cache read                    |     35,862,919 |     2,753,393 |   **-92.3%** |
-| cache write                   |      2,811,356 |       233,381 |   **-91.7%** |
-| output                        |        426,367 |        68,893 |   **-83.8%** |
-| input + cache write           |      3,097,547 |       439,348 |   **-85.8%** |
+| Tool                          | Baseline calls | LemonCrow calls |          Delta |
+| ----------------------------- | -------------: | --------------: | -------------: |
+| Read                          |            672 |              23 |     **-96.6%** |
+| Bash                          |            508 |              71 |     **-86.0%** |
+| Search (code_search)          |              - |              23 | lemoncrow-only |
+| Agent + orchestration calls\* |             79 |               1 |     **-98.7%** |
+| Total tool calls              |          1,259 |             118 |     **-90.6%** |
+| input                         |        286,191 |         205,967 |     **-28.0%** |
+| cache read                    |     35,862,919 |       2,753,393 |     **-92.3%** |
+| cache write                   |      2,811,356 |         233,381 |     **-91.7%** |
+| output                        |        426,367 |          68,893 |     **-83.8%** |
+| input + cache write           |      3,097,547 |         439,348 |     **-85.8%** |
 
 Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_08`](benchmarks/codebench/results/telegraphic_2026_07_08).
 
 ## One-shot code search vs 10 named tools
 
-The search is the engine: right code in front of the agent on the first try. MRR and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos — 10 tools scored on the identical corpus. LemonCrow's rec@1 of 0.650 means the right code on the very first result two times in three, at 134ms p95:
+The search is the engine: right code in front of the agent on the first try. MRR and first-hit rate (rec@1) across ~7,200 query/gold pairs on 14 repos — 10 tools scored on the identical corpus. LemonCrow semantic search returns the right code first on 65.0% of queries at 390ms p95; the lexical path returns it first on 58.2% at 134ms p95:
 
 | Provider                      |       MRR |     rec@1 |    p95 |
-| ------------------------------- | ----------: | ----------: | -------: |
-| **LemonCrow +semantic (BGE)**   | **0.727** | **0.650** |  390ms |
-| LemonCrow lexical (default)     |     0.676 |     0.582 |  134ms |
+| ----------------------------- | --------: | --------: | -----: |
+| **LemonCrow +semantic (BGE)** | **0.727** | **0.650** |  390ms |
+| LemonCrow lexical (default)   |     0.676 |     0.582 |  134ms |
 | cocoindex-code (best rival)   |     0.557 |     0.457 |  595ms |
 | serena                        |     0.401 |     0.359 | 3834ms |
 | ripgrep                       |     0.376 |     0.320 |   66ms |
@@ -226,12 +221,12 @@ No one had scored these 10 tools against each other on a shared query set before
 
 ## Why it works
 
-Claude is strong; the loop around it is wasteful — grep, read a whole file, grep again. LemonCrow collapses that loop.
+The model is capable; the working set around it gets noisy. LemonCrow controls what enters the conversation and what survives it.
 
-- **One-shot search:** symbol, callers, and exact ranges in a single call — the biggest source of the turn and wall-clock savings.
-- **Better inputs:** exact file ranges, not whole files.
-- **Better outputs:** compact command output and replies, exact technical facts intact.
-- **Better memory:** context reused, not rediscovered.
+- **Map:** ranked symbols, callers, callees, usages, and exact ranges before broad file exploration.
+- **Bound:** outlines, capped output, recoverable spills, and duplicate suppression instead of context dumps.
+- **Carry:** persistent memory, compaction support, and handover packets instead of reconstructing task state.
+- **Verify:** grounded edits, hooks, and outcome checks keep the tighter path accountable.
 
 ## What you get
 
