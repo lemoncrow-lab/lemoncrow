@@ -590,7 +590,7 @@ def build_full_graph(
         "total_symbols": total_symbols,
         "total_files": total_files,
         "truncated": truncated,
-        "communities": [
+        "groups": [
             {
                 "id": key,
                 "label": key,
