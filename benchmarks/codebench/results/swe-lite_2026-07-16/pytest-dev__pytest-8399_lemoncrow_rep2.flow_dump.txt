@@ -1,0 +1,211 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__code_search] {"query": "unittest_setUpClass_fixture"}
+[usage] input=2845 cache_read=7172 cache_write=0 output=144
+
+=== Turn 2 ===
+[user] [tool_result] no exact match -- ranked candidates
+
+## src/_pytest/unittest.py
+UnitTestCase._inject_setup_teardown_fixtures — read src/_pytest/unittest.py:L97-L120
+
+related_symbols:
+src/_pytest/python.py:L796-L823 method Class._inject_setup_class_fixture
+src/_pytest/logging.py:L781-L786 method _LiveLoggingStreamHandler.set_when
+testing/example_scripts/unittest/test_setup_skip_class.py:L7-L8 method Base.setUpClass
+testing/test_unittest.py:L280-L302 test_setup_setUpClass
+testing/test_unittest.py:L832-L855 test_non_unittest_no_setupclass_support
+testing/test_unittest.py:L858-L883 test_no_teardown_if_setupclass_failed
+testing/example_scripts/unittest/test_setup_skip_module.py:L5-L6 setUpModule
+testing/test_skipping.py:L548-L560 method TestXFail.test_dynamic_xfail_set_during_funcarg_setup
+
+candidate_files: testing/example_scripts/unittest/test_setup_skip.py, testing/test_setupplan.py, src/_pytest/setupplan.py, src/_pytest/setuponly.py, testing/logging/test_fixture.py, src/_pytest/runner.py, testing/test_nose.py, src/_pytest/nose.py, testing/test_setuponly.py, testing/python/fixtures.py, testing/test_pathlib.py, testing/python/integration.py, testing/test_terminal.py, src/_pytest/hookspec.py, doc/en/example/assertion/test_setup_flow_example.py, src/_pytest/assertion/__init__.py, src/_pytest/nodes.py, testing/test_capture.py, testing/acceptance_test.py, doc/en/conf.py, testing/example_scripts/unittest/test_parametrized_fixture_error_message.py, bench/bench_argcomplete.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__read] {"files": ["src/_pytest/unittest.py:L97-L160"]}
+[usage] input=2 cache_read=7172 cache_write=3692 output=72
+
+=== Turn 3 ===
+[user] [tool_result] ## src/_pytest/unittest.py:L97-L160
+    def _inject_setup_teardown_fixtures(self, cls: type) -> None:
+        """Injects a hidden auto-use fixture to invoke setUpClass/setup_method and corresponding
+        teardown functions (#517)."""
+        class_fixture = _make_xunit_fixture(
+            cls,
+            "setUpClass",
+            "tearDownClass",
+            "doClassCleanups",
+            scope="class",
+            pass_self=False,
+        )
+        if class_fixture:
+            cls.__pytest_class_setup = class_fixture  # type: ignore[attr-defined]
+
+        method_fixture = _make_xunit_fixture(
+            cls,
+            "setup_method",
+            "teardown_method",
+            None,
+            scope="function",
+            pass_self=True,
+        )
+        if method_fixture:
+            cls.__pytest_method_setup = method_fixture  # type: ignore[attr-defined]
+
+
+def _make_xunit_fixture(
+    obj: type,
+    setup_name: str,
+    teardown_name: str,
+    cleanup_name: Optional[str],
+    scope: "_Scope",
+    pass_self: bool,
+):
+    setup = getattr(obj, setup_name, None)
+    teardown = getattr(obj, teardown_name, None)
+    if setup is None and teardown is None:
+        return None
+
+    if cleanup_name:
+        cleanup = getattr(obj, cleanup_name, lambda *args: None)
+    else:
+
+        def cleanup(*args):
+            pass
+
+    @pytest.fixture(
+        scope=scope,
+        autouse=True,
+        # Use a unique name to speed up lookup.
+        name=f"unittest_{setup_name}_fixture_{obj.__qualname__}",
+    )
+    def fixture(self, request: FixtureRequest) -> Generator[None, None, None]:
+        if _is_skipped(self):
+            reason = self.__unittest_skip_why__
+            raise pytest.skip.Exception(reason, _use_item_location=True)
+        if setup is not None:
+            try:
+                if pass_self:
+                    setup(self, request.function)
+                else:
+                    setup()
+            # unittest does not call the cleanup function for every BaseException, so we
+            # follow this here.
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path":"src/_pytest/unittest.py","old":"        name=f\"unittest_{setup_name}_fixture_{obj.__qualname__}\",","new":"        name=f\"_unittest_{setup_name}_fixture_{obj.__qualname__}\","}]}
+[usage] input=2 cache_read=10864 cache_write=833 output=243
+
+=== Turn 4 ===
+[user] [tool_result] applied src/_pytest/unittest.py:147
+[assistant] [tool_use: mcp__lc__code_search] {"query": "unittest_setUpClass_fixture testing", "paths": "testing/test_unittest.py"}
+[usage] input=2 cache_read=11697 cache_write=266 output=122
+
+=== Turn 5 ===
+[user] [tool_result] no exact match -- ranked candidates
+
+## testing/test_unittest.py
+test_do_class_cleanups_on_setupclass_failure — read testing/test_unittest.py:L1314-L1335
+
+related_symbols:
+testing/test_unittest.py:L280-L302 test_setup_setUpClass
+testing/test_unittest.py:L832-L855 test_non_unittest_no_setupclass_support
+testing/test_unittest.py:L858-L883 test_no_teardown_if_setupclass_failed
+testing/test_unittest.py:L800-L829 test_unittest_setup_interaction
+testing/test_unittest.py:L423-L427 method TestTrialUnittest.setup_class
+testing/test_unittest.py:L191-L213 test_teardown_issue1649
+testing/test_unittest.py:L261-L277 test_setup_failure_is_shown
+testing/test_unittest.py:L305-L325 test_setup_class
+
+candidate_files: src/_pytest/unittest.py, src/_pytest/fixtures.py, testing/test_terminal.py, src/_pytest/python.py, testing/python/fixtures.py, testing/test_setupplan.py, testing/test_nose.py, testing/test_capture.py, src/_pytest/setuponly.py, src/_pytest/hookspec.py, testing/test_debugging.py, testing/test_setuponly.py, testing/python/integration.py, testing/test_runner.py, src/_pytest/terminal.py, src/_pytest/doctest.py, src/_pytest/runner.py, testing/example_scripts/unittest/test_setup_skip.py, testing/test_config.py, src/_pytest/config/__init__.py, src/_pytest/setupplan.py, src/_pytest/nose.py, testing/acceptance_test.py, testing/test_skipping.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__bash] {"command": "grep -rn \"unittest_setUpClass_fixture\\|unittest_setup_method_fixture\\|unittest_{setup_name}\\|unittest_.*_fixture_\" testing/ src/ doc/ changelog/ 2>/dev/null"}
+[usage] input=2 cache_read=11963 cache_write=759 output=135
+
+=== Turn 6 ===
+[user] [tool_result] src/_pytest/unittest.py:147:        name=f"_unittest_{setup_name}_fixture_{obj.__qualname__}",
+[assistant] [tool_use: mcp__lc__bash] {"command": "ls changelog/ | head; echo ---; head -3 changelog/*.bugfix* 2>/dev/null | head"}
+[usage] input=2 cache_read=12722 cache_write=187 output=114
+
+=== Turn 7 ===
+[user] [tool_result] ... (14 lines omitted) ...
+==> changelog/8192.bugfix.rst <==
+``testdir.makefile`` now silently accepts values which don't start with ``.`` to maintain backward compatibility with older pytest versions.
+
+``pytester.makefile`` now issues a clearer error if the ``.`` is missing in the ``ext`` argument.
+
+==> changelog/8258.bugfix.rst <==
+Fixed issue where pytest's ``faulthandler`` support would not dump traceback on crashes
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "changelog/8339.bugfix.rst", "replace": true, "new": "Fixed the generated ``setUpClass``/``tearDownClass`` xunit fixtures for ``unittest`` classes to be named with a leading underscore again, so they are hidden by default in ``--fixtures`` output (regression in ``6.2.0``).\n"}]}
+[usage] input=2 cache_read=12909 cache_write=288 output=175
+
+=== Turn 8 ===
+[user] [tool_result] ok
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /tmp && cat > t_u.py <<'EOF'\nimport unittest\nclass Tests(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls): pass\n    def test_1(self): pass\nEOF\ncd - >/dev/null; python -m pytest --fixtures /tmp/t_u.py 2>&1 | grep -i unittest || echo \"HIDDEN (not shown without -v)\"; echo ===; python -m pytest -v --fixtures /tmp/t_u.py 2>&1 | grep -i unittest"}
+[usage] input=2 cache_read=13197 cache_write=182 output=258
+
+=== Turn 9 ===
+[user] [tool_result] HIDDEN (not shown without -v)
+===
+_unittest_setUpClass_fixture_Tests [class scope] -- src/_pytest/unittest.py:144
+    src/_pytest/unittest.py:144: no docstring available
+[assistant] done: fixture renamed `_unittest_...` (leading underscore) → hidden from `--fixtures` unless `-v`. changelog/8339.bugfix.rst added. → verified: `pytest --fixtures` hides it; `-v` shows `_unittest_setUpClass_fixture_Tests`.
+[usage] input=2 cache_read=13379 cache_write=341 output=105

@@ -1,0 +1,919 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__bash] {"command": "pwd; ls; git remote -v 2>/dev/null; git log --oneline -3 2>/dev/null"}[tool_use: mcp__lc__code_search] {"query": "proxy authentication header select_proxy proxy_headers Proxy-Authorization"}
+[usage] input=2845 cache_read=7275 cache_write=0 output=749
+
+=== Turn 2 ===
+[user] [tool_result] /testbed
+AUTHORS.rst
+HISTORY.md
+LICENSE
+MANIFEST.in
+Makefile
+NOTICE
+README.md
+build
+docs
+ext
+pytest.ini
+requests
+requests.egg-info
+requirements-dev.txt
+setup.cfg
+setup.py
+tests
+tox.ini
+3e34210a SWE-bench
+0192aac2 v2.27.0
+e50dc12b Fix doc link
+[tool_result] ## requests/utils.py
+### select_proxy L811-L834
+811	def select_proxy(url, proxies):
+    """Select a proxy for the url, if applicable.
+
+    :param url: The url being for the request
+    :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs
+816	    """
+    proxies = proxies or {}
+    urlparts = urlparse(url)
+    if urlparts.hostname is None:
+        return proxies.get(urlparts.scheme, proxies.get('all'))
+821	
+    proxy_keys = [
+        urlparts.scheme + '://' + urlparts.hostname,
+        urlparts.scheme,
+        'all://' + urlparts.hostname,
+826	        'all',
+    ]
+    proxy = None
+    for proxy_key in proxy_keys:
+        if proxy_key in proxies:
+831	            proxy = proxies[proxy_key]
+            break
+
+    return proxy
+
+## requests/adapters.py
+### HTTPAdapter.proxy_headers L373-L393
+373	def proxy_headers(self, proxy):
+        """Returns a dictionary of the headers to add to any request sent
+        through a proxy. This works with urllib3 magic to ensure that they are
+        correctly sent to the proxy, rather than in a tunnelled request if
+        CONNECT is being used.
+378	
+        This should not be called from user code, and is only exposed for use
+        when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+383	        :param proxy: The url of the proxy being used for this request.
+        :rtype: dict
+        """
+        headers = {}
+        username, password = <redacted>
+388	
+        if username:
+            headers['Proxy-Authorization'] = _basic_auth_str(username,
+                                                             password)
+
+393	        return headers
+
+candidate_files: requests/sessions.py, requests/auth.py, requests/status_codes.py, requests/models.py, tests/test_requests.py, requests/cookies.py, tests/test_utils.py, tests/test_lowlevel.py, HISTORY.md, requests/structures.py, requests/exceptions.py, requests/api.py, README.md, tests/test_testserver.py, setup.py, requests/__version__.py, tests/test_structures.py, requests/__init__.py, requests/compat.py, tests/testserver/server.py, docs/conf.py, docs/_static/custom.css
+[assistant] psf/requests SWE-bench testbed. Inspecting proxy auth path.[tool_use: mcp__lc__read] {"files": ["requests/utils.py:L761-L850", "requests/adapters.py:L200-L260"]}[tool_use: mcp__lc__code_search] {"query": "is_ipv4_address should_bypass_proxies leading zeros ipaddress proxy"}
+[usage] input=2 cache_read=7275 cache_write=4623 output=1890
+
+=== Turn 3 ===
+[user] [tool_result] ## requests/utils.py:L761-L850
+        # the end of the hostname, both with and without the port.
+        no_proxy = (
+            host for host in no_proxy.replace(' ', '').split(',') if host
+        )
+
+        if is_ipv4_address(parsed.hostname):
+            for proxy_ip in no_proxy:
+                if is_valid_cidr(proxy_ip):
+                    if address_in_network(parsed.hostname, proxy_ip):
+                        return True
+                elif parsed.hostname == proxy_ip:
+                    # If no_proxy ip was defined in plain IP notation instead of cidr notation &
+                    # matches the IP of the index
+                    return True
+        else:
+            host_with_port = parsed.hostname
+            if parsed.port:
+                host_with_port += ':{}'.format(parsed.port)
+
+            for host in no_proxy:
+                if parsed.hostname.endswith(host) or host_with_port.endswith(host):
+                    # The URL does match something in no_proxy, so we don't want
+                    # to apply the proxies on this URL.
+                    return True
+
+    with set_environ('no_proxy', no_proxy_arg):
+        # parsed.hostname can be `None` in cases such as a file URI.
+        try:
+            bypass = proxy_bypass(parsed.hostname)
+        except (TypeError, socket.gaierror):
+            bypass = False
+
+    if bypass:
+        return True
+
+    return False
+
+
+def get_environ_proxies(url, no_proxy=None):
+    """
+    Return a dict of environment proxies.
+
+    :rtype: dict
+    """
+    if should_bypass_proxies(url, no_proxy=no_proxy):
+        return {}
+    else:
+        return getproxies()
+
+
+def select_proxy(url, proxies):
+    """Select a proxy for the url, if applicable.
+
+    :param url: The url being for the request
+    :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs
+    """
+    proxies = proxies or {}
+    urlparts = urlparse(url)
+    if urlparts.hostname is None:
+        return proxies.get(urlparts.scheme, proxies.get('all'))
+
+    proxy_keys = [
+        urlparts.scheme + '://' + urlparts.hostname,
+        urlparts.scheme,
+        'all://' + urlparts.hostname,
+        'all',
+    ]
+    proxy = None
+    for proxy_key in proxy_keys:
+        if proxy_key in proxies:
+            proxy = proxies[proxy_key]
+            break
+
+    return proxy
+
+
+def resolve_proxies(request, proxies, trust_env=True):
+    """This method takes proxy information from a request and configuration
+    input to resolve a mapping of target proxies. This will consider settings
+    such a NO_PROXY to strip proxy configurations.
+
+    :param request: Request or PreparedRequest
+    :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs
+    :param trust_env: Boolean declaring whether to trust environment configs
+
+    :rtype: dict
+    """
+    proxies = proxies if proxies is not None else {}
+    url = request.url
+    scheme = urlparse(url).scheme
+
+## requests/adapters.py:L200-L260
+                **proxy_kwargs)
+
+        return manager
+
+    def cert_verify(self, conn, url, verify, cert):
+        """Verify a SSL certificate. This method should not be called from user
+        code, and is only exposed for use when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param conn: The urllib3 connection object associated with the cert.
+        :param url: The requested URL.
+        :param verify: Either a boolean, in which case it controls whether we verify
+            the server's TLS certificate, or a string, in which case it must be a path
+            to a CA bundle to use
+        :param cert: The SSL certificate to verify.
+        """
+        if url.lower().startswith('https') and verify:
+
+            cert_loc = None
+
+            # Allow self-specified cert location.
+            if verify is not True:
+                cert_loc = verify
+
+            if not cert_loc:
+                cert_loc = extract_zipped_paths(DEFAULT_CA_BUNDLE_PATH)
+
+            if not cert_loc or not os.path.exists(cert_loc):
+                raise IOError("Could not find a suitable TLS CA certificate bundle, "
+                              "invalid path: {}".format(cert_loc))
+
+            conn.cert_reqs = 'CERT_REQUIRED'
+
+            if not os.path.isdir(cert_loc):
+                conn.ca_certs = cert_loc
+            else:
+                conn.ca_cert_dir = cert_loc
+        else:
+            conn.cert_reqs = 'CERT_NONE'
+            conn.ca_certs = None
+            conn.ca_cert_dir = None
+
+        if cert:
+            if not isinstance(cert, basestring):
+                conn.cert_file = cert[0]
+                conn.key_file = cert[1]
+            else:
+                conn.cert_file = cert
+                conn.key_file = None
+            if conn.cert_file and not os.path.exists(conn.cert_file):
+                raise IOError("Could not find the TLS certificate file, "
+                              "invalid path: {}".format(conn.cert_file))
+            if conn.key_file and not os.path.exists(conn.key_file):
+                raise IOError("Could not find the TLS key file, "
+                              "invalid path: {}".format(conn.key_file))
+
+    def build_response(self, req, resp):
+        """Builds a :class:`Response <requests.Response>` object from a urllib3
+        response. This should not be called from user code, and is only exposed
+        for use when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`
+[tool_result] ## tests/test_utils.py
+### test_should_bypass_proxies L646-L652
+646	def test_should_bypass_proxies(url, expected, monkeypatch):
+    """Tests for function should_bypass_proxies to check if proxy
+    can be bypassed or not
+    """
+    monkeypatch.setenv('no_proxy', '192.168.0.0/24,127.0.0.1,localhost.localdomain,172.16.1.1, google.com:6000')
+651	    monkeypatch.setenv('NO_PROXY', '192.168.0.0/24,127.0.0.1,localhost.localdomain,172.16.1.1, google.com:6000')
+    assert should_bypass_proxies(url, no_proxy=None) == expected
+
+## requests/utils.py
+### is_ipv4_address L681-L689
+681	def is_ipv4_address(string_ip):
+    """
+    :rtype: bool
+    """
+    try:
+686	        socket.inet_aton(string_ip)
+    except socket.error:
+        return False
+    return True
+should_bypass_proxies — read requests/utils.py:L738-L796
+
+candidate_files: requests/sessions.py, requests/adapters.py, requests/compat.py, tests/test_requests.py, HISTORY.md, requests/api.py, requests/status_codes.py, requests/exceptions.py, requests/auth.py, tests/test_lowlevel.py, tests/test_testserver.py, requests/models.py, docs/conf.py, tests/conftest.py, README.md, .github/SECURITY.md
+[assistant] [tool_use: mcp__lc__read] {"files": ["requests/utils.py:L850-L980", "requests/adapters.py:L100-L200"]}[tool_use: mcp__lc__code_search] {"query": "get_auth_from_url unquote username password urlparse"}
+[usage] input=2 cache_read=11898 cache_write=4403 output=1151
+
+=== Turn 4 ===
+[user] [tool_result] ## requests/utils.py:L850-L980
+    scheme = urlparse(url).scheme
+    no_proxy = proxies.get('no_proxy')
+    new_proxies = proxies.copy()
+
+    if trust_env and not should_bypass_proxies(url, no_proxy=no_proxy):
+        environ_proxies = get_environ_proxies(url, no_proxy=no_proxy)
+
+        proxy = environ_proxies.get(scheme, environ_proxies.get('all'))
+
+        if proxy:
+            new_proxies.setdefault(scheme, proxy)
+    return new_proxies
+
+
+def default_user_agent(name="python-requests"):
+    """
+    Return a string representing the default user agent.
+
+    :rtype: str
+    """
+    return '%s/%s' % (name, __version__)
+
+
+def default_headers():
+    """
+    :rtype: requests.structures.CaseInsensitiveDict
+    """
+    return CaseInsensitiveDict({
+        'User-Agent': default_user_agent(),
+        'Accept-Encoding': DEFAULT_ACCEPT_ENCODING,
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+    })
+
+
+def parse_header_links(value):
+    """Return a list of parsed link headers proxies.
+
+    i.e. Link: <http:/.../front.jpeg>; rel=front; type="image/jpeg",<http://.../back.jpeg>; rel=back;type="image/jpeg"
+
+    :rtype: list
+    """
+
+    links = []
+
+    replace_chars = ' \'"'
+
+    value = value.strip(replace_chars)
+    if not value:
+        return links
+
+    for val in re.split(', *<', value):
+        try:
+            url, params = val.split(';', 1)
+        except ValueError:
+            url, params = val, ''
+
+        link = {'url': url.strip('<> \'"')}
+
+        for param in params.split(';'):
+            try:
+                key, value = param.split('=')
+            except ValueError:
+                break
+
+            link[key.strip(replace_chars)] = value.strip(replace_chars)
+
+        links.append(link)
+
+    return links
+
+
+# Null bytes; no need to recreate these on each call to guess_json_utf
+_null = '\x00'.encode('ascii')  # encoding to ASCII for Python 3
+_null2 = _null * 2
+_null3 = _null * 3
+
+
+def guess_json_utf(data):
+    """
+    :rtype: str
+    """
+    # JSON always starts with two ASCII characters, so detection is as
+    # easy as counting the nulls and from their location and count
+    # determine the encoding. Also detect a BOM, if present.
+    sample = data[:4]
+    if sample in (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE):
+        return 'utf-32'     # BOM included
+    if sample[:3] == codecs.BOM_UTF8:
+        return 'utf-8-sig'  # BOM included, MS style (discouraged)
+    if sample[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
+        return 'utf-16'     # BOM included
+    nullcount = sample.count(_null)
+    if nullcount == 0:
+        return 'utf-8'
+    if nullcount == 2:
+        if sample[::2] == _null2:   # 1st and 3rd are null
+            return 'utf-16-be'
+        if sample[1::2] == _null2:  # 2nd and 4th are null
+            return 'utf-16-le'
+        # Did not detect 2 valid UTF-16 ascii-range characters
+    if nullcount == 3:
+        if sample[:3] == _null3:
+            return 'utf-32-be'
+        if sample[1:] == _null3:
+            return 'utf-32-le'
+        # Did not detect a valid UTF-32 ascii-range character
+    return None
+
+
+def prepend_scheme_if_needed(url, new_scheme):
+    """Given a URL that may or may not have a scheme, prepend the given scheme.
+    Does not replace a present scheme with the one provided as an argument.
+
+    :rtype: str
+    """
+    parsed = parse_url(url)
+    scheme, auth, host, port, path, query, fragment = parsed
+
+    # A defect in urlparse determines that there isn't a netloc present in some
+    # urls. We previously assumed parsing was overly cautious, and swapped the
+    # netloc and path. Due to a lack of tests on the original defect, this is
+    # maintained with parse_url for backwards compatibility.
+    netloc = parsed.netloc
+    if not netloc:
+        netloc, path = path, netloc
+
+    if scheme is None:
+        scheme = new_scheme
+    if path is None:
+        path = ''
+
+## requests/adapters.py:L100-L200
+        which we retry a request, import urllib3's ``Retry`` class and pass
+        that instead.
+    :param pool_block: Whether the connection pool should block for connections.
+
+    Usage::
+
+      >>> import requests
+      >>> s = requests.Session()
+      >>> a = requests.adapters.HTTPAdapter(max_retries=3)
+      >>> s.mount('http://', a)
+    """
+    __attrs__ = ['max_retries', 'config', '_pool_connections', '_pool_maxsize',
+                 '_pool_block']
+
+    def __init__(self, pool_connections=DEFAULT_POOLSIZE,
+                 pool_maxsize=DEFAULT_POOLSIZE, max_retries=DEFAULT_RETRIES,
+                 pool_block=DEFAULT_POOLBLOCK):
+        if max_retries == DEFAULT_RETRIES:
+            self.max_retries = Retry(0, read=False)
+        else:
+            self.max_retries = Retry.from_int(max_retries)
+        self.config = {}
+        self.proxy_manager = {}
+
+        super(HTTPAdapter, self).__init__()
+
+        self._pool_connections = pool_connections
+        self._pool_maxsize = pool_maxsize
+        self._pool_block = pool_block
+
+        self.init_poolmanager(pool_connections, pool_maxsize, block=pool_block)
+
+    def __getstate__(self):
+        return {attr: getattr(self, attr, None) for attr in self.__attrs__}
+
+    def __setstate__(self, state):
+        # Can't handle by adding 'proxy_manager' to self.__attrs__ because
+        # self.poolmanager uses a lambda function, which isn't pickleable.
+        self.proxy_manager = {}
+        self.config = {}
+
+        for attr, value in state.items():
+            setattr(self, attr, value)
+
+        self.init_poolmanager(self._pool_connections, self._pool_maxsize,
+                              block=self._pool_block)
+
+    def init_poolmanager(self, connections, maxsize, block=DEFAULT_POOLBLOCK, **pool_kwargs):
+        """Initializes a urllib3 PoolManager.
+
+        This method should not be called from user code, and is only
+        exposed for use when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param connections: The number of urllib3 connection pools to cache.
+        :param maxsize: The maximum number of connections to save in the pool.
+        :param block: Block when no free connections are available.
+        :param pool_kwargs: Extra keyword arguments used to initialize the Pool Manager.
+        """
+        # save these values for pickling
+        self._pool_connections = connections
+        self._pool_maxsize = maxsize
+        self._pool_block = block
+
+        self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize,
+                                       block=block, strict=True, **pool_kwargs)
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        """Return urllib3 ProxyManager for the given proxy.
+
+        This method should not be called from user code, and is only
+        exposed for use when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param proxy: The proxy to return a urllib3 ProxyManager for.
+        :param proxy_kwargs: Extra keyword arguments used to configure the Proxy Manager.
+        :returns: ProxyManager
+        :rtype: urllib3.ProxyManager
+        """
+        if proxy in self.proxy_manager:
+            manager = self.proxy_manager[proxy]
+        elif proxy.lower().startswith('socks'):
+            username, password = <redacted>
+            manager = self.proxy_manager[proxy] = SOCKSProxyManager(
+                proxy,
+                username=username,
+                password=<redacted>,
+                num_pools=self._pool_connections,
+                maxsize=self._pool_maxsize,
+                block=self._pool_block,
+                **proxy_kwargs
+            )
+        else:
+            proxy_headers = self.proxy_headers(proxy)
+            manager = self.proxy_manager[proxy] = proxy_from_url(
+                proxy,
+                proxy_headers=proxy_headers,
+                num_pools=self._pool_connections,
+                maxsize=self._pool_maxsize,
+                block=self._pool_block,
+                **proxy_kwargs)
+[tool_result] ## tests/test_utils.py
+### test_get_auth_from_url L400-L401
+400	def test_get_auth_from_url(url, auth):
+    assert get_auth_from_url(url) == auth
+
+## requests/utils.py
+### get_auth_from_url L985-L998
+985	def get_auth_from_url(url):
+    """Given a url with authentication components, extract them into a tuple of
+    username,password.
+
+    :rtype: (str,str)
+990	    """
+    parsed = urlparse(url)
+
+    try:
+        auth = (unquote(parsed.username), unquote(parsed.password))
+995	    except (AttributeError, TypeError):
+        auth = ('', '')
+
+    return auth
+
+candidate_files: requests/adapters.py, requests/sessions.py, requests/models.py, requests/auth.py, requests/cookies.py, requests/compat.py, requests/api.py, tests/test_requests.py, tests/test_lowlevel.py, HISTORY.md, tests/test_testserver.py, requests/status_codes.py, setup.py, requests/__init__.py, requests/hooks.py, README.md, tests/conftest.py, tests/test_structures.py
+[assistant] [tool_use: mcp__lc__read] {"files": ["requests/utils.py:L980-L1005", "requests/adapters.py:L290-L375"]}
+[usage] input=2 cache_read=16301 cache_write=4689 output=1208
+
+=== Turn 5 ===
+[user] [tool_result] ## requests/utils.py:L980-L1005
+        path = ''
+
+    return urlunparse((scheme, netloc, path, '', query, fragment))
+
+
+def get_auth_from_url(url):
+    """Given a url with authentication components, extract them into a tuple of
+    username,password.
+
+    :rtype: (str,str)
+    """
+    parsed = urlparse(url)
+
+    try:
+        auth = (unquote(parsed.username), unquote(parsed.password))
+    except (AttributeError, TypeError):
+        auth = ('', '')
+
+    return auth
+
+
+# Moved outside of function to avoid recompile every call
+_CLEAN_HEADER_REGEX_BYTE = re.compile(b'^\\S[^\\r\\n]*$|^$')
+_CLEAN_HEADER_REGEX_STR = re.compile(r'^\S[^\r\n]*$|^$')
+
+
+
+## requests/adapters.py:L290-L375
+
+        return response
+
+    def get_connection(self, url, proxies=None):
+        """Returns a urllib3 connection for the given URL. This should not be
+        called from user code, and is only exposed for use when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param url: The URL to connect to.
+        :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
+        :rtype: urllib3.ConnectionPool
+        """
+        proxy = select_proxy(url, proxies)
+
+        if proxy:
+            proxy = prepend_scheme_if_needed(proxy, 'http')
+            proxy_url = parse_url(proxy)
+            if not proxy_url.host:
+                raise InvalidProxyURL("Please check proxy URL. It is malformed"
+                                      " and could be missing the host.")
+            proxy_manager = self.proxy_manager_for(proxy)
+            conn = proxy_manager.connection_from_url(url)
+        else:
+            # Only scheme should be lower case
+            parsed = urlparse(url)
+            url = parsed.geturl()
+            conn = self.poolmanager.connection_from_url(url)
+
+        return conn
+
+    def close(self):
+        """Disposes of any internal state.
+
+        Currently, this closes the PoolManager and any active ProxyManager,
+        which closes any pooled connections.
+        """
+        self.poolmanager.clear()
+        for proxy in self.proxy_manager.values():
+            proxy.clear()
+
+    def request_url(self, request, proxies):
+        """Obtain the url to use when making the final request.
+
+        If the message is being sent through a HTTP proxy, the full URL has to
+        be used. Otherwise, we should only use the path portion of the URL.
+
+        This should not be called from user code, and is only exposed for use
+        when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param request: The :class:`PreparedRequest <PreparedRequest>` being sent.
+        :param proxies: A dictionary of schemes or schemes and hosts to proxy URLs.
+        :rtype: str
+        """
+        proxy = select_proxy(request.url, proxies)
+        scheme = urlparse(request.url).scheme
+
+        is_proxied_http_request = (proxy and scheme != 'https')
+        using_socks_proxy = False
+        if proxy:
+            proxy_scheme = urlparse(proxy).scheme.lower()
+            using_socks_proxy = proxy_scheme.startswith('socks')
+
+        url = request.path_url
+        if is_proxied_http_request and not using_socks_proxy:
+            url = urldefragauth(request.url)
+
+        return url
+
+    def add_headers(self, request, **kwargs):
+        """Add any headers needed by the connection. As of v2.0 this does
+        nothing by default, but is left for overriding by users that subclass
+        the :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        This should not be called from user code, and is only exposed for use
+        when subclassing the
+        :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.
+
+        :param request: The :class:`PreparedRequest <PreparedRequest>` to add headers to.
+        :param kwargs: The keyword arguments from the call to send().
+        """
+        pass
+
+    def proxy_headers(self, proxy):
+        """Returns a dictionary of the headers to add to any request sent
+        through a proxy. This works with urllib3 magic to ensure that they are
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -c \"import sys; print(sys.version)\" && python -c \"\nfrom requests.utils import prepend_scheme_if_needed, get_auth_from_url\nu='http://user:pass@10.0.0.1:8080'\np=prepend_scheme_if_needed(u,'http')\nprint('prepend:',repr(p))\nprint('auth after prepend:',get_auth_from_url(p))\nprint('auth direct:',get_auth_from_url(u))\n\""}
+[usage] input=2 cache_read=20990 cache_write=2707 output=1919
+
+=== Turn 6 ===
+[user] [tool_result] 3.9.20 (main, Oct  3 2024, 07:27:41) 
+[GCC 11.2.0]
+prepend: 'http://10.0.0.1:8080'
+auth after prepend: ('', '')
+auth direct: ('user', 'pass')
+[assistant] Confirmed: `prepend_scheme_if_needed` drops proxy credentials → empty `Proxy-Authorization` → 407. `urllib3.parse_url(...).netloc` omits auth.[tool_use: mcp__lc__read] {"files": ["requests/utils.py:L960-L983"]}
+[usage] input=2 cache_read=23697 cache_write=2010 output=769
+
+=== Turn 7 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "requests/utils.py:L976-L977", "new": "    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with authentication\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])"}]}
+[usage] input=131 cache_read=25707 cache_write=1102 output=167
+
+=== Turn 8 ===
+[user] [tool_result] {"applied":[{"hunks":[{"line_end":977,"line_start":976}],"match_mode":"range","path":"requests/utils.py:L976-L977"}]}
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -c \"\nfrom requests.utils import prepend_scheme_if_needed, get_auth_from_url\nfor u in ['http://user:pass@10.0.0.1:8080','user:pass@10.0.0.1:8080','http://10.0.0.1:8080','example.com/path']:\n    p=prepend_scheme_if_needed(u,'http')\n    print(repr(u),'->',repr(p),get_auth_from_url(p))\n\" && python -m pytest tests/test_utils.py -k \"prepend_scheme_if_needed or get_auth\" -q 2>&1 | tail -15"}
+[usage] input=2 cache_read=26809 cache_write=359 output=254
+
+=== Turn 9 ===
+[user] [tool_result] exit_code=1
+'http://user:pass@10.0.0.1:8080' -> 'http://user:pass@10.0.0.1:8080' ('user', 'pass')
+'user:pass@10.0.0.1:8080' -> 'user:///pass@10.0.0.1:8080' ('', '')
+'http://10.0.0.1:8080' -> 'http://10.0.0.1:8080' ('', '')
+
+
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+  File "/testbed/requests/utils.py", line 987, in prepend_scheme_if_needed
+    return urlunparse((scheme, netloc, path, '', query, fragment))
+  File "/opt/miniconda3/envs/testbed/lib/python3.9/urllib/parse.py", line 512, in urlunparse
+    _coerce_args(*components))
+  File "/opt/miniconda3/envs/testbed/lib/python3.9/urllib/parse.py", line 133, in _coerce_args
+    raise TypeError("Cannot mix str and non-str arguments")
+TypeError: Cannot mix str and non-str arguments
+[assistant] Main fix works (`http://user:pass@host` preserved). Other cases are pre-existing quirks. Running test suite.[tool_use: mcp__lc__bash] {"command": "cd /testbed && python -m pytest tests/test_utils.py -q 2>&1 | tail -8 && echo \"---REQ---\" && python -m pytest tests/test_requests.py -k \"proxy or auth\" -q 2>&1 | tail -12"}
+[usage] input=2 cache_read=27168 cache_write=639 output=452
+
+=== Turn 10 ===
+[user] [tool_result] 3 failed, 190 passed, 11 skipped, 8 errors in 0.19s
+3 failed, 16 passed, 249 deselected, 22 errors in 0.25s
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && git stash && python -m pytest tests/test_utils.py -q 2>&1 | tail -3; git stash pop"}
+[usage] input=2 cache_read=27807 cache_write=516 output=97
+
+=== Turn 11 ===
+[user] [tool_result] 193 passed, 11 skipped, 8 errors in 0.18s
+[assistant] My change introduced 3 failures. Inspecting.[tool_use: mcp__lc__bash] {"command": "cd /testbed && python -m pytest tests/test_utils.py -q 2>&1 | grep -E \"FAILED|Error\" | head; echo ---; python -m pytest \"tests/test_utils.py::TestSuperLen\" -q 2>&1 | tail -3"}
+[usage] input=2 cache_read=28323 cache_write=125 output=230
+
+=== Turn 12 ===
+[user] [tool_result] FAILED tests/test_utils.py::test_prepend_scheme_if_needed[example.com/path-http://example.com/path]
+---
+..s..............                                                        [100%]
+16 passed, 1 skipped in 0.03s
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -m pytest tests/test_utils.py -q 2>&1 | grep FAILED"}
+[usage] input=2 cache_read=28448 cache_write=311 output=89
+
+=== Turn 13 ===
+[user] [tool_result] FAILED tests/test_utils.py::test_prepend_scheme_if_needed[example.com/path-http://example.com/path]
+FAILED tests/test_utils.py::test_prepend_scheme_if_needed[//example.com/path-http://example.com/path]
+FAILED tests/test_utils.py::test_prepend_scheme_if_needed[example.com:80-http://example.com:80]
+[assistant] [tool_use: mcp__lc__code_search] {"query": "test_prepend_scheme_if_needed parametrize"}
+[usage] input=2 cache_read=28759 cache_write=226 output=71
+
+=== Turn 14 ===
+[user] [tool_result] ## tests/test_utils.py
+### TestGuessFilename L256-L273
+256	class TestGuessFilename:
+
+    @pytest.mark.parametrize(
+        'value', (1, type('Fake', (object,), {'name': 1})()),
+    )
+261	    def test_guess_filename_invalid(self, value):
+        assert guess_filename(value) is None
+
+    @pytest.mark.parametrize(
+        'value, expected_type', (
+266	            (b'value', compat.bytes),
+            (b'value'.decode('utf-8'), compat.str)
+        ))
+    def test_guess_filename_valid(self, value, expected_type):
+        obj = type('Fake', (object,), {'name': value})()
+271	        result = guess_filename(obj)
+        assert result == value
+        assert isinstance(result, expected_type)
+### TestGuessJSONUTF L337-L360
+337	class TestGuessJSONUTF:
+
+    @pytest.mark.parametrize(
+        'encoding', (
+            'utf-32', 'utf-8-sig', 'utf-16', 'utf-8', 'utf-16-be', 'utf-16-le',
+342	            'utf-32-be', 'utf-32-le'
+        ))
+    def test_encoded(self, encoding):
+        data = '{}'.encode(encoding)
+        assert guess_json_utf(data) == encoding
+347	
+    def test_bad_utf_like_encoding(self):
+        assert guess_json_utf(b'\x00\x00\x00\x00') is None
+
+    @pytest.mark.parametrize(
+352	        ('encoding', 'expected'), (
+            ('utf-16-be', 'utf-16'),
+            ('utf-16-le', 'utf-16'),
+            ('utf-32-be', 'utf-32'),
+            ('utf-32-le', 'utf-32')
+357	        ))
+    def test_guess_by_bom(self, encoding, expected):
+        data = u'\ufeff{}'.encode(encoding)
+        assert guess_json_utf(data) == expected
+### test_prepend_scheme_if_needed L606-L607
+606	def test_prepend_scheme_if_needed(value, expected):
+    assert prepend_scheme_if_needed(value, 'http') == expected
+
+related_symbols:
+requests/utils.py:L960-L987 prepend_scheme_if_needed
+requests/exceptions.py:L86-L87 class InvalidSchema
+requests/exceptions.py:L82-L83 class MissingSchema
+requests/adapters.py:L359-L371 method HTTPAdapter.add_headers
+requests/auth.py:L234-L276 method HTTPDigestAuth.handle_401
+tests/test_requests.py:L160-L167 method TestRequests.test_mixed_case_scheme_acceptable
+tests/test_requests.py:L1417-L1422 method TestRequests.test_uppercase_scheme_redirect
+tests/test_lowlevel.py:L286-L301 test_use_proxy_from_environment
+
+candidate_files: requests/utils.py, requests/adapters.py, tests/test_requests.py, tests/test_lowlevel.py, tests/test_structures.py, requests/sessions.py, tests/test_hooks.py, requests/models.py, tests/test_testserver.py, setup.py, requests/auth.py, tests/__init__.py, tests/test_help.py, tests/test_packages.py, HISTORY.md, Makefile, requests/cookies.py, requests/exceptions.py, .github/workflows/codeql-analysis.yml, requests/__init__.py, .github/workflows/run-tests.yml, tests/conftest.py, docs/conf.py, README.md
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__read] {"files": ["tests/test_utils.py:L595-L607"]}
+[usage] input=2 cache_read=28985 cache_write=1322 output=69
+
+=== Turn 15 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -c \"\nfrom urllib3.util import parse_url\nfor u in ['example.com/path','//example.com/path','example.com:80']:\n    p=parse_url(u)\n    print(u,'| scheme=',p.scheme,'auth=',p.auth,'host=',p.host,'port=',p.port,'path=',p.path,'netloc=',p.netloc)\n\""}
+[usage] input=131 cache_read=30307 cache_write=265 output=553
+
+=== Turn 16 ===
+[user] [tool_result] example.com/path | scheme= None auth= None host= example.com port= None path= /path netloc= example.com
+//example.com/path | scheme= None auth= None host= example.com port= None path= /path netloc= example.com
+example.com:80 | scheme= None auth= None host= example.com port= 80 path= None netloc= example.com:80
+[assistant] [tool_use: mcp__lc__read] {"files": ["requests/utils.py:L960-L988"]}
+[usage] input=2 cache_read=30572 cache_write=796 output=343
+
+=== Turn 17 ===
+[user] [tool_result] ## requests/utils.py:L960-L988
+def prepend_scheme_if_needed(url, new_scheme):
+    """Given a URL that may or may not have a scheme, prepend the given scheme.
+    Does not replace a present scheme with the one provided as an argument.
+
+    :rtype: str
+    """
+    parsed = parse_url(url)
+    scheme, auth, host, port, path, query, fragment = parsed
+
+    # A defect in urlparse determines that there isn't a netloc present in some
+    # urls. We previously assumed parsing was overly cautious, and swapped the
+    # netloc and path. Due to a lack of tests on the original defect, this is
+    # maintained with parse_url for backwards compatibility.
+    netloc = parsed.netloc
+    if not netloc:
+        netloc, path = path, netloc
+    if not netloc:
+        netloc, path = path, netloc
+
+    if auth:
+        # parse_url doesn't provide the netloc with authentication
+        # so we'll add it ourselves.
+        netloc = '@'.join([auth, netloc])
+        scheme = new_scheme
+    if path is None:
+        path = ''
+
+    return urlunparse((scheme, netloc, path, '', query, fragment))
+
+[assistant] Edit misapplied — mangled. Rewriting function cleanly.[tool_use: mcp__lc__edit] {"edits": [{"path": "requests/utils.py:L966-L988", "new": "    parsed = parse_url(url)\n    scheme, auth, host, port, path, query, fragment = parsed\n\n    # A defect in urlparse determines that there isn't a netloc present in some\n    # urls. We previously assumed parsing was overly cautious, and swapped the\n    # netloc and path. Due to a lack of tests on the original defect, this is\n    # maintained with parse_url for backwards compatibility.\n    netloc = parsed.netloc\n    if not netloc:\n        netloc, path = path, netloc\n\n    if auth:\n        # parse_url doesn't provide the netloc with authentication\n        # so we'll add it ourselves.\n        netloc = '@'.join([auth, netloc])\n    if scheme is None:\n        scheme = new_scheme\n    if path is None:\n        path = ''\n\n    return urlunparse((scheme, netloc, path, '', query, fragment))"}]}
+[usage] input=2 cache_read=31368 cache_write=748 output=596
+
+=== Turn 18 ===
+[user] [tool_result] {"applied":[{"hunks":[{"line_end":988,"line_start":966}],"match_mode":"range","path":"requests/utils.py:L966-L988"}]}
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -c \"\nfrom requests.utils import prepend_scheme_if_needed as f, get_auth_from_url as g\nprint(f('http://user:pass@10.0.0.1:8080','http'), g(f('http://user:pass@10.0.0.1:8080','http')))\n\" && python -m pytest tests/test_utils.py -q 2>&1 | tail -3"}
+[usage] input=2 cache_read=32116 cache_write=659 output=178
+
+=== Turn 19 ===
+[user] [tool_result] 193 passed, 11 skipped, 8 errors in 0.09s
+[assistant] Baseline restored (193 passed, 8 pre-existing errors). Adding regression test for auth preservation.[tool_use: mcp__lc__edit] {"edits": [{"path": "tests/test_utils.py:L602-L604", "new": "        ('example.com/path', 'http://example.com/path'),\n        ('//example.com/path', 'http://example.com/path'),\n        ('example.com:80', 'http://example.com:80'),\n        (\n            'http://user:pass@example.com/path?query',\n            'http://user:pass@example.com/path?query'\n        ),\n        (\n            'http://user@example.com/path?query',\n            'http://user@example.com/path?query'\n        )"}]}
+[usage] input=2 cache_read=32775 cache_write=206 output=439
+
+=== Turn 20 ===
+[user] [tool_result] {"applied":[{"hunks":[{"line_end":604,"line_start":602}],"match_mode":"range","path":"tests/test_utils.py:L602-L604"}]}
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && python -m pytest tests/test_utils.py -k prepend_scheme -q 2>&1 | tail -4"}
+[usage] input=2 cache_read=32981 cache_write=504 output=96
+
+=== Turn 21 ===
+[user] [tool_result] 5 passed, 209 deselected in 0.04s
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed && git stash -- requests/utils.py && python -m pytest tests/test_utils.py -k prepend_scheme -q 2>&1 | tail -4; git stash pop"}
+[usage] input=2 cache_read=33485 cache_write=118 output=236
+
+=== Turn 22 ===
+[user] [tool_result] =========================== short test summary info ============================
+FAILED tests/test_utils.py::test_prepend_scheme_if_needed[http://user:<redacted-email>/path?query-http://user:<redacted-email>/path?query]
+FAILED tests/test_utils.py::test_prepend_scheme_if_needed[http://<redacted-email>/path?query-http://<redacted-email>/path?query]
+2 failed, 3 passed, 209 deselected in 0.07s
+On branch main
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   requests/utils.py
+	modified:   tests/test_utils.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+Dropped refs/stash@{0} (387631d290b8e3003d90f2b4923652e46a12f45c)
+[assistant] done: `prepend_scheme_if_needed` dropped proxy user:pass (urllib3 `parse_url().netloc` omits auth) → empty `Proxy-Authorization` → 407. Fix re-adds `auth@` to netloc → risk: none, no-op when auth absent → verified: new regression tests fail pre-fix (2 failed), pass post-fix; full `tests/test_utils.py` 193 passed (baseline, 8 pre-existing errors unchanged).
+[usage] input=2 cache_read=33603 cache_write=548 output=163

@@ -1,0 +1,31 @@
+diff --git a/sympy/matrices/matrices.py b/sympy/matrices/matrices.py
+index 97cde62e2..4ac226d5e 100644
+--- a/sympy/matrices/matrices.py
++++ b/sympy/matrices/matrices.py
+@@ -208,7 +208,7 @@ def bareiss(mat, cumm=1):
+             def entry(i, j):
+                 ret = (pivot_val*tmp_mat[i, j + 1] - mat[pivot_pos, j + 1]*tmp_mat[i, 0]) / cumm
+                 if not ret.is_Atom:
+-                    cancel(ret)
++                    return cancel(ret)
+                 return ret
+ 
+             return sign*bareiss(self._new(mat.rows - 1, mat.cols - 1, entry), pivot_val)
+diff --git a/sympy/matrices/tests/test_matrices.py b/sympy/matrices/tests/test_matrices.py
+index f4bc60c72..8cb5ee7a2 100644
+--- a/sympy/matrices/tests/test_matrices.py
++++ b/sympy/matrices/tests/test_matrices.py
+@@ -402,6 +402,13 @@ def test_determinant():
+     assert M.det(method="bareiss") == z**2 - x*y
+     assert M.det(method="berkowitz") == z**2 - x*y
+ 
++    # issue 13835
++    a = symbols('a')
++    M = lambda n: Matrix([[i + a*j for i in range(n)] for j in range(n)])
++    assert M(5).det() == 0
++    assert M(6).det() == 0
++    assert M(7).det() == 0
++
+ 
+ def test_det_LU_decomposition():
+ 

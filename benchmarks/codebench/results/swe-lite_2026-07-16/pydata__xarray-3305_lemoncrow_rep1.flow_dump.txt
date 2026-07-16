@@ -1,0 +1,617 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__code_search] {"query": "def quantile keep_attrs"}
+[usage] input=2845 cache_read=6593 cache_write=1029 output=91
+
+=== Turn 2 ===
+[user] [tool_result] ## xarray/core/options.py
+### KEEP_ATTRS L10-L10
+10	KEEP_ATTRS = "keep_attrs"
+### _get_keep_attrs L61-L71
+61	def _get_keep_attrs(default):
+    global_choice = OPTIONS["keep_attrs"]
+
+    if global_choice == "default":
+        return default
+66	    elif global_choice in [True, False]:
+        return global_choice
+    else:
+        raise ValueError(
+            "The global option keep_attrs must be one of" " True, False or 'default'."
+71	        )
+
+related_symbols:
+xarray/core/groupby.py:L665-L728 method DataArrayGroupBy.quantile
+xarray/core/dataarray.py:L2827-L2878 method DataArray.quantile
+xarray/core/dataset.py:L4694-L4790 method Dataset.quantile
+xarray/core/variable.py:L1595-L1661 method Variable.quantile
+xarray/core/groupby.py:L519-L528 method GroupBy._first_or_last
+xarray/core/groupby.py:L530-L533 method GroupBy.first
+xarray/core/dataset.py:L4304-L4316 method Dataset._unary_op
+xarray/core/dataset.py:L4792-L4835 method Dataset.rank
+
+candidate_files: xarray/core/groupby.py, xarray/core/dataarray.py, xarray/core/dataset.py, xarray/core/variable.py, xarray/core/computation.py, xarray/core/common.py, xarray/tests/test_dataset.py, xarray/tests/test_variable.py, xarray/core/ops.py, xarray/tests/test_dataarray.py, xarray/core/missing.py, xarray/core/resample.py, xarray/tests/test_groupby.py, xarray/tests/test_options.py, xarray/tests/test_computation.py, xarray/tests/test_sparse.py, xarray/tests/test_duck_array_ops.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__read] {"files": ["xarray/core/dataarray.py:L2827-L2878", "xarray/core/dataset.py:L4694-L4790", "xarray/core/variable.py:L1595-L1661"]}
+[usage] input=2 cache_read=7622 cache_write=3617 output=115
+
+=== Turn 3 ===
+[user] [tool_result] ## xarray/core/dataarray.py:L2827-L2878
+    def quantile(
+        self,
+        q: Any,
+        dim: Union[Hashable, Sequence[Hashable], None] = None,
+        interpolation: str = "linear",
+        keep_attrs: bool = None,
+    ) -> "DataArray":
+        """Compute the qth quantile of the data along the specified dimension.
+
+        Returns the qth quantiles(s) of the array elements.
+
+        Parameters
+        ----------
+        q : float in range of [0,1] or array-like of floats
+            Quantile to compute, which must be between 0 and 1 inclusive.
+        dim : hashable or sequence of hashable, optional
+            Dimension(s) over which to apply quantile.
+        interpolation : {'linear', 'lower', 'higher', 'midpoint', 'nearest'}
+            This optional parameter specifies the interpolation method to
+            use when the desired quantile lies between two data points
+            ``i < j``:
+
+                - linear: ``i + (j - i) * fraction``, where ``fraction`` is
+                  the fractional part of the index surrounded by ``i`` and
+                  ``j``.
+                - lower: ``i``.
+                - higher: ``j``.
+                - nearest: ``i`` or ``j``, whichever is nearest.
+                - midpoint: ``(i + j) / 2``.
+        keep_attrs : bool, optional
+            If True, the dataset's attributes (`attrs`) will be copied from
+            the original object to the new one.  If False (default), the new
+            object will be returned without attributes.
+
+        Returns
+        -------
+        quantiles : DataArray
+            If `q` is a single quantile, then the result
+            is a scalar. If multiple percentiles are given, first axis of
+            the result corresponds to the quantile and a quantile dimension
+            is added to the return array. The other dimensions are the
+             dimensions that remain after the reduction of the array.
+
+        See Also
+        --------
+        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile
+        """
+
+        ds = self._to_temp_dataset().quantile(
+            q, dim=dim, keep_attrs=keep_attrs, interpolation=interpolation
+        )
+        return self._from_temp_dataset(ds)
+
+## xarray/core/dataset.py:L4694-L4790
+    def quantile(
+        self, q, dim=None, interpolation="linear", numeric_only=False, keep_attrs=None
+    ):
+        """Compute the qth quantile of the data along the specified dimension.
+
+        Returns the qth quantiles(s) of the array elements for each variable
+        in the Dataset.
+
+        Parameters
+        ----------
+        q : float in range of [0,1] or array-like of floats
+            Quantile to compute, which must be between 0 and 1 inclusive.
+        dim : str or sequence of str, optional
+            Dimension(s) over which to apply quantile.
+        interpolation : {'linear', 'lower', 'higher', 'midpoint', 'nearest'}
+            This optional parameter specifies the interpolation method to
+            use when the desired quantile lies between two data points
+            ``i < j``:
+
+                * linear: ``i + (j - i) * fraction``, where ``fraction`` is
+                  the fractional part of the index surrounded by ``i`` and
+                  ``j``.
+                * lower: ``i``.
+                * higher: ``j``.
+                * nearest: ``i`` or ``j``, whichever is nearest.
+                * midpoint: ``(i + j) / 2``.
+        keep_attrs : bool, optional
+            If True, the dataset's attributes (`attrs`) will be copied from
+            the original object to the new one.  If False (default), the new
+            object will be returned without attributes.
+        numeric_only : bool, optional
+            If True, only apply ``func`` to variables with a numeric dtype.
+
+        Returns
+        -------
+        quantiles : Dataset
+            If `q` is a single quantile, then the result is a scalar for each
+            variable in data_vars. If multiple percentiles are given, first
+            axis of the result corresponds to the quantile and a quantile
+            dimension is added to the return Dataset. The other dimensions are
+            the dimensions that remain after the reduction of the array.
+
+        See Also
+        --------
+        numpy.nanpercentile, pandas.Series.quantile, DataArray.quantile
+        """
+
+        if isinstance(dim, str):
+            dims = {dim}
+        elif dim is None:
+            dims = set(self.dims)
+        else:
+            dims = set(dim)
+
+        _assert_empty(
+            [d for d in dims if d not in self.dims],
+            "Dataset does not contain the dimensions: %s",
+        )
+
+        q = np.asarray(q, dtype=np.float64)
+
+        variables = OrderedDict()
+        for name, var in self.variables.items():
+            reduce_dims = [d for d in var.dims if d in dims]
+            if reduce_dims or not var.dims:
+                if name not in self.coords:
+                    if (
+                        not numeric_only
+                        or np.issubdtype(var.dtype, np.number)
+                        or var.dtype == np.bool_
+                    ):
+                        if len(reduce_dims) == var.ndim:
+                            # prefer to aggregate over axis=None rather than
+                            # axis=(0, 1) if they will be equivalent, because
+                            # the former is often more efficient
+                            reduce_dims = None
+                        variables[name] = var.quantile(
+                            q, dim=reduce_dims, interpolation=interpolation
+                        )
+
+            else:
+                variables[name] = var
+
+        # construct the new dataset
+        coord_names = {k for k in self.coords if k in variables}
+        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)
+        if keep_attrs is None:
+            keep_attrs = _get_keep_attrs(default=False)
+        attrs = self.attrs if keep_attrs else None
+        new = self._replace_with_new_dims(
+            variables, coord_names=coord_names, attrs=attrs, indexes=indexes
+        )
+        if "quantile" in new.dims:
+            new.coords["quantile"] = Variable("quantile", q)
+        else:
+            new.coords["quantile"] = q
+        return new
+
+## xarray/core/variable.py:L1595-L1661
+    def quantile(self, q, dim=None, interpolation="linear"):
+        """Compute the qth quantile of the data along the specified dimension.
+
+        Returns the qth quantiles(s) of the array elements.
+
+        Parameters
+        ----------
+        q : float in range of [0,1] (or sequence of floats)
+            Quantile to compute, which must be between 0 and 1
+            inclusive.
+        dim : str or sequence of str, optional
+            Dimension(s) over which to apply quantile.
+        interpolation : {'linear', 'lower', 'higher', 'midpoint', 'nearest'}
+            This optional parameter specifies the interpolation method to
+            use when the desired quantile lies between two data points
+            ``i < j``:
+                * linear: ``i + (j - i) * fraction``, where ``fraction`` is
+                  the fractional part of the index surrounded by ``i`` and
+                  ``j``.
+                * lower: ``i``.
+                * higher: ``j``.
+                * nearest: ``i`` or ``j``, whichever is nearest.
+                * midpoint: ``(i + j) / 2``.
+
+        Returns
+        -------
+        quantiles : Variable
+            If `q` is a single quantile, then the result
+            is a scalar. If multiple percentiles are given, first axis of
+            the result corresponds to the quantile and a quantile dimension
+            is added to the return array. The other dimensions are the
+             dimensions that remain after the reduction of the array.
+
+        See Also
+        --------
+        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,
+        DataArray.quantile
+        """
+        if isinstance(self.data, dask_array_type):
+            raise TypeError(
+                "quantile does not work for arrays stored as dask "
+                "arrays. Load the data via .compute() or .load() "
+                "prior to calling this method."
+            )
+
+        q = np.asarray(q, dtype=np.float64)
+
+        new_dims = list(self.dims)
+        if dim is not None:
+            axis = self.get_axis_num(dim)
+            if utils.is_scalar(dim):
+                new_dims.remove(dim)
+            else:
+                for d in dim:
+                    new_dims.remove(d)
+        else:
+            axis = None
+            new_dims = []
+
+        # only add the quantile dimension if q is array like
+        if q.ndim != 0:
+            new_dims = ["quantile"] + new_dims
+
+        qs = np.nanpercentile(
+            self.data, q * 100.0, axis=axis, interpolation=interpolation
+        )
+        return Variable(new_dims, qs)
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/variable.py:L1595", "old": "    def quantile(self, q, dim=None, interpolation=\"linear\"):", "new": "    def quantile(self, q, dim=None, interpolation=\"linear\", keep_attrs=None):"}, {"path": "xarray/core/variable.py:L1629-L1632", "old": "        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"", "new": "        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n        from .computation import apply_ufunc\n"}, {"path": "xarray/core/variable.py:L1655-L1661", "old": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n        return Variable(new_dims, qs)", "new": "        qs = np.nanpercentile(\n            self.data, q * 100.0, axis=axis, interpolation=interpolation\n        )\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self._attrs if keep_attrs else None\n\n        return Variable(new_dims, qs, attrs=attrs)"}]}
+[usage] input=2 cache_read=11239 cache_write=3084 output=853
+
+=== Turn 4 ===
+[user] [tool_result] {"applied":["xarray/core/variable.py:1595,1660-1663",{"hunks":[{"line_end":1632,"line_start":1629}],"match_mode":"fuzzy","path":"xarray/core/variable.py:L1629-L1632","result":"        See Also\n        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n        from .computation import apply_ufunc\n        if isinstance(self.data, dask_array_type):"}]}
+[assistant] [tool_use: mcp__lc__read] {"files": ["xarray/core/variable.py:L1626-L1672"]}
+[usage] input=2 cache_read=14323 cache_write=1055 output=156
+
+=== Turn 5 ===
+[user] [tool_result] ## xarray/core/variable.py:L1626-L1672
+             dimensions that remain after the reduction of the array.
+
+        See Also
+        See Also
+        --------
+        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,
+        DataArray.quantile
+        """
+        from .computation import apply_ufunc
+        if isinstance(self.data, dask_array_type):
+            raise TypeError(
+                "quantile does not work for arrays stored as dask "
+                "arrays. Load the data via .compute() or .load() "
+                "prior to calling this method."
+            )
+
+        q = np.asarray(q, dtype=np.float64)
+
+        new_dims = list(self.dims)
+        if dim is not None:
+            axis = self.get_axis_num(dim)
+            if utils.is_scalar(dim):
+                new_dims.remove(dim)
+            else:
+                for d in dim:
+                    new_dims.remove(d)
+        else:
+            axis = None
+            new_dims = []
+
+        # only add the quantile dimension if q is array like
+        if q.ndim != 0:
+            new_dims = ["quantile"] + new_dims
+
+        qs = np.nanpercentile(
+            self.data, q * 100.0, axis=axis, interpolation=interpolation
+        )
+
+        if keep_attrs is None:
+            keep_attrs = _get_keep_attrs(default=False)
+        attrs = self._attrs if keep_attrs else None
+
+        return Variable(new_dims, qs, attrs=attrs)
+
+    def rank(self, dim, pct=False):
+        """Ranks the data.
+
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/variable.py:L1628-L1634", "old": "        See Also\n        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n        from .computation import apply_ufunc\n        if isinstance(self.data, dask_array_type):", "new": "        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n        if isinstance(self.data, dask_array_type):"}]}
+[usage] input=2 cache_read=15378 cache_write=684 output=310
+
+=== Turn 6 ===
+[user] [tool_result] {"applied":[],"failed":[{"edit_file":"xarray/core/variable.py","edit_index":0,"error":"old_string not found in file (best match similarity 0.87 < 0.90; re-read the file and supply exact disk content as old_string)","old_string_snippet":"        See Also\n        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile…"}],"rolled_back":true}
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/variable.py:L1628-L1634", "new": "        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n\n        if isinstance(self.data, dask_array_type):"}]}
+[usage] input=2 cache_read=16062 cache_write=470 output=170
+
+=== Turn 7 ===
+[user] [tool_result] {"applied":[],"failed":[{"edit_file":"xarray/core/variable.py:L1628-L1634","edit_index":0,"error":"blind range edit rejected: 'xarray/core/variable.py' changed on disk since this window last read it, so its line numbers may point at different content now -- read the exact range first, or pass old to anchor the edit"}],"rolled_back":true}
+[assistant] [tool_use: mcp__lc__read] {"files": ["xarray/core/variable.py:L1628-L1635"]}
+[usage] input=2 cache_read=16532 cache_write=303 output=72
+
+=== Turn 8 ===
+[user] [tool_result] ## xarray/core/variable.py:L1628-L1635
+        See Also
+        See Also
+        --------
+        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,
+        DataArray.quantile
+        """
+        from .computation import apply_ufunc
+        if isinstance(self.data, dask_array_type):
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/variable.py:L1628-L1635", "new": "        See Also\n        --------\n        numpy.nanpercentile, pandas.Series.quantile, Dataset.quantile,\n        DataArray.quantile\n        \"\"\"\n\n        if isinstance(self.data, dask_array_type):"}]}
+[usage] input=2 cache_read=16835 cache_write=189 output=170
+
+=== Turn 9 ===
+[user] [tool_result] {"applied":[{"hunks":[{"line_end":1635,"line_start":1628}],"match_mode":"range","path":"xarray/core/variable.py:L1628-L1635"}]}
+[assistant] [tool_use: mcp__lc__code_search] {"query": "_get_keep_attrs import in variable.py", "paths": "xarray/core/variable.py"}
+[usage] input=2 cache_read=17024 cache_write=240 output=123
+
+=== Turn 10 ===
+[user] [tool_result] ## xarray/core/variable.py
+### as_variable L53-L1920
+53	def as_variable(obj, name=None) -> "Union[Variable, IndexVariable]":
+    """Convert an object into a Variable.
+
+    Parameters
+    ----------
+58	    obj : object
+        Object to convert into a Variable.
+
+        - If the object is already a Variable, return a shallow copy.
+        - Otherwise, if the object has 'dims' and 'data' attributes, convert
+63	          it into a new Variable.
+        - If all else fails, attempt to convert the object into a Variable by
+          unpacking it into the arguments for creating a new Variable.
+    name : str, optional
+        If provided:
+68	
+        - `obj` can be a 1D array, which is assumed to label coordinate values
+          along a dimension of this given name.
+        - Variables with name matching one of their dimensions are converted
+          into `IndexVariable` objects.
+73	
+    Returns
+    -------
+    var : Variable
+        The newly created variable.
+78	
+    """
+    from .dataarray import DataArray
+
+    # TODO: consider extending this method to automatically handle Iris and
+83	    if isinstance(obj, DataArray):
+        # extract the primary Variable from DataArrays
+        obj = obj.variable
+
+    if isinstance(obj, Variable):
+88	        obj = obj.copy(deep=False)
+    elif isinstance(obj, tuple):
+        try:
+            obj = Variable(*obj)
+        except (TypeError, ValueError) as error:
+93	            # use .format() instead of % because it handles tuples consistently
+            raise error.__class__(
+                "Could not convert tuple of form "
+                "(dims, data[, attrs, encoding]): "
+                "{} to Variable.".format(obj)
+98	            )
+    elif utils.is_scalar(obj):
+        obj = Variable([], obj)
+    elif isinstance(obj, (pd.Index, IndexVariable)) and obj.name is not None:
+        obj = Variable(obj.name, obj)
+103	    elif isinstance(obj, (set, dict)):
+        raise TypeError("variable %r has invalid type %r" % (name, type(obj)))
+    elif name is not None:
+        data = as_compatible_data(obj)
+        if data.ndim != 1:
+108	            raise MissingDimensionsError(
+                "cannot set variable %r with %r-dimensional data "
+                "without explicit dimension names. Pass a tuple of "
+                "(dims, data) instead." % (name, data.ndim)
+            )
+113	        obj = Variable(name, data, fastpath=True)
+    else:
+        raise TypeError(
+            "unable to convert object into a variable without an "
+            "explicit list of dimensions: %r" % obj
+118	        )
+
+    if name is not None and name in obj.dims:
+        # convert the Variable into an Index
+        if obj.ndim != 1:
+123	            raise MissingDimensionsError(
+                "%r has more than 1-dimension and the same name as one of its "
+                "dimensions %r. xarray disallows such variables because they "
+                "conflict with the coordinates used to label "
+                "dimensions." % (name, obj.dims)
+128	            )
+        obj = obj.to_index_variable()
+
+    return obj
+
+133	
+def _maybe_wrap_data(data):
+    """
+    Put pandas.Index and numpy.ndarray arguments in adapter objects to ensure
+    they can be indexed properly.
+138	
+    NumpyArrayAdapter, PandasIndexAdapter and LazilyOuterIndexedArray should
+    all pass through unmodified.
+    """
+    if isinstance(data, pd.Index):
+143	        return PandasIndexAdapter(data)
+    return data
+
+
+def _possibly_convert_objects(values):
+148	    """Convert arrays of datetime.datetime and datetime.timedelta objects into
+... [truncated after L148 — L1920]
+
+related_symbols:
+xarray/core/variable.py:L1595-L1667 method Variable.quantile
+xarray/core/variable.py:L53-L131 as_variable
+xarray/core/variable.py:L247-L1920 class Variable
+xarray/core/variable.py:L431-L435 method Variable.to_base_variable
+xarray/core/variable.py:L439-L443 method Variable.to_index_variable
+xarray/core/variable.py:L785-L869 method Variable.copy
+xarray/core/variable.py:L871-L872 method Variable.__copy__
+xarray/core/variable.py:L874-L877 method Variable.__deepcopy__
+
+candidate_files: xarray/core/options.py, xarray/core/dataset.py, xarray/core/common.py, xarray/core/groupby.py, xarray/core/dataarray.py, xarray/tests/test_options.py, xarray/core/computation.py, xarray/convert.py, xarray/core/missing.py, xarray/plot/utils.py, xarray/backends/h5netcdf_.py, xarray/backends/netCDF4_.py, xarray/conventions.py, xarray/coding/variables.py, xarray/coding/strings.py, xarray/coding/times.py, xarray/backends/scipy_.py, xarray/backends/zarr.py, xarray/core/ops.py, xarray/backends/api.py, xarray/backends/pseudonetcdf_.py, xarray/core/resample.py, xarray/backends/common.py, xarray/tests/test_computation.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__bash] {"command": "grep -n \"_get_keep_attrs\\|^from\\|^import\" xarray/core/variable.py | head -40"}
+[usage] input=2 cache_read=17264 cache_write=1957 output=89
+
+=== Turn 11 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] Import present. Now pass `keep_attrs` through Dataset.quantile to var.quantile:[tool_use: mcp__lc__read] {"files": ["xarray/core/dataset.py:L4753-L4790"]}
+[usage] input=131 cache_read=19221 cache_write=415 output=106
+
+=== Turn 12 ===
+[user] [tool_result] ## xarray/core/dataset.py:L4753-L4790
+        q = np.asarray(q, dtype=np.float64)
+
+        variables = OrderedDict()
+        for name, var in self.variables.items():
+            reduce_dims = [d for d in var.dims if d in dims]
+            if reduce_dims or not var.dims:
+                if name not in self.coords:
+                    if (
+                        not numeric_only
+                        or np.issubdtype(var.dtype, np.number)
+                        or var.dtype == np.bool_
+                    ):
+                        if len(reduce_dims) == var.ndim:
+                            # prefer to aggregate over axis=None rather than
+                            # axis=(0, 1) if they will be equivalent, because
+                            # the former is often more efficient
+                            reduce_dims = None
+                        variables[name] = var.quantile(
+                            q, dim=reduce_dims, interpolation=interpolation
+                        )
+
+            else:
+                variables[name] = var
+
+        # construct the new dataset
+        coord_names = {k for k in self.coords if k in variables}
+        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)
+        if keep_attrs is None:
+            keep_attrs = _get_keep_attrs(default=False)
+        attrs = self.attrs if keep_attrs else None
+        new = self._replace_with_new_dims(
+            variables, coord_names=coord_names, attrs=attrs, indexes=indexes
+        )
+        if "quantile" in new.dims:
+            new.coords["quantile"] = Variable("quantile", q)
+        else:
+            new.coords["quantile"] = q
+        return new
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/dataset.py:L4753-L4783", "old": "        q = np.asarray(q, dtype=np.float64)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q, dim=reduce_dims, interpolation=interpolation\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n        attrs = self.attrs if keep_attrs else None", "new": "        q = np.asarray(q, dtype=np.float64)\n\n        if keep_attrs is None:\n            keep_attrs = _get_keep_attrs(default=False)\n\n        variables = OrderedDict()\n        for name, var in self.variables.items():\n            reduce_dims = [d for d in var.dims if d in dims]\n            if reduce_dims or not var.dims:\n                if name not in self.coords:\n                    if (\n                        not numeric_only\n                        or np.issubdtype(var.dtype, np.number)\n                        or var.dtype == np.bool_\n                    ):\n                        if len(reduce_dims) == var.ndim:\n                            # prefer to aggregate over axis=None rather than\n                            # axis=(0, 1) if they will be equivalent, because\n                            # the former is often more efficient\n                            reduce_dims = None\n                        variables[name] = var.quantile(\n                            q,\n                            dim=reduce_dims,\n                            interpolation=interpolation,\n                            keep_attrs=keep_attrs,\n                        )\n\n            else:\n                variables[name] = var\n\n        # construct the new dataset\n        coord_names = {k for k in self.coords if k in variables}\n        indexes = OrderedDict((k, v) for k, v in self.indexes.items() if k in variables)\n        attrs = self.attrs if keep_attrs else None"}]}
+[usage] input=2 cache_read=19636 cache_write=787 output=1020
+
+=== Turn 13 ===
+[user] [tool_result] applied xarray/core/dataset.py:4753-4782
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /repo 2>/dev/null; python -c \"\nimport xarray as xr\nda = xr.DataArray([0,0], dims='x', attrs={'units':'K'})\nprint(dict(da.quantile(.9, dim='x', keep_attrs=True).attrs))\nprint(dict(da.quantile(.9, dim='x', keep_attrs=False).attrs))\nprint(dict(da.quantile(.9, dim='x').attrs))\n\" 2>&1 | tail; echo \"---\"; ls"}
+[usage] input=2 cache_read=20423 cache_write=1044 output=307
+
+=== Turn 14 ===
+[user] [tool_result] /testbed/xarray/plot/plot.py:287: SyntaxWarning: "is" with a literal. Did you mean "=="?
+  if args is ():
+{'units': 'K'}
+{}
+{}
+---
+CODE_OF_CONDUCT.md
+HOW_TO_RELEASE
+LICENSE
+MANIFEST.in
+README.rst
+__pycache__
+asv_bench
+azure-pipelines.yml
+ci
+conftest.py
+doc
+examples
+licenses
+properties
+readthedocs.yml
+setup.cfg
+setup.py
+versioneer.py
+xarray
+xarray.egg-info
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed; python -m pytest xarray/tests/test_variable.py -k quantile xarray/tests/test_dataset.py -k quantile -q 2>&1 | tail -15"}
+[usage] input=2 cache_read=21467 cache_write=517 output=135
+
+=== Turn 15 ===
+[user] [tool_result] 3 passed, 1123 deselected, 101 warnings in 1.69s
+[assistant] [tool_use: mcp__lc__bash] {"command": "cd /testbed; python -m pytest xarray/tests/test_dataarray.py xarray/tests/test_dataset.py xarray/tests/test_variable.py -k quantile -q 2>&1 | tail -8"}
+[usage] input=2 cache_read=21984 cache_write=165 output=125
+
+=== Turn 16 ===
+[user] [tool_result] 4 passed, 1791 deselected, 117 warnings in 1.26s
+[assistant] `done`: keep_attrs now honored → Variable.quantile gained `keep_attrs` param (preserves `_attrs`), Dataset.quantile forwards it per-variable; DataArray inherits via temp dataset → verified: MCVE returns `{'units':'K'}` for True, `{}` for False/default; pytest -k quantile 4 passed.
+[usage] input=2 cache_read=22149 cache_write=155 output=121

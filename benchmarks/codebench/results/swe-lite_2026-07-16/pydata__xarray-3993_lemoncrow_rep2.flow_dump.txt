@@ -1,0 +1,287 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by running the app and observing behavior. Use when asked to verify a PR, confirm a fix works, test a change manually, check that a feature works, or validate local changes before pushing.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__code_search] {"query": "def integrate(self, coord"}[tool_use: mcp__lc__code_search] {"query": "def integrate(self, dim"}
+[usage] input=2845 cache_read=7080 cache_write=0 output=157
+
+=== Turn 2 ===
+[user] [tool_result] no exact match -- ranked candidates
+
+## xarray/core/dataset.py
+Dataset — read xarray/core/dataset.py:L512-L7006
+### Dataset._integrate_one L6025-L6070
+6025	def _integrate_one(self, coord, datetime_unit=None):
+
+related_symbols:
+xarray/core/dataset.py:L5966-L6023 method Dataset.integrate
+xarray/core/dataarray.py:L3483-L3532 method DataArray.integrate
+xarray/core/formatting.py:L297-L299 _summarize_coord_multiindex
+xarray/core/formatting_html.py:L67-L71 _summarize_coord_multiindex
+xarray/core/formatting.py:L302-L308 _summarize_coord_levels
+xarray/core/formatting_html.py:L74-L86 summarize_coord
+xarray/core/formatting.py:L315-L327 summarize_coord
+xarray/core/concat.py:L242-L263 _calc_concat_dim_coord
+
+candidate_files: xarray/core/dataarray.py, xarray/tests/test_dataset.py, xarray/tests/test_units.py, xarray/tests/test_sparse.py, xarray/plot/utils.py, xarray/core/rolling.py, xarray/core/duck_array_ops.py, xarray/core/merge.py, xarray/conventions.py, xarray/core/combine.py, xarray/core/groupby.py, xarray/convert.py, xarray/backends/store.py
+
+(truncated; narrow with paths=)
+[tool_result] no exact match -- ranked candidates
+
+## xarray/core/dataset.py
+Dataset.integrate — read xarray/core/dataset.py:L5966-L6023
+### Dataset._integrate_one L6025-L6070
+6025	def _integrate_one(self, coord, datetime_unit=None):
+
+## xarray/core/dataarray.py
+### DataArray.integrate L3483-L3532
+3483	def integrate(
+        self, dim: Union[Hashable, Sequence[Hashable]], datetime_unit: str = None
+    ) -> "DataArray":
+
+related_symbols:
+xarray/tests/test_dataset.py:L6555-L6604 test_integrate
+xarray/tests/test_dataset.py:L6609-L6656 test_trapz_datetime
+xarray/coding/cftime_offsets.py:L674-L692 to_cftime_datetime
+xarray/coding/times.py:L113-L137 _decode_cf_datetime_dtype
+xarray/coding/times.py:L148-L180 _decode_datetime_with_pandas
+xarray/coding/times.py:L183-L234 decode_cf_datetime
+xarray/coding/times.py:L296-L317 infer_datetime_units
+xarray/coding/times.py:L320-L332 format_cftime_datetime
+
+candidate_files: xarray/tests/test_dataset.py, xarray/tests/test_units.py, xarray/tests/test_sparse.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__read] {"files": ["xarray/core/dataarray.py:L3483-L3532", "xarray/core/dataset.py:L5966-L6023"]}
+[usage] input=2 cache_read=7080 cache_write=4084 output=95
+
+=== Turn 3 ===
+[user] [tool_result] ## xarray/core/dataarray.py:L3483-L3532
+    def integrate(
+        self, dim: Union[Hashable, Sequence[Hashable]], datetime_unit: str = None
+    ) -> "DataArray":
+        """ integrate the array with the trapezoidal rule.
+
+        .. note::
+            This feature is limited to simple cartesian geometry, i.e. dim
+            must be one dimensional.
+
+        Parameters
+        ----------
+        dim : hashable, or sequence of hashable
+            Coordinate(s) used for the integration.
+        datetime_unit : {"Y", "M", "W", "D", "h", "m", "s", "ms", "us", "ns", \
+                         "ps", "fs", "as"}, optional
+            Can be used to specify the unit if datetime coordinate is used.
+
+        Returns
+        -------
+        integrated: DataArray
+
+        See also
+        --------
+        numpy.trapz: corresponding numpy function
+
+        Examples
+        --------
+
+        >>> da = xr.DataArray(
+        ...     np.arange(12).reshape(4, 3),
+        ...     dims=["x", "y"],
+        ...     coords={"x": [0, 0.1, 1.1, 1.2]},
+        ... )
+        >>> da
+        <xarray.DataArray (x: 4, y: 3)>
+        array([[ 0,  1,  2],
+               [ 3,  4,  5],
+               [ 6,  7,  8],
+               [ 9, 10, 11]])
+        Coordinates:
+          * x        (x) float64 0.0 0.1 1.1 1.2
+        Dimensions without coordinates: y
+        >>>
+        >>> da.integrate("x")
+        <xarray.DataArray (y: 3)>
+        array([5.4, 6.6, 7.8])
+        Dimensions without coordinates: y
+        """
+        ds = self._to_temp_dataset().integrate(dim, datetime_unit)
+        return self._from_temp_dataset(ds)
+
+## xarray/core/dataset.py:L5966-L6023
+    def integrate(self, coord, datetime_unit=None):
+        """ integrate the array with the trapezoidal rule.
+
+        .. note::
+            This feature is limited to simple cartesian geometry, i.e. coord
+            must be one dimensional.
+
+        Parameters
+        ----------
+        coord: str, or sequence of str
+            Coordinate(s) used for the integration.
+        datetime_unit : {"Y", "M", "W", "D", "h", "m", "s", "ms", "us", "ns", \
+                         "ps", "fs", "as"}, optional
+            Can be specify the unit if datetime coordinate is used.
+
+        Returns
+        -------
+        integrated : Dataset
+
+        See also
+        --------
+        DataArray.integrate
+        numpy.trapz: corresponding numpy function
+
+        Examples
+        --------
+        >>> ds = xr.Dataset(
+        ...     data_vars={"a": ("x", [5, 5, 6, 6]), "b": ("x", [1, 2, 1, 0])},
+        ...     coords={"x": [0, 1, 2, 3], "y": ("x", [1, 7, 3, 5])},
+        ... )
+        >>> ds
+        <xarray.Dataset>
+        Dimensions:  (x: 4)
+        Coordinates:
+          * x        (x) int64 0 1 2 3
+            y        (x) int64 1 7 3 5
+        Data variables:
+            a        (x) int64 5 5 6 6
+            b        (x) int64 1 2 1 0
+        >>> ds.integrate("x")
+        <xarray.Dataset>
+        Dimensions:  ()
+        Data variables:
+            a        float64 16.5
+            b        float64 3.5
+        >>> ds.integrate("y")
+        <xarray.Dataset>
+        Dimensions:  ()
+        Data variables:
+            a        float64 20.0
+            b        float64 4.0
+        """
+        if not isinstance(coord, (list, tuple)):
+            coord = (coord,)
+        result = self
+        for c in coord:
+            result = result._integrate_one(c, datetime_unit=datetime_unit)
+        return result
+[assistant] [tool_use: mcp__lc__edit] {"edits": [{"path": "xarray/core/dataarray.py:L3483-L3532", "new": "    def integrate(\n        self,\n        coord: Union[Hashable, Sequence[Hashable]] = None,\n        datetime_unit: str = None,\n        *,\n        dim: Union[Hashable, Sequence[Hashable]] = None,\n    ) -> \"DataArray\":\n        \"\"\" integrate the array with the trapezoidal rule.\n\n        .. note::\n            This feature is limited to simple cartesian geometry, i.e. coord\n            must be one dimensional.\n\n        Parameters\n        ----------\n        coord: hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n        dim : hashable, or sequence of hashable\n            Coordinate(s) used for the integration.\n\n            .. deprecated:: 0.17.0\n                Use ``coord`` instead.\n        datetime_unit : {\"Y\", \"M\", \"W\", \"D\", \"h\", \"m\", \"s\", \"ms\", \"us\", \"ns\", \\\n                         \"ps\", \"fs\", \"as\"}, optional\n            Can be used to specify the unit if datetime coordinate is used.\n\n        Returns\n        -------\n        integrated: DataArray\n\n        See also\n        --------\n        numpy.trapz: corresponding numpy function\n\n        Examples\n        --------\n\n        >>> da = xr.DataArray(\n        ...     np.arange(12).reshape(4, 3),\n        ...     dims=[\"x\", \"y\"],\n        ...     coords={\"x\": [0, 0.1, 1.1, 1.2]},\n        ... )\n        >>> da\n        <xarray.DataArray (x: 4, y: 3)>\n        array([[ 0,  1,  2],\n               [ 3,  4,  5],\n               [ 6,  7,  8],\n               [ 9, 10, 11]])\n        Coordinates:\n          * x        (x) float64 0.0 0.1 1.1 1.2\n        Dimensions without coordinates: y\n        >>>\n        >>> da.integrate(\"x\")\n        <xarray.DataArray (y: 3)>\n        array([5.4, 6.6, 7.8])\n        Dimensions without coordinates: y\n        \"\"\"\n        if dim is not None and coord is not None:\n            raise ValueError(\n                \"Cannot pass both 'dim' and 'coord'. Please pass only 'coord' instead.\"\n            )\n\n        if dim is not None and coord is None:\n            coord = dim\n            msg = (\n                \"The `dim` keyword argument to `DataArray.integrate` is \"\n                \"being replaced with `coord`, upon which coordinate values \"\n                \"are treated as data. Use `coord` instead of `dim`.\"\n            )\n            warnings.warn(msg, FutureWarning, stacklevel=2)\n\n        ds = self._to_temp_dataset().integrate(coord, datetime_unit)\n        return self._from_temp_dataset(ds)"}]}
+[usage] input=2 cache_read=11164 cache_write=1484 output=1221
+
+=== Turn 4 ===
+[user] [tool_result] {"applied":[{"hunks":[{"line_end":3532,"line_start":3483}],"match_mode":"range","path":"xarray/core/dataarray.py:L3483-L3532"}]}
+[assistant] [tool_use: mcp__lc__code_search] {"query": "import warnings", "paths": "xarray/core/dataarray.py"}
+[usage] input=2 cache_read=12648 cache_write=1293 output=110
+
+=== Turn 5 ===
+[user] [tool_result] no exact match -- ranked candidates
+
+## xarray/core/dataarray.py
+_infer_coords_and_dims — read xarray/core/dataarray.py:L90-L213
+
+related_symbols:
+xarray/core/dataarray.py:L2915-L2932 method DataArray._unary_op
+xarray/core/dataarray.py:L90-L172 _infer_coords_and_dims
+xarray/core/dataarray.py:L175-L190 _check_data_shape
+xarray/core/dataarray.py:L193-L213 class _LocIndexer
+xarray/core/dataarray.py:L196-L197 method _LocIndexer.__init__
+xarray/core/dataarray.py:L199-L204 method _LocIndexer.__getitem__
+xarray/core/dataarray.py:L206-L213 method _LocIndexer.__setitem__
+xarray/core/dataarray.py:L221-L4313 class DataArray
+
+candidate_files: xarray/core/dataset.py, xarray/core/duck_array_ops.py, xarray/core/utils.py, xarray/core/nputils.py, xarray/core/options.py, xarray/core/variable.py, xarray/conventions.py, xarray/core/common.py, xarray/core/extensions.py, xarray/coding/cftimeindex.py, xarray/coding/times.py, xarray/coding/variables.py, xarray/core/computation.py, xarray/core/missing.py, xarray/backends/file_manager.py, xarray/backends/rasterio_.py, xarray/core/groupby.py, xarray/core/resample.py, xarray/core/rolling.py, xarray/plot/utils.py, xarray/core/nanops.py, ci/min_deps_check.py, xarray/backends/plugins.py, xarray/core/accessor_dt.py
+
+(truncated; narrow with paths=)
+[assistant] [tool_use: mcp__lc__bash] {"command": "grep -n \"^import warnings\\|^import\\|^from\" xarray/core/dataarray.py | head -20"}
+[usage] input=2 cache_read=13941 cache_write=737 output=87
+
+=== Turn 6 ===
+[user] [tool_result] 1:import datetime
+2:import functools
+3:import warnings
+4:from numbers import Number
+5:from typing import (
+22:import numpy as np
+23:import pandas as pd
+25:from ..plot.plot import _PlotMethods
+26:from . import (
+38:from .accessor_dt import CombinedDatetimelikeAccessor
+39:from .accessor_str import StringAccessor
+40:from .alignment import (
+46:from .common import AbstractArray, DataWithCoords
+47:from .coordinates import (
+52:from .dataset import Dataset, split_indexes
+53:from .formatting import format_item
+54:from .indexes import Indexes, default_indexes, propagate_indexes
+55:from .indexing import is_fancy_indexer
+56:from .merge import PANDAS_TYPES, MergeError, _extract_indexes_from_coords
+57:from .options import OPTIONS, _get_keep_attrs
+[assistant] `warnings` imported. Verify:[tool_use: mcp__lc__bash] {"command": "cd /* 2>/dev/null; python -c \"\nimport warnings, numpy as np, xarray as xr\nda = xr.DataArray(np.arange(12).reshape(4,3), dims=['x','y'], coords={'x':[0,0.1,1.1,1.2]})\nprint(da.integrate('x').values)\nprint(da.integrate(coord='x').values)\nwith warnings.catch_warnings(record=True) as w:\n    warnings.simplefilter('always')\n    da.integrate(dim='x')\n    assert any(issubclass(x.category, FutureWarning) for x in w), 'no warning'\n    print('warned ok')\ntry:\n    da.integrate('x', dim='x')\nexcept ValueError as e:\n    print('ValueError ok:', e)\n\" 2>&1 | head", "cwd": "/root"}
+[usage] input=2 cache_read=14678 cache_write=395 output=350
+
+=== Turn 7 ===
+[user] [tool_result] [5.4 6.6 7.8]
+[5.4 6.6 7.8]
+warned ok
+ValueError ok: Cannot pass both 'dim' and 'coord'. Please pass only 'coord' instead.
+[assistant] done: `DataArray.integrate` now `coord=` (positional-compatible); `dim=` kept as deprecated kw → `FutureWarning`; both passed → `ValueError` → verified: coord/positional/dim-warn/conflict all pass.
+[usage] input=2 cache_read=15073 cache_write=427 output=173
