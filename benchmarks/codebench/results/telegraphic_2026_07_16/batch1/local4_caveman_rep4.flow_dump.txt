@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,64 +58,34 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Common causes and how to hunt them down:
+[assistant] Common causes + fixes:
 
-## Find the leak first (don't guess)
-
+**1. Find leak first**
 ```bash
-node --inspect your-app.js
+node --inspect app.js       # open chrome://inspect, take heap snapshots
+node --max-old-space-size=4096 app.js   # not fix, buys time
 ```
+Take 2+ heap snapshots under load. Compare. Growing object count = leak source.
 
-Then open `chrome://inspect`, take **heap snapshots** at intervals under load, and compare. The "Comparison" view showing which object types grew between snapshots is the fastest path to the culprit.
+**2. Usual culprits**
 
-Alternatively, capture snapshots programmatically:
+- **Unbounded caches/Maps** — entries never evicted. Fix: bound size or use `LRU` cache, or `WeakMap` for object keys.
+- **Event listeners not removed** — `emitter.on()` without `off()`. Each add stacks. Fix: `removeListener`/`off` on cleanup. Watch for `MaxListenersExceededWarning`.
+- **Closures holding big refs** — callback captures large object, callback lives long (timer, global). Fix: null the ref after use.
+- **Timers not cleared** — `setInterval` keeps callback + captured scope alive forever. Fix: `clearInterval` on shutdown.
+- **Global arrays growing** — logs/buffers pushed, never drained.
+- **Outstanding promises/requests** — pending stuff pinned in memory.
 
-```js
-const v8 = require('v8');
-const fs = require('fs');
-process.on('SIGUSR2', () => {
-  const s = v8.getHeapSnapshot();
-  s.pipe(fs.createWriteStream(`/tmp/${Date.now()}.heapsnapshot`));
-});
-```
-
-Send `kill -SIGUSR2 <pid>` at intervals, load the files into Chrome DevTools.
-
-## The usual suspects
-
-1. **Unbounded caches / Maps** — objects added, never evicted. Use a bounded cache (e.g. `lru-cache`) or a `WeakMap` when keys are objects you don't own.
-
-2. **Event listener accumulation** — `emitter.on(...)` called repeatedly without `removeListener`. Watch for the warning:
-   ```
-   MaxListenersExceededWarning: Possible EventEmitter memory leak detected
-   ```
-   Pair every `on` with `off`/`removeListener` on cleanup.
-
-3. **Closures capturing large objects** — a timer/callback holds a reference to something big. Clear timers (`clearInterval`) and null out references when done.
-
-4. **Global/module-scope arrays** that only grow — logs, request buffers, pending-job lists.
-
-5. **Timers and pending promises** never resolved/cleared.
-
-## Confirm and monitor
-
-Track heap over time:
-
-```js
-setInterval(() => {
-  const m = process.memoryUsage();
-  console.log(`heapUsed=${(m.heapUsed/1e6).toFixed(1)}MB rss=${(m.rss/1e6).toFixed(1)}MB`);
-}, 60_000);
-```
-
-Steadily climbing `heapUsed` that never drops after GC = real leak. Sawtooth that returns to baseline = normal.
-
-Run with a lower heap cap to force the issue to surface faster in testing:
+**3. Confirm fix**
 ```bash
-node --max-old-space-size=256 your-app.js
+node --expose-gc app.js
 ```
+```js
+setInterval(() => { global.gc(); console.log(process.memoryUsage().heapUsed / 1e6, 'MB'); }, 5000);
+```
+Heap flat after GC over time = fixed. Heap climbs = still leaking.
 
----
+**Tools:** `clinic doctor`, `heapdump`, `--heap-prof`, `process.memoryUsage()`.
 
-Want to share what your process does (web server, worker, queue consumer)? I can point at the most likely cause and help read a heap snapshot diff.
-[usage] input=2774 cache_read=7231 cache_write=4059 output=870
+Want help? Share the code holding state (caches, listeners, timers) — that where leak usually hide.
+[usage] input=2973 cache_read=15032 cache_write=4058 output=596

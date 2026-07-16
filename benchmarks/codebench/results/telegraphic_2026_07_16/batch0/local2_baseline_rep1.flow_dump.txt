@@ -5,7 +5,7 @@ My Express auth middleware is letting expired JWT tokens through. The expiry che
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Fix expired JWT token validation in auth middleware"}
+[assistant] {"title": "Fix JWT expiry check in Express middleware"}
 [usage] input=554 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,53 +58,99 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The bug is a **units mismatch**.
+[assistant] Let me look at your auth middleware to see the actual comparison.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local2_baseline_rep1 && grep -rn \"exp\" --include=*.js --include=*.ts -l . | grep -v node_modules | head -20", "description": "Find files referencing exp"}[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local2_baseline_rep1 && grep -rn \"Date.now\" --include=*.js --include=*.ts . | grep -v node_modules | head -20", "description": "Find Date.now usages"}
+[usage] input=2973 cache_read=15023 cache_write=2124 output=377
 
-- JWT's `exp` is a **NumericDate**: seconds since the Unix epoch.
-- `Date.now()` returns **milliseconds** since the epoch.
+=== Turn 3 ===
+[user] [tool_result] (eval):1: no matches found: --include=*.js
+[tool_result] (eval):1: no matches found: --include=*.js
+[assistant] [tool_use: Bash] {"command": "grep -rn \"Date.now\" . --include='*.js' --include='*.ts' 2>/dev/null | grep -v node_modules | head -20; echo \"---\"; ls", "description": "Find Date.now usages, quoted globs"}
+[usage] input=2 cache_read=17147 cache_write=3350 output=155
 
-So `Date.now()` is ~1000× larger than `exp`. A check like:
+=== Turn 4 ===
+[user] [tool_result] ---
+[assistant] [tool_use: Bash] {"command": "ls -la; echo \"===\"; git ls-files | grep -v node_modules | head -50", "description": "List files and tracked files"}
+[usage] input=2 cache_read=20497 cache_write=161 output=102
+
+=== Turn 5 ===
+[user] [tool_result] ===
+fatal: not a git repository (or any of the parent directories): .git
+[assistant] [tool_use: Bash] {"command": "pwd; ls -la 2>&1; echo \"===\"; find . -maxdepth 3 -type f 2>/dev/null | grep -v node_modules | head", "description": "Inspect current directory contents"}
+[usage] input=2 cache_read=20658 cache_write=130 output=151
+
+=== Turn 6 ===
+[user] [tool_result] /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local2_baseline_rep1
+===
+./README.md
+./.lemoncrow/.gitignore
+[assistant] [tool_use: Bash] {"command": "cat README.md; echo \"===\"; ls -la .lemoncrow", "description": "Read README and lemoncrow dir"}
+[usage] input=2 cache_read=20788 cache_write=218 output=101
+
+=== Turn 7 ===
+[user] [tool_result] # Telegraphic benchmark scratch repo
+
+Intentionally minimal. Exists only so `lc benchmark telegraphic` has a
+real git repo to hand each Claude Code arm -- the prompts are general dev
+Q&A, not tied to any specific codebase, so there is deliberately nothing
+here to explore. Answer from general knowledge.
+===
+.rw-rw-r-- 71 pankaj 13 Jul 18:54 .gitignore
+drwxrwxr-x  - pankaj 13 Jul 18:54 lessons
+[assistant] There's nothing to explore here — this is a general-knowledge question, so here's the answer.
+
+## The bug: seconds vs. milliseconds
+
+JWT's `exp` claim is expressed in **seconds** since the Unix epoch (per RFC 7519 — it's a "NumericDate"). But `Date.now()` returns **milliseconds**.
+
+So a comparison like this:
 
 ```js
-if (Date.now() > decoded.exp) { /* reject */ }
-```
-
-almost never fires — `Date.now()` (e.g. `1_752_624_000_000`) is compared against an `exp` like `1_752_624_900`, which is always smaller, so every token looks "not yet expired." Expired tokens sail through.
-
-## Fix
-
-Convert to the same unit — divide `Date.now()` by 1000:
-
-```js
-if (Math.floor(Date.now() / 1000) >= decoded.exp) {
-  return res.status(401).json({ error: 'Token expired' });
+if (Date.now() >= decoded.exp) {   // BUG
+  throw new Error('token expired');
 }
 ```
 
-## Better fix: don't hand-roll it
+compares, e.g., `1752624000000` (ms, now) against `1752627600` (seconds, exp). `Date.now()` is ~1000× larger, so `Date.now() >= decoded.exp` looks "already expired"... except people usually write it the other way (`decoded.exp > Date.now()` → "still valid"), and *that* is always true until the year ~53,000. Either way the magnitude mismatch makes the check meaningless, and expired tokens sail through.
 
-If you're using `jsonwebtoken`, `jwt.verify()` already checks `exp` for you (and throws `TokenExpiredError`), so you shouldn't be doing a manual `Date.now()` comparison at all:
+## The fix
+
+Convert to the same unit. Compare in **seconds**:
+
+```js
+const nowSeconds = Math.floor(Date.now() / 1000);
+if (decoded.exp <= nowSeconds) {
+  return res.status(401).json({ error: 'token expired' });
+}
+```
+
+## Better fix: don't hand-roll the check
+
+`jsonwebtoken.verify()` already validates `exp` for you (in the correct units) and throws a `TokenExpiredError`. Manual expiry checking is a common source of exactly this bug. Prefer:
 
 ```js
 const jwt = require('jsonwebtoken');
 
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token' });
+  if (!token) return res.status(401).json({ error: 'no token' });
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
+    // optionally: { algorithms: ['HS256'], clockTolerance: 5 }
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired' });
+      return res.status(401).json({ error: 'token expired' });
     }
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'invalid token' });
   }
 }
 ```
 
-A manual `exp` check usually means the token was decoded with `jwt.decode()` (no verification) instead of `jwt.verify()`. `decode()` does **not** validate the signature or expiry — which is a second, more serious bug if that's what's happening, since it means unsigned/tampered tokens are also accepted.
+Notes:
+- `verify()` throws on expiry, bad signature, and malformed tokens — so pin `algorithms` to prevent `alg: none` / algorithm-confusion attacks.
+- `clockTolerance` (seconds) covers small server clock skew if you were seeing borderline failures.
+- If you're using `jwt.decode()` instead of `jwt.verify()` anywhere in this path, that's a second serious bug — `decode()` does **no** signature or expiry validation at all.
 
-If you paste the middleware (or point me at the file), I'll confirm which case you're in and patch it.
-[usage] input=2774 cache_read=7222 cache_write=2116 output=937
+**Root cause in one line:** `exp` is in seconds, `Date.now()` is in milliseconds — either divide `Date.now()` by 1000, or let `jwt.verify()` handle it.
+[usage] input=2 cache_read=21006 cache_write=287 output=1106

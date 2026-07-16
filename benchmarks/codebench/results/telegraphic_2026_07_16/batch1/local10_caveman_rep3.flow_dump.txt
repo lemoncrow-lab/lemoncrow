@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,23 +58,22 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Queue** = point-to-point. One message, one consumer. Work distributed among competing consumers. Message gone after processed.
+[assistant] Queue: point-to-point. One message, one consumer. Work distributed among consumers, each message processed once. Use for task/job processing, load balancing, commands where exactly one worker act.
 
-Use when:
-- Task must run once (order processing, payment, email send)
-- Load balancing across workers
-- Need backpressure / buffering
-- Care that each job done exactly by one handler
+Topic: publish-subscribe. One message, many subscribers, each get own copy. Use for events, broadcast, when multiple independent systems react to same thing.
 
-**Topic** = publish/subscribe. One message, many subscribers. Each subscriber get own copy.
+**Queue when:**
+- Task must run once (order processing, email send, image resize)
+- Distribute load across workers
+- Command semantics ("do this")
 
-Use when:
-- Many systems react to same event (order placed → billing + inventory + notify)
-- Broadcast / fan-out
-- Decouple producer from unknown number of consumers
-- Event-driven architecture
+**Topic when:**
+- Multiple consumers need same event ("order placed" → billing + shipping + analytics)
+- Broadcast/fan-out
+- Event semantics ("this happened")
+- Add new subscribers later without touching producer
 
-Rule of thumb: "who does this work?" → queue. "who cares this happened?" → topic.
+**Rule:** one owner do work = queue. Many watchers react = topic.
 
-Note: modern brokers blur line. Kafka topic + consumer groups = both (fan-out across groups, queue-like within group). RabbitMQ = exchange routes to queues. Same idea underneath.
-[usage] input=2774 cache_read=7231 cache_write=4061 output=332
+Modern brokers blur line. Kafka topic + consumer groups = both: fan-out across groups, queue-like split within group. RabbitMQ = exchange routes to queues. Same tradeoff underneath: exactly-one vs each-one.
+[usage] input=2973 cache_read=15032 cache_write=4058 output=372

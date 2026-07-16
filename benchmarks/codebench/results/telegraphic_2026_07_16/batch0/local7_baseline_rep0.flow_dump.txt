@@ -10,8 +10,8 @@ app.get('/api/users/:id', (req, res) => {
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Review Express route for SQL injection"}
-[usage] input=584 cache_read=0 cache_write=0 output=14
+[assistant] {"title": "Review Express route for SQL injection vulnerability"}
+[usage] input=584 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -42,8 +42,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -60,21 +63,23 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This handler has a **critical SQL injection vulnerability**, plus a couple of secondary issues.
+[assistant] This handler has one serious vulnerability and a couple of secondary issues.
 
-## Critical: SQL injection (CWE-89)
+## 🔴 Critical: SQL Injection
 
 ```js
 const query = `SELECT * FROM users WHERE id = ${req.params.id}`;
 ```
 
-`req.params.id` is interpolated directly into the SQL string. An attacker fully controls it. For example:
+`req.params.id` is interpolated directly into the SQL string. An attacker fully controls it, so they can inject arbitrary SQL.
 
-- `GET /api/users/1 OR 1=1` → dumps every user row.
-- `GET /api/users/1 UNION SELECT username, password, ... FROM users` → exfiltrates other columns/tables.
-- `GET /api/users/1; DROP TABLE users--` → destructive, if the driver allows stacked queries.
+**Example attacks** against `GET /api/users/:id`:
+- `/api/users/1 OR 1=1` → returns **all users** (dumps the table)
+- `/api/users/1; DROP TABLE users--` → destructive (if the driver allows stacked queries)
+- `/api/users/1 UNION SELECT ... ` → exfiltrate data from other tables
+- Boolean/time-based blind injection to extract data byte by byte
 
-**Fix — use a parameterized query** so the value is never parsed as SQL:
+**Fix — use parameterized queries** (never string-build SQL with user input):
 
 ```js
 app.get('/api/users/:id', (req, res) => {
@@ -82,32 +87,37 @@ app.get('/api/users/:id', (req, res) => {
   if (!Number.isInteger(id)) {
     return res.status(400).json({ error: 'Invalid user id' });
   }
-
-  db.query('SELECT * FROM users WHERE id = ?', [id])   // node-mysql/mysql2 style
+  // Parameterized / prepared statement — driver escapes the value
+  db.query('SELECT * FROM users WHERE id = ?', [id])   // mysql2
+    // db.query('SELECT * FROM users WHERE id = $1', [id])  // pg
     .then(user => res.json(user))
     .catch(err => {
       console.error(err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal error' });
     });
 });
 ```
 
-(For `pg`, use `$1` placeholders: `db.query('SELECT * FROM users WHERE id = $1', [id])`.)
+## 🟠 Secondary issues
 
-## Secondary issues
+1. **No error handling.** The `.then()` has no `.catch()`. A rejected DB promise becomes an unhandled rejection, the request hangs until timeout, and in some setups DB errors leak to the client. Always attach `.catch()` (shown above).
 
-**1. Unhandled promise rejection.** The original `.then(...)` has no `.catch`. A DB error leaves the request hanging until timeout and can crash the process on unhandled rejections. Always attach a `.catch` (shown above).
+2. **`SELECT *` over-fetches / leaks sensitive columns.** This returns every column, likely including `password_hash`, `email`, tokens, etc., straight to the client. Select an explicit allow-list of columns:
+   ```js
+   db.query('SELECT id, name, email FROM users WHERE id = ?', [id])
+   ```
 
-**2. Leaking sensitive columns (`SELECT *`).** This returns every column, including things like `password_hash`, `mfa_secret`, or internal flags straight to the client. Select an explicit allow-list:
+3. **No authorization check.** The route exposes any user's record by id with no check that the caller is allowed to view it (IDOR risk). Add authentication/authorization middleware and verify the caller may access this record.
 
-```js
-db.query('SELECT id, username, email, created_at FROM users WHERE id = ?', [id])
-```
+4. **Not-found handling.** If no row matches, you likely return an empty result with `200`. Consider returning `404` when the user doesn't exist.
 
-**3. No authentication/authorization shown.** The route exposes arbitrary user records by id with no auth middleware. Confirm that access control is enforced (e.g. the caller is allowed to view this user) — otherwise this is an IDOR / broken-access-control issue regardless of the SQL fix.
+## Summary
+| Issue | Severity | Fix |
+|---|---|---|
+| SQL injection via string interpolation | Critical | Parameterized query + validate `id` is an integer |
+| Missing `.catch()` error handling | High | Add `.catch()`, return 500, don't leak errors |
+| `SELECT *` leaks sensitive columns | Medium | Select explicit columns |
+| Missing authorization (IDOR) | Medium/High | Auth middleware + ownership check |
 
-## Priority
-Fix the SQL injection first — it's remotely exploitable and high impact. Parameterization alone closes the injection; add input validation, error handling, column allow-listing, and an authz check to fully harden the endpoint.
-
-Want me to look for the same interpolation pattern across the rest of the codebase? Many of these bugs travel in packs.
-[usage] input=2774 cache_read=7222 cache_write=2144 output=955
+The parameterized query is the non-negotiable fix; the rest are strongly recommended hardening.
+[usage] input=2973 cache_read=15023 cache_write=2152 output=1101

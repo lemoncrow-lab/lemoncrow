@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,7 +58,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Here's a production-ready setup using the `pg` library (node-postgres), which is the standard choice:
+[assistant] Here's a solid setup using `pg` (node-postgres), the standard PostgreSQL library for Node.js.
 
 ## Installation
 
@@ -63,100 +66,96 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 npm install pg
 ```
 
-## Basic Pool Configuration
+## Pool configuration
 
-```javascript
+```js
 // db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  // Connection
-  host: process.env.PGHOST || 'localhost',
+  host: process.env.PGHOST,
   port: process.env.PGPORT || 5432,
   database: process.env.PGDATABASE,
   user: process.env.PGUSER,
   password: <redacted>,
 
-  // Pool sizing
-  max: 20,                       // max clients in the pool
-  min: 2,                        // keep a few warm (pg v8.10+)
+  // --- Pool sizing ---
+  max: 20,                    // max clients in the pool
+  min: 2,                     // keep a few warm (pg v8.10+)
 
-  // Timeouts (all in milliseconds)
-  connectionTimeoutMillis: 5000, // error if a connection can't be acquired in 5s
-  idleTimeoutMillis: 30000,      // close idle clients after 30s
-  maxUses: 7500,                 // recycle a connection after N uses (avoids leaks)
+  // --- Timeouts (all in milliseconds) ---
+  connectionTimeoutMillis: 5000,   // fail if a connection can't be acquired in 5s
+  idleTimeoutMillis: 30000,        // release idle clients after 30s
+  statement_timeout: 10000,        // abort any query running longer than 10s
+  query_timeout: 10000,            // client-side query timeout
+  keepAlive: true,                 // enable TCP keepalive
 
-  // Query-level safety net (applied per connection)
-  statement_timeout: 10000,      // abort any query running > 10s
-  query_timeout: 10000,          // client-side query timeout
-  idle_in_transaction_session_timeout: 10000, // kill idle-in-transaction sessions
-
-  // TLS (typical for managed Postgres like RDS/Supabase)
+  // --- TLS (enable in production) ---
   ssl: process.env.PGSSL === 'true'
-    ? { rejectUnauthorized: false }
+    ? { rejectUnauthorized: true }
     : false,
 });
 
-module.exports = { pool };
+module.exports = pool;
 ```
 
-## Error Handling
+## Error handling
 
-The critical part most people miss — **the pool emits `error` for idle clients**. If you don't handle it, an unexpected backend/network drop crashes your process:
+The most commonly missed piece: **handle errors on idle clients.** A network drop or DB restart emits an `error` on an idle client, and without a listener it crashes the process.
 
-```javascript
+```js
 pool.on('error', (err, client) => {
-  // Fires for errors on IDLE clients (e.g. backend restart, network blip)
-  console.error('Unexpected error on idle PG client', err);
-  // Do NOT exit; the pool will discard the broken client and recover.
+  // Fires for errors on idle clients in the pool
+  console.error('Unexpected idle client error', err);
+  // Don't exit — the pool will remove the bad client and recover.
 });
 
 pool.on('connect', (client) => {
-  // Optional: per-session setup
-  // client.query('SET search_path TO my_schema');
+  // Optional: per-connection session setup
+  // client.query('SET statement_timeout = 10000');
 });
 ```
 
-## Safe Query Helpers
+## Querying safely
 
-```javascript
-// Simple queries — the pool checks out/returns the client for you.
-async function query(text, params) {
-  const start = Date.now();
-  try {
-    const res = await pool.query(text, params);
-    return res;
-  } catch (err) {
-    console.error('Query failed', { text, err: err.message });
-    throw err;
-  }
+For simple queries, use `pool.query()` — it checks out a client and releases it automatically:
+
+```js
+async function getUser(id) {
+  const { rows } = await pool.query(
+    'SELECT id, email FROM users WHERE id = $1',  // always parameterize
+    [id]
+  );
+  return rows[0];
 }
+```
 
-// Transactions — MUST use a single checked-out client, always released.
-async function withTransaction(callback) {
+For **transactions**, check out a client manually and always release it in `finally`:
+
+```js
+async function transferFunds(fromId, toId, amount) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const result = await callback(client);
+    await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, fromId]);
+    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, toId]);
     await client.query('COMMIT');
-    return result;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release(); // ALWAYS release, even on error — or you leak connections
+    client.release();   // critical — return the client to the pool even on error
   }
 }
-
-module.exports = { pool, query, withTransaction };
 ```
 
-## Graceful Shutdown
+## Graceful shutdown
 
-```javascript
+Drain the pool when the process is terminating so in-flight queries finish and sockets close cleanly:
+
+```js
 async function shutdown() {
-  console.log('Draining PG pool...');
-  await pool.end(); // waits for active queries, closes all clients
+  await pool.end();   // waits for active clients, then closes all connections
   process.exit(0);
 }
 
@@ -164,28 +163,13 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 ```
 
-## Usage
+## Key points
 
-```javascript
-const { query, withTransaction } = require('./db');
+- **`connectionTimeoutMillis`** guards against a saturated pool or unreachable DB — without it, `pool.connect()` can hang indefinitely.
+- **`statement_timeout`** is enforced server-side and is your best protection against runaway queries holding connections.
+- **`idleTimeoutMillis`** prevents accumulating stale connections; set it below any load-balancer/firewall idle cutoff.
+- **Always `client.release()` in `finally`** — a leaked client permanently shrinks the pool and eventually deadlocks it.
+- **Set `max`** to fit within your database's `max_connections`, accounting for all app instances (e.g., 4 instances × 20 = 80 connections).
 
-// One-off query
-const { rows } = await query('SELECT * FROM users WHERE id = $1', [userId]);
-
-// Transaction
-await withTransaction(async (client) => {
-  await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [100, from]);
-  await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [100, to]);
-});
-```
-
-## Key gotchas
-
-- **Always `release()` clients** from `pool.connect()` — use `try/finally`. Leaked clients exhaust the pool and every query then hangs until `connectionTimeoutMillis` fires.
-- **Never mutate connection state** (e.g. `SET`, temp tables, prepared statements) without resetting it — the client goes back into the pool for reuse.
-- **`connectionTimeoutMillis` vs `statement_timeout`** are different layers: the former is "can't get a client," the latter is "query ran too long." Set both.
-- **`max`** should match your DB's connection limit divided across app instances. Overshooting causes Postgres to reject connections.
-- Always attach `pool.on('error', ...)` — without it, an idle-client error is an unhandled exception.
-
-Want me to adapt this for TypeScript, a specific host (RDS/Supabase/Neon), or an ORM like Prisma/Drizzle?
-[usage] input=2774 cache_read=7222 cache_write=2096 output=1662
+Want me to adapt this for TypeScript, a specific framework (Express/Fastify/NestJS), or a serverless environment (where you'd typically want `max: 1` and external pooling like PgBouncer)?
+[usage] input=2973 cache_read=15023 cache_write=2104 output=1467

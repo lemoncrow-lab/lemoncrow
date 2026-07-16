@@ -5,7 +5,7 @@ My Express auth middleware is letting expired JWT tokens through. The expiry che
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Fix JWT expiry check in Express auth middleware"}
+[assistant] {"title": "Fix JWT token expiry validation in Express middleware"}
 [usage] input=554 cache_read=0 cache_write=0 output=17
 
 === Turn 2 ===
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,92 +58,109 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The classic cause here is a **units mismatch**, but let me look at your actual middleware to confirm the exact bug and the direction of the comparison.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local2_baseline_rep4 && grep -rn \"exp\" --include=*.js --include=*.ts -l src . 2>/dev/null | grep -iE \"auth|middleware|jwt|token\" | head -20", "description": "Find auth middleware files referencing exp"}[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local2_baseline_rep4 && grep -rn \"Date.now()\" --include=*.js --include=*.ts . 2>/dev/null | grep -iE \"exp|expir|token|jwt\" | head -20", "description": "Find Date.now expiry comparisons"}
-[usage] input=2774 cache_read=7222 cache_write=2116 output=1598
+[assistant] The seconds-vs-milliseconds mismatch is almost certainly the culprit, but let me look at your actual code so I fix the real bug rather than guess the direction of the unit error.[tool_use: Bash] {"command": "grep -rniE \"exp|jwt|Date\\.now|verify\" --include=*.js --include=*.ts -l /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local2_baseline_rep4 2>/dev/null | grep -viE \"node_modules|test|spec|\\.min\\.\" | head -40", "description": "Find candidate auth middleware files"}
+[usage] input=2973 cache_read=15023 cache_write=2124 output=3104
 
 === Turn 3 ===
 [user] [tool_result] (eval):1: no matches found: --include=*.js
-[tool_result] (eval):1: no matches found: --include=*.js
-[assistant] [tool_use: Bash] {"command": "grep -rn \"Date.now()\" --include=\"*.js\" --include=\"*.ts\" . 2>/dev/null | grep -iE \"exp|expir|token|jwt\"; echo \"---files---\"; grep -rln \"\\.exp\" --include=\"*.js\" --include=\"*.ts\" . 2>/dev/null | grep -ivE \"node_modules\" | head", "description": "Search for expiry comparison code"}
-[usage] input=46 cache_read=9338 cache_write=4336 output=208
+[assistant] [tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local2_baseline_rep4 && ls -la && echo \"---\" && grep -rniE \"exp|jwt|Date\\.now\" . 2>/dev/null | grep -viE \"node_modules|\\.git/\" | head -40", "description": "List repo and search for JWT/exp usage"}
+[usage] input=2 cache_read=17147 cache_write=6097 output=185
 
 === Turn 4 ===
-[user] [tool_result] ---files---
-[assistant] [tool_use: Bash] {"command": "git ls-files | head -50; echo \"---count---\"; git ls-files | wc -l", "description": "List tracked files"}
-[usage] input=2 cache_read=13674 cache_write=260 output=138
-
-=== Turn 5 ===
-[user] [tool_result] fatal: not a git repository (or any of the parent directories): .git
----count---
-fatal: not a git repository (or any of the parent directories): .git
-0
-[assistant] [tool_use: Bash] {"command": "ls -la; echo \"---\"; pwd", "description": "List working directory contents"}
-[usage] input=2 cache_read=13934 cache_write=192 output=86
-
-=== Turn 6 ===
 [user] [tool_result] ---
-/tmp/codebench_workspaces/batch0-227c5e985c25/local2_baseline_rep4
-[assistant] Your working directory here is empty (no code to inspect), so I'll answer from the symptom you described — and it's a textbook one.
+README.md:6:here to explore. Answer from general knowledge.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_baseline_rep0.flow_dump.txt:4:Explain the difference between git rebase and git merge. When should I use each one and what are the tradeoffs?
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_baseline_rep0.flow_dump.txt:35:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_baseline_rep0.flow_dump.txt:125:This gives you the linear cleanliness of rebase on your private work *and* an explicit merge commit marking when the feature landed.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local3_lemoncrow_rep3.flow_dump.txt:54:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_baseline_rep1.flow_dump.txt:35:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_baseline_rep1.flow_dump.txt:90:**Using a transaction/multiple statements?** If you genuinely must read-then-write in separate statements (e.g. business logic between them), lock the row explicitly:
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_baseline_rep1.flow_dump.txt:107:**Make sure you're not on a pooled client bug** — using `pool.query()` (as above) grabs and releases a connection per call, which is correct. Only the explicit-transaction path needs a dedicated `pool.connect()` client so all statements run on the same connection.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local5_baseline_rep1.flow_dump.txt:43:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep4.flow_dump.txt:28:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep4.flow_dump.txt:32:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:35:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:39:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:75:[assistant] **Bug**: unit mismatch. JWT `exp` is Unix seconds; `Date.now()` is milliseconds (~1000× larger). Comparing them directly makes the check meaningless — expired tokens slip through.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:80:if (Date.now() >= payload.exp * 1000) {
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:81:  return res.status(401).json({ error: 'token expired' });
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:85:Better: stop hand-rolling it. `jwt.verify()` checks `exp` for you (throws `TokenExpiredError`):
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:89:  req.user = jwt.verify(token, secret); // enforces exp automatically
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:91:  return res.status(401).json({ error: 'invalid or expired token' });
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt:95:Also verify `exp` exists before comparing — a token with no `exp` should be rejected, not treated as valid.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_lemoncrow_rep3.flow_dump.txt:54:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local5_baseline_rep2.flow_dump.txt:43:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local1_baseline_rep1.flow_dump.txt:35:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local1_baseline_rep1.flow_dump.txt:119:- Note that a parent re-render will re-render children **regardless of props** unless the child is wrapped in `React.memo`. So first confirm whether the child re-render is actually a problem (usually it isn't — re-rendering is cheap) or whether it's triggering expensive work.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local1_baseline_rep1.flow_dump.txt:123:Don't reach for `useMemo`/`React.memo` everywhere reflexively. They have their own cost, and re-renders are often harmless. Optimize when you've measured an actual performance issue or when the child does genuinely expensive work.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local6_lemoncrow_rep2.flow_dump.txt:28:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local6_lemoncrow_rep2.flow_dump.txt:32:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_baseline_rep2.flow_dump.txt:35:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_baseline_rep2.flow_dump.txt:121:[assistant] This is a benchmark/reports directory — there's no existing React project or conventions to match. I'll create a clean, self-contained error boundary component. I'll use TypeScript since that's the common React default.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-8c852c844e7b/local10_baseline_rep2/src/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /**\n   * Custom fallback UI. Receives the caught error and a `retry` callback that\n   * resets the boundary so the children can attempt to render again.\n   */\n  fallback?: (error: Error, retry: () => void) => ReactNode;\n  /**\n   * Optional hook for reporting errors to an external service\n   * (e.g. Sentry, Datadog). Called in addition to console logging.\n   */\n  onError?: (error: Error, errorInfo: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render errors thrown by descendant components, shows a fallback UI\n * with a retry button, and logs the error details.\n *\n * Note: like all React error boundaries, this only catches errors thrown\n * during rendering, in lifecycle methods, and in constructors of the tree\n * below it. It does not catch errors in event handlers, async code, or\n * server-side rendering — handle those with try/catch.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {\n    // Log the error details for debugging / monitoring.\n    console.error(\"ErrorBoundary caught an error:\", error, errorInfo);\n    this.props.onError?.(error, errorInfo);\n  }\n\n  retry = (): void => {\n    // Clear the error so children are re-rendered from scratch.\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.retry);\n      }\n      return <DefaultFallback error={error} onRetry={this.retry} />;\n    }\n\n    return this.props.children;\n  }\n}\n\nfunction DefaultFallback({\n  error,\n  onRetry,\n}: {\n  error: Error;\n  onRetry: () => void;\n}) {\n  return (\n    <div role=\"alert\" style={fallbackStyles.container}>\n      <h2 style={fallbackStyles.heading}>Something went wrong.</h2>\n      <p style={fallbackStyles.message}>{error.message}</p>\n      <button type=\"button\" onClick={onRetry} style={fallbackStyles.button}>\n        Try again\n      </button>\n    </div>\n  );\n}\n\nconst fallbackStyles = {\n  container: {\n    padding: \"1.5rem\",\n    border: \"1px solid #f5c2c7\",\n    borderRadius: \"8px\",\n    background: \"#fff5f5\",\n    color: \"#842029\",\n    maxWidth: \"32rem\",\n  },\n  heading: {\n    margin: \"0 0 0.5rem\",\n    fontSize: \"1.125rem\",\n  },\n  message: {\n    margin: \"0 0 1rem\",\n    fontFamily: \"monospace\",\n    wordBreak: \"break-word\" as const,\n  },\n  button: {\n    padding: \"0.5rem 1rem\",\n    border: \"none\",\n    borderRadius: \"6px\",\n    background: \"#842029\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n    fontSize: \"0.875rem\",\n  },\n} as const;\n"}
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_lemoncrow_rep0.flow_dump.txt:42:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_lemoncrow_rep0.flow_dump.txt:46:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_lemoncrow_rep0.flow_dump.txt:91:[assistant] No React project → standalone file. `assumption:` TypeScript + class boundary.[tool_use: mcp__lc__edit] {"edits": [{"path": "ErrorBoundary.tsx", "replace": true, "new": "import { Component, type ErrorInfo, type ReactNode } from 'react';\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback renderer. Receives the error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Optional external logger (e.g. Sentry). Defaults to console.error. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render errors in its subtree, shows a fallback UI with a retry\n * button, and logs the error details. Note: error boundaries do NOT catch\n * errors in event handlers, async code, or SSR — only render/lifecycle errors.\n */\nexport class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    if (this.props.onError) {\n      this.props.onError(error, info);\n    } else {\n      console.error('ErrorBoundary caught an error:', error, info.componentStack);\n    }\n  }\n\n  reset = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n      return (\n        <div role=\"alert\" style={{ padding: 16, border: '1px solid #e00', borderRadius: 8 }}>\n          <h2>Something went wrong.</h2>\n          <pre style={{ whiteSpace: 'pre-wrap', color: '#900' }}>{error.message}</pre>\n          <button type=\"button\" onClick={this.reset}>Retry</button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nexport default ErrorBoundary;\n"}]}
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_lemoncrow_rep0.flow_dump.txt:380:export class ErrorBoundary extends Component<Props, State> {
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep3.flow_dump.txt:28:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep3.flow_dump.txt:32:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep1.flow_dump.txt:28:If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep1.flow_dump.txt:32:- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep1.flow_dump.txt:68:[assistant] **Unit mismatch.** `exp` is Unix seconds; `Date.now()` is milliseconds → `Date.now()` always ≫ `exp*1000`... actually reverse: comparing ms to s makes `Date.now()` (~1.7e12) vs `exp` (~1.7e9), so `Date.now() > exp` is always true — or if your check is `exp > Date.now()` it's always false. Either way the comparison is meaningless.
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep1.flow_dump.txt:72:if (decoded.exp < Date.now() / 1000) return res.status(401).send('expired');
+reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep1.flow_dump.txt:77:jwt.verify(token, secret); // throws TokenExpiredError on expiry
+[assistant] This repo has no actual auth middleware — it's a benchmark/reports directory, and the README says to answer from general knowledge. So here's the diagnosis and fix.
 
-## What's wrong: seconds vs. milliseconds
+## The bug: unit mismatch
 
-A JWT's `exp` claim is a **Unix timestamp in seconds** (per RFC 7519). `Date.now()` returns **milliseconds**. They differ by a factor of 1000:
+JWT's `exp` claim is **Unix time in seconds**. `Date.now()` returns **milliseconds**. They differ by a factor of ~1000, so any direct comparison between them is meaningless.
 
-- `decoded.exp` ≈ `1_752_000_000` (seconds)
-- `Date.now()` ≈ `1_752_000_000_000` (milliseconds)
-
-So `decoded.exp` is *always* smaller than `Date.now()`, for every token, forever. Which branch that lands in depends on how you wrote the comparison — and yours is oriented so the "still valid, call `next()`" branch always wins:
+Concretely, right now `Date.now()` ≈ `1.75e12` while a token's `exp` ≈ `1.75e9`. So:
 
 ```js
-// BUG: exp (seconds) is always < Date.now() (ms), so this is always true
-if (decoded.exp < Date.now()) {
-  next();               // every token passes, including expired ones
-} else {
-  return res.sendStatus(401);
-}
+// If your valid-check looks like this:
+if (decoded.exp > Date.now()) { /* allow */ }   // 1.75e9 > 1.75e12 → always false
 ```
 
-The expiry test never actually discriminates — it's a constant. (The mirror-image mistake, `exp > Date.now()` as the valid condition, would reject *everything* instead. Same root cause.)
+That one rejects *everything*. But the version that lets expired tokens through is the mirror image — comparing `exp * 1000` when you think `exp` is something else, or checking expiry in the wrong direction so the condition never fires. Either way the check isn't actually testing what you think.
 
 ## The fix
 
-Put both sides in the same units and get the direction right:
+Convert to the same unit. Compare seconds to seconds, or milliseconds to milliseconds:
 
 ```js
-const nowSeconds = Math.floor(Date.now() / 1000);
-if (decoded.exp < nowSeconds) {
-  return res.sendStatus(401);   // expired
+// Option A: work in seconds
+const now = Math.floor(Date.now() / 1000);
+if (!decoded.exp || decoded.exp <= now) {
+  return res.status(401).json({ error: 'token expired' });
 }
-next();
+
+// Option B: work in milliseconds
+if (!decoded.exp || Date.now() >= decoded.exp * 1000) {
+  return res.status(401).json({ error: 'token expired' });
+}
 ```
 
-or equivalently `decoded.exp * 1000 < Date.now()`.
+Note the `!decoded.exp` guard: a token with **no** `exp` claim should be rejected, not treated as never-expiring.
 
-## Better: don't hand-roll this at all
+## Better: don't hand-roll it
 
-If you're using `jsonwebtoken`, `jwt.verify()` already checks `exp` for you (correct units, plus optional clock-skew tolerance) and throws `TokenExpiredError`. A common way to end up with this bug is calling `jwt.decode()` (which does **not** verify anything) and then re-implementing the expiry check yourself:
+If you're using `jsonwebtoken`, `jwt.verify()` already validates `exp` for you and throws `TokenExpiredError` — with correct units and optional clock-skew tolerance. Manually decoding and checking `exp` yourself is both the source of this bug and a security risk (you might be reading an *unverified* payload):
 
 ```js
 const jwt = require('jsonwebtoken');
 
 function auth(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.sendStatus(401);
-
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   try {
-    // verifies signature AND expiry; no manual exp math needed
-    req.user = jwt.verify(token, process.env.JWT_SECRET, {
-      clockTolerance: 5, // optional: seconds of allowed clock skew
-    });
+    req.user = jwt.verify(token, process.env.JWT_SECRET); // checks signature AND exp
     next();
   } catch (err) {
-    // TokenExpiredError, JsonWebTokenError, etc.
-    return res.sendStatus(401);
+    return res.status(401).json({ error: 'invalid or expired token' });
   }
 }
 ```
 
-This also closes a bigger hole: if your current middleware only checks `exp` from a `decode()`d payload, it isn't verifying the **signature** either — so a forged/tampered token would pass. Let `verify()` do both.
+**Key thing to double-check:** if you were only `jwt.decode()`-ing (not `jwt.verify()`-ing), you weren't validating the signature either — meaning anyone could forge a token with any `exp` they want. Switch to `verify()` and the expiry problem disappears along with a much bigger one.
 
-If you paste the actual middleware I'll point at the exact line, but the seconds/milliseconds mismatch is almost certainly it.
-[usage] input=2 cache_read=14126 cache_write=129 output=3977
+Want me to check whether your code is doing `decode` vs `verify`? If so, paste the middleware and I'll pinpoint it exactly.
+[usage] input=2 cache_read=23244 cache_write=8362 output=1056

@@ -19,10 +19,29 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
 
 The following MCP servers are still connecting — their tools (typically named mcp__<server>__*) are not yet available but will appear shortly:
-claude.ai Gmail
-claude.ai Google Calendar
 claude.ai Google Drive
 
 If the user's request might be served by one of these servers (even if they didn't name it explicitly), call ToolSearch with a relevant keyword — ToolSearch will wait for connecting servers and search their tools once available. Do not report a capability as unavailable without first searching.
@@ -34,6 +53,8 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
 # MCP Server Instructions
 
@@ -49,6 +70,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -65,18 +87,28 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Common causes → fixes:
+[assistant] **Diagnose first, then fix.** Steps:
 
-**Find it first:** `node --inspect`, Chrome DevTools → Memory tab → take 2 heap snapshots under load, diff retained objects. Or `node --heapsnapshot-near-heap-limit=2`. Watch `process.memoryUsage().heapUsed` trend.
+**1. Confirm it's a leak** → run with `node --expose-gc`, watch `process.memoryUsage().heapUsed` / RSS over time. Rising baseline across GC cycles = leak.
 
-**Usual culprits:**
-- **Unbounded growth** — global arrays/Maps/caches never evicted → use `lru-cache` or cap size, use `WeakMap`/`WeakRef` for object-keyed data.
-- **Listener leaks** — `emitter.on()` without `removeListener` in loops → check `MaxListenersExceededWarning`; pair every add with a remove.
-- **Timers/intervals** — `setInterval` never cleared → `clearInterval` on teardown.
-- **Closures** — long-lived callbacks capturing large scope → null out refs.
-- **Dangling references** — objects held by a still-reachable parent (cache, request context, connection pool).
+**2. Capture heap snapshots** → `node --inspect`, Chrome DevTools → Memory tab. Take 2–3 snapshots over time, use **Comparison** view to see retained/growing objects. Or programmatic:
+```js
+require('v8').writeHeapSnapshot()  // at intervals, diff in DevTools
+```
 
-**Method:** reproduce under sustained load → snapshot-diff to name the retained constructor → trace retainer path to the holder → break that reference → re-run same load, confirm heapUsed plateaus instead of climbing.
+**3. Common causes** → check these:
+- Unbounded caches/maps → objects never evicted. Use `lru-cache` or a max size.
+- Event listeners not removed → `emitter.removeListener` on teardown; watch `MaxListenersExceededWarning`.
+- Timers (`setInterval`) holding closures → `clearInterval` on cleanup.
+- Global/module-scope arrays that only grow.
+- Closures capturing large scopes.
+- Detached DOM (SSR) / dangling references in long-lived objects.
 
-`--max-old-space-size` raises the ceiling, doesn't fix the leak.
-[usage] input=3311 cache_read=8953 cache_write=0 output=459
+**4. Fix** → bound the growing structure (cap size, evict, weaken refs via `WeakMap`/`WeakRef`), remove the listener/timer at the right lifecycle point.
+
+**5. Verify** → re-run under load (e.g. `autocannon`), confirm heap returns to a flat baseline after GC across a sustained run.
+
+Fastest path: **snapshot diff** points straight at the retained constructor — start there.
+
+Share the code or a snapshot diff → I'll pin the exact leak.
+[usage] input=3950 cache_read=16754 cache_write=0 output=581

@@ -16,7 +16,7 @@ data, and [Marketing & Positioning](../marketing/strategy.md) for voice.
 | SWE-bench Pro | 10 tasks x 5 reps, Go/TS/Python, ScaleAI harness | 44/50 (88%), $39.01 | **45/50 (90%), $30.61** | [`swe-pro_2026_07_07/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe-pro_2026_07_07) |
 | Exploration tasks | 7 large repos x 5 reps, one open-ended question each | $19.11 | **$6.29 (67% cheaper)** | [`exploration_2026_06_29/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/exploration_2026_06_29) |
 | Telegraphic output anatomy | Output-token decomposition (prose vs. fixed payload vs. thinking) | 67 prose tok/turn | **30 prose tok/turn (2.7x less)** | [`swe_lite_telegraphic_2026_07_06/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/swe_lite_telegraphic_2026_07_06) |
-| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $7.73 | **$4.59 (40.7% cheaper)** | [`telegraphic_2026_07_16/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/telegraphic_2026_07_16) |
+| Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $8.68 | **$6.18 (28.8% cheaper)** | [`telegraphic_2026_07_16/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/telegraphic_2026_07_16) |
 | Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/retrieval_2026_07_05) |
 | Indexing time | Cold full-rebuild time, 14 repos, lexical/zoekt/semantic phases | -- | see table below | same as above |
 | Embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1, LemonCrow's default)** | `benchmarks/codebench/run_embedder_sweep.py` |
@@ -95,12 +95,12 @@ both get their own page on [lemoncrow.com/vs](https://lemoncrow.com/vs) instead.
   Claude Code. Same run as the Telegraphic Q&A table above
   (`benchmarks/codebench/results/telegraphic_2026_07_16/`, 3 arms x 20
   prompts x 5 reps, 300 runs, one invocation): caveman cuts output tokens
-  almost as much as LemonCrow's full runtime per prompt (mean 47% vs.
-  LemonCrow's mean 62%, stdev 17pp vs. 34pp) but costs 4.2% *more* than
-  baseline overall, where LemonCrow is 40.7% cheaper -- a wording
+  almost as much as LemonCrow's full runtime per prompt (mean 50% vs.
+  LemonCrow's mean 60%, stdev 15pp vs. 32pp) but cost barely moves (-1.2%)
+  vs. baseline overall, where LemonCrow is 28.8% cheaper -- a wording
   instruction only compresses replies, it can't touch the input/context
-  tokens that actually drive the bill. Its weakest prompt is `microservices-monolith`
-  (a 13% output-token cut); its strongest is `auth-middleware-fix` (85% cut).
+  tokens that actually drive the bill. Its weakest prompt is `async-refactor`
+  (an 8% output-token cut); its strongest is `eval-02` (78% cut).
 
 ## Indexing time (cold full rebuild)
 

@@ -5,8 +5,8 @@ Explain the difference between git rebase and git merge. When should I use each 
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Git rebase vs merge differences and tradeoffs"}
-[usage] input=542 cache_read=0 cache_write=0 output=18
+[assistant] {"title": "Git rebase vs merge comparison"}
+[usage] input=542 cache_read=0 cache_write=0 output=14
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,67 +58,66 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] ## git merge vs git rebase
+[assistant] # git rebase vs git merge
 
-Both integrate changes from one branch into another, but they do it differently.
+Both integrate changes from one branch into another, but they construct history differently.
 
-### merge
+## What each does
 
-`git merge main` (while on your feature branch) creates a new **merge commit** that ties the two branch histories together. Your branch's commits stay exactly as they were; the merge commit has two parents.
-
-```
-A---B---C  main
-     \
-      D---E---F  feature
-               \
-        A---B---C---M   ← merge commit M joins both
-```
-
-- **Preserves history as it actually happened** — non-destructive, existing commits are untouched.
-- Produces a "diamond" shape; frequent merges create many merge commits ("merge bubbles").
-
-### rebase
-
-`git rebase main` (on your feature branch) **replays** your commits one by one on top of the tip of `main`, creating new commits with new hashes.
+**Merge** creates a new "merge commit" that ties two branch histories together. Your branch's commits stay exactly as they were; a single commit with two parents joins them.
 
 ```
-A---B---C  main
-         \
-          D'---E'---F'  feature (rewritten on top of C)
+      A---B---C  feature
+     /         \
+D---E---F---G---M  main   ← M is the merge commit
 ```
 
-- **Linear, clean history** — looks like you started your work from the latest `main`.
-- **Rewrites commits** (new SHAs), so it changes history.
+**Rebase** replays your branch's commits one-by-one on top of the target branch, creating *new* commits with new hashes. The history becomes linear, as if you'd started your work from the latest tip.
+
+```
+              A'--B'--C'  feature
+             /
+D---E---F---G  main
+```
+
+## The core tradeoff
+
+| | Merge | Rebase |
+|---|---|---|
+| History shape | Preserves actual branching, non-linear | Linear, clean |
+| Commit hashes | Unchanged | Rewritten (new commits) |
+| Traceability | Shows exactly when/how work happened | Loses the real branch context |
+| Conflict handling | Resolve once, in the merge commit | May resolve per-commit as each is replayed |
+| Safe on shared branches? | Yes | No (rewrites history) |
 
 ## When to use each
 
-**Use rebase when:**
-- Cleaning up your *local, unpushed* work before sharing it (`git rebase -i` to squash/reorder/reword).
-- Keeping a feature branch up to date with `main` while it's still yours, so the eventual history is linear.
-- Your team values a linear, bisect-friendly log.
-
 **Use merge when:**
-- Integrating a finished feature into a shared branch (`main`), where you want a record of when/what merged.
-- The branch is **shared** — others have based work on it.
-- You want a faithful record over a tidy one.
+- Integrating a completed feature branch into a shared branch (`main`, `develop`).
+- The branch is **public/shared** — others have based work on it. Rewriting shared history forces everyone to reconcile diverged branches.
+- You want an honest record of when a feature was integrated (merge commits make features easy to spot and revert as a unit with `git revert -m`).
 
-## The tradeoffs
+**Use rebase when:**
+- Cleaning up your **local, unpushed** commits before sharing (squash typos, reorder, reword via `git rebase -i`).
+- Updating your in-progress feature branch onto the latest `main` to stay current without a mess of merge commits: `git rebase main`.
+- You want a linear, easy-to-`bisect` history on the final branch.
 
-| | merge | rebase |
-|---|---|---|
-| History | true, but noisier | clean, linear, but fictional |
-| Commit hashes | preserved | rewritten |
-| Conflict resolution | once, in the merge commit | potentially per replayed commit |
-| Safe on shared branches | yes | no |
+## The golden rule
 
-## The one rule that matters
+> **Never rebase commits that exist outside your local repo and that others may have based work on.**
 
-**Never rebase commits that other people already have** (i.e., anything pushed to a shared branch). Rebasing rewrites hashes; when others try to reconcile, they get duplicated commits and painful conflicts. Rebase private work; merge public work.
+Rebasing rewrites commits. If someone else has the old commits, their history and yours diverge, and pushing requires a force-push (`--force-with-lease`) that can clobber their work.
 
-Practical notes:
-- After rebasing a branch you've already pushed, you must `git push --force-with-lease` (safer than `--force`). That's the signal you're rewriting shared history — only do it on a branch that's genuinely yours.
-- A common workflow: rebase your feature branch onto `main` to keep it current and linear while developing, then `merge` it into `main` at the end (optionally `--no-ff` to keep a clear merge point).
-- Conflicts in rebase can feel repetitive because they surface per-commit; `git rebase --abort` gets you back to safety if it goes sideways.
+## A common practical workflow
 
-Bottom line: **rebase to clean up before sharing; merge to integrate what's shared.**
-[usage] input=2774 cache_read=7222 cache_write=2093 output=1003
+1. Work on a `feature` branch locally.
+2. Periodically `git rebase main` (or `git pull --rebase`) to keep it current and linear.
+3. Clean up your commits with `git rebase -i` before opening a PR.
+4. Merge the PR into `main` — often with `--no-ff` (always creates a merge commit, keeping the feature visible) or a squash-merge, per team convention.
+
+This gives you a tidy feature branch *and* a clear integration point on `main`.
+
+**Rule of thumb:** *rebase for private cleanup, merge for public integration.*
+
+Want me to tailor this to your team's actual branching setup or walk through resolving a rebase conflict?
+[usage] input=2973 cache_read=15023 cache_write=2101 output=1015

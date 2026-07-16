@@ -5,8 +5,8 @@ Write a multi-stage Dockerfile for a Node.js TypeScript application that minimiz
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Create multi-stage Dockerfile for Node.js TypeScript app"}
-[usage] input=552 cache_read=0 cache_write=0 output=21
+[assistant] {"title": "Create optimized multi-stage Dockerfile for Node.js TypeScript"}
+[usage] input=552 cache_read=0 cache_write=0 output=22
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -21,8 +21,12 @@ NotebookEdit
 PushNotification
 RemoteTrigger
 SendMessage
+TaskCreate
+TaskGet
+TaskList
 TaskOutput
 TaskStop
+TaskUpdate
 WebFetch
 WebSearch
 
@@ -33,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -51,51 +58,63 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] ```dockerfile
-# ---- Stage 1: build ----
-FROM node:22-slim AS build
+[assistant] Multi-stage Dockerfile. Build stage compile TS, runtime stage carry only prod deps + compiled JS.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+# ---- Build stage ----
+FROM node:22-alpine AS build
 WORKDIR /app
 
-# Install ALL deps (incl devDeps for tsc)
+# Install ALL deps (incl devDeps) for compiling TypeScript
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # Compile TypeScript
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build            # outputs to ./dist
+RUN npm run build
 
-# ---- Stage 2: prod deps ----
-FROM node:22-slim AS deps
+# ---- Prune stage: keep only production deps ----
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# ---- Stage 3: runtime ----
-FROM node:22-slim AS runtime
-ENV NODE_ENV=production
+# ---- Runtime stage ----
+FROM node:22-alpine AS runtime
 WORKDIR /app
+ENV NODE_ENV=production
 
-COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=build /app/dist         ./dist
-COPY package.json ./
-
+# Run as non-root
 USER node
+
+COPY --chown=node:node package.json ./
+COPY --chown=node:node --from=deps  /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/dist ./dist
+
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
 ```
 
-Why small:
-- 3 stages. Build tools + devDeps never reach final image.
-- Separate `deps` stage = prod-only `node_modules` (no typescript, no @types).
-- `node:22-slim` base (~80MB). Swap `-alpine` if you want smaller and your deps have no glibc/native-build needs.
-- Layer order: `package*.json` copied before source = npm layers cache until deps change.
-- `USER node` = non-root runtime.
+Key size wins:
+- **alpine base** — small runtime image.
+- **prod deps only** — separate `deps` stage runs `npm ci --omit=dev`; devDeps (typescript, types) never reach final image.
+- **no source, no devDeps** — final image carry only `dist/` + prod `node_modules`.
+- **build cache order** — copy `package*.json` before source, so `npm ci` layer cache until deps change.
 
-Adjust:
-- `npm run build` must map to your `tsc` script.
-- `dist/index.js` = your compiled entrypoint.
-- `EXPOSE 3000` = your port.
+Assumptions:
+- `package.json` has `"build": "tsc"` script, output to `dist/`.
+- entry = `dist/index.js`. Change if different.
+- port 3000. Change `EXPOSE`/app to match.
 
-Optional smaller still: add `.dockerignore` with `node_modules`, `dist`, `.git`, `*.log`.
-[usage] input=2748 cache_read=7231 cache_write=4097 output=680
+Want `.dockerignore` too? Stop `node_modules`/`dist` leak into build context:
+
+```
+node_modules
+dist
+npm-debug.log
+.git
+```
+[usage] input=2973 cache_read=15032 cache_write=4096 output=740

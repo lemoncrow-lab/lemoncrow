@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,88 +58,47 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] CORS errors come from a browser security mechanism, not a bug in your code per se. Let me explain the cause and then check your project for specifics.
+[assistant] CORS errors happen when your browser blocks a request because the server didn't explicitly say your frontend's origin is allowed. It's a browser-enforced security rule (the server actually *received* and often *processed* the request — the browser just refuses to hand the response back to your JS).
 
-## What's actually happening
+## The typical anatomy of the error
 
-CORS (Cross-Origin Resource Sharing) errors appear when your frontend JavaScript running on one **origin** (scheme + host + port, e.g. `http://localhost:3000`) makes a request to a **different origin** (e.g. `http://localhost:8000` or `https://api.example.com`), and the server's response doesn't include the headers that authorize that cross-origin access.
+The console message usually looks like:
 
-Key point: **the browser blocks the response, not the request.** The server usually receives and processes the request fine — the browser just refuses to hand the response to your JS because the `Access-Control-Allow-Origin` header is missing or doesn't match. This is a server-side configuration issue, not something you fix in frontend code.
+```
+Access to fetch at 'https://api.example.com/data' from origin
+'http://localhost:3000' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
 
-Common triggers:
-- Frontend and API on different ports/hosts/schemes (very common in local dev)
-- `http` vs `https` mismatch
-- A preflight `OPTIONS` request (sent automatically for non-simple requests — custom headers, `PUT`/`DELETE`, JSON content-type) that the server doesn't handle
-- Sending credentials/cookies without `Access-Control-Allow-Credentials: true` (and you can't use `*` for the origin in that case)
+The key is the **exact reason** at the end. Common ones:
 
-Let me look at your actual project to give you a concrete fix.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch1-48f0c6207757/local7_baseline_rep2 && ls -la && echo \"---PACKAGE---\" && cat package.json 2>/dev/null | head -60", "description": "List project files and inspect package.json"}
-[usage] input=2774 cache_read=7222 cache_write=2077 output=740
+| Message fragment | What it means |
+|---|---|
+| `No 'Access-Control-Allow-Origin' header` | Server isn't sending CORS headers at all |
+| `does not match the supplied origin` | Server allows a *different* origin than yours |
+| `Response to preflight request doesn't pass` | The `OPTIONS` preflight failed (wrong methods/headers allowed) |
+| `credentials mode is 'include'` | You're sending cookies but server has `*` for origin (not allowed with credentials) |
 
-=== Turn 3 ===
-[user] [tool_result] ---PACKAGE---
-[assistant] [tool_use: Bash] {"command": "find . -maxdepth 2 -type f -not -path './.git/*' | head -50; echo \"---\"; git log --oneline -5 2>/dev/null", "description": "Find project files and check git log"}
-[usage] input=2 cache_read=9299 cache_write=3485 output=146
+## Most common root causes
 
-=== Turn 4 ===
-[user] [tool_result] Exit code 128
-./README.md
-./.lemoncrow/.gitignore
+1. **Frontend and backend on different origins** (different domain, port, *or* protocol) and the backend doesn't set `Access-Control-Allow-Origin`.
+2. **Preflight failing** — a "non-simple" request (custom headers like `Authorization`, `Content-Type: application/json`, or methods like `PUT`/`DELETE`) triggers an `OPTIONS` request first. If the server doesn't handle `OPTIONS`, it fails.
+3. **Credentials + wildcard** — using `credentials: 'include'` with a server that returns `Access-Control-Allow-Origin: *`. With credentials, the server must echo the specific origin *and* send `Access-Control-Allow-Credentials: true`.
+
+## How to fix
+
+The fix belongs on the **server**, not the client. For example:
+
+- **Express:** `app.use(cors({ origin: 'http://localhost:3000', credentials: true }))`
+- **Dev workaround:** proxy API calls through your dev server (e.g. Vite's `server.proxy` / CRA's `proxy`) so the browser sees a same-origin request.
+
 ---
-[assistant] [tool_use: Read] {"file_path": "/tmp/codebench_workspaces/batch1-48f0c6207757/local7_baseline_rep2/README.md"}
-[usage] input=2 cache_read=12784 cache_write=185 output=87
 
-=== Turn 5 ===
-[user] [tool_result] 1	# Telegraphic benchmark scratch repo
-2	
-3	Intentionally minimal. Exists only so `lc benchmark telegraphic` has a
-4	real git repo to hand each Claude Code arm -- the prompts are general dev
-5	Q&A, not tied to any specific codebase, so there is deliberately nothing
-6	here to explore. Answer from general knowledge.
-7	
-[assistant] This repo is intentionally empty (it's a scratch repo), so I'll answer from general knowledge with the fixes that cover the vast majority of cases.
+I can give you a precise fix if you tell me (or point me at the code):
 
-## How to fix it
+1. **The exact console message** (the part after "blocked by CORS policy").
+2. **Your backend framework** (Express, Flask, Django, Nginx, etc.).
+3. Whether you're sending **cookies/auth** with the request.
 
-**1. Fix it on the server (the correct fix).** Configure your API to send the CORS headers. Examples:
-
-**Express (Node):**
-```js
-const cors = require('cors');
-app.use(cors({
-  origin: 'http://localhost:3000',   // your frontend origin; array or function for multiple
-  credentials: true,                 // only if you send cookies/auth
-}));
-```
-
-**FastAPI (Python):**
-```python
-from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-**Flask:** `from flask_cors import CORS; CORS(app, origins=["http://localhost:3000"])`
-
-**2. If you don't control the API** (third-party, or you can't change it), route through a proxy so the browser only ever talks to your own origin:
-- Dev: Vite `server.proxy`, Next.js `rewrites`, or CRA `"proxy"` in package.json
-- Prod: your own backend forwards the request (server-to-server has no CORS)
-
-## Read the error carefully
-The console message tells you which case you're in:
-- **"No 'Access-Control-Allow-Origin' header is present"** → server isn't sending CORS headers at all
-- **"...does not match... (got `*`)... credentials mode is 'include'"** → you can't use `*` with credentials; echo the specific origin instead
-- **"Method ... is not allowed by Access-Control-Allow-Methods"** → add the method (and handle the `OPTIONS` preflight)
-- **"Request header ... is not allowed"** → add it to `Access-Control-Allow-Headers`
-
-## Things to avoid
-- **Don't** try to fix CORS with frontend code (adding headers to your `fetch` request does nothing — the *response* headers are what matter).
-- **Don't** disable web security in your browser as a "fix" — it only hides the problem on your machine.
-- Browser extensions that "disable CORS" mask the real issue and won't work for your users.
-
-If you paste the exact error text from your console (and tell me your frontend/backend stack), I can pinpoint which of these it is.
-[usage] input=2 cache_read=12969 cache_write=223 output=849
+Want me to look through this repo for your server setup and CORS config?
+[usage] input=2973 cache_read=15023 cache_write=2077 output=1055

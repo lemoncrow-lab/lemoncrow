@@ -35,6 +35,8 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -49,6 +51,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -65,23 +68,20 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] **Measure before you split — slowness is rarely a monolith problem.** Profile first (Django Debug Toolbar, silk, APM). Most Django slowness = N+1 queries, missing indexes, no caching, sync work that should be async. Microservices fix none of these and add network latency.
+[assistant] Key factors before splitting the monolith:
 
-Key factors before splitting:
+**First: confirm splitting is the fix.** Profile the actual slowness — most Django slowness is N+1 queries, missing indexes, no caching, sync work that should be async (Celery), or a single overloaded DB. Microservices fix *scaling/team-autonomy* problems, not *performance* problems; they usually make latency worse (network hops). Fix the profiled bottleneck first — often that ends the debate.
 
-- **Root cause** → is it CPU, DB, I/O, or code? Microservices don't fix a slow query.
-- **Bottleneck isolation** → does one component (e.g. reporting, image processing) have genuinely different scaling/resource needs? That's the real case for extraction.
-- **Team & ownership** → Conway's law. Split makes sense when separate teams need independent deploy cadence. One team → coordination cost usually outweighs gains.
-- **Data boundaries** → can you cleanly separate the data? Cross-service joins, distributed transactions, and eventual consistency are the hardest cost. If tables are tightly coupled, don't.
-- **Operational maturity** → CI/CD, observability (tracing across services), on-call, service discovery, network security. Missing these → distributed monolith = worse.
-- **Latency budget** → in-process call → network hop (ms + failure modes: retries, timeouts, partial failure).
-- **Transaction integrity** → losing ACID across boundaries; saga/compensation complexity.
+If scaling/org pressure is real, weigh:
 
-Cheaper intermediate steps first:
-- Fix N+1 (`select_related`/`prefetch_related`), add indexes, `EXPLAIN ANALYZE` hot queries.
-- Caching layer (Redis), read replicas.
-- Async offload (Celery) for slow/background work.
-- Modular monolith → clean app boundaries + interfaces in-process; extract later only if proven.
+- **Domain boundaries** — can you draw clean seams (bounded contexts) where services own their data and rarely need each other's tables? No clean seam → don't split there.
+- **Data ownership & joins** — the hard part. Each service owns its DB; cross-service joins become API calls + eventual consistency. Transactions spanning services need sagas. If your slow query joins across proposed boundaries, splitting worsens it.
+- **Team size & ownership** — microservices pay off when independent teams need to deploy independently. One team → you get distributed-monolith pain with no autonomy gain.
+- **Operational maturity** — need CI/CD per service, observability (tracing, centralized logs), service discovery, on-call. Missing this → outages get harder to debug.
+- **Coupling & call patterns** — chatty synchronous dependencies between candidate services = latency + cascading failure. Measure real call graphs.
+- **Failure modes** — network partitions, partial failures, retries, idempotency now become your problem.
 
-Rule of thumb: extract a service when a bounded context has a distinct scaling profile, owner, and clean data boundary — not to fix performance.
-[usage] input=3311 cache_read=8977 cache_write=0 output=746
+**Recommended path:** profile → fix DB/caching/async in the monolith → if still needed, extract *one* high-value, loosely-coupled service (modular monolith first). Avoid big-bang rewrites.
+
+What's the actual symptom — slow requests, slow deploys, or team contention? That determines whether splitting even helps.
+[usage] input=3510 cache_read=16778 cache_write=0 output=705

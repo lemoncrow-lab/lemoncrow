@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,61 +58,40 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Good instinct to pause before splitting. Microservices trade code-level complexity for distributed-systems complexity — that trade only pays off under specific conditions. Here's what to weigh.
+[assistant] Before split, check these:
 
-## First: is "microservices" even the right fix?
+**1. Where slow actually is**
+Profile first. Slow usually = bad queries, no caching, N+1, missing indexes. Microservices fix none of that — add network latency on top. Measure before cut.
 
-"Getting slow" is a performance problem. Microservices are an **organizational and scaling** solution, not a performance one — a network hop is slower than a function call. Splitting a slow monolith often gives you a slow *distributed* monolith that's harder to debug.
+**2. Bottleneck type**
+- CPU/memory bound one feature? Split just that, keep rest mono.
+- DB bound? Microservices share pain, sometimes worse (no more joins, chatty calls).
 
-Before anything, profile and find the actual bottleneck:
-- **N+1 queries** — the #1 Django killer. Check `django-debug-toolbar` / `nplusone`, add `select_related`/`prefetch_related`.
-- **Missing DB indexes**, slow queries — `pg_stat_statements`.
-- **No caching layer** — Redis/Memcached for hot reads.
-- **Synchronous work that should be async** — offload to Celery.
-- **N+1 on serialization**, oversized querysets, missing pagination.
+**3. Domain boundaries**
+Can you draw clean seams? If models tangled (everything foreign-keys to `User`, `Order`), split = distributed monolith. Worst of both. Find bounded contexts first.
 
-Very often this reclaims the performance without touching architecture. Do this first regardless — you'll need to understand the bottlenecks anyway.
+**4. Data ownership**
+Each service own its data. Cross-service join gone — becomes API call or event. Ask: can you break the DB apart? Transactions across services need saga/eventual consistency. Big jump in complexity.
 
-## If it's genuinely a scaling/org problem, the key factors
+**5. Team + ops maturity**
+Microservices need: CI/CD per service, container orch, distributed tracing, centralized logging, service discovery, on-call. Small team without this = pain. Conway law — org shape match service shape.
 
-**1. Team & organizational readiness (Conway's Law)**
-Services mirror team structure. A single team maintaining 10 services just gets a distributed monolith with more overhead. You want roughly one team owning each service, with clear ownership boundaries. How many teams do you actually have?
+**6. Latency budget**
+In-process call = nanoseconds. Network call = milliseconds + failure modes. One page fanning to 10 services = slow + fragile. Need retries, timeouts, circuit breakers.
 
-**2. Domain boundaries**
-Can you cleanly separate domains (billing, auth, catalog, notifications)? If domains are deeply entangled — shared models, cross-cutting transactions everywhere — extraction is painful and premature. Look for natural seams with low coupling and high cohesion.
+**7. Cost**
+More infra, more monitoring, more deploy pipelines. Real money + eng time.
 
-**3. Data ownership**
-This is the hard part. Each service should own its data. That means:
-- No shared database across services (or you've just moved the coupling).
-- **Distributed transactions** — you lose ACID across service boundaries. Are you ready for eventual consistency, sagas, compensating transactions?
-- Joins that were free SQL become network calls or data duplication.
+## Recommend
+Do NOT jump straight to microservices. Order:
 
-**4. Operational maturity**
-Microservices demand infra you may not have:
-- Centralized logging + distributed tracing (you can't grep one log file anymore).
-- Per-service CI/CD, containerization, orchestration (k8s or similar).
-- Service discovery, API gateway, monitoring/alerting per service.
-- On-call and incident response for a fleet, not one app.
+1. **Profile** — find real bottleneck (`django-silk`, `django-debug-toolbar`, APM).
+2. **Fix cheap wins** — query optimization, `select_related`/`prefetch_related`, caching (Redis), DB indexes, connection pooling. Often enough.
+3. **Scale mono** — more gunicorn workers, read replicas, offload heavy work to Celery async.
+4. **Modular monolith** — enforce internal module boundaries (Django apps as domains, no cross-import of internals). Get 80% of benefit, none of network cost.
+5. **Extract one service** — only the proven-hot, cleanly-bounded piece. Strangler pattern. Learn, then decide more.
 
-If observability is weak today, distributed failures will be nearly impossible to debug.
+Most "we need microservices" = actually "we need to profile + cache + modularize." Split only when a specific piece has different scaling needs or team ownership demands it.
 
-**5. Independent scaling need**
-The real win: if one component (e.g. image processing, search) needs very different scaling than the rest, isolating it lets you scale/deploy it independently. If everything scales together uniformly, that benefit doesn't apply.
-
-**6. Deployment friction**
-If a small change requires re-testing and redeploying the whole app, and that's blocking teams, independent deploys are a genuine payoff. Measure your current deploy pain honestly.
-
-## Recommended path
-
-1. **Fix the performance problems** in the monolith first (see above). Cheapest, highest ROI.
-2. **Modularize inside the monolith** — enforce clean domain boundaries as Django apps with explicit interfaces, no cross-app model reach-through. This is the "modular monolith." You get most of the boundary benefits with none of the network cost.
-3. **Extract only when a specific service has a concrete, measured reason** — different scaling profile, different team ownership, different tech need. Start with the most loosely-coupled, clearly-bounded piece (e.g. notifications, image processing) as a trial.
-
-Don't do a big-bang rewrite. If you extract, use the **strangler fig** pattern — peel off one service at a time while the monolith keeps running.
-
-## The honest summary
-
-Most "we need microservices" conversations are actually "our monolith is poorly structured and under-optimized." Microservices don't fix a messy codebase — they distribute the mess across a network. Earn the split with a modular monolith and a concrete scaling/ownership reason, not a general feeling of slowness.
-
-Want me to dig into your codebase and look for the actual performance bottlenecks, or sketch what a modular-monolith boundary structure would look like for your domains?
-[usage] input=2774 cache_read=7231 cache_write=4085 output=1565
+What the profiling show? Can help find the real slow.
+[usage] input=2973 cache_read=15032 cache_write=4082 output=878

@@ -5,8 +5,8 @@ My Node.js API endpoint that increments a counter in PostgreSQL sometimes return
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Fix race condition in counter increment endpoint"}
-[usage] input=547 cache_read=0 cache_write=0 output=15
+[assistant] {"title": "Fix race condition in concurrent counter increments"}
+[usage] input=547 cache_read=0 cache_write=0 output=16
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,60 +58,64 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The race condition almost always comes from doing the read and the write as two separate steps in your Node code:
+[assistant] The race condition comes from a **read-modify-write** pattern — you're reading the value into Node, incrementing it in JavaScript, then writing it back. Two concurrent requests both read the same value before either writes, so they produce the same result.
+
+## The root cause
 
 ```js
-// ❌ Race: two requests both read 41, both write 42
-const { rows } = await pool.query('SELECT value FROM counters WHERE id = $1', [id]);
+// ❌ BROKEN: read and write are separate operations
+const { rows } = await client.query('SELECT value FROM counters WHERE id = $1', [id]);
 const next = rows[0].value + 1;
-await pool.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
+await client.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
+return next;
 ```
 
-Two concurrent requests read the same value before either writes, so they compute and return the same result. The fix is to make the increment **atomic in the database** rather than in JavaScript.
+Between the `SELECT` and the `UPDATE`, another request can run the same `SELECT` and see the stale value.
 
-## The fix: increment and return in one statement
+## The fix: increment atomically in a single SQL statement
 
-Let PostgreSQL do the math and hand you back the new value with `RETURNING`:
+Let PostgreSQL do the increment and return the new value in one round-trip. This is atomic — Postgres handles the row-level locking for you.
 
 ```js
-const { rows } = await pool.query(
+// ✅ CORRECT: single atomic statement, returns the new value
+const { rows } = await client.query(
   'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-const newValue = rows[0].value;
+return rows[0].value;
 ```
 
-`value = value + 1` is applied atomically per row. PostgreSQL takes a row lock for the `UPDATE`, so concurrent updates to the same row serialize and each gets a distinct result. This is the correct answer for the vast majority of cases — no explicit transaction or locking code needed.
+`RETURNING` gives you the post-increment value that's guaranteed unique per request, with no separate read.
 
-## Why this works
+## Common variations
 
-- The whole read-modify-write happens inside a single SQL statement, so there's no window where two requests see the same pre-increment value.
-- `RETURNING` gives you the post-increment value that *this* statement produced, so each caller gets its own unique number.
+**If you're generating IDs**, prefer a sequence or identity column instead of a counter table — sequences are designed for exactly this and don't block concurrent callers:
 
-## Alternatives, if you need them
+```sql
+CREATE SEQUENCE my_counter;
+-- then:
+SELECT nextval('my_counter');  -- always returns a distinct value
+```
 
-- **A dedicated sequence** — if you just need unique increasing numbers (not a stored, resettable counter):
-  ```sql
-  CREATE SEQUENCE counter_seq;
-  -- per request:
-  SELECT nextval('counter_seq');
-  ```
-  Sequences are designed for exactly this and are extremely fast under concurrency. Note they're non-transactional (gaps can appear on rollback), which is fine for IDs but not for "exact count of committed things."
+**If the counter row might not exist yet**, use an upsert:
 
-- **`SELECT ... FOR UPDATE`** — only if you genuinely must read the value, run some logic in Node, then write it back. Wrap it in a transaction:
-  ```js
-  await client.query('BEGIN');
-  const { rows } = await client.query(
-    'SELECT value FROM counters WHERE id = $1 FOR UPDATE', [id]);
-  // ...compute based on rows[0].value...
-  await client.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
-  await client.query('COMMIT');
-  ```
-  `FOR UPDATE` locks the row so other transactions block until you commit. Prefer the atomic `UPDATE ... RETURNING` above unless you truly need intermediate logic.
+```js
+await client.query(
+  `INSERT INTO counters (id, value) VALUES ($1, 1)
+   ON CONFLICT (id) DO UPDATE SET value = counters.value + 1
+   RETURNING value`,
+  [id]
+);
+```
 
-## One thing to check
+## Things that *don't* fix it (or hurt)
 
-Make sure you're using a **connection pool** (`pg.Pool`) and not accidentally sharing a single client across concurrent requests, and that if you use the `FOR UPDATE` pattern you take the `SELECT` and `UPDATE` from the *same* pooled client inside one transaction — otherwise the lock won't apply.
+- **A transaction alone won't help** unless you also lock the row. At the default `READ COMMITTED` isolation, wrapping the broken read-modify-write in `BEGIN/COMMIT` still lets both reads see the old value. If you must read-then-write separately, use `SELECT ... FOR UPDATE` to lock the row until your `UPDATE` commits.
+- **Application-level locks / mutexes in Node** break as soon as you run more than one process/instance — the database is the only shared source of truth.
 
-For your case, switching to `UPDATE counters SET value = value + 1 ... RETURNING value` is the change to make.
-[usage] input=2774 cache_read=7222 cache_write=2111 output=1213
+## Recommendation
+
+Use the single-statement `UPDATE ... RETURNING` (or a sequence if it's an ID generator). It's the simplest, correct, and highest-throughput option — no explicit locking or transaction needed.
+
+If you share your actual endpoint code, I can point out the exact lines to change.
+[usage] input=2973 cache_read=15023 cache_write=2119 output=1036

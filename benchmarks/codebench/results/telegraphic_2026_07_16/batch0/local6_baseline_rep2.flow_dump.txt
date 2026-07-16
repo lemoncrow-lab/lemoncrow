@@ -5,8 +5,8 @@ We have a monolithic Django app that's getting slow. The team is debating micros
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Evaluate microservices migration for Django monolith"}
-[usage] input=552 cache_read=0 cache_write=0 output=19
+[assistant] {"title": "Evaluate microservices for Django monolith"}
+[usage] input=552 cache_read=0 cache_write=0 output=18
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,45 +58,52 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a decision worth slowing down on, because "the monolith is slow" and "we should do microservices" are two separate claims — and the second rarely fixes the first. Here's how I'd frame it.
+[assistant] This is one of those decisions where the right answer is usually "not yet, and maybe never." Let me lay out the factors that actually matter.
 
-## First: is slowness actually an architecture problem?
+## First: is the monolith actually the problem?
 
-Microservices don't make code faster — they add network hops, so raw latency usually gets *worse*. Before splitting, rule out the cheap wins:
+"Getting slow" is a symptom, not a diagnosis. Microservices almost never fix slowness — they usually make it worse (network hops replace function calls). Before splitting anything, find out *why* it's slow:
 
-- **Profile before you architect.** Is it N+1 queries, missing DB indexes, unbounded querysets, synchronous work that should be async (Celery), no caching layer? These are the usual culprits in a slow Django app and none require a service split.
-- **Scaling axis.** If the app is CPU/throughput-bound, you often just need more Gunicorn workers / horizontal replicas behind a load balancer — the monolith scales horizontally fine if it's stateless.
-- **Database is usually the real bottleneck.** And note: splitting services does *not* split the database for free. If everyone still hits one Postgres, you've added complexity without removing the constraint.
+- **Database** — the usual culprit. N+1 queries, missing indexes, no connection pooling, unbounded querysets. Turn on `django-debug-toolbar` or APM (Datadog, Sentry Performance, New Relic) and look at query counts per request.
+- **No caching** — Redis/Memcached for expensive reads, Django's cache framework, per-view or template fragment caching.
+- **Synchronous work that should be async** — emails, PDF generation, third-party API calls blocking the request. Move to Celery/RQ.
+- **Web server config** — too few Gunicorn/uWSGI workers, no static-file CDN, WSGI where ASGI would help.
+- **N+1 at scale** — `select_related`/`prefetch_related` missing.
 
-If profiling shows the problem is a hot path or a slow deploy/test cycle, fix that first. Microservices are an *organizational* solution more than a performance one.
+A single afternoon with a profiler often recovers more performance than a six-month microservices migration. **Do this first.**
 
-## If it's genuinely a candidate for splitting, the key factors:
+## If it's genuinely an architecture/scaling problem
 
-**1. Team & organizational structure (Conway's Law).**
-Services map cleanly to teams. One team of 5? You'll feel the operational cost without the autonomy benefit. Multiple teams stepping on each other in the same deploy pipeline is the strongest *real* reason to split.
+Then the real questions are organizational and operational, not just technical:
 
-**2. Clear domain boundaries.**
-Can you identify bounded contexts with low coupling between them (e.g. billing, notifications, search, auth)? If the domain model is a tangle of cross-cutting foreign keys, extraction will be painful and the seams will leak. Look for modules that already talk through narrow interfaces.
+**1. Team & ownership (Conway's Law)**
+Microservices work when you have multiple teams that need to deploy independently. One team of 5 splitting into 8 services just means everyone owns everything, with network calls in between. How many teams do you have, and do their deploy cadences actually conflict today?
 
-**3. Data ownership.**
-Each service owning its own data is the whole point — and the hardest part. You lose cross-table JOINs and DB-level transactional integrity across boundaries; you inherit eventual consistency, distributed transactions / sagas, and data duplication. If two proposed services can't stop sharing tables, they're not two services.
+**2. Do you have the operational maturity?**
+Microservices trade code complexity for operational complexity. You need: CI/CD per service, containerization/orchestration (k8s or equivalent), centralized logging, distributed tracing, service discovery, and monitoring. If you don't have solid observability on the monolith *now*, you're not ready.
 
-**4. Operational maturity.**
-Microservices are a tax you pay continuously: CI/CD per service, container orchestration, service discovery, centralized logging, distributed tracing, monitoring/alerting, secrets management. Do you have this, or the appetite to build it? Debugging a request across 5 services without tracing is miserable.
+**3. Bounded contexts / domain boundaries**
+Can you actually draw clean seams? If billing, users, and inventory are deeply entangled with foreign keys and shared transactions everywhere, splitting them means distributed transactions, eventual consistency, and data duplication. The boundaries have to exist in the domain before they can exist in the network.
 
-**5. Failure modes get harder.**
-In-process calls become network calls that time out, retry, and cascade. You need circuit breakers, retries with backoff, idempotency, and graceful degradation. Overall availability can *drop* if services are chained synchronously.
+**4. Data ownership**
+Each service owning its own data is the hard part. Django's ORM, cross-table joins, and DB-level transactions all break at service boundaries. Are you ready to give those up and handle consistency in application code / sagas / events?
 
-**6. Team readiness & latency budget.**
-Do engineers know async messaging, API versioning, contract testing? And can your product tolerate the added per-request latency of network hops?
+**5. What's your actual scaling bottleneck?**
+If only one part (say, image processing or search) needs to scale independently, extract *that one thing*. You don't need to microservice the whole app to scale a hotspot.
 
-## My recommended path
+## The pragmatic middle path
 
-1. **Profile and fix the actual slowness first.** Often that ends the debate.
-2. If boundaries and team scaling justify a split, go **modular monolith** first — enforce clean module boundaries *inside* the codebase (separate Django apps, no cross-module ORM reaching, explicit service interfaces). This gets you 80% of the decoupling with none of the ops tax.
-3. Extract services **one at a time**, starting with the piece that has the clearest boundary and the strongest independent-scaling or independent-deploy need (a good first candidate is something like notifications, search, or a CPU-heavy worker).
+You almost never have to choose between "big ball of mud" and "50 microservices":
 
-The modular monolith is the underrated middle ground here — it validates your boundaries cheaply, and boundaries that survive as modules are the ones worth promoting to services later.
+1. **Fix the performance problems** in the monolith first (biggest ROI).
+2. **Modularize the monolith** — clean Django apps, clear internal APIs, enforced boundaries (a "modular monolith"). This gives you most of the organizational benefits with none of the network cost.
+3. **Extract selectively** — pull out the one or two pieces that genuinely need independent scaling or deployment, once boundaries are proven internally.
 
-Want me to look at the actual codebase — model relationships, query patterns, app structure — to see where the real bottlenecks and natural seams are? That would turn this from general advice into a concrete assessment.
-[usage] input=2774 cache_read=7222 cache_write=2105 output=1366
+## The honest cost
+
+Microservices add: network latency, partial failures, distributed debugging, eventual consistency, deployment coordination, and a big infra investment. They pay off at a certain **team size and scale** — and below that threshold they're a net negative. Most "we should do microservices" debates are really about wanting cleaner boundaries, which a modular monolith delivers far cheaper.
+
+---
+
+**My recommendation:** profile first — I'd bet the slowness is DB/caching, not architecture. If you want, tell me more about where it's slow (request latency? specific endpoints? DB load? traffic volume? team size?) and I can help you narrow down whether extraction is even worth considering.
+[usage] input=2973 cache_read=15023 cache_write=2113 output=1367

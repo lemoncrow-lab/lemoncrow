@@ -5,8 +5,8 @@ Implement a React error boundary component that catches render errors, shows a f
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Implement React error boundary component"}
-[usage] input=544 cache_read=0 cache_write=0 output=14
+[assistant] {"title": "Implement React error boundary with retry"}
+[usage] input=544 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,100 +58,139 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Let me look at the project structure to match its conventions.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep4 && ls -la && echo \"---PKG---\" && cat package.json 2>/dev/null", "description": "List files and read package.json"}
-[usage] input=2774 cache_read=7222 cache_write=2098 output=176
+[assistant] I'll first look at the repo to match existing conventions.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep4 && ls -la && echo \"---\" && cat package.json 2>/dev/null", "description": "Inspect repo structure and package.json"}
+[usage] input=2973 cache_read=15023 cache_write=2106 output=195
 
 === Turn 3 ===
 [user] [tool_result] Exit code 1
----PKG---
-[assistant] [tool_use: Bash] {"command": "ls -la; echo \"---\"; git log --oneline -5 2>/dev/null; echo \"---find---\"; find . -type f -not -path './.git/*' | head -50", "description": "Inspect repo contents"}
-[usage] input=2 cache_read=9320 cache_write=2931 output=143
+---
+[assistant] [tool_use: Bash] {"command": "pwd && /bin/ls -la", "description": "List working directory contents"}
+[usage] input=2 cache_read=17129 cache_write=3141 output=84
 
 === Turn 4 ===
-[user] [tool_result] ---
----find---
-./README.md
-./.lemoncrow/.gitignore
-./reports/benchmark/telegraphic/20260716T101000Z/results.jsonl
-./reports/benchmark/telegraphic/20260716T101000Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260713T162323Z/results.jsonl
-./reports/benchmark/telegraphic/20260713T162323Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260713T162412Z/results.jsonl
-./reports/benchmark/telegraphic/20260713T162412Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260716T085058Z/results.jsonl
-./reports/benchmark/telegraphic/20260716T085058Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260712T175956Z/results.jsonl
-./reports/benchmark/telegraphic/20260712T175956Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260716T075522Z/results.jsonl
-./reports/benchmark/telegraphic/20260716T075522Z/telegraphic_report.md
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_baseline_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep0.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep0.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_lemoncrow_rep0.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep0.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_baseline_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_baseline_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_lemoncrow_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local4_baseline_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local6_baseline_rep0.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local5_baseline_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local2_lemoncrow_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep4.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep1.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_baseline_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local1_lemoncrow_rep3.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local3_lemoncrow_rep2.flow
-./reports/benchmark/telegraphic/20260716T071701Z/batch0/local6_lemoncrow_rep0.flow
-[assistant] This isn't a React project — it's a benchmark harness with no `package.json` or `src` directory. I'll create a self-contained, production-quality error boundary component. I'll use TypeScript since that's the common default for React work.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep4/src/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface FallbackProps {\n  /** The error that was thrown during rendering. */\n  error: Error;\n  /** Reset the boundary and re-attempt rendering the children. */\n  retry: () => void;\n}\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /**\n   * Custom fallback UI. May be a static node or a render function that\n   * receives the error and a `retry` callback. Falls back to a built-in UI.\n   */\n  fallback?: ReactNode | ((props: FallbackProps) => ReactNode);\n  /** Called whenever an error is caught, alongside the built-in logging. */\n  onError?: (error: Error, errorInfo: ErrorInfo) => void;\n  /**\n   * When any value in this array changes, the boundary automatically resets.\n   * Useful for clearing the error after e.g. a route change.\n   */\n  resetKeys?: unknown[];\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches errors thrown while rendering its subtree, displays a fallback UI\n * with a retry button, and logs the error details.\n *\n * Note: error boundaries only catch errors during rendering, in lifecycle\n * methods, and in constructors of the tree below them. They do not catch\n * errors in event handlers, async code, or SSR.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {\n    // Log the error details for diagnostics / monitoring.\n    console.error(\n      \"ErrorBoundary caught an error:\",\n      error,\n      errorInfo.componentStack,\n    );\n    this.props.onError?.(error, errorInfo);\n  }\n\n  componentDidUpdate(prevProps: ErrorBoundaryProps): void {\n    // Automatically recover when the reset keys change.\n    if (this.state.error !== null && this.hasResetKeyChanged(prevProps)) {\n      this.reset();\n    }\n  }\n\n  private hasResetKeyChanged(prevProps: ErrorBoundaryProps): boolean {\n    const prev = prevProps.resetKeys ?? [];\n    const next = this.props.resetKeys ?? [];\n    return (\n      prev.length !== next.length ||\n      prev.some((value, index) => !Object.is(value, next[index]))\n    );\n  }\n\n  private reset = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n    const { children, fallback } = this.props;\n\n    if (error === null) {\n      return children;\n    }\n\n    if (typeof fallback === \"function\") {\n      return fallback({ error, retry: this.reset });\n    }\n\n    if (fallback !== undefined) {\n      return fallback;\n    }\n\n    return (\n      <div role=\"alert\" style={styles.container}>\n        <h2 style={styles.heading}>Something went wrong</h2>\n        <p style={styles.message}>{error.message || \"An unexpected error occurred.\"}</p>\n        <button type=\"button\" onClick={this.reset} style={styles.button}>\n          Try again\n        </button>\n      </div>\n    );\n  }\n}\n\nconst styles: Record<string, React.CSSProperties> = {\n  container: {\n    padding: \"1.5rem\",\n    border: \"1px solid #f5c2c7\",\n    borderRadius: \"8px\",\n    backgroundColor: \"#fff5f5\",\n    color: \"#842029\",\n    maxWidth: \"32rem\",\n    margin: \"1rem auto\",\n    fontFamily: \"system-ui, sans-serif\",\n  },\n  heading: {\n    margin: \"0 0 0.5rem\",\n    fontSize: \"1.125rem\",\n  },\n  message: {\n    margin: \"0 0 1rem\",\n    fontSize: \"0.875rem\",\n    wordBreak: \"break-word\",\n  },\n  button: {\n    padding: \"0.5rem 1rem\",\n    border: \"none\",\n    borderRadius: \"6px\",\n    backgroundColor: \"#dc3545\",\n    color: \"#fff\",\n    fontSize: \"0.875rem\",\n    cursor: \"pointer\",\n  },\n};\n"}
-[usage] input=2 cache_read=12251 cache_write=2135 output=1836
+[user] [tool_result] /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep4
+total 20
+drwxrwxr-x   4 pankaj pankaj 4096 Jul 13 18:54 .
+drwxrwxr-x 103 pankaj pankaj 4096 Jul 16 19:42 ..
+drwxrwxr-x   3 pankaj pankaj 4096 Jul 13 18:54 .lemoncrow
+-rw-rw-r--   1 pankaj pankaj  304 Jul 12 19:36 README.md
+drwxrwxr-x   3 pankaj pankaj 4096 Jul 12 19:36 reports
+[assistant] [tool_use: Bash] {"command": "cat README.md && echo \"=== reports ===\" && find reports -type f | head -50", "description": "Read README and reports tree"}
+[usage] input=2 cache_read=20270 cache_write=322 output=101
 
 === Turn 5 ===
-[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-227c5e985c25/local10_baseline_rep4/src/ErrorBoundary.tsx (file state is current in your context — no need to Read it back)
-[assistant] Created `src/ErrorBoundary.tsx`. Since the repo has no React toolchain, this is a standalone component you can drop into an existing project.
+[user] [tool_result] # Telegraphic benchmark scratch repo
 
-**What it does:**
+Intentionally minimal. Exists only so `lc benchmark telegraphic` has a
+real git repo to hand each Claude Code arm -- the prompts are general dev
+Q&A, not tied to any specific codebase, so there is deliberately nothing
+here to explore. Answer from general knowledge.
+=== reports ===
+reports/benchmark/telegraphic/20260716T101000Z/results.jsonl
+reports/benchmark/telegraphic/20260716T101000Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260716T123202Z/summary.csv
+reports/benchmark/telegraphic/20260716T123202Z/results.jsonl
+reports/benchmark/telegraphic/20260716T123202Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260713T162323Z/results.jsonl
+reports/benchmark/telegraphic/20260713T162323Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260713T162412Z/results.jsonl
+reports/benchmark/telegraphic/20260713T162412Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260716T085058Z/results.jsonl
+reports/benchmark/telegraphic/20260716T085058Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260712T175956Z/results.jsonl
+reports/benchmark/telegraphic/20260712T175956Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260716T075522Z/results.jsonl
+reports/benchmark/telegraphic/20260716T075522Z/telegraphic_report.md
+reports/benchmark/telegraphic/20260713T162412Z/batch0/pairwise_quality.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local3_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local8_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/task_metrics.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local2_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/quality_adjusted_summary.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local3_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local5_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local7_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local9_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local7_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local4_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local10_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local10_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/summary.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/model_audit.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local9_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local6_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local4_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local6_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/results.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch0/results.jsonl
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local5_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local2_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local8_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local1_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/report.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch0/local1_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch0/task_correctness.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch1/pairwise_quality.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch1/local3_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch1/local8_lemoncrow_rep0.flow
+reports/benchmark/telegraphic/20260713T162412Z/batch1/task_metrics.csv
+reports/benchmark/telegraphic/20260713T162412Z/batch1/local2_lemoncrow_rep0.flow_dump.txt
+reports/benchmark/telegraphic/20260713T162412Z/batch1/quality_adjusted_summary.csv
+[assistant] This is a scratch benchmark repo — no React project to fit into, so I'll deliver a clean, self-contained error boundary component. Error boundaries require a class component (React has no hook equivalent for `componentDidCatch`).[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep4/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback renderer. Receives the error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Optional hook for reporting to an external logging service. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render/lifecycle errors in its child tree, shows a fallback UI\n * with a retry button, and logs the error details.\n *\n * Note: error boundaries must be class components — there is no hook\n * equivalent for `getDerivedStateFromError` / `componentDidCatch`. They do\n * NOT catch errors in event handlers, async code, or SSR; handle those with\n * try/catch at the call site.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    // Log the error details (swap console for Sentry/Datadog/etc.).\n    console.error(\"ErrorBoundary caught an error:\", error, info.componentStack);\n    this.props.onError?.(error, info);\n  }\n\n  reset = (): void => {\n    // Clear the error so the child tree re-mounts and re-renders.\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error !== null) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <p style={styles.message}>{error.message}</p>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Try again\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles: Record<string, React.CSSProperties> = {\n  container: {\n    padding: \"1.5rem\",\n    border: \"1px solid #f5c2c7\",\n    borderRadius: 8,\n    background: \"#fdf2f2\",\n    color: \"#842029\",\n    fontFamily: \"system-ui, sans-serif\",\n  },\n  heading: { margin: \"0 0 0.5rem\" },\n  message: { margin: \"0 0 1rem\", whiteSpace: \"pre-wrap\" },\n  button: {\n    padding: \"0.5rem 1rem\",\n    border: \"none\",\n    borderRadius: 6,\n    background: \"#842029\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n    fontSize: \"0.95rem\",\n  },\n};\n"}
+[usage] input=2 cache_read=20592 cache_write=2214 output=1430
 
-- **Catches render errors** — `getDerivedStateFromError` flips state to show the fallback; `componentDidCatch` handles logging.
-- **Fallback UI with retry** — a built-in accessible (`role="alert"`) panel with a "Try again" button that resets the boundary and re-renders the subtree. Override it via the `fallback` prop (static node or `({ error, retry }) => ...` render function).
-- **Logs error details** — `console.error` with the error and `componentStack`, plus an optional `onError` hook to forward to a monitoring service (Sentry, etc.).
-- **Auto-recovery** — pass `resetKeys` (e.g. a route path) and the boundary clears itself when they change.
+=== Turn 6 ===
+[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-d0d25aa9f9cc/local10_baseline_rep4/ErrorBoundary.tsx (file state is current in your context — no need to Read it back)
+[assistant] I created `ErrorBoundary.tsx`. Here's the component and how to use it.
+
+```tsx
+import { Component, type ErrorInfo, type ReactNode } from "react";
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { error };               // → switch to fallback on next render
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error("ErrorBoundary caught:", error, info.componentStack);
+    this.props.onError?.(error, info);   // hand off to Sentry/Datadog/etc.
+  }
+
+  reset = () => this.setState({ error: null });  // retry → re-render children
+  // ...render(): fallback with a "Try again" button, else children
+}
+```
 
 **Usage:**
 
 ```tsx
-<ErrorBoundary onError={(err, info) => reportToSentry(err, info)}>
-  <App />
+// Wrap any subtree. Reset the error state on retry.
+<ErrorBoundary>
+  <Dashboard />
 </ErrorBoundary>
 
-// custom fallback
-<ErrorBoundary fallback={({ error, retry }) => (
-  <MyError message={error.message} onRetry={retry} />
-)}>
-  <Widget />
+// Or with a custom fallback + external logger:
+<ErrorBoundary
+  onError={(err, info) => reportToSentry(err, info)}
+  fallback={(err, reset) => (
+    <div role="alert">
+      <p>{err.message}</p>
+      <button onClick={reset}>Retry</button>
+    </div>
+  )}
+>
+  <Dashboard />
 </ErrorBoundary>
 ```
 
-Two things worth flagging:
-- Error boundaries **must be class components** — React provides no hook equivalent, so this stays a class by necessity.
-- They only catch errors during **render/lifecycle/constructors**, not in event handlers, async code, or SSR — those need `try/catch`.
+**Key points**
 
-Want me to add a `package.json` + test setup (Vitest/RTL) so it's runnable, or convert it to plain JS/JSX if you're not on TypeScript?
-[usage] input=2 cache_read=14386 cache_write=1916 output=581
+- **Must be a class.** There is no hook for `getDerivedStateFromError`/`componentDidCatch`. The common workaround is to use the `react-error-boundary` library, which wraps a class internally.
+- **Three responsibilities, mapped to lifecycle:** `getDerivedStateFromError` flips state to render the fallback; `componentDidCatch` logs the error + `componentStack`; the retry button calls `reset()` to clear the error so children re-render.
+- **What it does *not* catch:** errors in event handlers, `setTimeout`/promises/async code, SSR, and errors thrown in the boundary itself. Wrap those in a manual `try/catch`.
+- **Retry caveat:** if the underlying condition still fails, the child will just re-throw. For a hard reset (e.g. refetch data), give the wrapped subtree a changing `key` or pass a `resetKeys`-style prop.
+
+If you're on plain JS instead of TypeScript, drop the type annotations and rename to `.jsx` — the logic is identical. Want me to add that variant, or a test?
+[usage] input=2 cache_read=22806 cache_write=1512 output=843

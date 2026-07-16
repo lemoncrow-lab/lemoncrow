@@ -57,6 +57,8 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 # MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
@@ -71,6 +73,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -87,16 +90,14 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Two main strategies:
+[assistant] Chaining or open addressing.
 
-**Chaining** — each bucket holds a list (or tree). Collisions append to the bucket's list. Lookup: hash → bucket → scan list. Simple; degrades to O(n) per bucket if many collisions.
+**Chaining** — each bucket holds a list; collisions append. Lookup: hash → bucket → scan list. Simple, degrades to O(n) if clustered.
 
-**Open addressing** — store entry in the array itself; on collision, probe for another slot:
-- Linear probing → next slot (`i+1`), cache-friendly, clustering.
-- Quadratic probing → `i+k²`, less clustering.
-- Double hashing → step = second hash, best spread.
+**Open addressing** — one slot per entry; on collision probe for next free slot:
+- linear: +1 each step (clustering)
+- quadratic: +1,+4,+9… (less clustering)
+- double hashing: second hash as step
 
-Lookup follows the same probe sequence until match or empty slot. Needs load factor < 1; resize/rehash when full.
-
-Deletion in open addressing uses tombstones so probe chains stay intact. Good hash function + low load factor keep collisions rare and ops ~O(1) amortized.
-[usage] input=3795 cache_read=8944 cache_write=0 output=312
+Load factor high → resize + rehash. Avg O(1), worst O(n).
+[usage] input=3994 cache_read=16745 cache_write=0 output=170

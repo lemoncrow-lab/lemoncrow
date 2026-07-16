@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,60 +58,74 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] This is a general debugging question — no need to spawn agents or dig into a codebase, so let me give you a practical playbook.
+[assistant] Here's a practical playbook for tracking down and fixing a memory leak in a long-running Node.js process.
 
 ## 1. Confirm it's actually a leak
 
-Run with heap stats and watch whether memory grows *and never comes back down* after GC:
+Memory growing isn't always a leak — V8 grows the heap lazily and GC runs on its own schedule. A real leak keeps climbing across GC cycles and never comes back down under steady load.
 
 ```bash
-node --expose-gc --max-old-space-size=2048 app.js
+# Watch RSS over time
+node --expose-gc app.js
 ```
 
-A leak means old-space heap climbs monotonically across GC cycles. Sawtooth that returns to a baseline is normal.
+Log `process.memoryUsage()` periodically:
+
+```js
+setInterval(() => {
+  const { rss, heapUsed, heapTotal, external } = process.memoryUsage();
+  console.log({ rss, heapUsed, heapTotal, external });
+}, 10_000);
+```
+
+- **`heapUsed` climbing** → JS object leak (most common).
+- **`external` / `arrayBuffers` climbing** → Buffers, native addons, streams.
+- **`rss` climbing but heap flat** → native memory, Buffers, or fragmentation.
 
 ## 2. Capture heap snapshots and diff them
 
-This is the single most effective technique:
+This is the single most effective technique.
+
+```bash
+node --inspect app.js
+```
+
+Open `chrome://inspect` → Memory tab. Take a snapshot, exercise the app under load, take a second snapshot, then use **Comparison** view to see which object types grew. Retainer paths tell you *what's holding the reference*.
+
+For headless/production capture:
 
 ```js
 const v8 = require('v8');
-// call at two points in time, e.g. via a signal handler or endpoint
-v8.writeHeapSnapshot(`/tmp/heap-${Date.now()}.heapsnapshot`);
+const fs = require('fs');
+// trigger on a signal so you can snapshot a live prod process
+process.on('SIGUSR2', () => {
+  const name = `/tmp/heap-${Date.now()}.heapsnapshot`;
+  fs.writeFileSync(name, '');
+  const s = v8.getHeapSnapshot();
+  s.pipe(fs.createWriteStream(name));
+});
 ```
 
-Take snapshot A, let the process run/handle load, take snapshot B. Load both into **Chrome DevTools → Memory tab**, use **"Comparison"** view to see which object types grew. The retainers path tells you *what* is holding the references alive.
+Load the `.heapsnapshot` files into Chrome DevTools and compare.
 
-Alternatively, attach live: start with `node --inspect app.js` and connect via `chrome://inspect`.
+## 3. The usual culprits
 
-## 3. Common causes to check
+| Pattern | Fix |
+|---|---|
+| **Unbounded module-level `Map`/array/cache** | Add eviction (LRU, TTL). Use `lru-cache`. |
+| **`setInterval`/`setTimeout` never cleared** | Store the handle, `clearInterval` on shutdown/teardown. |
+| **Event listeners added per-request/connection** | `removeListener`/`off`, or use `{ once: true }`. Watch for `MaxListenersExceededWarning`. |
+| **Closures capturing large objects** | Null out references; don't close over request/response in long-lived callbacks. |
+| **Global caches keyed by request data** | Bound the key space; never cache raw user input unboundedly. |
+| **`WeakMap`/`WeakRef` candidates stored in strong maps** | Use `WeakMap` when the key is an object whose lifetime you don't control. |
+| **Streams not consumed/destroyed** | `stream.destroy()`, handle backpressure, pipe with cleanup. |
+| **Promises that never settle** | They retain their closure chain forever. Add timeouts. |
 
-| Cause | What to look for |
-|-------|------------------|
-| **Unbounded caches/Maps** | A module-level `Map`/`Object`/array that only ever gets `.set()`/`.push()`, never evicts. Use an LRU (`lru-cache`) with a max size. |
-| **Event listener leaks** | `emitter.on()` in a hot path without `removeListener`. Node warns: *"MaxListenersExceededWarning"*. |
-| **Closures over large objects** | Timers/callbacks capturing big buffers or request objects. |
-| **Global/module state** | Accumulating in a `let` at module scope. |
-| **Timers not cleared** | `setInterval` / `setTimeout` holding references; clear them. |
-| **Streams not consumed/closed** | Backpressure or undestroyed streams. |
+## 4. Verify the fix
 
-## 4. Narrow it down in production
-
-- Log `process.memoryUsage()` (`rss`, `heapUsed`, `external`, `arrayBuffers`) periodically. Growth in `external`/`arrayBuffers` points at Buffers/native memory rather than JS heap.
-- Use `clinic doctor` or `clinic heapprofiler` (`npx clinic`) for a guided view.
-- `node --heap-prof` produces a `.heapprofile` for offline analysis.
-
-## 5. Fixes that generally apply
-
-- Bound every cache with a size/TTL limit.
-- Always pair `on`/`addListener` with `off`/`removeListener`; use `{ once: true }` where possible.
-- Clear timers on teardown.
-- Avoid keeping request/response objects in long-lived scope.
-- Prefer `WeakMap`/`WeakRef` for associative data keyed by objects you don't own.
+Re-run under sustained load (e.g. `autocannon`, a load loop) for long enough to cross several GC cycles, and confirm `heapUsed` returns to a stable baseline. Diffing a before/after snapshot should show the growing object type is now flat.
 
 ---
 
-If you share the actual symptom — which metric grows (`heapUsed` vs `external`), how fast, and roughly what the process does — I can point you at the likely culprit and help read a heap diff.
-
-Want to paste a snapshot comparison or the suspect code?
-[usage] input=2774 cache_read=7222 cache_write=2081 output=1063
+If you share the specifics — what the process does, what's growing (`heapUsed` vs `external`/`rss`), and any snapshot diff — I can help pinpoint the actual cause. Do you have a repo or code I should look at?
+[usage] input=2973 cache_read=15023 cache_write=2081 output=1245

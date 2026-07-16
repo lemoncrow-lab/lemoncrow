@@ -19,35 +19,6 @@ TaskOutput
 TaskStop
 TaskUpdate
 WebSearch
-mcp__claude_ai_Gmail__apply_sensitive_message_label
-mcp__claude_ai_Gmail__apply_sensitive_thread_label
-mcp__claude_ai_Gmail__create_draft
-mcp__claude_ai_Gmail__create_label
-mcp__claude_ai_Gmail__get_message
-mcp__claude_ai_Gmail__get_thread
-mcp__claude_ai_Gmail__label_message
-mcp__claude_ai_Gmail__label_thread
-mcp__claude_ai_Gmail__list_drafts
-mcp__claude_ai_Gmail__list_labels
-mcp__claude_ai_Gmail__search_threads
-mcp__claude_ai_Gmail__unlabel_message
-mcp__claude_ai_Gmail__unlabel_thread
-mcp__claude_ai_Google_Calendar__create_event
-mcp__claude_ai_Google_Calendar__delete_event
-mcp__claude_ai_Google_Calendar__get_event
-mcp__claude_ai_Google_Calendar__list_calendars
-mcp__claude_ai_Google_Calendar__list_events
-mcp__claude_ai_Google_Calendar__respond_to_event
-mcp__claude_ai_Google_Calendar__suggest_time
-mcp__claude_ai_Google_Calendar__update_event
-mcp__claude_ai_Google_Drive__copy_file
-mcp__claude_ai_Google_Drive__create_file
-mcp__claude_ai_Google_Drive__download_file_content
-mcp__claude_ai_Google_Drive__get_file_metadata
-mcp__claude_ai_Google_Drive__get_file_permissions
-mcp__claude_ai_Google_Drive__list_recent_files
-mcp__claude_ai_Google_Drive__read_file_content
-mcp__claude_ai_Google_Drive__search_files
 
 Available agent types for the Agent tool:
 - claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
@@ -56,6 +27,8 @@ Available agent types for the Agent tool:
 - lemoncrow:auto: Fully autonomous unattended agent. (Tools: All tools except Read, Edit, Write, Grep, Glob, Bash, WebFetch, EnterPlanMode, ExitPlanMode, AskUserQuestion)
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
 
 # MCP Server Instructions
 
@@ -71,6 +44,7 @@ LemonCrow replaces the grep→read→re-read loop.
 
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -87,21 +61,21 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Decision factors, ranked:
+[assistant] Key factors before splitting:
 
-**1. Profile first — is it even architecture?** Slow monolith ≠ needs microservices. Find the actual cause: N+1 queries, missing indexes, no caching, sync work that should be async (Celery), no read replica. Most "slow monolith" pain is fixed here, cheaper. Microservices add latency, not remove it.
+**Is the monolith actually the problem?** Profile first. Slow Django is usually N+1 queries, missing indexes, no caching, sync work that should be async (Celery), or a single overloaded DB — none of which microservices fix. Splitting a DB-bound app just adds network hops. Rule out these before anything.
 
-**2. Bounded contexts.** Can you draw clean domain seams (billing, auth, catalog)? Split along those. If the ORM models are deeply cross-joined, a split becomes distributed joins — worse than now.
+**Domain boundaries.** Can you draw clean seams (bounded contexts) where modules rarely reach across? If models are tangled with cross-table joins and shared FKs, splits become distributed transactions — the worst outcome.
 
-**3. Data ownership.** Each service owns its DB. Shared Django DB across services = distributed monolith (worst case: coupling + network cost). Ask: can these tables separate without cross-service transactions everywhere?
+**Data ownership.** Each service needs its own data. Shared DB = distributed monolith. Are you ready to give up cross-table joins and enforce consistency via events/eventual consistency?
 
-**4. Team topology.** Conway's law — services map to teams. One team of 5? Microservices buy you overhead, not speed. Multiple teams blocked on one deploy pipeline is the real trigger.
+**Team & ops maturity.** Microservices trade code complexity for operational complexity: service discovery, distributed tracing, CI/CD per service, network failure handling, versioned contracts. Do you have the headcount and observability to run N deployables?
 
-**5. Operational maturity.** Do you have: CI/CD per service, centralized logging/tracing, service discovery, on-call? Microservices convert a code problem into a distributed-systems problem. No observability → debugging gets much harder.
+**Consistency & transactions.** What currently relies on a single ACID transaction? Those become sagas/compensation logic across services.
 
-**6. Transaction boundaries.** Cross-service consistency needs sagas/eventual consistency. If your domain demands strong ACID across contexts, splitting fights you.
+**Cost/latency.** In-process calls become network calls — added latency, more failure modes, need for retries/circuit breakers.
 
-**Recommended path:** profile + fix hotspots → modular monolith (clean app boundaries, no shared imports across domains) → extract *one* service only where a proven scaling/team bottleneck justifies it. "Modular monolith first" wins most of these debates.
+Cheaper middle path first: **modular monolith** — enforce boundaries in-process, split apps, add caching/async, scale horizontally (more gunicorn workers, read replicas). Extract a service only when one module has a *distinct* scaling, deploy-cadence, or team-ownership need.
 
-What's the actual symptom — slow requests, slow deploys, or team contention? That determines whether the answer is a query fix or an architecture change.
-[usage] input=3795 cache_read=8977 cache_write=0 output=656
+assumption: conceptual question, no repo to inspect → advice only.
+[usage] input=3348 cache_read=16778 cache_write=0 output=689

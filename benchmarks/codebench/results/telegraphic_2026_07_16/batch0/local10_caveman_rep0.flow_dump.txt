@@ -21,12 +21,8 @@ NotebookEdit
 PushNotification
 RemoteTrigger
 SendMessage
-TaskCreate
-TaskGet
-TaskList
 TaskOutput
 TaskStop
-TaskUpdate
 WebFetch
 WebSearch
 
@@ -37,8 +33,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,25 +54,50 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] [tool_use: Bash] {"command": "cd /tmp/lemoncrow-bench-caveman-iud6e5gz && ls && echo \"---\" && cat package.json 2>/dev/null | head -40", "description": "List repo and check package.json"}
-[usage] input=2774 cache_read=7231 cache_write=4079 output=228
+[assistant] [tool_use: Bash] {"command": "cd /tmp/lemoncrow-bench-caveman-x9ev1avq && ls && echo \"---\" && cat package.json 2>/dev/null | head -40", "description": "List files and check package.json"}
+[usage] input=2947 cache_read=15032 cache_write=4078 output=180
 
 === Turn 3 ===
 [user] [tool_result] ---
-[assistant] Empty repo. Make standalone component file.[tool_use: Write] {"file_path": "/tmp/lemoncrow-bench-caveman-iud6e5gz/ErrorBoundary.jsx", "content": "import { Component } from 'react';\n\n/**\n * Catches render/lifecycle errors in its child tree, shows a fallback UI\n * with a retry button, and logs the error details.\n *\n * Usage:\n *   <ErrorBoundary onError={reportToService} fallback={CustomFallback}>\n *     <App />\n *   </ErrorBoundary>\n */\nexport default class ErrorBoundary extends Component {\n  state = { error: null, errorInfo: null };\n\n  // Flip to the fallback UI on the next render.\n  static getDerivedStateFromError(error) {\n    return { error };\n  }\n\n  // Log details once the error is caught. componentStack lives in errorInfo.\n  componentDidCatch(error, errorInfo) {\n    this.setState({ errorInfo });\n\n    // eslint-disable-next-line no-console\n    console.error('ErrorBoundary caught an error:', error, errorInfo);\n\n    // Let callers forward to an external logging service (Sentry, etc.).\n    if (typeof this.props.onError === 'function') {\n      this.props.onError(error, errorInfo);\n    }\n  }\n\n  handleRetry = () => {\n    this.setState({ error: null, errorInfo: null });\n  };\n\n  render() {\n    const { error, errorInfo } = this.state;\n\n    if (error) {\n      // Allow a custom fallback: a component or a render function.\n      const { fallback: Fallback } = this.props;\n      if (Fallback) {\n        return typeof Fallback === 'function' ? (\n          <Fallback error={error} errorInfo={errorInfo} retry={this.handleRetry} />\n        ) : (\n          Fallback\n        );\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.title}>Something went wrong.</h2>\n          <p style={styles.message}>{error.message || String(error)}</p>\n\n          {process.env.NODE_ENV !== 'production' && errorInfo && (\n            <details style={styles.details}>\n              <summary>Error details</summary>\n              <pre style={styles.stack}>\n                {error.stack}\n                {errorInfo.componentStack}\n              </pre>\n            </details>\n          )}\n\n          <button type=\"button\" onClick={this.handleRetry} style={styles.button}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles = {\n  container: {\n    padding: '1.5rem',\n    border: '1px solid #f5c2c7',\n    borderRadius: 8,\n    background: '#fff5f5',\n    color: '#842029',\n    maxWidth: 640,\n    margin: '1rem auto',\n    fontFamily: 'system-ui, sans-serif',\n  },\n  title: { margin: '0 0 0.5rem' },\n  message: { margin: '0 0 1rem', whiteSpace: 'pre-wrap' },\n  details: { margin: '0 0 1rem' },\n  stack: { whiteSpace: 'pre-wrap', overflowX: 'auto', fontSize: '0.8rem' },\n  button: {\n    padding: '0.5rem 1rem',\n    border: 'none',\n    borderRadius: 6,\n    background: '#842029',\n    color: '#fff',\n    cursor: 'pointer',\n  },\n};\n"}
-[usage] input=2 cache_read=11310 cache_write=2977 output=1280
+[assistant] [tool_use: Bash] {"command": "ls -la && git log --oneline -5 2>/dev/null", "description": "List all files including hidden"}
+[usage] input=2 cache_read=19110 cache_write=3102 output=113
 
 === Turn 4 ===
-[user] [tool_result] Claude requested permissions to write to /tmp/lemoncrow-bench-caveman-iud6e5gz/ErrorBoundary.jsx, but you haven't granted it yet.
-[assistant] Made `ErrorBoundary.jsx`. Wait — write blocked. Need permission grant.
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+TaskCreate
+TaskGet
+TaskList
+TaskUpdate
+[assistant] [tool_use: Bash] {"command": "ls -la", "description": "List all files"}
+[usage] input=113 cache_read=22212 cache_write=130 output=73
 
-Once allowed, file give you:
+=== Turn 5 ===
+[user] [tool_result] (Bash completed with no output)
+[assistant] Empty repo. Write TypeScript error boundary (class needed — hooks no catch render errors).[tool_use: Write] {"file_path": "/tmp/lemoncrow-bench-caveman-x9ev1avq/ErrorBoundary.tsx", "content": "import { Component, ErrorInfo, ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback UI. Receives the error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Optional hook to forward errors to an external logging service. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Render the fallback UI on the next render.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    // Log the error details.\n    console.error(\"ErrorBoundary caught an error:\", error, info.componentStack);\n    this.props.onError?.(error, info);\n  }\n\n  reset = (): void => {\n    // Clear the error so children re-mount and re-render.\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <pre style={styles.message}>{error.message}</pre>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles: Record<string, React.CSSProperties> = {\n  container: {\n    padding: \"1rem\",\n    border: \"1px solid #e0b4b4\",\n    borderRadius: \"6px\",\n    background: \"#fff6f6\",\n    color: \"#9f3a38\",\n  },\n  heading: { margin: \"0 0 0.5rem\" },\n  message: { whiteSpace: \"pre-wrap\", margin: \"0 0 0.75rem\" },\n  button: {\n    padding: \"0.4rem 0.9rem\",\n    border: \"none\",\n    borderRadius: \"4px\",\n    background: \"#9f3a38\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n  },\n};\n"}
+[usage] input=2 cache_read=22342 cache_write=199 output=1044
 
-- **Class boundary** — error boundaries must be class (`getDerivedStateFromError` + `componentDidCatch`). No hook equivalent.
-- **Catch** — `getDerivedStateFromError` flip state, render fallback.
-- **Log** — `componentDidCatch` do `console.error` plus optional `onError` prop for Sentry/etc.
-- **Retry** — button reset state, re-render children.
-- **Fallback** — default styled UI, or pass custom via `fallback` prop (component or render fn). Stack shown only in dev.
+=== Turn 6 ===
+[user] [tool_result] Claude requested permissions to write to /tmp/lemoncrow-bench-caveman-x9ev1avq/ErrorBoundary.tsx, but you haven't granted it yet.
+[assistant] [tool_use: Write] {"file_path": "/tmp/lemoncrow-bench-caveman-x9ev1avq/ErrorBoundary.tsx", "content": "import { Component, ErrorInfo, ReactNode } from \"react\";\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /** Custom fallback UI. Receives the error and a reset callback. */\n  fallback?: (error: Error, reset: () => void) => ReactNode;\n  /** Optional hook to forward errors to an external logging service. */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Render the fallback UI on the next render.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    // Log the error details.\n    console.error(\"ErrorBoundary caught an error:\", error, info.componentStack);\n    this.props.onError?.(error, info);\n  }\n\n  reset = (): void => {\n    // Clear the error so children re-mount and re-render.\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n\n    if (error) {\n      if (this.props.fallback) {\n        return this.props.fallback(error, this.reset);\n      }\n\n      return (\n        <div role=\"alert\" style={styles.container}>\n          <h2 style={styles.heading}>Something went wrong.</h2>\n          <pre style={styles.message}>{error.message}</pre>\n          <button type=\"button\" onClick={this.reset} style={styles.button}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nconst styles: Record<string, React.CSSProperties> = {\n  container: {\n    padding: \"1rem\",\n    border: \"1px solid #e0b4b4\",\n    borderRadius: \"6px\",\n    background: \"#fff6f6\",\n    color: \"#9f3a38\",\n  },\n  heading: { margin: \"0 0 0.5rem\" },\n  message: { whiteSpace: \"pre-wrap\", margin: \"0 0 0.75rem\" },\n  button: {\n    padding: \"0.4rem 0.9rem\",\n    border: \"none\",\n    borderRadius: \"4px\",\n    background: \"#9f3a38\",\n    color: \"#fff\",\n    cursor: \"pointer\",\n  },\n};\n"}
+[usage] input=2 cache_read=22541 cache_write=1117 output=1055
 
-Grant write permission and me create file. Or say target dir if different.
-[usage] input=2 cache_read=14287 cache_write=1353 output=250
+=== Turn 7 ===
+[user] [tool_result] Claude requested permissions to write to /tmp/lemoncrow-bench-caveman-x9ev1avq/ErrorBoundary.tsx, but you haven't granted it yet.
+[assistant] Need write permission for `ErrorBoundary.tsx`. Grant it, me write file.
+
+Meanwhile, code ready. Component:
+- Class component (only class catch render errors via `getDerivedStateFromError` + `componentDidCatch`).
+- Fallback UI shows error message + **Retry** button.
+- `reset` clears state → children re-render.
+- Logs to `console.error` + optional `onError` prop for external logging service.
+
+Usage:
+
+```tsx
+<ErrorBoundary onError={(e, info) => reportToSentry(e, info)}>
+  <App />
+</ErrorBoundary>
+```
+
+Approve write, me drop file in place.
+[usage] input=2 cache_read=23658 cache_write=1128 output=218

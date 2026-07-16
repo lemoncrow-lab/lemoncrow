@@ -37,8 +37,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -55,64 +58,46 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] The race condition happens because your code is doing **read-then-write** in separate steps (or separate transactions), so two concurrent requests read the same value before either writes back.
-
-## The root cause
-
-The classic broken pattern:
+[assistant] The race condition almost certainly comes from doing the increment in **two steps** in your Node code — read the value, then write it back:
 
 ```js
-// ❌ Race condition: read and write are separate
-const { rows } = await client.query('SELECT count FROM counters WHERE id = $1', [id]);
-const next = rows[0].count + 1;
-await client.query('UPDATE counters SET count = $1 WHERE id = $2', [next, id]);
+// BUGGY: read-modify-write in application code
+const { rows } = await pool.query('SELECT value FROM counters WHERE id = $1', [id]);
+const next = rows[0].value + 1;
+await pool.query('UPDATE counters SET value = $1 WHERE id = $2', [next, id]);
 return next;
 ```
 
-Two requests both `SELECT` `5`, both compute `6`, both write `6`. One increment is lost and both return the same value.
+Two requests both `SELECT` the same value (say `5`), both compute `6`, both write `6`. One increment is lost, and both return the same number. Adding a JS mutex only fixes it within a single process — it breaks again with multiple workers/instances.
 
-## The fix: make the increment atomic in a single statement
+## The fix: make the database do the increment atomically
 
-Let PostgreSQL do the arithmetic and return the new value with `RETURNING`:
+Let PostgreSQL compute the new value and hand it back in one statement with `RETURNING`:
 
 ```js
-// ✅ Atomic — one statement, no read-then-write gap
 const { rows } = await pool.query(
-  'UPDATE counters SET count = count + 1 WHERE id = $1 RETURNING count',
+  'UPDATE counters SET value = value + 1 WHERE id = $1 RETURNING value',
   [id]
 );
-return rows[0].count;
+return rows[0].value;
 ```
 
-`UPDATE ... SET count = count + 1` takes a row-level lock, so concurrent updates serialize automatically. `RETURNING count` gives each request *its own* post-increment value — no separate `SELECT`, no gap. This is the correct and simplest fix for the vast majority of counter cases.
+`value = value + 1` is evaluated inside the database. PostgreSQL takes a row lock for the duration of each `UPDATE`, so concurrent requests are serialized on that row — each one reads the committed value, adds one, and `RETURNING` gives each caller its own distinct result. No lost updates, no duplicate values, and it's correct across any number of Node processes or servers.
 
-## Why other approaches matter (and their trade-offs)
+## Why this works (and the read-then-write didn't)
 
-- **Sequences** (`CREATE SEQUENCE`, `nextval()`): if you only need ever-increasing unique numbers and don't care about gaps, a sequence is even better — `nextval` is atomic and doesn't hold a row lock. Gaps appear on rollback, though.
-- **Don't rely on transactions/isolation alone.** Wrapping the broken read-then-write in a transaction does *not* fix it under `READ COMMITTED` (PostgreSQL's default) — both transactions can still read the stale value. You'd need `SELECT ... FOR UPDATE` to lock the row before reading, or `SERIALIZABLE` isolation (which then requires retry logic on serialization failures). The single-statement `UPDATE` avoids all of this.
-- **Application-level mutexes / in-memory locks won't work** if you run more than one Node process/instance — the lock has to live in the database.
+- A single `UPDATE ... value + 1` is atomic at the row level — no window between read and write for another request to slip into.
+- `RETURNING` gives you the post-increment value without a separate `SELECT`, so there's no second round-trip that could see a stale value.
 
-## Watch for a connection-pool subtlety
+## Notes / gotchas
 
-If you use an explicit transaction, make sure every query in it runs on the **same** `client` from the pool, not `pool.query()` (which grabs a random connection each time):
+- **Don't wrap a `SELECT ... FOR UPDATE` + `UPDATE` unless you need to** — the single atomic `UPDATE` above is simpler and sufficient for a pure increment. `SELECT ... FOR UPDATE` is only worth it when you must read the row, run logic in JS, and then write conditionally within one transaction.
+- **A sequence may be a better fit** if you just need unique increasing numbers and don't care about gaps. `nextval('my_seq')` is atomic and never blocks concurrent callers:
+  ```js
+  const { rows } = await pool.query("SELECT nextval('counter_seq') AS value");
+  ```
+  Sequences can skip numbers (e.g. on rollback), so use a counter row if you need a gap-free exact count.
+- **Isolation level:** the atomic `UPDATE` is correct even at the default `READ COMMITTED`. If you instead keep read-modify-write under `SERIALIZABLE`, you'd have to catch serialization-failure errors and retry — more work than just doing the atomic update.
 
-```js
-const client = await pool.connect();
-try {
-  await client.query('BEGIN');
-  const { rows } = await client.query(
-    'UPDATE counters SET count = count + 1 WHERE id = $1 RETURNING count', [id]
-  );
-  await client.query('COMMIT');
-  return rows[0].count;
-} finally {
-  client.release();
-}
-```
-
-For a plain single-statement increment you don't even need the explicit transaction — `pool.query()` with the atomic `UPDATE ... RETURNING` is enough.
-
----
-
-If you paste your actual endpoint handler I can point to the exact line to change and confirm which pattern fits (single counter vs. sequence vs. needs-transaction-with-other-writes).
-[usage] input=2774 cache_read=7222 cache_write=2111 output=1178
+If you can share the actual handler code, I'll point out the exact line to change.
+[usage] input=2973 cache_read=15023 cache_write=2119 output=1102

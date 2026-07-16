@@ -13,8 +13,8 @@ function getUser(id, callback) {
 </session>
 
 Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
-[assistant] {"title": "Convert Node.js callback to async/await"}
-[usage] input=611 cache_read=0 cache_write=0 output=17
+[assistant] {"title": "Convert callback function to async/await"}
+[usage] input=611 cache_read=0 cache_write=0 output=15
 
 === Turn 2 ===
 [system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
@@ -45,8 +45,11 @@ Available agent types for the Agent tool:
 - Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
 - statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
 
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
 The following skills are available for use with the Skill tool:
 
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
 - dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
 - update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
 - keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
@@ -63,7 +66,7 @@ SKIP only when another provider is being worked on (overrides all triggers): Ope
 - init: Initialize a new CLAUDE.md file with codebase documentation
 - review: Review a GitHub pull request; for your working diff use /code-review
 - security-review: Complete a security review of the pending changes on the current branch
-[assistant] Here's the async/await version:
+[assistant] Here's the refactored version using async/await:
 
 ```javascript
 async function getUser(id) {
@@ -73,32 +76,35 @@ async function getUser(id) {
 }
 ```
 
-This assumes `db.query` returns a promise. A few notes:
+This assumes `db.query` returns a promise. A few notes depending on your setup:
 
-- **If `db.query` still uses callbacks** (like the `mysql` library), you need to promisify it first, since `await` only works on promises:
+**If `db.query` is still callback-based** (doesn't return a promise), promisify it first:
 
-  ```javascript
-  const { promisify } = require('util');
-  const query = promisify(db.query).bind(db);
+```javascript
+const { promisify } = require('util');
+const query = promisify(db.query).bind(db);
 
-  async function getUser(id) {
-    const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
-    if (!rows.length) throw new Error('Not found');
-    return rows[0];
-  }
-  ```
+async function getUser(id) {
+  const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
+  if (!rows.length) throw new Error('Not found');
+  return rows[0];
+}
+```
 
-  (Or use a promise-native driver like `mysql2/promise`.)
+**Key behavioral changes:**
+- Errors are now thrown instead of passed to a callback — callers use `try/catch` (or `.catch()`).
+- The success value is returned directly.
 
-- **Error handling shifts from callbacks to exceptions.** Callers now use `try/catch` instead of checking an `err` argument:
+**Calling it** now looks like:
 
-  ```javascript
-  try {
-    const user = await getUser(42);
-  } catch (err) {
-    // handles both DB errors and "Not found"
-  }
-  ```
+```javascript
+try {
+  const user = await getUser(42);
+  // use user
+} catch (err) {
+  // handle "Not found" or db errors
+}
+```
 
-The DB error that was passed to `callback(err)` now propagates automatically as a rejected promise, so you don't need to handle it explicitly inside the function.
-[usage] input=2774 cache_read=7222 cache_write=2180 output=448
+One thing to consider: throwing a plain `Error('Not found')` makes it hard for callers to distinguish "not found" from a real DB failure. If that distinction matters, you might return `null` for the not-found case instead, or use a typed error (e.g. a custom `NotFoundError` class), so callers can branch on it cleanly.
+[usage] input=2973 cache_read=15023 cache_write=2188 output=492
