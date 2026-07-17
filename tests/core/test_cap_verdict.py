@@ -17,9 +17,9 @@ _TYPESCRIPT_FREE_TOKEN = (
 _TYPESCRIPT_ANONYMOUS_TOKEN = (
     "eyJ2IjoyLCJ0eXAiOiJjYXAiLCJhY2NvdW50X2lkIjoiYW5vbjpyZXZpZXciLCJkZXZpY2VfaWQiOiJhbm9ueW1v"
     "dXNfZGV2aWNlX3JldmlldyIsInBsYW4iOiJhbm9ueW1vdXMiLCJzYXZpbmdzX292ZXJfY2FwIjp0cnVlLCJtb250"
-    "aGx5X3NhdmluZ3NfdXNkIjo1NSwiY2FwX3VzZCI6NTAsImlzc3VlZF9hdCI6MTgwMDAwMDAwMCwiZXhwaXJlc19h"
-    "dCI6MTgwMDAyODgwMH0.Rv1w0cSvi3k188RAkC880mAyoVRmNCMh6JhVR7_N5es6OlwOxUB6pv5Jv1ba0KDEcZ"
-    "qax6JeMemJEWGg-hdTBg"
+    "aGx5X3NhdmluZ3NfdXNkIjoxMDUsImNhcF91c2QiOjEwMCwiaXNzdWVkX2F0IjoxODAwMDAwMDAwLCJleHBpcmVz"
+    "X2F0IjoxODAwMDI4ODAwfQ.sV1IHgX-CWGcPZQaeOEHqqiYEe6FPdnXxUKUZ_19msWu-hziE255shI7mUBEkvwZ"
+    "GU4TtWzlzNzzXsieF3r7Bw"
 )
 
 
@@ -78,7 +78,7 @@ def test_roundtrip_over_and_under() -> None:
     ("token", "account_id", "device_id", "plan", "over", "cap"),
     [
         (_TYPESCRIPT_FREE_TOKEN, "acct_review", "device_review", "free", False, None),
-        (_TYPESCRIPT_ANONYMOUS_TOKEN, "anon:review", "anonymous_device_review", "anonymous", True, 50.0),
+        (_TYPESCRIPT_ANONYMOUS_TOKEN, "anon:review", "anonymous_device_review", "anonymous", True, 100.0),
     ],
 )
 def test_typescript_issuer_tokens_verify_in_python(
