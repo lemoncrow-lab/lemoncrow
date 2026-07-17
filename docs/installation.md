@@ -2,19 +2,27 @@
 
 This page starts with the installed product flow. Source-checkout and contributor setup are lower down.
 
-## Quick Install (Production)
+## Quick Install
+
+Install from a checksummed GitHub release:
 
 ```bash
-curl -fsSL https://install.lemoncrow.com | bash
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 ```
 
-What the production installer does:
+What the installer does:
 
-- downloads a pre-compiled LemonCrow binary for your platform from the latest release
+- downloads a pre-compiled LemonCrow binary for your platform from the latest release (checksum-verified)
 - installs it to `~/.local/bin/`
 - adds the directory to `PATH` in your shell profile
 
-The binary is self-contained — no `git`, `uv`, `npm`, or `node` required at install time.
+The binary is self-contained — no `git`, `uv`, `npm`, or `node` required at install time. No account or login is required; LemonCrow runs fully locally.
+
+Prefer to build from source? Run the source installer from a checkout:
+
+```bash
+bash scripts/local.sh
+```
 
 ## Full Developer Install
 
@@ -79,6 +87,18 @@ Install host + universal MCP artifacts into the current project (instead of user
 ```bash
 bash scripts/local.sh --local --workspace .
 ```
+
+## Uninstall
+
+Remove LemonCrow with the uninstall script:
+
+```bash
+bash scripts/uninstall.sh          # remove LemonCrow; your data under ~/.lemoncrow is preserved
+bash scripts/uninstall.sh --purge  # remove LemonCrow and all LemonCrow-managed local state
+```
+
+`lc uninstall` removes host integrations and wrappers only; use the script
+above to remove the runtime itself.
 
 ## Runtime Modes After Install
 
@@ -273,9 +293,15 @@ lc init
 
 ### Telemetry
 
+Remote telemetry is **off by default** and strictly opt-in. Enable it with
+`lc telemetry remote on` and disable it again with `lc telemetry remote off`.
+The kill switches `DO_NOT_TRACK=1` and `LEMONCROW_TELEMETRY=off` suppress remote
+telemetry entirely. See [Privacy & network behavior](privacy.md) for exactly
+what is and is not sent.
+
 | Variable | Default | Description |
 | --- | --- | --- |
-| LEMONCROW_TELEMETRY | enabled | Disable with `0`, `false`, `off`, or `no` |
+| `LEMONCROW_TELEMETRY` | off (remote) | Remote telemetry is opt-in; `off`/`0`/`false`/`no`, or `DO_NOT_TRACK=1`, disable it |
 
 If you are developing LemonCrow itself instead of using the installed product:
 

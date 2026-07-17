@@ -17,8 +17,10 @@ TRUE_VALUES = {"1", "true", "on", "yes"}
 
 @dataclass(frozen=True)
 class TelemetryConfig:
-    remote_enabled: bool = True
-    lexical_frustration_enabled: bool = True
+    # Off by default: LemonCrow is a local runtime. Remote telemetry is strictly
+    # opt-in (`lc telemetry remote on`). Nothing leaves the machine until then.
+    remote_enabled: bool = False
+    lexical_frustration_enabled: bool = False
 
 
 def config_path() -> Path:
@@ -39,17 +41,33 @@ def _load_file_config() -> TelemetryConfig:
             data = {}
 
     return TelemetryConfig(
-        remote_enabled=_bool(data.get("remote_enabled"), True),
-        lexical_frustration_enabled=_bool(data.get("lexical_frustration_enabled"), True),
+        remote_enabled=_bool(data.get("remote_enabled"), False),
+        lexical_frustration_enabled=_bool(data.get("lexical_frustration_enabled"), False),
     )
 
 
+def _env_master_disabled() -> bool:
+    """Global opt-out kill switch, independent of telemetry.toml.
+
+    Honors the cross-tool ``DO_NOT_TRACK=1`` convention and
+    ``LEMONCROW_TELEMETRY=off`` (any false-y value). When set, no remote
+    telemetry is ever emitted regardless of the on-disk config.
+    """
+    if os.environ.get("DO_NOT_TRACK", "").strip().lower() in TRUE_VALUES:
+        return True
+    if os.environ.get("LEMONCROW_TELEMETRY", "").strip().lower() in FALSE_VALUES:
+        return True
+    return False
+
+
 def load_telemetry_config() -> TelemetryConfig:
-    # Remote telemetry defaults ON, but a user-set ``remote_enabled = false``
-    # in telemetry.toml is honored. The test guard below additionally
-    # suppresses remote export so the suite never phones home.
+    # Remote telemetry is OFF by default; a user-set ``remote_enabled = true``
+    # in telemetry.toml (via ``lc telemetry remote on``) opts in. The test guard
+    # and env kill switch below additionally suppress remote export.
     cfg = _load_file_config()
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS") != "1":
+        return TelemetryConfig(False, cfg.lexical_frustration_enabled)
+    if _env_master_disabled():
         return TelemetryConfig(False, cfg.lexical_frustration_enabled)
     return cfg
 

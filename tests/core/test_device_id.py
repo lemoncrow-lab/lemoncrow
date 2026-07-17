@@ -1,69 +1,65 @@
-"""Stable device identity, including container/CI propagation via env.
+"""Local installation identifier (formerly the commercial device id).
 
-Kept separate from test_licensing.py, whose autouse fixture replaces
-``load_or_create_device_id`` wholesale — these tests exercise the real one.
+Open-source runtime: this id gates nothing, enforces no cap, and is NEVER
+derived from hardware. It is a random, locally generated UUID cached at
+``~/.lemoncrow/device_id``, with an optional env override for containers/CI.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 from lemoncrow.core.capabilities.licensing import store
 
 
-def test_device_id_env_override_wins_with_a_real_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Containers forward the host's device id ALONGSIDE its auth token (the
-    one the account, plan token, and cap verdict are bound to); the
-    container's own /etc/machine-id must not be consulted or the plan
-    degrades to free inside every benchmark run."""
-    monkeypatch.setenv(store.AUTH_TOKEN_ENV_VAR, "real-account-token")
+@pytest.fixture(autouse=True)
+def _isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.delenv(store.DEVICE_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(store.AUTH_TOKEN_ENV_VAR, raising=False)
+
+
+def test_device_id_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(store.DEVICE_ID_ENV_VAR, "abcdef123456")
     assert store.load_or_create_device_id() == "abcdef123456"
 
 
-def test_device_id_env_override_ignored_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SECURITY: with no auth token, the caller is the anonymous identity --
-    and the server derives that identity's account_id FROM the device id
-    (sha256), not from anything account-keyed. Honoring the override here
-    would let anyone mint an unlimited stream of fresh $50 anonymous caps
-    just by exporting one env var, no root/hardware change required (unlike
-    the OS machine-id it would otherwise bypass). Must always fall through
-    to the real OS-derived id in this case."""
+def test_device_id_env_override_wins_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    # There is no anonymous cap to game, so the override no longer needs a token.
     monkeypatch.delenv(store.AUTH_TOKEN_ENV_VAR, raising=False)
-    monkeypatch.setenv(store.DEVICE_ID_ENV_VAR, "abcdef123456")
-    assert store.load_or_create_device_id() != "abcdef123456"
+    monkeypatch.setenv(store.DEVICE_ID_ENV_VAR, "feedface0001")
+    assert store.load_or_create_device_id() == "feedface0001"
 
 
 def test_device_id_env_override_rejects_malformed_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(store.AUTH_TOKEN_ENV_VAR, "real-account-token")
     for bad in ("has spaces", "x" * 65, "abc", "semi;colon", ""):
         monkeypatch.setenv(store.DEVICE_ID_ENV_VAR, bad)
         assert store.load_or_create_device_id() != bad
 
 
-def test_device_id_is_stable_across_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(store.DEVICE_ID_ENV_VAR, raising=False)
+def test_device_id_is_stable_within_a_root() -> None:
     first = store.load_or_create_device_id()
     assert first == store.load_or_create_device_id()
     assert len(first) >= 4
 
 
-def test_anonymous_binding_ignores_device_id_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SECURITY: the anonymous cap verdict binds to the NON-overridable machine
-    id, so a signed anon verdict can't be replayed on another machine by
-    exporting LEMONCROW_DEVICE_ID (plus a throwaway token to satisfy the
-    authenticated override gate)."""
-    import hashlib
+def test_device_id_is_random_local_not_machine_derived(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two different store roots on the SAME machine yield DIFFERENT ids — proof
+    # the id is random-local, not derived from any machine property.
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "a"))
+    id_a = store.load_or_create_device_id()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "b"))
+    id_b = store.load_or_create_device_id()
+    assert id_a != id_b
+    assert len(id_a) == 12 and all(c in "0123456789abcdef" for c in id_a)
 
-    from lemoncrow.pro.capabilities.licensing_gate import _anonymous_device_hash
 
-    monkeypatch.delenv(store.AUTH_TOKEN_ENV_VAR, raising=False)
-    monkeypatch.delenv(store.DEVICE_ID_ENV_VAR, raising=False)
-    expected = hashlib.sha256(store.stable_machine_device_id().encode("utf-8")).hexdigest()
-
-    # Attacker activates the override with a junk token + a forged device id.
-    monkeypatch.setenv(store.AUTH_TOKEN_ENV_VAR, "junk-not-a-real-token")
+def test_stable_machine_device_id_ignores_override_and_is_hex(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The base id never reads the env override and is a random-local hex UUID
+    # fragment (not a hardware/machine identifier).
     monkeypatch.setenv(store.DEVICE_ID_ENV_VAR, "deadbeef1234")
-    assert store.load_or_create_device_id() == "deadbeef1234"  # override active on the auth path
-    # ...but the anonymous binding stays pinned to the real machine id.
-    assert _anonymous_device_hash() == expected
+    base = store.stable_machine_device_id()
+    assert base != "deadbeef1234"
+    assert len(base) == 12 and all(c in "0123456789abcdef" for c in base)

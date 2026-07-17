@@ -1,6 +1,6 @@
 # LemonCrow Documentation
 
-Welcome to [LemonCrow](https://lemoncrow.com) — the open-core, local-first context and execution runtime for coding agents.
+Welcome to [LemonCrow](https://github.com/lemoncrow-lab/lemoncrow) — the open-source (Apache-2.0), local-first context and execution runtime for coding agents. LemonCrow is a fully local, account-free tool in low-maintenance mode.
 
 LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LangChain, and MCP-compatible hosts.
 
@@ -8,12 +8,14 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 | Section                                           | Description                                                                                           |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [Installation](./installation.md)                 | Install script, background services, modes, and storage                                               |
-| [Plans & Pricing](./pricing.md)                   | Free vs Pro / Team / Enterprise, billing, activation                                                  |
+| [Installation](./installation.md)                 | Install script, background services, modes, storage, and uninstall                                    |
+| [Privacy & Network](./privacy.md)                 | What runs locally, network behavior, and telemetry (off by default, opt-in)                           |
+| [Licensing](./licensing.md)                       | Apache-2.0 in full and the optional (gates-nothing) account                                           |
 | [CLI Reference](./cli.md)                         | Current public CLI reference                                                                          |
 | [Benchmark Results](./benchmarks/results.md)      | Every suite, every number, every raw-run link -- and the retrieval eval vs 10 named code-search tools |
 | [Troubleshooting](./troubleshooting.md)           | Common install, runtime, and background service issues                                                |
-| [Production Readiness](./production-readiness.md) | Production and self-hosted deployment checklist                                                       |
+| [Self-hosting notes](./production-readiness.md)   | Optional operational notes for running the local service yourself                                     |
+| [Maintenance-mode transition](./maintenance-mode-transition.md) | Background on the move to a fully local, account-free runtime                            |
 
 ## Host Integrations
 
@@ -45,4 +47,4 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 ---
 
-**Links:** [Website](https://lemoncrow.com) · [GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Contact](mailto:contact@lemoncrow.com)
+**Links:** [GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Privacy](./privacy.md) · [License](../LICENSE)

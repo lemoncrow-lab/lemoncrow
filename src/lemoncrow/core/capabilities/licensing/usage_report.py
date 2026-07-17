@@ -173,6 +173,12 @@ def report_usage_once(
     """
     token = store.load_auth_token()
     is_anon = not token
+    # Savings sync is opt-in via login: only a signed-in account pushes its
+    # cumulative savings (so they show on the account's online view). Without an
+    # account nothing is transmitted -- savings stay fully local. There is no
+    # anonymous reporting. See docs/privacy.md.
+    if is_anon:
+        return False
     machine_hash = _machine_hash()
     if len(machine_hash) != 64:
         return False
@@ -273,6 +279,9 @@ def maybe_report_usage(
     """Throttle reporting per authenticated identity and device."""
     stamp = int(time.time()) if now is None else now
     token = store.load_auth_token()
+    if token is None:
+        # Not logged in -> no savings sync (login is the opt-in signal).
+        return False
     machine_hash = _machine_hash()
     if len(machine_hash) != 64:
         return False
