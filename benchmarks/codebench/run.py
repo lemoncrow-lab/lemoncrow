@@ -122,7 +122,7 @@ class ArmSpec:
 ARM_SPECS: dict[str, ArmSpec] = {
     "baseline": ArmSpec({"code": None}),
     "lemoncrow": ArmSpec(
-        {"code": "lemoncrow:auto"},
+        {"code": "lemoncrow:solve"},
         plugin=True,
         strip_mcp=False,
         heavy=True,
@@ -1152,6 +1152,22 @@ def _extract_identifiers(text: str) -> set[str]:
     return {i.lower() for i in ids if i.lower() not in STOPWORDS}
 
 
+def _extract_acronyms(text: str) -> set[str]:
+    """Short ALL-CAPS technical acronyms (TCP, UDP, SQL, API, ...) from *text*.
+
+    ``_extract_keywords``/the response-keywords regex both require >=4 lowercase
+    chars, which silently drops 2-3 letter acronyms -- and those are exactly a
+    prompt's whole subject for questions like "difference between TCP and UDP"
+    (task_keywords ends up {"difference", "what"}, neither of which a normal
+    answer restates). The keyword-overlap heuristic then sees 0 overlap on a
+    fully on-topic, correct answer and false-positives it as off-task. This is
+    a case-sensitive carve-out so those acronyms count as overlap when both the
+    prompt and the response use them -- must run on the ORIGINAL-case text
+    (before ``.lower()``), or every acronym looks like an ordinary word again.
+    """
+    return {token.lower() for token in re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", text)}
+
+
 def _validate_result_excerpt(task: Task, excerpt: str) -> tuple[bool, str, bool]:
     """Return ``(valid, reason, hard)``.
 
@@ -1188,8 +1204,14 @@ def _validate_result_excerpt(task: Task, excerpt: str) -> tuple[bool, str, bool]
     }
     # Fold in code identifiers (symbols/filenames) the response names: a stronger
     # on-topic signal than prose words, so a terse summary that cites the right
-    # symbols is not flagged off-topic for low word overlap.
-    overlap = (task_keywords & response_keywords) | (_extract_identifiers(task_text) & response_keywords)
+    # symbols is not flagged off-topic for low word overlap. Also fold in short
+    # ALL-CAPS acronyms (TCP, UDP, SQL, ...) matched case-sensitively between the
+    # original prompt and the original response -- see _extract_acronyms.
+    overlap = (
+        (task_keywords & response_keywords)
+        | (_extract_identifiers(task_text) & response_keywords)
+        | (_extract_acronyms(task_text) & _extract_acronyms(text))
+    )
     list_item_count = sum(
         1 for line in text.splitlines() if line.lstrip().startswith("- ") or re.match(r"^\s*\d+\.\s", line) is not None
     )

@@ -18,7 +18,7 @@ This document keeps benchmark proof out of the first-use README while preserving
 | SWE-bench Pro, 10 tasks x 5 reps                                                                                                                                                                                                                                        |     **45 / 50 resolved (90%)** |                   44 / 50 (88%) |  **+2.0 percentage points** |
 | Exploration tasks across 7 repos                                                                                                                                                                                                                                        |             **$6.29** | $19.11 |                 **67% cheaper** |                             |
 | Telegraphic output: reply prose per turn                                                                                                                                                                                                                                |                  **30 tokens** |                       67 tokens |         **2.7x less prose** |
-| Telegraphic Q&A, 20 prompts x 5 reps                                                                                                                                                                                                                                    |              **$6.18** | $8.68 |               **28.8% cheaper** |                             |
+| Telegraphic Q&A, 20 prompts x 5 reps                                                                                                                                                                                                                                    |              **$4.48** | $8.40 |               **46.7% cheaper** |                             |
 | Terminal-Bench 2.1, 89 tasks x 1 rep vs public leaderboard x 5 reps                                                                                                                                                                                                     |       70 / 89 resolved (78.7%) | **70.25 / 89 expected (78.9%)** |      -0.2 percentage points |
 | Terminal-Bench cost, 83/89 tasks w/ cost data                                                                                                                                                                                                                           |            **$69.52** | $96.76 |             **28.1%\* cheaper** |                             |
 | \* Understates LemonCrow's savings floor, not overstates it -- 5 of the 6 tasks missing cost data are real, uncounted LemonCrow spend (harness killed the process on a timeout before it could log a final cost), not zero-cost runs. See the Terminal-Bench section below. |                                |                                 |                             |
@@ -174,38 +174,38 @@ lc benchmark codebench \
 
 | Arm                        |      Cost | Input tok | Cache write | Cache read | Output tok | Total tok |    Turns |        Time |
 | ---------------------------- | ----------: | ----------: | ------------: | -----------: | -----------: | ----------: | ---------: | ------------: |
-| **LemonCrow**                | **$6.18** |   375,519 |     137,004 |  2,989,240 | **59,638** |     3.56M |  **162** | **23.4min** |
-| Baseline                   |     $8.68 |   351,671 |     295,661 |  2,262,520 |    123,224 | **3.03M** |      239 |     31.7min |
-| Caveman                     |     $8.57 |   350,461 |     447,045 |  1,966,520 |     64,478 |     2.83M |      220 |     19.0min |
-| Delta, LemonCrow vs baseline |    -28.8% |     +6.8% |      -53.7% |     +32.1% |     -51.6% |     +17.4% | -32.2%† |      -26.2% |
+| **LemonCrow**                | **$4.48** |   325,740 |     110,471 |  1,166,920 | **46,444** |     1.65M |  **143** | **22.1min** |
+| Baseline                   |     $8.40 |   350,505 |     275,312 |  2,338,476 |    118,654 | **3.08M** |      240 |     33.8min |
+| Caveman                     |     $8.67 |   351,255 |     445,399 |  1,947,520 |     69,481 |     2.81M |      221 |     21.9min |
+| Delta, LemonCrow vs baseline |    -46.7% |     -7.1% |      -59.9% |     -50.1% |     -60.9% |     -46.5% | -40.4%† |      -34.5% |
 
-Cost falls sharply (-28.8%) and output tokens keep collapsing (-51.6%), while total token volume is **17.4% higher** than baseline: cache-read tokens rose 32.1% even as cache write -- the expensive, billed-once line item -- fell 53.7%. Cost still favors LemonCrow because the extra volume lands almost entirely in cache-read, which is billed at a steep discount to fresh input; a token-count-only read of this table would look like a regression, which is why cost (not token count) is the metric to trust here.
+Every metric moves in LemonCrow's favor this run: cost falls 46.7%, output tokens fall 60.9%, and total token volume falls 46.5% -- input, cache write, and cache read all shrink too, so there's no cache-read/token-count anomaly to explain away like the prior cut. Raw turns fall 40.4%; see the title-generation correction below for the more apples-to-apples comparison.
 
-† Baseline and caveman each pay a hidden Claude Code session-title API call that LemonCrow's `--agent` invocation fully suppresses (0/100 lemoncrow runs trigger it, vs 100/100 baseline and 98/100 caveman runs). Corrected for it, real answering turns per prompt are baseline **1.39**, caveman **1.22**, lemoncrow **1.62** -- LemonCrow takes more actual answering turns per prompt than either arm, it just skips the extra title-generation round trip they both pay.
+† Baseline and caveman each pay a hidden Claude Code session-title API call that LemonCrow's `--agent` invocation fully suppresses (0/100 lemoncrow runs trigger it, vs 98/100 baseline and 100/100 caveman runs). Corrected for it, real answering turns per prompt are baseline **1.42**, caveman **1.21**, lemoncrow **1.43** -- once the title-generation round trip both other arms pay is stripped out, LemonCrow's real turn count is essentially tied with baseline and still higher than caveman's.
 
 Per-prompt output tokens (median across 5 reps; final average is the mean of the 20 prompt medians):
 
 
 | Prompt                              |  Baseline | LemonCrow | Caveman |
 | ------------------------------------- | ----------: | --------: | ------: |
-| React re-render (object prop)       |       895 |     278 |     298 |
-| Express JWT expiry bug              |     3,025 |     261 |   1,362 |
-| Postgres connection pool setup      |     1,714 |     911 |   1,068 |
-| git rebase vs merge                 |     1,063 |     484 |     605 |
-| Callback -> async/await refactor    |       507 |     131 |     467 |
-| Split a monolith into microservices |     1,529 |     696 |     897 |
-| PR security review                  |     1,053 |     199 |     394 |
-| Multi-stage Dockerfile              |     1,629 |     587 |     818 |
-| Postgres counter race condition     |     1,118 |     384 |     526 |
-| React error boundary component      |     2,668 |   4,567 |   2,136 |
-| 10 caveman-style eval prompts (avg) |       933 |     310 |     405 |
-| **Average, all 20**                 | **1,226** | **580** | **631** |
+| React re-render (object prop)       |       873 |     254 |     268 |
+| Express JWT expiry bug              |     1,926 |     492 |     694 |
+| Postgres connection pool setup      |     1,898 |     791 |   1,044 |
+| git rebase vs merge                 |     1,044 |     452 |     675 |
+| Callback -> async/await refactor    |       553 |     133 |     393 |
+| Split a monolith into microservices |     1,461 |     646 |     997 |
+| PR security review                  |     1,034 |     244 |     569 |
+| Multi-stage Dockerfile              |     1,419 |     885 |     692 |
+| Postgres counter race condition     |     1,277 |     369 |     641 |
+| React error boundary component      |     2,649 |   1,246 |   2,946 |
+| 10 caveman-style eval prompts (avg) |       936 |     279 |     421 |
+| **Average, all 20**                 | **1,175** | **415** | **657** |
 
-LemonCrow vs baseline, output tokens per prompt: down on 19 of 20 (mean 60%, median 65%, range -71%-91%, stdev 32pp). The exception is `error-boundary` -- baseline 2,668, lemoncrow 4,567, **+71.2% more tokens**, the one clear regression in this run. It's a genuine code-generation answer (a React error boundary component), not prose, so the terse-reply instinct that wins everywhere else doesn't apply here.
+LemonCrow vs baseline, output tokens per prompt: down on **20 of 20** (mean 67%, median 70%, range 38%-84%, stdev 10pp). No regression this run -- even `error-boundary` (a genuine code-generation answer, not prose) falls 53% (2,649 -> 1,246).
 
-Caveman vs baseline, output tokens per prompt: down on 20 of 20 (mean 50%, median 53%, range 8%-78%, stdev 15pp) -- more consistent than LemonCrow's spread (no `error-boundary`-style regression) but a smaller average cut, and caveman still costs 1.2% *less* than baseline overall despite far heavier cache-write spend, since it only compresses replies, not the input/context tokens that set the price.
+Caveman vs baseline, output tokens per prompt: down on 19 of 20 (mean 48%, median 50%, range -11%-82%, stdev 18pp). `error-boundary` is caveman's own regression this run (2,946 vs baseline's 2,649, +11.2% more tokens) -- the same genuine code-generation answer where LemonCrow no longer regresses. Caveman also now costs **3.3% more** than baseline overall (not less, as in the prior cut) despite the token cut, driven by far heavier cache-write spend -- it only compresses replies, not the input/context tokens that set the price.
 
-Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_16/`](benchmarks/codebench/results/telegraphic_2026_07_16/) -- includes `summary.csv`, the full `results.jsonl` (300 rows: baseline/lemoncrow/caveman x 20 prompts x 5 reps), and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
+Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_17/`](benchmarks/codebench/results/telegraphic_2026_07_17/) -- includes `summary.csv`, the full `results.jsonl` (300 rows: baseline/lemoncrow/caveman x 20 prompts x 5 reps), and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
 
 Run it:
 
@@ -357,7 +357,7 @@ uv run python scripts/gen_harbor_cost_vs_savings_scatter.py
 
 ## Overall Assessment
 
-- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Terminal-Bench -28.1% cost (a floor -- 5 timed-out LemonCrow trials have real, uncounted spend), Telegraphic Q&A -28.8% cost/-51.6% output tokens (input/cache-read rose this run, so cost -- not raw token count -- is the number to trust here). Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 47.7% but cost barely moves (-1.2%) vs baseline -- it only compresses replies, not the input/context tokens that drive the bill.
+- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Terminal-Bench -28.1% cost (a floor -- 5 timed-out LemonCrow trials have real, uncounted spend), Telegraphic Q&A -46.7% cost/-60.9% output tokens (every token category fell this run, cost and tokens agree). Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 41.4% but now costs **3.3% more** than baseline -- it only compresses replies, not the input/context tokens that drive the bill.
 - **Correctness wins on most multi-rep suites.** Verified +12.0pp, Pro +2.0pp (the 5-rep run overturned an earlier single-rep -10.0pp result -- that loss was n=1 noise), Lite -2.0pp. Terminal-Bench is a tie (-0.2pp) at n=1, unresolved either way.
 - **Where overhead still shows up:** non-Python/larger/more heterogeneous codebases (Pro, Terminal-Bench) see a smaller cost edge, and a handful of tasks (`tutanota`, `vuls`, `flipt`, ~a third of Terminal-Bench's sub-$0.50 tasks) cost LemonCrow *more* than baseline -- a fixed per-run overhead that amortizes on bigger tasks but not small/turn-heavy ones.
 - **Bottom line:** the cost/token/turn compression reproduces across every suite tested, at every price point from a $0.10 task to a $5 one. It hasn't cost correctness on Verified or Pro; Lite is -2.0pp this cut, and Terminal-Bench (n=1) remains unresolved either way. Read each section's caveats before citing a number out of context.

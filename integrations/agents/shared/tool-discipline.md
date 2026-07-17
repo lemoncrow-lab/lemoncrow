@@ -7,6 +7,7 @@
 - **`bash` = execution only.** Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - **Batch independent calls.** One turn; serialize only dependencies.
 - Large output → a file, never prose.
+- **Graphical data → render and look.** Output meant to be seen (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
 
 Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`.
 
