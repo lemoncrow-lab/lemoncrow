@@ -36,7 +36,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 # 1. REAL repo files (Python) — measures the real-world workload
 # 2. SYNTHETIC fixtures for languages the repo doesn't ship (Go/Rust/Java/Markdown)
 FIXTURES_REAL_PY: tuple[Path, ...] = (
-    REPO_ROOT / "src/lemoncrow/core/capabilities/code_context/engine.py",
+    REPO_ROOT / "src/lemoncrow/pro/capabilities/code_context/engine.py",
     REPO_ROOT / "src/lemoncrow/core/capabilities/plugin_runtime.py",
     REPO_ROOT / "src/lemoncrow/core/capabilities/pricing.py",
     REPO_ROOT / "src/lemoncrow/gateway/adapters/mcp_server.py",
