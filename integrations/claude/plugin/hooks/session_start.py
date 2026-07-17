@@ -243,11 +243,59 @@ def _append_session_start_event(
 # ---------------------------------------------------------------------------
 
 
+def _emit_env_context(cwd: str) -> None:
+    """Inject cwd + git state via additionalContext.
+
+    ``--agent <persona>`` replaces Claude Code's default system prompt, losing
+    its built-in ``# Environment``/gitStatus blocks — persona sessions start
+    blind. Recreate the essentials here; fail-open.
+    """
+    import platform
+    import subprocess
+
+    def _git(*args: str) -> str | None:
+        with suppress(Exception):
+            r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                return r.stdout.strip()
+        return None
+
+    lines = [
+        f"Working directory: {cwd}",
+        f"Platform: {platform.system().lower()} ({platform.release()})",
+    ]
+    status = _git("status", "-sb")
+    if status is not None:
+        main = _git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+        if main:
+            lines.append(f"Main branch (for PRs): {main.removeprefix('origin/')}")
+        lines.append("git status -sb (snapshot at session start):")
+        lines.extend(status.splitlines()[:20])
+        log = _git("log", "-5", "--oneline")
+        if log:
+            lines.append("Recent commits:")
+            lines.extend(log.splitlines())
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "\n".join(lines),
+                }
+            }
+        )
+    )
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, TypeError):
         return 0
+
+    if payload.get("cwd") and payload.get("source", "startup") in ("startup", "clear"):
+        with suppress(Exception):
+            _emit_env_context(payload["cwd"])
 
     session_id_raw: str = payload.get("session_id", "") or ""
     source: str = payload.get("source", "startup") or "startup"

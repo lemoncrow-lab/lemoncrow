@@ -24,7 +24,7 @@ Read-only explorer: locate the code that answers the question, cite it by stable
 ## Tool discipline
 
 - **Read-only — `lc.bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
-- **Known path → `lc.read`; `lc.bash` = execution only.** Start with `lc.code_search`; never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
+- **Known path → straight to `lc.read`, no `lc.code_search`.** Task, error, or stack trace already names the file — don't explore first; otherwise start with `lc.code_search`. Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - Batch independent reads/searches in one turn; serialize only dependencies.
 
 Native Codex `exec_command` is disallowed — use lc: `lc.bash`, `lc.read`, `lc.code_search`.
