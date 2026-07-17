@@ -89,24 +89,10 @@ def _bootstrap_cap_verdict(root: Path) -> bool:
     the mint and leave the fresh identity dormant.
     """
 
-    try:
-        from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
-
-        verified = report_usage_once(root, force=True)
-    except Exception:  # noqa: BLE001 — offline login/logout remains usable but fail-closed
-        verified = False
-    # subscription.json is the ONLY thing the statusline (a bash script, too
-    # cheap to spawn the full CLI on every render) reads for the plan icon and
-    # capped/dormant dot -- otherwise it stays on whatever the PREVIOUS
-    # identity's cache said until the next SessionStart/Stop hook happens to
-    # rewrite it, which is exactly the same "wait for session start" lag
-    # already fixed for the `agent` override below.
-    with suppress(Exception):
-        from lemoncrow.core.capabilities.plugin_runtime import refresh_subscription_meter
-
-        refresh_subscription_meter(root)
-    _sync_dormant_agent_override(root)
-    return verified
+    # Open-source runtime: no savings cap, no signed verdict, no usage report.
+    # Identity transitions never need to mint anything and never touch the
+    # network. Retained as a no-op so login/logout/init call sites stay valid.
+    return True
 
 
 def _sync_dormant_agent_override(root: Path) -> None:
@@ -706,10 +692,10 @@ def _parse_since_arg(value: str) -> datetime:
 )
 @click.option(
     "--login/--no-login",
-    default=True,
-    help="Require an activated LemonCrow account, prompting an interactive browser login when "
-    "none is found (default: on). Use --no-login for unattended/scripted runs (e.g. benchmarks) "
-    "to skip the account check entirely instead of popping a browser tab.",
+    default=False,
+    help="Optional: link a hosted LemonCrow account via an interactive browser login "
+    "(default: off). LemonCrow runs fully locally without an account; this only links "
+    "an optional hosted service and never gates any feature.",
 )
 @click.pass_context
 def init(
@@ -720,43 +706,24 @@ def init(
     configure_models: bool | None,
     login: bool,
 ) -> None:
-    """Initialize the official runtime store at --root.
+    """Initialize the local runtime store at --root.
 
-    Official activation requires a free LemonCrow account. Source builds can still
-    be run independently; this check establishes the supported product boundary.
-    Pass --no-login to skip the account check (e.g. for unattended benchmark runs).
+    Runs fully locally — no account, no network, no login prompt. Pass --login
+    only if you want to link an optional hosted account (it gates nothing).
     """
     if login:
+        # Explicit opt-in only: link an OPTIONAL hosted account. Never required,
+        # never gates a feature; any failure is non-fatal and local setup
+        # continues regardless.
         from lemoncrow.core.capabilities.licensing.store import load_auth_token
 
         if not load_auth_token():
             if not _is_interactive_terminal():
-                raise click.ClickException(
-                    "A free LemonCrow account is required to activate this install. Run lc account login, then retry lc init."
-                )
-            click.echo("No LemonCrow account found — starting login...")
-            try:
-                _oauth_login(ctx.obj["root"], as_json=False)
-            except (KeyboardInterrupt, click.Abort):
-                # Ctrl+C during the browser-login wait: degrade to the
-                # --no-login local-only path instead of aborting the whole init.
-                click.echo(
-                    "Login skipped — continuing local setup. Run 'lc account login' "
-                    "then 'lc init' to activate this project."
-                )
-                login = False
+                click.echo("Skipping optional account login (no interactive terminal).")
             else:
-                if not load_auth_token():
-                    raise click.ClickException("Login did not complete. Run lc account login, then retry lc init.")
-    if not login:
-        # Explicit --no-login (or an aborted login above): remember this so the MCP server's background
-        # seamless login (mcp_server._try_seamless_login) doesn't keep popping
-        # a browser tab every cooldown window in an unattended install.
-        # Cleared automatically the moment a token is next saved (lc account login /
-        # lc init without --no-login).
-        from lemoncrow.core.capabilities.licensing.store import mark_login_declined
-
-        mark_login_declined()
+                click.echo("Linking optional LemonCrow account — starting login...")
+                with suppress(KeyboardInterrupt, click.Abort):
+                    _oauth_login(ctx.obj["root"], as_json=False)
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
@@ -775,11 +742,10 @@ def init(
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     store.init()
-    if not login:
-        # Anonymous enforcement needs a server-signed, stable machine identity.
-        # Bootstrap it during the explicit transition instead of waiting for the
-        # background reconciler; an offline request simply leaves the gate closed.
-        _bootstrap_cap_verdict(root)
+    # One-time cleanup of legacy commercial device/cap state (idempotent).
+    from lemoncrow.core.foundation.legacy_migration import run_startup_migrations
+
+    run_startup_migrations(root)
     click.echo(
         f"  {click.style('✓', fg='green')} {click.style('store', fg=(155, 117, 217))} {click.style(f'initialized at {store.knowledge.root}', dim=True)}"
     )
@@ -1474,7 +1440,12 @@ def _auth_status(root: Path, as_json: bool) -> None:
 @click.group("account", invoke_without_command=True)
 @click.pass_context
 def account_group(ctx: click.Context) -> None:
-    """Manage login, subscription, and savings-cap state."""
+    """Optional hosted-account link (not required for any feature).
+
+    LemonCrow runs fully locally with every feature available and no account.
+    These commands only link an optional hosted account; they gate nothing and
+    are never required. See docs/maintenance-mode-transition.md.
+    """
     if ctx.invoked_subcommand is None:
         ctx.invoke(account_status_cmd, as_json=False)
 
@@ -1519,58 +1490,26 @@ def _oauth_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
         click.echo("  Retry: lc account login (re-opens the browser sign-in).", err=True)
         raise SystemExit(1)
 
-    # The signed cap verdict is bound to (account_id, device_id, plan): logging
-    # in switches identity, so any verdict token from a prior identity (or none
-    # at all) doesn't cover this one. Without bootstrapping here, the account
-    # stays fail-closed dormant (licensing_gate.resolve_cap_verdict) -- MCP
-    # tools hidden -- until the background reconciler's next tick, up to 30 min
-    # later and only if that service is running. See _bootstrap_cap_verdict.
-    verdict_verified = _bootstrap_cap_verdict(root)
+    # Logging in opts you into syncing your cumulative savings to your account
+    # so you can view them online. Best-effort and non-blocking: a failed push
+    # (offline / server unreachable) never fails the login. Log out to stop.
+    with suppress(Exception):
+        from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
 
-    plan_label = result.plan if result.plan_verified else "unknown (could not verify)"
+        report_usage_once(root, force=True)
     if as_json:
         _emit(
             {
                 "email": result.email,
-                "plan": result.plan if result.plan_verified else "unknown",
-                "plan_verified": result.plan_verified,
                 "device_id": result.device_id,
                 "mode": "oauth",
-                "cap_verdict_verified": verdict_verified,
             },
             as_json=True,
         )
         return
-    click.secho(f"✓ Logged in as {result.email} ({plan_label}) · device {result.device_id}", fg="green")
-    if result.plan_verified and result.plan == "free":
-        from lemoncrow.core.capabilities.licensing import pro_url
-
-        click.secho(
-            "Free is active — uncapped core tools, local recall, verification, and swarm. "
-            f"Pro adds larger-repo indexing, cross-vendor memory, compression, optimization, "
-            f"and reusable knowledge — upgrade at {pro_url()}",
-            fg="cyan",
-        )
-    elif result.plan == "lite":
-        click.secho(
-            "Legacy Lite is active and uncapped. Upgrade to Pro for larger-repo indexing, "
-            "cross-vendor memory, compression, optimization, and reusable knowledge. "
-            "Thanks for supporting LemonCrow!",
-            fg="cyan",
-        )
-    elif result.plan in ("pro", "enterprise"):
-        click.secho(
-            "Pro is active — larger-repo indexing, cross-vendor memory, compression, "
-            "optimization, and reusable knowledge are unlocked. Thanks for supporting "
-            "LemonCrow!",
-            fg="cyan",
-        )
-    if not verdict_verified:
-        click.secho(
-            "  Warning: couldn't verify a signed cap credential for this device (offline or "
-            "server unreachable) — LemonCrow tools will stay disabled until this succeeds.",
-            fg="yellow",
-        )
+    click.secho(f"✓ Linked account {result.email}", fg="green")
+    click.echo("  All features are available locally without an account. Your savings now sync")
+    click.echo("  to your account so you can view them online — run `lc account logout` to stop.")
 
 
 @account_group.command("logout")
@@ -1771,10 +1710,8 @@ def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
         click.echo(period_line)
     if cap is not None and resets_line:
         click.echo(resets_line)
-    if payload["over_cap"] and not payload["verified"]:
-        click.echo("status: dormant (no verified credential — log in or check network; tools disabled)")
-    else:
-        click.echo(f"status: {'reached' if payload['over_cap'] else 'active'}")
+    # Open-source runtime: uncapped, never dormant.
+    click.echo("status: active")
 
 
 @click.command("status")

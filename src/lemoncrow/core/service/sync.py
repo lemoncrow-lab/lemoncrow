@@ -117,7 +117,9 @@ def _sanitize_session(session: dict[str, Any]) -> dict[str, Any]:
 def _send_chunk(url: str, sessions: list[dict[str, Any]]) -> bool:
     """Send a single chunk of sessions to the sync endpoint."""
     payload = {
-        "machine_id": get_anon_id(),
+        # One-way hash: never ship the raw local installation id off-machine,
+        # even when the user has opted into remote sync.
+        "machine_id": hashlib.sha256(get_anon_id().encode("utf-8")).hexdigest(),
         "timestamp": datetime.now(UTC).isoformat(),
         "lemoncrow_version": lemoncrow_version,
         "sessions": [_sanitize_session(s) for s in sessions],

@@ -1,35 +1,29 @@
 # LemonCrow License
 
-LemonCrow is open-core: an open-source runtime plus a proprietary engine.
+LemonCrow is free and open-source software, licensed in its entirety under the
+Apache License, Version 2.0.
 
 Copyright 2026 Pankaj Kumar (d/b/a LemonCrow)
 
-## Open source — Apache-2.0
+The full license text is in `LICENSE-APACHE`. A short `NOTICE` file accompanies
+this grant (section 4(d) of the License).
 
-All source code published in this repository is licensed under the Apache
-License, Version 2.0. See `LICENSE-APACHE` for the full text.
+All source in this repository — including the `lemoncrow.pro` engine (code
+intelligence, retrieval, prompt compilation, memory, and the rest of the
+runtime) — is Apache-2.0. There is no separate proprietary component required to
+build or run LemonCrow. The engine may optionally be compiled with `mypyc` for
+performance, but the source is always present and always open.
 
-## Proprietary engine (required at runtime)
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
 
-The LemonCrow **engine** — the `lemoncrow.pro` package (the retrieval-quality
-and token-savings core, the product's moat) — is **proprietary** and is NOT
-licensed under Apache-2.0.
+        http://www.apache.org/licenses/LICENSE-2.0
 
-- It is distributed **only as compiled binaries** (`.so`); its source is not
-  published.
-- Where its source is present in this repository (`src/lemoncrow/pro/`), that
-  source is proprietary and is not licensed for use, copying, modification, or
-  redistribution.
-- The engine is **required for the software to function.** The open-source
-  runtime loads it at runtime; without the compiled engine, LemonCrow falls
-  back to a degraded built-in-only mode.
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
 
-## Backend services
-
-`services/` (the auth/payments backend) is proprietary and licensed separately
-under its own `LICENSE` file. It is never published.
-
----
-
-Apache-2.0 covers everything you can read here. The compiled engine you install
-to run LemonCrow is proprietary. Questions: legal@lemoncrow.com
+Questions: legal@lemoncrow.com

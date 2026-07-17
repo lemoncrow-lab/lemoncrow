@@ -160,42 +160,34 @@ def test_watermarks_are_isolated_by_auth_identity(monkeypatch: pytest.MonkeyPatc
     assert len(list((tmp_path / "usage_report_watermarks").glob("*.json"))) == 2
 
 
-def test_anonymous_bootstraps_at_zero_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch(monkeypatch, token=None, saved=0.0)
+def test_not_logged_in_never_reports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Login is the opt-in for savings sync: with no auth token, neither
+    # report_usage_once nor maybe_report_usage transmits anything, and no
+    # anonymous token is minted.
+    _patch(monkeypatch, token=None, saved=25.0)
     calls: list[tuple] = []
 
     def _post(url: str, payload: dict, tok: str) -> dict:
         calls.append((url, payload, tok))
         return {"capVerdictToken": "v.tok", "anonToken": "anon.signed.tok"}
 
-    assert ur.report_usage_once(tmp_path, http_post=_post, now=1_000_000) is True  # type: ignore[arg-type]
-    assert calls[-1][0].endswith("/api/usage/report-anon")
-    assert calls[-1][2] == ""
-    assert calls[-1][1]["anon_token"] == ""
-    assert len(calls[-1][1]["machine_id"]) == 64
-    assert (tmp_path / "cap_anon_token").read_text("utf-8") == "anon.signed.tok"
-    assert ur.report_usage_once(tmp_path, http_post=_post, now=1_000_001) is False  # type: ignore[arg-type]
+    assert ur.report_usage_once(tmp_path, http_post=_post, now=1_000_000, force=True) is False
+    assert ur.maybe_report_usage(tmp_path, http_post=_post, now=1_000_000) is False
+    assert calls == []
+    assert not (tmp_path / "cap_anon_token").exists()
 
 
-def test_anonymous_refreshes_verdict_without_new_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch(monkeypatch, token=None, saved=0.0)
+def test_not_logged_in_never_reports_even_with_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch(monkeypatch, token=None, saved=42.0)
     calls: list[str] = []
 
     def _post(_url: str, payload: dict, _tok: str) -> dict:
-        calls.append(payload["report_id"])
+        calls.append(payload.get("report_id", ""))
         return {"capVerdictToken": "v.tok", "anonToken": "anon.signed.tok"}
 
-    start = 1_000_000
-    assert ur.report_usage_once(tmp_path, http_post=_post, now=start) is True  # type: ignore[arg-type]
-    assert (
-        ur.report_usage_once(
-            tmp_path,
-            http_post=_post,
-            now=start + ur.VERDICT_REFRESH_SECONDS + 1,
-        )
-        is True
-    )  # type: ignore[arg-type]
-    assert calls[0] == calls[1]
+    assert ur.report_usage_once(tmp_path, http_post=_post, now=1_000_000) is False
+    assert ur.report_usage_once(tmp_path, http_post=_post, now=1_000_000 + ur.VERDICT_REFRESH_SECONDS + 1) is False
+    assert calls == []
 
 
 def test_authenticated_first_report_mints_at_zero_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -236,7 +228,7 @@ def test_force_mints_even_when_nothing_changed(monkeypatch: pytest.MonkeyPatch, 
     assert len(posted) == 2
 
 
-def test_anonymous_presents_cached_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_not_logged_in_ignores_any_cached_anon_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _patch(monkeypatch, token=None, saved=25.0)
     (tmp_path / "cap_anon_token").write_text("cached.anon.tok", encoding="utf-8")
     seen: list[dict] = []
@@ -245,9 +237,8 @@ def test_anonymous_presents_cached_token(monkeypatch: pytest.MonkeyPatch, tmp_pa
         seen.append(payload)
         return {"capVerdictToken": "v2.tok"}
 
-    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
-    assert seen[-1]["anon_token"] == "cached.anon.tok"
-    assert seen[-1]["cumulative_saved_usd"] == 25.0
+    assert ur.report_usage_once(tmp_path, http_post=_post) is False
+    assert seen == []
 
 
 def test_missing_signed_verdict_retries_without_advancing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -286,10 +277,8 @@ def test_anonymous_persists_registered_at_and_cycle_resets_at(monkeypatch: pytes
             "cycleResetsAt": 1_702_592_000,
         }
 
-    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
-    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
-    assert sub["registeredAt"] == "2023-11-14T22:13:20Z"
-    assert sub["cycleResetsAt"] == "2023-12-14T22:13:20Z"
+    assert ur.report_usage_once(tmp_path, http_post=_post) is False
+    assert not pr.subscription_state_path(tmp_path).exists()
 
 
 def test_anonymous_ignores_missing_display_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -300,10 +289,8 @@ def test_anonymous_ignores_missing_display_fields(monkeypatch: pytest.MonkeyPatc
     def _post(_url: str, _payload: dict, _tok: str) -> dict:
         return {"capVerdictToken": "v.tok", "anonToken": "anon.signed.tok"}
 
-    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
-    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
-    assert "registeredAt" not in sub
-    assert "cycleResetsAt" not in sub
+    assert ur.report_usage_once(tmp_path, http_post=_post) is False
+    assert not pr.subscription_state_path(tmp_path).exists()
 
 
 def test_throttle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

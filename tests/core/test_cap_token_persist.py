@@ -99,26 +99,24 @@ def test_usage_report_without_verdict_does_not_advance(monkeypatch: pytest.Monke
     assert ur.report_usage_once(tmp_path, http_post=lambda *a: {}) is False  # type: ignore[arg-type]
 
 
-def test_entitlements_persists_token_from_me(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_entitlements_no_longer_persists_a_server_token() -> None:
+    # The /api/auth/me cap-verdict-token writer was removed: entitlements is now
+    # a local-only, offline layer that never fetches or persists a server token.
     from lemoncrow.core.capabilities.licensing import entitlements
-    from lemoncrow.core.foundation import paths
 
-    monkeypatch.setattr(paths, "default_store_root", lambda: tmp_path)
-    entitlements._persist_cap_verdict_token({"plan": "pro", "capVerdictToken": "me.tok"})
-    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
-    assert sub["capVerdictToken"] == "me.tok"
+    assert not hasattr(entitlements, "_persist_cap_verdict_token")
+    assert entitlements.current_identity() is None
 
 
-def test_entitlements_persists_token_nested_in_subscription_status(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_entitlements_auth_user_is_offline_local_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # auth_user reads only the local cache — no /api/auth/me fetch, and it never
+    # mints a subscription.json as a side effect.
     from lemoncrow.core.capabilities.licensing import entitlements
-    from lemoncrow.core.foundation import paths
 
-    monkeypatch.setattr(paths, "default_store_root", lambda: tmp_path)
-    entitlements._persist_cap_verdict_token({"plan": "pro", "subscriptionStatus": {"capVerdictToken": "nested.tok"}})
-    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
-    assert sub["capVerdictToken"] == "nested.tok"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
+    assert entitlements.auth_user() is None
+    assert not pr.subscription_state_path(tmp_path).exists()
 
 
 # --- registeredAt / cycleResetsAt: the same merge-write path, different keys ---

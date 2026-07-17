@@ -17,7 +17,6 @@ Or via the CLI:
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import os
 import shlex
@@ -44,40 +43,24 @@ _DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-opus-4-8")
 
 
 def _host_lemoncrow_auth_token() -> str:
-    """Host's activated LemonCrow account token (env wins, then ~/.lemoncrow/auth_token).
+    """No-op: benchmarks run fully unlocked with no LemonCrow account.
 
-    `lemoncrow init` inside the container needs an activated free
-    account or it exits nonzero asking for an interactive `lemoncrow account login` -- not
-    viable in a headless container. Forwarding the host's already-activated
-    token lets init succeed non-interactively, mirroring how
-    CLAUDE_CODE_OAUTH_TOKEN is forwarded for Claude auth.
+    LemonCrow is account-free now -- ``lemoncrow init`` succeeds locally with no
+    login and every tool is available without a token. Nothing is forwarded.
     """
-    from lemoncrow.core.capabilities.licensing.store import load_auth_token
-
-    return load_auth_token() or ""
+    return ""
 
 
 def _lemoncrow_credential_env() -> dict[str, str]:
-    """LEMONCROW_AUTH_TOKEN plus LEMONCROW_DEVICE_ID for container forwarding.
+    """No-op: benchmarks no longer forward any LemonCrow account credentials.
 
-    The token alone is NOT enough: the account's signed plan token and cap
-    verdict are bound to the device id that logged in on the host. A container
-    has its own /etc/machine-id, so without the host's device id the plan
-    degrades to free and the cap gate stays fail-closed dormant (empty MCP
-    tool list) even with a valid pro token. See store.load_or_create_device_id.
+    The host account token and device id used to be forwarded into containers so
+    the old savings-cap gate resolved to "pro/active" instead of dormant. That
+    gate is gone -- every tool is available unlocked -- so nothing is forwarded
+    (no LEMONCROW_AUTH_TOKEN, no LEMONCROW_DEVICE_ID). See
+    docs/maintenance-mode-transition.md.
     """
-    env: dict[str, str] = {}
-    token = _host_lemoncrow_auth_token()
-    if not token:
-        return env
-    env["LEMONCROW_AUTH_TOKEN"] = token
-    try:
-        from lemoncrow.core.capabilities.licensing.store import load_or_create_device_id
-
-        env["LEMONCROW_DEVICE_ID"] = load_or_create_device_id()
-    except Exception:  # token still forwarded; device binding may fail
-        pass
-    return env
+    return {}
 
 
 # Mirrors benchmarks/codebench/incontainer.py's _HOST_AUTH_FILES.
@@ -104,49 +87,20 @@ def _lemoncrow_auth_files_env() -> dict[str, str]:
     as logging `extra`, which the default log formatter drops. Mirrors the
     CLAUDE_CODE_OAUTH_TOKEN handling in run().
     """
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    host_store = default_store_root()
-    env: dict[str, str] = {}
-    for fname in _HOST_AUTH_FILES:
-        fpath = host_store / fname
-        if fpath.is_file():
-            env[_auth_file_env_key(fname)] = base64.b64encode(fpath.read_bytes()).decode("ascii")
-    return env
+    # No-op: benchmarks run unlocked; no host auth files are forwarded.
+    return {}
 
 
 def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
-    """Shell command that writes the host's cached LemonCrow auth files into
-    the container at ``root_dir`` (a no-op mkdir if the host has none). Reads
-    each file's payload out of the env vars from _lemoncrow_auth_files_env --
-    callers MUST pass that dict as this exec's ``env=``.
+    """Shell command that ensures the container's LemonCrow store dir exists.
 
-    LEMONCROW_AUTH_TOKEN alone is NOT enough: the compiled cap-verdict gate
-    (``lemoncrow.pro.capabilities.licensing_gate.resolve_cap_verdict``) resolves
-    the account's plan from these cached files -- ``auth.json`` in particular --
-    not from the bare env token. Without them, ``lemoncrow init --no-login``
-    bootstraps a fresh ANONYMOUS cap verdict bound to the forwarded device id,
-    and since that device id's anon cap is shared with the host's own real
-    machine (see load_or_create_device_id), it is usually already exhausted --
-    the MCP server then comes up fully dormant (empty tool list) even on a paid
-    plan. Confirmed via a local repro: env token + device id alone resolved
-    plan='anonymous'/dormant=True; copying these files in resolved plan='pro'/
-    dormant=False. Mirrors codebench's incontainer.py _HOST_AUTH_FILES mount
-    (there done via a real bind mount; here via exec'd file writes since Harbor
-    installs happen post-container-create, not at `docker run` time).
+    Account-free: no host auth files are copied in. LemonCrow runs fully
+    unlocked without an account, so ``lemoncrow init --no-login`` needs no
+    seeded credentials. See docs/maintenance-mode-transition.md.
     """
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    host_store = default_store_root()
-    parts = [f"mkdir -p {shlex.quote(root_dir)}"]
-    for fname in _HOST_AUTH_FILES:
-        fpath = host_store / fname
-        if not fpath.is_file():
-            continue
-        dest = f"{root_dir.rstrip('/')}/{fname}"
-        key = _auth_file_env_key(fname)
-        parts.append(f'echo "${key}" | base64 -d > {shlex.quote(dest)} && chmod 600 {shlex.quote(dest)}')
-    return " && ".join(parts)
+    # Only ensure the store dir exists; no host account files are copied in
+    # (benchmarks run fully unlocked with no account).
+    return f"mkdir -p {shlex.quote(root_dir)}"
 
 
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
@@ -433,9 +387,8 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
-        # Forward the host's activated LemonCrow account credentials (token +
-        # device id) so `lemoncrow init` doesn't need an interactive
-        # `lemoncrow account login` inside the container.
+        # Account-free: no LemonCrow account credentials are forwarded
+        # (_lemoncrow_credential_env is a no-op). `lemoncrow init` runs unlocked.
         env.update(_lemoncrow_credential_env())
         return env
 
@@ -460,19 +413,16 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
                 environment,
                 command=f"pip install --quiet --break-system-packages 'lemoncrow=={_LEMONCROW_VERSION}'",
             )
-        # Seed the host's cached auth files BEFORE init: the compiled cap gate
-        # resolves plan from these files, not the bare LEMONCROW_AUTH_TOKEN env
-        # var alone (see _lemoncrow_auth_files_write_cmd) -- without them the
-        # container bootstraps an ANONYMOUS cap verdict and, since the forwarded
-        # device id's anon cap is usually already exhausted, comes up dormant.
+        # Ensure the container store dir exists before init. Account-free: no
+        # host auth files are seeded (the runtime is unlocked without an account).
         await self.exec_as_agent(
             environment,
             command=_lemoncrow_auth_files_write_cmd("/home/agent/.lemoncrow"),
             env=_lemoncrow_auth_files_env(),
         )
-        # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login:
-        # this is an unattended container -- never block on / pop an interactive
-        # account login even if the host token forward above came up empty.
+        # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login
+        # keeps it non-interactive; the runtime is account-free and unlocked, so
+        # no login is ever needed.
         await self.exec_as_agent(
             environment,
             command="lemoncrow init --no-login",
@@ -603,9 +553,8 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-        # Forward the host's activated LemonCrow account credentials (token +
-        # device id) so `lemoncrow init` doesn't need an interactive
-        # `lemoncrow account login` inside the container.
+        # Account-free: no LemonCrow account credentials are forwarded
+        # (_lemoncrow_credential_env is a no-op). `lemoncrow init` runs unlocked.
         env.update(_lemoncrow_credential_env())
         return env
 

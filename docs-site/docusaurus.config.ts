@@ -60,12 +60,6 @@ const config: Config = {
           position: "left",
         },
         {
-          href: "https://lemoncrow.com",
-          label: "Website",
-          position: "right",
-          className: "navbar-cta",
-        },
-        {
           type: "custom-githubStars",
           position: "right",
         },
@@ -100,16 +94,19 @@ const config: Config = {
         {
           title: "More",
           items: [
-            { label: "LemonCrow Website", href: "https://lemoncrow.com" },
             {
               label: "GitHub",
               href: "https://github.com/lemoncrow-lab/lemoncrow",
             },
-            { label: "Contact", href: "mailto:contact@lemoncrow.com" },
+            { label: "Privacy", to: "/privacy" },
+            {
+              label: "License",
+              href: "https://github.com/lemoncrow-lab/lemoncrow/blob/main/LICENSE",
+            },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Published source is Apache-2.0; Pro engine is proprietary.`,
+      copyright: `Copyright © ${new Date().getFullYear()} LemonCrow. Open source under Apache-2.0.`,
     },
     prism: {
       theme: prismThemes.github,

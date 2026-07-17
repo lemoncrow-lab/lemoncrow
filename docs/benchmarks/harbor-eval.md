@@ -91,18 +91,8 @@ Start with `lc benchmark mini --dry-run` to verify setup, then escalate to
 | `LEMONCROW_BENCH_MODEL` | No | Model override for the run |
 | `LEMONCROW_BENCH_RTK_VERSION` | No | Pin the [rtk](https://github.com/rtk-ai/rtk) external-compactor binary version (default: latest) |
 
-### LemonCrow account credentials (automatic)
-
-The adapter forwards the host's activated account into every task container:
-`LEMONCROW_AUTH_TOKEN` (from the env or `~/.lemoncrow/auth_token`) **and**
-`LEMONCROW_DEVICE_ID` (the host's stable device id). Both are required
-together — the account's signed plan token and cap verdict are bound to the
-device that logged in, so a container presenting its own `/etc/machine-id`
-would degrade the plan to free and keep the cap gate fail-closed dormant
-(empty MCP tool list) even with a valid pro token. Inside the container the
-MCP server mints the signed cap-verdict token on first use (dormant
-self-heal), so no interactive login and no background service are needed.
-Run `lc account login` on the host once before benchmarking.
+LemonCrow runs fully locally inside each task container — no account, login,
+device registration, or credentials are required to benchmark.
 
 ## Token compaction (rtk)
 

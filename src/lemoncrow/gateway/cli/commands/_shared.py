@@ -56,21 +56,13 @@ def _emit(data: Any, *, as_json: bool) -> None:
 
 
 def require_pro(feature: str, label: str) -> None:
-    """Gate a Pro-only CLI control surface.
+    """No-op: the open-source runtime ships every feature unlocked, locally.
 
-    Raises :class:`click.ClickException` with an upgrade hint unless the
-    signed-in account's plan grants ``feature``. On a Free install the command
-    is blocked with a clear upsell.
+    Retained so the ~dozen call sites keep a stable signature. Nothing is gated;
+    no account or network check is performed. See
+    docs/maintenance-mode-transition.md.
     """
-    from lemoncrow.core.capabilities import licensing
-
-    if licensing.has_feature(feature):
-        return
-    # The user may have purchased seconds ago: bypass the 6 h cache once and
-    # re-check live before blocking (one HTTP call, only on locked commands).
-    licensing.refresh_plan()
-    if not licensing.has_feature(feature):
-        raise click.ClickException(f"{label} is an LemonCrow Pro feature. Unlock at {licensing.pro_url()}")
+    return None
 
 
 def _redact_memory_input(text: str, field_name: str) -> str:

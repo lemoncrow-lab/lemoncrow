@@ -238,7 +238,7 @@ Screen Studio, ScreenFlow, OBS, or a native recorder all work. Avoid simulated c
 
 ## Optional installation clip
 
-Use this only on docs, pricing, or an install modal. Do not put both clips next to each other on the homepage.
+Use this only on docs or an install page. Do not put both clips next to each other on the homepage.
 
 Storyboard:
 
@@ -247,7 +247,7 @@ Storyboard:
 Show the actual install command:
 
 ```bash
-curl -fsSL https://install.lemoncrow.com | bash
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 ```
 
 ### 1.5–5.0 seconds

@@ -35,7 +35,9 @@ FUZZY_AMBIGUITY_MARGIN = 0.05
 COLUMN_REPAIR_THRESHOLD = 0.85
 
 PLUGIN_DEFAULT_SETTINGS: dict[str, bool] = {
-    "attribution": True,
+    # Commit co-author attribution is OFF by default (opt-in). See
+    # docs/privacy.md and scripts/install_agents.sh (LEMONCROW_ATTRIBUTION=1).
+    "attribution": False,
     "statusLine": True,
     "statusLineSession": True,
     "statusLineLifetime": True,
@@ -604,21 +606,11 @@ def _plan_key(subscription: dict[str, Any]) -> str:
 
 
 def _savings_cap_usd(subscription: dict[str, Any]) -> float | None:
-    """Resolve the monthly savings cap ($) for this plan; ``None`` = uncapped.
+    """Open-source runtime: there is no savings cap. Always uncapped (``None``).
 
-    A valid server cap wins. Otherwise fall back to the canonical access-state
-    default; malformed overrides retain that fallback and unknown plan names
-    fail closed to the anonymous cap.
+    See docs/maintenance-mode-transition.md.
     """
-    fallback = SAVINGS_CAP_BY_PLAN.get(_plan_key(subscription), ANONYMOUS_SAVINGS_CAP_USD)
-    raw = subscription.get("monthlySavingsCapInUsd")
-    if raw is not None:
-        try:
-            cap = float(raw)
-        except (TypeError, ValueError):
-            return fallback
-        return cap if cap > 0.0 else fallback
-    return fallback
+    return None
 
 
 def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None = None) -> dict[str, Any]:

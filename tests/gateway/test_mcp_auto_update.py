@@ -36,6 +36,8 @@ def test_mcp_auto_update_records_installed_version_before_pull(monkeypatch, tmp_
     import lemoncrow.core.foundation.update_state as update_state
 
     monkeypatch.setenv("LEMONCROW_INSTALL_DIR", str(tmp_path))
+    # Startup auto-update is opt-in in the open-source runtime.
+    monkeypatch.setenv("LEMONCROW_AUTO_UPDATE", "1")
     monkeypatch.setattr(mcp_server, "lemoncrow_version", "0.2.1")
     monkeypatch.setattr(mcp_server, "_detect_default_branch", lambda _repo: "main")
     monkeypatch.setattr(subprocess, "run", _run)

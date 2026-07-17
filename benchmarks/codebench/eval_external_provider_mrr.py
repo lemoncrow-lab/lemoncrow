@@ -1964,41 +1964,16 @@ class LemonCrowProvider(Provider):
 
     @classmethod
     def _forward_host_auth(cls) -> None:
-        """Copy the real host account's signed credentials into the isolated
-        bench store, once per run.
+        """No-op: the retrieval eval runs fully unlocked with no account.
 
-        ``_STORE_ROOT`` (default ``/tmp/lemoncrow-bench-store``, see
-        ``LEMONCROW_BENCH_STORE``) is passed as ``LEMONCROW_ROOT`` to the spawned
-        server below -- an isolated store distinct from the real
-        ``~/.lemoncrow``. ``resolve_cap_verdict``'s real-account branch calls
-        ``entitlements.current_identity()`` with no args, which itself resolves
-        via ``default_store_root()`` (``LEMONCROW_ROOT`` env, else ``~``) -- so an
-        isolated store with no credentials of its own resolves as a brand-new
-        ANONYMOUS identity, capped at $20 of lifetime savings. That cap is keyed
-        off a stable OS/device fingerprint shared with the real host account, so
-        on any host that already exhausted it (e.g. from ordinary benchmark
-        usage), every isolated-root run is dormant on arrival and the MCP server
-        advertises zero tools -- every query returns [], and MRR silently reads
-        0.0000 with no error (confirmed via a real run: 2026-07-02's 0.8599
-        collapsed to 0.0000 once this device's cap tipped over). Missing files
-        are skipped; a host with no logged-in account behaves exactly as before.
+        The runtime is account-free -- the MCP server always advertises its
+        tools regardless of any account or device id -- so no host credentials
+        are copied into the isolated bench store. This used to exist so the
+        old savings-cap gate would not make an isolated-root run dormant
+        (every query returning [] and MRR reading 0.0000). See
+        docs/maintenance-mode-transition.md.
         """
-        import shutil
-
-        from lemoncrow.core.foundation.paths import default_store_root
-
-        host_store = default_store_root()
-        if host_store == cls._STORE_ROOT:
-            return
-        cls._STORE_ROOT.mkdir(parents=True, exist_ok=True)
-        for fname in ("auth_token", "auth_user.json", "auth.json"):
-            src = host_store / fname
-            if not src.is_file():
-                continue
-            dst = cls._STORE_ROOT / fname
-            if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
-                continue
-            shutil.copyfile(src, dst)
+        return
 
     def start(self, ws: Path) -> None:
         self._memo = {}
