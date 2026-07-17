@@ -86,6 +86,40 @@ def test_init_requires_a_free_account(tmp_path: Path, monkeypatch) -> None:
     assert "free LemonCrow account is required" in res.output
 
 
+def test_init_login_ctrl_c_continues_local_setup(tmp_path: Path, monkeypatch) -> None:
+    """Ctrl+C during the browser-login wait degrades to the --no-login path.
+
+    The account-free steps (store init, seed, code index) must still run and
+    the declined marker must be set; only project activation is skipped.
+    """
+    from lemoncrow.core.capabilities.licensing.store import is_login_declined
+    from lemoncrow.gateway.cli.commands import admin, code
+
+    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(admin, "_is_interactive_terminal", lambda: True)
+
+    def _interrupted_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(admin, "_oauth_login", _interrupted_login)
+    index_calls: list[object] = []
+
+    def _fake_index(engine: object, **_kw: object) -> dict[str, int]:
+        index_calls.append(engine)
+        return {"files_indexed": 1, "symbols_indexed": 2, "imports_indexed": 3}
+
+    monkeypatch.setattr(code, "_code_context_engine", lambda repo_root: object())
+    monkeypatch.setattr(code, "_index_repo_with_progress", _fake_index)
+
+    res = _invoke(tmp_path / "a", "init")
+    assert res.exit_code == 0, res.output
+    assert "Aborted" not in res.output
+    assert "Login skipped" in res.output
+    assert "store initialized" in res.output
+    assert index_calls, "code index must still run after an aborted login"
+    assert is_login_declined()
+
+
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
     root = tmp_path / "a"
     init_store_at(str(root))

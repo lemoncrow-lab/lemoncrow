@@ -221,6 +221,8 @@ def _channel_cmd_env(
     import sys
 
     golds = _make_golds(pairs)
+    if not golds:
+        raise click.ClickException("no gold pairs found; pass --pairs")
     env = dict(os.environ)
     env["FITNESS_PAIRS"] = ",".join(str(g) for g in golds)
     env["EVAL_PAIRS"] = str(golds[0])
@@ -932,7 +934,7 @@ def eval_fitness(
     if r3.returncode != 0:
         click.echo("[eval fitness] building code index for semantic pairs ...", err=True)
         index_cmd = [
-            "lc",
+            "lemoncrow",
             "code",
             "index",
             "--repo-root",

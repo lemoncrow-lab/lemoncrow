@@ -117,13 +117,16 @@ def _normalize_tool_basename(name: str) -> str:
         ``edit``                                     -> ``edit``
     """
     lowered = (name or "").strip().lower()
+    # Prefer namespace-segment splitting (``mcp__lc__grep`` -> ``grep``,
+    # ``lc__grep`` -> ``grep``) before the snake-case prefix strip, otherwise a
+    # ``lc__``/``lemoncrow__`` name would keep a stray leading underscore.
+    parts = _tool_name_parts(name)
+    if any(part == "lc" or "lemoncrow" in part for part in parts) and len(parts) > 1:
+        return parts[-1]
     if lowered.startswith("lc_"):
         return lowered[len("lc_") :]
     if lowered.startswith("lemoncrow_"):
         return lowered[len("lemoncrow_") :]
-    parts = _tool_name_parts(name)
-    if any(part == "lc" or "lemoncrow" in part for part in parts) and len(parts) > 1:
-        return parts[-1]
     return lowered
 
 
@@ -1488,7 +1491,13 @@ def _parse_codex_format_a(content: str) -> list[dict[str, Any]]:
         server = str(invocation.get("server") or "").strip()
         tool = str(invocation.get("tool") or "").strip()
         if server and tool:
-            name = f"{server}.{tool}"
+            # codex.py accepts both "lc" and "lemoncrow" as the LemonCrow server
+            # name; normalize to the "lc.<basename>" key the custom_tool_call
+            # dedup below looks up, so a lemoncrow-namespaced call is not emitted twice.
+            if server.lower() in {"lc", "lemoncrow"}:
+                name = f"lc.{_normalize_tool_basename(tool)}"
+            else:
+                name = f"{server}.{tool}"
             mcp_call_counts[name] = int(mcp_call_counts.get(name, 0) or 0) + 1
     for line in content.splitlines():
         try:
@@ -1807,6 +1816,14 @@ def _parse_codex_format_b(content: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _copilot_content_text(content: Any) -> str:
+    """Render a Copilot message ``content`` field, which may be a plain string
+    or a list of ``{"type": ..., "text": ...}`` blocks (mirrors copilot.py)."""
+    if isinstance(content, list):
+        return " ".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
+    return str(content or "")
+
+
 def _parse_copilot(content: str) -> list[dict[str, Any]]:
     turns: list[dict[str, Any]] = []
     tool_names: dict[str, str] = {}  # toolCallId -> toolName from execution_start
@@ -1823,7 +1840,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
             if tcid:
                 tool_names[tcid] = data.get("toolName") or "unknown"
         elif et == "user.message":
-            msg = str(data.get("content") or "")
+            msg = _copilot_content_text(data.get("content"))
             clean_msg = _PASTED_CONTENT_TAG_RE.sub("", msg).strip()
             if clean_msg:
                 turns.append(_turn("user_message", clean_msg[:80], clean_msg, at=at, raw=ev))
@@ -1865,7 +1882,7 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
                     )
                 )
         elif et == "assistant.message":
-            msg = str(data.get("content") or "")
+            msg = _copilot_content_text(data.get("content"))
             toks = {"out": data.get("outputTokens", 0)}
             assistant_turns: list[dict[str, Any]] = []
             # reasoning text (skip encrypted opaque content)
@@ -1875,6 +1892,8 @@ def _parse_copilot(content: str) -> list[dict[str, Any]]:
             if msg:
                 assistant_turns.append(_turn("agent_message", msg[:80], msg, at=at, tokens=toks, raw=ev))
             for req in data.get("toolRequests") or []:
+                if not isinstance(req, dict):
+                    continue
                 name = req.get("name", "unknown")
                 args_raw = req.get("arguments") or {}
                 args = _coerce_mapping(args_raw)
