@@ -74,7 +74,7 @@ SUBSCRIPTION_WARN_FRACTION = 0.8
 # grants, not by how much value the local runtime has already produced. The
 # hosted auth server may override this via
 # subscriptionStatus.monthlySavingsCapInUsd.
-ANONYMOUS_SAVINGS_CAP_USD = 50.0
+ANONYMOUS_SAVINGS_CAP_USD = 100.0
 SAVINGS_CAP_BY_PLAN: dict[str, float | None] = {
     "anonymous": ANONYMOUS_SAVINGS_CAP_USD,
     "local": ANONYMOUS_SAVINGS_CAP_USD,
