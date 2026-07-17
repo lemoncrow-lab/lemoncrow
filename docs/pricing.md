@@ -6,7 +6,7 @@ free LemonCrow account.
 
 ## Access model
 
-- **Anonymous evaluation:** use the local core until LemonCrow has measured $50
+- **Anonymous evaluation:** use the local core until LemonCrow has measured $100
   in savings over a rolling 30-day window. It then goes dormant without
   touching your code or data.
 - **Free account:** uncapped core runtime for one developer, including local

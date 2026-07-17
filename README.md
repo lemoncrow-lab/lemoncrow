@@ -59,7 +59,7 @@ Check that everything is connected:
 lc doctor
 ```
 
-> **Account boundary:** anonymous evaluation includes up to **$50 in measured
+> **Account boundary:** anonymous evaluation includes up to **$100 in measured
 > savings** over a rolling 30-day window. Creating or signing into a Free
 > account is required for uncapped core usage. Recall, handovers, verification,
 > and local multi-worktree swarm are included in Free.
@@ -247,7 +247,7 @@ No one had scored these 10 tools against each other on a shared query set before
 - Works with Claude Code, Codex, Copilot, Copilot CLI, and opencode today; Cursor, Hermes Agent, and Antigravity integrations are in progress. Any MCP-compatible agent (LangChain, the OpenAI SDK, Gemini ADK, ...) can connect to the same tools.
 - Runs locally by default.
 - Open-source runtime (Apache-2.0); the compiled engine (`lemoncrow.pro`) is proprietary and required at runtime.
-- Anonymous evaluation is capped at $50 in measured savings; a free account unlocks uncapped core usage.
+- Anonymous evaluation is capped at $100 in measured savings; a free account unlocks uncapped core usage.
 - Live local stats for cost, tokens, and savings; anonymous remote telemetry is on by default (opt out anytime).
 - Free: grounded local tools, recall, handovers, verification, and swarm.
 - Pro: larger-repo indexing, cross-vendor memory, compression, optimization, and reusable knowledge for $20/month or $200/year.

@@ -19,7 +19,7 @@ account.
 `~/.lemoncrow/auth_token` (mode `0600`; `LEMONCROW_AUTH_TOKEN` can supply
 one in CI). Plan state from `/api/auth/me` is cached locally for six hours.
 
-Anonymous evaluation is device-bound and includes up to **$50 in measured
+Anonymous evaluation is device-bound and includes up to **$100 in measured
 savings over a rolling 30-day window**. At that point LemonCrow goes dormant and
 the host's built-in tools remain available. Creating or signing into a Free
 account removes this savings cap from the core runtime. A valid signed verdict
@@ -33,7 +33,7 @@ closed when signing is configured.
 | Grounded MCP tools, host packaging, agents, skills, hooks | ✅ | ✅ | ✅ | ✅ |
 | Normal-size repo map and context engine | ✅ | ✅ | ✅ | ✅ |
 | Local session replay, recall, and multi-worktree swarm | ✅ | ✅ | ✅ | ✅ |
-| Savings before dormancy | $50 / rolling 30 days | Uncapped | Uncapped | Uncapped |
+| Savings before dormancy | $100 / rolling 30 days | Uncapped | Uncapped | Uncapped |
 | Large-repo search and indexing | — | — | ✅ | ✅ |
 | Cross-vendor memory and reasoning library | — | — | ✅ | ✅ |
 | Optimization, compression, scoped pruning, and budget planning | — | — | ✅ | ✅ |
