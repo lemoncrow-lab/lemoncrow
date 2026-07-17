@@ -236,7 +236,9 @@ SERVER_INSTRUCTIONS = (
     "never the same file twice. Never cat/sed/head/tail.\n"
     "- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.\n"
     "- `bash` = execution only (tests, git, builds).\n"
-    "- Large output → a file, never inline prose."
+    "- Large output → a file, never inline prose.\n"
+    "- Graphical data (plots, rendered text, pixel grids, UI) → write a PNG and read the "
+    "image; don't infer visuals from raw bytes or coordinates."
 )
 CONTEXT_WINDOW_TOKENS = 200_000
 COMPACT_ADVISORY_THRESHOLD = 60.0

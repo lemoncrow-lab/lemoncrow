@@ -188,10 +188,10 @@ verification harness were held constant. Community telemetry remains separate:
 | SWE-bench Lite, 10 tasks x 5 reps                    |            98.0% |              96.0% |       -2.0 pp |        $19.83 |     **$17.51** |  **11.7% cheaper** |
 | SWE-bench Pro, 10 tasks x 5 reps                     |            88.0% |         **90.0%** |   **+2.0 pp** |        $39.01 |     **$30.61** |  **21.5% cheaper** |
 | Exploration tasks across 7 large repos x 5 reps      |                - |                 - |             - |        $19.11 |      **$6.29** |    **67% cheaper** |
-| Telegraphic Q&A, 20 prompts x 5 reps                 |                - |                 - |             - |         $8.68 |      **$6.18** |  **28.8% cheaper**‡ |
+| Telegraphic Q&A, 20 prompts x 5 reps                 |                - |                 - |             - |         $8.40 |      **$4.48** |  **46.7% cheaper**‡ |
 | Terminal-Bench 2.1, 89 tasks vs public leaderboard\* |   78.9% expected |             78.7% |       -0.2 pp |        $96.76 |    **$69.52**† | **28.1% cheaper**† |
 
-<sub>\* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost. ‡ Caveman (free terse-persona system prompt, no install) also ran in the same invocation: $8.57, 1.2% cheaper than baseline -- LemonCrow's edge is durable cost, not just shorter replies; see [`/vs/caveman`](https://lemoncrow.com/vs/caveman).</sub>
+<sub>\* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost. ‡ Caveman (free terse-persona system prompt, no install) also ran in the same invocation: $8.67, 3.3% *more* than baseline -- LemonCrow's edge is durable cost, not just shorter replies; see [`/vs/caveman`](https://lemoncrow.com/vs/caveman).</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost, across SWE-bench Verified/Lite/Pro, exploration, Telegraphic Q&A, and Terminal-Bench" width="720">
@@ -225,7 +225,7 @@ Exploration detail (7 large repos × 5 reps, read-only Q&A, no edits):
 | output                        |        426,367 |          68,893 |     **-83.8%** |
 | input + cache write           |      3,097,547 |         439,348 |     **-85.8%** |
 
-Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_16`](benchmarks/codebench/results/telegraphic_2026_07_16/).
+Source: [`exploration_2026_06_29`](benchmarks/codebench/results/exploration_2026_06_29/) · [`telegraphic_2026_07_17`](benchmarks/codebench/results/telegraphic_2026_07_17/).
 
 ## One-shot code search vs 10 named tools
 
