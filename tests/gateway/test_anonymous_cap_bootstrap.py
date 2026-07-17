@@ -92,7 +92,7 @@ def test_bootstrap_refreshes_subscription_json_immediately(monkeypatch: pytest.M
     monkeypatch.setattr(plugin_runtime, "resolve_subscription", lambda _root: {"plan": "LOCAL"})
 
     class _Win:
-        saved_usd = 55.0  # > $50 anonymous cap
+        saved_usd = 105.0  # > $100 anonymous cap
         spend_usd = 0.0
 
     monkeypatch.setattr(savings_summary, "aggregate_window_savings", lambda *a, **k: _Win())

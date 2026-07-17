@@ -1,1 +1,1 @@
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent.
+- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance — target location unknown across many files/dirs — → delegate to a read-only explore subagent and keep only the conclusion; search inline only once narrowed.
