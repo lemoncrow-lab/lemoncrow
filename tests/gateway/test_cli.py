@@ -358,7 +358,7 @@ def test_account_cap_period_and_mechanics_lines_by_plan() -> None:
         "planPeriodStart": 1753142400,
         "planPeriodEnd": 1755820800,
     }
-    assert _account_cap_period_line(paid, 30) == "period: 2025-07-22 – 2025-08-22 (billing cycle)"
+    assert _account_cap_period_line(paid, 30) == "period: 2025-07-22 - 2025-08-22 (billing cycle)"
 
     # Free (authenticated, no Stripe row) -> account-creation anchor.
     free = {"plan": "free", "accountCreatedAt": "2025-01-01T00:00:00Z"}
