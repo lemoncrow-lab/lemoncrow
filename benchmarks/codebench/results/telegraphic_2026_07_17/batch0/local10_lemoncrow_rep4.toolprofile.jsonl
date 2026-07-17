@@ -1,0 +1,2 @@
+{"handler_ms": 99, "overhead_ms": 36, "response_size": 349, "session_id": "08d3df04-8fed-4611-86d4-79a7be3cb93f", "status": "ok", "tool": "bash", "total_ms": 135, "ts": 1784279359.4637487}
+{"handler_ms": 3, "overhead_ms": 12, "response_size": 4738, "session_id": "08d3df04-8fed-4611-86d4-79a7be3cb93f", "status": "ok", "tool": "bash", "total_ms": 15, "ts": 1784279365.6210213}

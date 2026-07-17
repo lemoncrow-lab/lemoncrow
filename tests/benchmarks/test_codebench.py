@@ -59,7 +59,7 @@ def test_arm_specs_resolve_persona_by_capability() -> None:
     # lemoncrow runs the generated plugin's autonomous (auto) persona.
     assert specs["lemoncrow"].plugin is True
     assert specs["lemoncrow"].strip_mcp is False
-    assert specs["lemoncrow"].persona_by_capability["code"] == "lemoncrow:auto"
+    assert specs["lemoncrow"].persona_by_capability["code"] == "lemoncrow:solve"
     # execute / solve are code-only coding personas (no built-in twin).
     assert set(specs["execute"].persona_by_capability) == {"code"}
     assert set(specs["solve"].persona_by_capability) == {"code"}
@@ -505,6 +505,32 @@ def test_validate_result_excerpt_rejects_zero_overlap_response(tmp_path: Path, m
 
     assert valid is False
     assert reason == "no task keyword overlap"
+
+
+def test_validate_result_excerpt_accepts_short_acronym_overlap(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """Regression: a prompt whose whole subject is a short ALL-CAPS acronym
+    ("difference between TCP and UDP") false-positived as off-task -- the
+    keyword-overlap regex requires >=4 lowercase chars, so task_keywords ended
+    up {"difference", "what"} (neither of which a normal answer restates) and
+    "tcp"/"udp" were silently dropped from BOTH sides. A fully correct,
+    on-topic answer was then flagged "no task keyword overlap" /
+    "off-task capability/list response". See _extract_acronyms.
+    """
+    task_source_dir = tmp_path / "codebench-tasks"
+    task_dir = task_source_dir / "tasks" / "task1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "prompt.md").write_text("What's the difference between TCP and UDP?", encoding="utf-8")
+    monkeypatch.setenv("CODEBENCH_TASKS_DIR", str(task_source_dir))
+    task = TASKS.Task("task-1", "swift", ("empty",), 1, "task1")
+
+    valid, reason, _hard = CODEBENCH._validate_result_excerpt(
+        task,
+        "TCP and UDP are both transport-layer protocols, but they make opposite trade-offs "
+        "between reliability and speed.",
+    )
+
+    assert valid is True
+    assert reason == ""
 
 
 def test_validate_result_excerpt_accepts_task_relevant_summary() -> None:

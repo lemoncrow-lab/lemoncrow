@@ -1,0 +1,4 @@
+arm,n,total_cost_usd,avg_cost_usd,total_output_tokens,avg_output_tokens,total_input_tokens,avg_input_tokens,total_cache_read_tokens,total_cache_creation_tokens,total_turns,avg_turns,total_duration_ms
+baseline,100,8.398509,0.083985,118654,1186.54,350505,3505.05,2338476,275312,240,2.40,2025936
+lemoncrow,100,4.477970,0.044780,46444,464.44,325740,3257.40,1166920,110471,143,1.43,1327416
+caveman,100,8.672850,0.086729,69481,694.81,351255,3512.55,1947520,445399,221,2.21,1311003

@@ -323,6 +323,12 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
         "saved_usd": 0.0,
         "verified": None,
         "reason": None,
+        "period_days": 30,
+        "period_start": None,
+        "period_end": None,
+        "account_created_at": None,
+        "device_registered_at": None,
+        "cycle_resets_at": None,
     }
 
     share = _invoke(root, "share", "--json")
@@ -336,6 +342,60 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
     show = _invoke(root, "settings", "show", "--json")
     assert show.exit_code == 0, show.output
     assert json.loads(show.output)["alwaysLoadTools"] is False
+
+
+def test_account_cap_period_and_mechanics_lines_by_plan() -> None:
+    """`lc account cap`'s "since"/"period" and cap-suffix lines dispatch on plan
+    and on whether a verified anon fixed-cycle verdict backs the cap -- see
+    _account_cap_period_line / _account_cap_mechanics in admin.py.
+    """
+    from lemoncrow.gateway.cli.commands.admin import _account_cap_mechanics, _account_cap_period_line
+
+    # Paid plan with a real Stripe billing cycle -> billing-cycle period line;
+    # cap is None for every paid plan, so mechanics/resets are moot (uncapped).
+    paid = {
+        "plan": "pro",
+        "planPeriodStart": 1753142400,
+        "planPeriodEnd": 1755820800,
+    }
+    assert _account_cap_period_line(paid, 30) == "period: 2025-07-22 – 2025-08-22 (billing cycle)"
+
+    # Free (authenticated, no Stripe row) -> account-creation anchor.
+    free = {"plan": "free", "accountCreatedAt": "2025-01-01T00:00:00Z"}
+    assert _account_cap_period_line(free, 30) == "since: account created 2025-01-01"
+
+    # A manually granted / lifetime-style row: only current_period_end is set
+    # (often a far-future sentinel, e.g. year 2100), no current_period_start --
+    # a real Stripe snapshot always populates both together, so this is NOT
+    # treated as a billing cycle; falls back to account-creation instead of
+    # printing something like "through 2100-01-01".
+    lifetime_grant = {
+        "plan": "pro",
+        "planPeriodStart": None,
+        "planPeriodEnd": 4102444800,
+        "accountCreatedAt": "2026-07-03T09:00:17Z",
+    }
+    assert _account_cap_period_line(lifetime_grant, 30) == "since: account created 2026-07-03"
+
+    # Anonymous with a VERIFIED signed_anonymous verdict -> fixed calendar
+    # cycle: period line is the registration anchor, mechanics reports the
+    # hard reset boundary distinctly from the (now-inapplicable) rolling label.
+    anon_verified = {
+        "plan": "anonymous",
+        "registeredAt": "2026-06-01T00:00:00Z",
+        "capVerdictReason": "signed_anonymous",
+        "cycleResetsAt": "2026-07-01T00:00:00Z",
+    }
+    assert _account_cap_period_line(anon_verified, 30) == "since: device registered 2026-06-01"
+    assert _account_cap_mechanics(anon_verified, 30) == ("30-day cycle", "resets: 2026-07-01")
+
+    # Anonymous WITHOUT a verified server verdict (offline/local fallback) --
+    # the shown cap is still the client's rolling estimate, not a fixed cycle.
+    anon_unverified = {"plan": "LOCAL", "registeredAt": "2026-06-01T00:00:00Z"}
+    assert _account_cap_mechanics(anon_unverified, 30) == ("rolling 30-day window", None)
+
+    # No identity anchor available at all -> generic rolling-window fallback.
+    assert _account_cap_period_line({"plan": "pro"}, 30) == "period: trailing 30-day window"
 
 
 def test_logout_starts_anonymous_trial_by_default(tmp_path: Path) -> None:

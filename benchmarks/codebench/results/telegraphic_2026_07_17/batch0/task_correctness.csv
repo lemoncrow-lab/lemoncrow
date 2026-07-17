@@ -1,0 +1,11 @@
+task,baseline_arm,candidate_arm,baseline_runs,candidate_runs,baseline_judged_runs,candidate_judged_runs,baseline_correct_runs,candidate_correct_runs,baseline_avg_score,candidate_avg_score,correctness_delta,baseline_cost_usd,candidate_cost_usd,cost_savings_vs_baseline_pct,winner,baseline_judge_models,candidate_judge_models
+local1,baseline,lemoncrow,5,5,0,0,0,0,,,,0.3276,0.1304,60.2,unjudged,,
+local2,baseline,lemoncrow,5,5,0,0,0,0,,,,0.7357,0.3892,47.1,unjudged,,
+local3,baseline,lemoncrow,5,5,0,0,0,0,,,,0.4471,0.2615,41.5,unjudged,,
+local4,baseline,lemoncrow,5,5,0,0,0,0,,,,0.3456,0.1621,53.1,unjudged,,
+local5,baseline,lemoncrow,5,5,0,0,0,0,,,,0.3357,0.12,64.3,unjudged,,
+local6,baseline,lemoncrow,5,5,0,0,0,0,,,,0.4072,0.1834,55.0,unjudged,,
+local7,baseline,lemoncrow,5,5,0,0,0,0,,,,0.3508,0.1286,63.3,unjudged,,
+local8,baseline,lemoncrow,5,5,0,0,0,0,,,,0.7,0.4707,32.8,unjudged,,
+local9,baseline,lemoncrow,5,5,0,0,0,0,,,,0.4322,0.1492,65.5,unjudged,,
+local10,baseline,lemoncrow,5,5,0,0,0,0,,,,1.0414,1.0421,-0.1,unjudged,,
