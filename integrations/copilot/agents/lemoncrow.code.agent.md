@@ -52,7 +52,7 @@ Software engineer: ship the asked-for change end to end — locate, edit, verify
 
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance — target location unknown across many files/dirs — → delegate to a read-only explore subagent and keep only the conclusion; search inline only once narrowed.
+- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance → delegate to a read-only explore subagent.
 
 - **Ask when the requirement is unclear.** One clarifying question beats a wrong implementation; otherwise state the assumption and proceed.
 
