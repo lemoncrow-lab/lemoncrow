@@ -84,9 +84,42 @@ def _lemoncrow_credential_env() -> dict[str, str]:
 _HOST_AUTH_FILES: tuple[str, ...] = ("auth_token", "auth_user.json", "auth.json")
 
 
+def _auth_file_env_key(fname: str) -> str:
+    """Deterministic env var name an auth file's base64 payload travels
+    under -- keeps _lemoncrow_auth_files_write_cmd's command string free of
+    literal secrets (see that function's docstring for why).
+    """
+    return "LEMONCROW_AUTH_FILE_" + fname.upper().replace(".", "_").replace("-", "_")
+
+
+def _lemoncrow_auth_files_env() -> dict[str, str]:
+    """Base64 payloads of the host's cached LemonCrow auth files, keyed by
+    _auth_file_env_key -- pass this as the ``env=`` for the exec that runs
+    _lemoncrow_auth_files_write_cmd's command.
+
+    Split out from the command builder so the secrets travel only through
+    exec's env= dict, never the command string: harbor's
+    BaseInstalledAgent._exec logs command= verbatim into trial.log/job.log,
+    which `harbor upload` makes public, while the env dict is only attached
+    as logging `extra`, which the default log formatter drops. Mirrors the
+    CLAUDE_CODE_OAUTH_TOKEN handling in run().
+    """
+    from lemoncrow.core.foundation.paths import default_store_root
+
+    host_store = default_store_root()
+    env: dict[str, str] = {}
+    for fname in _HOST_AUTH_FILES:
+        fpath = host_store / fname
+        if fpath.is_file():
+            env[_auth_file_env_key(fname)] = base64.b64encode(fpath.read_bytes()).decode("ascii")
+    return env
+
+
 def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
     """Shell command that writes the host's cached LemonCrow auth files into
-    the container at ``root_dir`` (a no-op mkdir if the host has none).
+    the container at ``root_dir`` (a no-op mkdir if the host has none). Reads
+    each file's payload out of the env vars from _lemoncrow_auth_files_env --
+    callers MUST pass that dict as this exec's ``env=``.
 
     LEMONCROW_AUTH_TOKEN alone is NOT enough: the compiled cap-verdict gate
     (``lemoncrow.pro.capabilities.licensing_gate.resolve_cap_verdict``) resolves
@@ -110,9 +143,9 @@ def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
         fpath = host_store / fname
         if not fpath.is_file():
             continue
-        data = base64.b64encode(fpath.read_bytes()).decode("ascii")
         dest = f"{root_dir.rstrip('/')}/{fname}"
-        parts.append(f"echo {shlex.quote(data)} | base64 -d > {shlex.quote(dest)} && chmod 600 {shlex.quote(dest)}")
+        key = _auth_file_env_key(fname)
+        parts.append(f'echo "${key}" | base64 -d > {shlex.quote(dest)} && chmod 600 {shlex.quote(dest)}')
     return " && ".join(parts)
 
 
@@ -435,6 +468,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         await self.exec_as_agent(
             environment,
             command=_lemoncrow_auth_files_write_cmd("/home/agent/.lemoncrow"),
+            env=_lemoncrow_auth_files_env(),
         )
         # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login:
         # this is an unattended container -- never block on / pop an interactive
@@ -654,6 +688,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         await self.exec_as_root(
             environment,
             command=_lemoncrow_auth_files_write_cmd("/root/.lemoncrow"),
+            env=_lemoncrow_auth_files_env(),
         )
         # Init the LemonCrow store under a root-owned LEMONCROW_ROOT (the agent and
         # its MCP server both run as root). /app is already root-owned, so the
