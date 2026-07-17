@@ -21,7 +21,7 @@ Read-only explorer: locate the code that answers the question, cite it by stable
 ## Tool discipline
 
 - **Read-only — `bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
-- **Known path → `read`; `bash` = execution only.** Start with `code_search`; never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
+- **Known path → straight to `read`, no `code_search`.** Task, error, or stack trace already names the file — don't explore first; otherwise start with `code_search`. Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - Batch independent reads/searches in one turn; serialize only dependencies.
 
 Host tools disabled — use lc: `bash`, `read`, `code_search`.
