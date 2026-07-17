@@ -85,6 +85,8 @@ and callees. Live mode adds glow, edge flow, and camera-follow from the local
 run ledger; switching it off leaves the same zoomable, clickable graph in
 place. Raw source, diffs, stdout, and stderr never enter the map feed.
 
+![LemonCrow source map: a full repository call graph with 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, one function focused to show its callers and callees.](docs/assets/screenshots/map.jpg)
+
 ### What actually gets replaced
 
 On Claude Code, `lc init` gives the agent five grounded tools and hides the

@@ -1007,10 +1007,12 @@ export default function Analytics() {
   }, [data]);
 
   const agents = useMemo(() => {
+    // Options must be drawn from `agent` — that's the field both the client
+    // filter (item.agent) and the server param (analyticsSummary agent=) match
+    // against. Populating from `host` produced options that matched no row.
     const set = new Set<string>();
     data.forEach((d) => {
-      const host = d.host || d.agent;
-      if (host) set.add(host);
+      if (d.agent) set.add(d.agent);
     });
     return Array.from(set).sort();
   }, [data]);

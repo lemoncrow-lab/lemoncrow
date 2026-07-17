@@ -180,7 +180,7 @@ describe("CodeMap", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Source map" })
+      await screen.findByRole("heading", { name: "Universe" })
     ).toBeInTheDocument();
     expect(await screen.findByText("320 indexed symbols")).toBeInTheDocument();
     expect(screen.getByText("40 tracked files")).toBeInTheDocument();

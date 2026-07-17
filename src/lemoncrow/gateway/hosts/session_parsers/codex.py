@@ -846,10 +846,13 @@ class CodexImporter:
                 if reasoning_text:
                     reasoning_snippets.append(redact(reasoning_text[:500]))
 
-            # Session meta: flat object with no "type" field
-            if ev_type is None and "id" in ev and "timestamp" in ev and not first_ts_set:
-                created_at = _parse_ts(ev.get("timestamp"))
-                first_ts_set = True
+            # Session meta: flat object with no "type" field. The generic
+            # timestamp handler above may already have set first_ts_set for this
+            # same line, so extract cwd/workspace_path independent of that flag.
+            if ev_type is None and "id" in ev and "timestamp" in ev:
+                if not first_ts_set:
+                    created_at = _parse_ts(ev.get("timestamp"))
+                    first_ts_set = True
                 cwd = ev.get("cwd")
                 if cwd:
                     workspace_path = str(cwd)

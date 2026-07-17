@@ -101,7 +101,7 @@ def _normalize_path(raw: str) -> str:
         cwd_norm = cwd.rstrip("/") + "/"
         if path.startswith(cwd_norm):
             path = path[len(cwd_norm) :]
-    return path.lstrip("./").strip("/") if path not in (".", "/") else path
+    return os.path.normpath(path).strip("/") if path not in (".", "/") else path
 
 
 def _iter_credited(item: Any) -> list[str]:

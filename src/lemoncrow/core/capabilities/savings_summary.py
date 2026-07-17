@@ -146,7 +146,14 @@ def claude_transcript_candidates(session_id: str) -> list[Path]:
     except Exception:
         logging.exception("Recovered from broad exception handler")
         return []
-    return sorted((p for p in paths if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def _mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return sorted((p for p in paths if p.is_file()), key=_mtime, reverse=True)
 
 
 _CTX_TAIL_BYTES = 65536
@@ -2933,7 +2940,15 @@ def aggregate_savings_since_day(
         "output_saved_usd": 0.0,
     }
     last_day: str | None = None
-    for entry in agg.get("sessions", {}).values():
+    for key, entry in agg.get("sessions", {}).items():
+        # Skip the "_reconcile/ledger-gap" self-heal placeholder (see
+        # plugin_runtime._RECONCILE_HOST): it's a synthetic account-watermark
+        # patch, not a real session's savings, and can be orders of magnitude
+        # larger than any real day -- folding it in here would blow past the
+        # public rollup server's per-post $ cap and permanently wedge this
+        # flush (failed posts keep the old checkpoint and retry forever).
+        if key.split("/")[-2:-1] == ["_reconcile"]:
+            continue
         for day, vals in (entry.get("days") or {}).items():
             if day >= today or day <= since_day:
                 continue

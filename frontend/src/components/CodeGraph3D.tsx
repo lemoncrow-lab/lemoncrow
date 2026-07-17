@@ -122,6 +122,8 @@ export default function CodeGraph3D({
   const activityRef = useRef(activityByNode);
   const onSelectRef = useRef(onSelect);
   const onExpandRef = useRef(onExpand);
+  // frames render only when this is set (or the controls report movement)
+  const dirtyRef = useRef(true);
   onSelectRef.current = onSelect;
   onExpandRef.current = onExpand;
   const [failed, setFailed] = useState(false);
@@ -168,12 +170,14 @@ export default function CodeGraph3D({
     }
     colorAttr.needsUpdate = true;
     sizeAttr.needsUpdate = true;
+    dirtyRef.current = true;
   };
 
   // rebuild the highlighted caller/callee lines for the current selection
   const paintIncident = () => {
     const scene = sceneRef.current;
     if (!scene) return;
+    dirtyRef.current = true;
     if (incidentRef.current) {
       scene.remove(incidentRef.current);
       incidentRef.current.geometry.dispose();
@@ -226,6 +230,7 @@ export default function CodeGraph3D({
   const buildGlobalEdges = () => {
     const scene = sceneRef.current;
     if (!scene) return;
+    dirtyRef.current = true;
     if (globalEdgesRef.current) {
       scene.remove(globalEdgesRef.current);
       globalEdgesRef.current.geometry.dispose();
@@ -297,6 +302,7 @@ export default function CodeGraph3D({
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(1, h);
       camera.updateProjectionMatrix();
+      dirtyRef.current = true;
     };
     resize();
     const resizeObserver = new ResizeObserver(resize);
@@ -313,41 +319,64 @@ export default function CodeGraph3D({
       }
       paint();
       paintIncident();
+      dirtyRef.current = true;
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
 
-    // picking
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points = { threshold: 3.5 };
-    const pointer = new THREE.Vector2();
+    // picking: hit-test in screen space against each point's rendered radius
+    // and keep the frontmost match, so a node visually hidden behind the one
+    // under the cursor can never win the hover/click
+    const view = new THREE.Vector3();
     let downX = 0;
     let downY = 0;
     const pick = (clientX: number, clientY: number): number | null => {
       const points = pointsRef.current;
-      if (!points) return null;
+      const data = dataRef.current;
+      if (!points || !data.length) return null;
       const rect = renderer.domElement.getBoundingClientRect();
-      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(points);
-      if (!hits.length) return null;
-      // pick the point nearest the cursor ray (not just the frontmost within
-      // the threshold), so the selected node is the one under the pointer
-      let best = hits[0];
-      for (const hit of hits) {
-        if ((hit.distanceToRay ?? Infinity) < (best.distanceToRay ?? Infinity))
-          best = hit;
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      const sizes = (
+        points.geometry.getAttribute("size") as THREE.BufferAttribute
+      ).array as Float32Array;
+      // shader emits gl_PointSize = size * 320 / -viewZ in device pixels
+      const halfCss = 0.5 / renderer.getPixelRatio();
+      camera.updateMatrixWorld();
+      let bestIdx: number | null = null;
+      let bestDepth = Infinity;
+      for (let i = 0; i < data.length; i += 1) {
+        const node = data[i];
+        view
+          .set(node.x, node.y, node.z)
+          .applyMatrix4(camera.matrixWorldInverse);
+        if (view.z >= 0) continue;
+        const depth = -view.z;
+        if (depth >= bestDepth) continue;
+        const radius = Math.max(((sizes[i] * 320) / depth) * halfCss + 2, 4);
+        view.applyMatrix4(camera.projectionMatrix);
+        if (view.z < -1 || view.z > 1) continue;
+        const dx = ((view.x + 1) / 2) * rect.width - px;
+        const dy = ((1 - view.y) / 2) * rect.height - py;
+        if (dx * dx + dy * dy > radius * radius) continue;
+        bestDepth = depth;
+        bestIdx = i;
       }
-      return best.index ?? null;
+      return bestIdx;
+    };
+    const hideTip = () => {
+      const tip = tooltipRef.current;
+      if (tip) tip.style.display = "none";
+      renderer.domElement.style.cursor = "";
     };
     const onDown = (event: PointerEvent) => {
       downX = event.clientX;
       downY = event.clientY;
     };
     const onUp = (event: PointerEvent) => {
+      if (event.button !== 0) return;
       if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return;
       const idx = pick(event.clientX, event.clientY);
       if (idx === null) onSelectRef.current(null);
@@ -360,13 +389,19 @@ export default function CodeGraph3D({
     const onMove = (event: PointerEvent) => {
       const tip = tooltipRef.current;
       if (!tip) return;
+      if (event.buttons !== 0) {
+        // orbiting or panning — no hover labels mid-drag
+        hideTip();
+        return;
+      }
       const idx = pick(event.clientX, event.clientY);
       if (idx === null) {
-        tip.style.display = "none";
+        hideTip();
         return;
       }
       const node = dataRef.current[idx];
       const rect = container.getBoundingClientRect();
+      renderer.domElement.style.cursor = "pointer";
       tip.style.display = "block";
       tip.style.left = `${event.clientX - rect.left + 12}px`;
       tip.style.top = `${event.clientY - rect.top + 12}px`;
@@ -376,12 +411,16 @@ export default function CodeGraph3D({
     renderer.domElement.addEventListener("pointerup", onUp);
     renderer.domElement.addEventListener("dblclick", onDouble);
     renderer.domElement.addEventListener("pointermove", onMove);
+    renderer.domElement.addEventListener("pointerleave", hideTip);
 
     let raf = 0;
     const animate = () => {
       raf = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+      const moved = controls.update();
+      if (moved || dirtyRef.current) {
+        dirtyRef.current = false;
+        renderer.render(scene, camera);
+      }
     };
     animate();
 
@@ -393,6 +432,7 @@ export default function CodeGraph3D({
       renderer.domElement.removeEventListener("pointerup", onUp);
       renderer.domElement.removeEventListener("dblclick", onDouble);
       renderer.domElement.removeEventListener("pointermove", onMove);
+      renderer.domElement.removeEventListener("pointerleave", hideTip);
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentElement === container)
@@ -529,6 +569,7 @@ export default function CodeGraph3D({
     const dir = camera.position.clone().sub(target).normalize();
     camera.position.copy(target.clone().add(dir.multiplyScalar(120)));
     controls.update();
+    dirtyRef.current = true;
   }, [followNodeId]);
 
   // distance so a sphere of `radius` fits BOTH viewport dimensions (the wide
@@ -561,6 +602,7 @@ export default function CodeGraph3D({
     camera.far = dist * 10;
     camera.updateProjectionMatrix();
     controls.update();
+    dirtyRef.current = true;
   };
 
   if (failed) {

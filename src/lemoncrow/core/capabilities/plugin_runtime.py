@@ -3381,7 +3381,7 @@ def _codex_error_signature(command: str, error: str) -> str:
 
 
 def _codex_cache_bash(root: str | Path, command: str, stdout: str, stderr: str, rc: int | None) -> None:
-    if os.environ.get("LEMONCROW_CACHE_DISABLED") == "1":
+    if str(os.environ.get("LEMONCROW_CACHE_DISABLED") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return
     try:
         from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability

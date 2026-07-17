@@ -78,7 +78,7 @@ def _registered_mcp_pid_is_live(pid: int) -> bool:
     except OSError:
         return False
     text = " ".join(part.decode("utf-8", errors="ignore") for part in parts)
-    return ("lc" in text or "lc" in text) and "mcp" in text
+    return ("lemoncrow" in text or "lc" in text) and "mcp" in text
 
 
 def discover_workspaces() -> list[Path]:

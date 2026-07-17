@@ -265,7 +265,7 @@ export default function CodeMap() {
       .catch(() => {
         setProjects([]);
         setProjectsError(
-          "Source-map API unavailable. Restart the dashboard service, then reopen Map."
+          "Universe API unavailable. Restart the dashboard service, then reopen Map."
         );
       })
       .finally(() => setProjectsLoaded(true));
@@ -606,7 +606,7 @@ export default function CodeMap() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h2 className="text-lg font-semibold text-neutral-100">
-                  Source map
+                  Universe
                 </h2>
                 <span className="truncate text-xs text-neutral-400">
                   {full?.project.label ?? "local index"}
@@ -757,7 +757,7 @@ export default function CodeMap() {
       {loading ? (
         <div className="flex min-h-[560px] items-center justify-center gap-3 text-sm text-neutral-300">
           <Loader2 className="animate-spin text-brand-300" size={18} /> Building
-          the local source map…
+          the local universe…
         </div>
       ) : !full?.graph.nodes.length ? (
         <div className="flex min-h-[560px] items-center justify-center px-6">

@@ -198,7 +198,7 @@ def register_mcp_http(
             )
         try:
             body = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, RecursionError):
             # JSON-RPC over HTTP intentionally returns 200 with a JSON-RPC error
             # body (test_parse_error_returns_jsonrpc_error), so keep the status;
             # just don't echo the parser's exception text back to the client.

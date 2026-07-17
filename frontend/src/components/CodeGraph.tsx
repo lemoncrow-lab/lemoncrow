@@ -541,7 +541,7 @@ export default function CodeGraph({
         ref={containerRef}
         className="absolute inset-0"
         role="img"
-        aria-label={`Interactive source map showing ${nodes.length} nodes and ${edges.length} relationships. Drag to pan, scroll to zoom, click a node to inspect, double-click to focus its callers and callees.`}
+        aria-label={`Interactive universe showing ${nodes.length} nodes and ${edges.length} relationships. Drag to pan, scroll to zoom, click a node to inspect, double-click to focus its callers and callees.`}
       />
       {computing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center gap-3 bg-surface-sunken text-sm text-neutral-300">

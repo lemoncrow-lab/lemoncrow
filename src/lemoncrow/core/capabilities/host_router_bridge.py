@@ -98,7 +98,12 @@ def evaluate_host_router_request(
     requested_model = model.strip() or active_model()
     requested_provider = _provider_for_model(requested_model)
     task_text = _task_text(messages or [], system=system)
-    enforcement_active = config.mode == "enforced" and str(source.get(_ENFORCEMENT_FLAG) or "") == "1"
+    enforcement_active = config.mode == "enforced" and str(source.get(_ENFORCEMENT_FLAG) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     recommendation: dict[str, Any] = {}
     recommendation_error = ""
     if config.mode != "disabled" and task_text:

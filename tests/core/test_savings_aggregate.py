@@ -274,3 +274,24 @@ def test_turn_cut_rows_populate_turns_avoided(tmp_path: Path) -> None:
     assert last_day == _iso(yday)[:10]
     assert totals["turns_avoided"] == 7
     assert totals["calls_avoided"] == 9  # 2 tool calls + 7 turn_cut credit
+
+
+def test_aggregate_savings_since_day_excludes_reconcile_ledger_gap(tmp_path: Path) -> None:
+    """The "_reconcile/ledger-gap" self-heal placeholder (see
+    plugin_runtime._RECONCILE_HOST) is a synthetic account-watermark patch,
+    not a real session's savings. It must never leak into the public daily
+    rollup total -- it can dwarf a real day's total and would blow past the
+    rollup server's per-post $ cap, permanently wedging the flush."""
+    from lemoncrow.core.capabilities.savings_summary import aggregate_savings_since_day
+
+    root = tmp_path / ".lemoncrow"
+    yday = NOW - DAY
+    _append(root, "real-session", [_row(yday, 1000, 12.5, calls=3)])
+
+    gap_dir = root / "sessions" / "_reconcile" / "ledger-gap"
+    gap_dir.mkdir(parents=True, exist_ok=True)
+    (gap_dir / "savings.jsonl").write_text(_row(yday, 1, 2786.52, calls=0) + "\n", encoding="utf-8")
+
+    totals, last_day = aggregate_savings_since_day(root, since_day="2000-01-01", today=_iso(NOW)[:10])
+    assert last_day == _iso(yday)[:10]
+    assert totals["saved_usd"] == pytest.approx(12.5)
