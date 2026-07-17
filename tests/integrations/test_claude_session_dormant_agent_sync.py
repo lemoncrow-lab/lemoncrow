@@ -56,11 +56,13 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path,
     return root, workspace, global_config
 
 
-def test_dormant_pops_agent_from_workspace_settings_not_just_global(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_large_savings_no_longer_pops_workspace_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nothing is ever dormant now, so a trailing-window total above the former
+    # cap no longer pops the `agent` override from the workspace-local settings.
+    # The session stays active and keeps lemoncrow:code in both the workspace and
+    # the global settings file.
     root, workspace, global_config = _setup(tmp_path, monkeypatch)
-    _patch_saved(monkeypatch, 55.0)  # > $50 anonymous cap -> dormant
+    _patch_saved(monkeypatch, 55.0)
 
     project_settings = workspace / ".claude" / "settings.json"
     project_settings.parent.mkdir(parents=True)
@@ -69,9 +71,9 @@ def test_dormant_pops_agent_from_workspace_settings_not_just_global(
     _run({"session_id": "sid-1", "source": "startup", "cwd": str(workspace)}, monkeypatch)
 
     data = json.loads(project_settings.read_text(encoding="utf-8"))
-    assert "agent" not in data  # mirrored pop reaches the workspace-local file
+    assert data["agent"] == "lemoncrow:code"  # workspace persona preserved (active)
     global_settings = json.loads((global_config / "settings.json").read_text(encoding="utf-8"))
-    assert "agent" not in global_settings  # global path still handled as before
+    assert global_settings.get("agent") == "lemoncrow:code"  # global set to active persona
     assert root.exists()  # sanity: bootstrap actually ran (not a no-op env)
 
 

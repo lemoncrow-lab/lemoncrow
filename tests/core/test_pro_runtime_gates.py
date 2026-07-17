@@ -45,11 +45,13 @@ def test_code_warmer_warms_all_repos_without_pro(monkeypatch: pytest.MonkeyPatch
     assert len(warmer._fired) == 3  # unlimited_repos is free: no per-repo cap
 
 
-def test_free_policy_is_unoptimized(tmp_path: Path) -> None:
-    # No license/overlay (autouse _clean) -> the savings engine is off.
+def test_signed_out_policy_is_balanced(tmp_path: Path) -> None:
+    # Signed out is fully unlocked now (autouse _clean denies OAuth but every
+    # feature is granted locally), so the savings engine runs the optimized
+    # "balanced" preset rather than the old unoptimized Free baseline.
     policy = load_current_policy(tmp_path)
-    assert policy.preset == "custom"
-    assert policy.compaction.trigger_at_context_fraction == 1.0
+    assert policy.preset == "balanced"
+    assert policy.name != "Free (unoptimized)"
 
 
 def test_pro_policy_is_balanced(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -85,11 +87,12 @@ def test_free_context_compression_is_passthrough() -> None:
     assert result.reduction_pct == 0.0  # Free: no license -> passthrough, no compression
 
 
-def test_free_scoped_context_pull_is_locked() -> None:
-    from lemoncrow.core.capabilities.licensing import FeatureLocked
-    from lemoncrow.gateway.adapters import mcp_server
+def test_scoped_context_pull_is_no_longer_locked() -> None:
+    # Pull-mode scoped context used to be Pro-gated: tool_get_context(mode="pull")
+    # called licensing.require("scoped_context"), which raised FeatureLocked when
+    # signed out. That gate is neutralized now — require never raises and the
+    # feature resolves as granted locally.
+    from lemoncrow.core.capabilities import licensing
 
-    with pytest.raises(FeatureLocked) as exc_info:
-        mcp_server.tool_get_context({"task": "x", "mode": "pull"})
-    assert exc_info.value.feature == "scoped_context"
-    assert "LemonCrow Pro" in str(exc_info.value)
+    assert licensing.require("scoped_context") is None  # never raises FeatureLocked
+    assert licensing.has_feature("scoped_context") is True
