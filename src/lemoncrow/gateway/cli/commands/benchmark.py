@@ -537,7 +537,13 @@ def benchmark_harbor_cmd(
         click.confirm("Start run?", abort=True)
 
     # ── Build harbor run command ────────────────────────────────────────────
-    mounts = [{"type": "bind", "source": repo_root_str, "target": "/lemoncrow", "read_only": True}]
+    # No source-repo bind mount: the claude-code arm's install() reads the
+    # plugin dir out of the bundle's installed lemoncrow package (it's
+    # force-included in the wheel -- see pyproject.toml's
+    # [tool.hatch.build.targets.wheel.force-include]), not off a live
+    # working-tree mount. The other arms pip-install lemoncrow from PyPI and
+    # never touch a source mount at all.
+    mounts = []
     if agent_arm == "lemoncrow-claude-code":
         mounts.append(
             {"type": "bind", "source": str(bundle_path), "target": "/lemoncrow-bundle.tar.gz", "read_only": True}
