@@ -366,6 +366,47 @@ def test_lemoncrow_auth_files_write_cmd_includes_present_files_only(
     assert "/root/.lemoncrow/auth_user.json" not in cmd
 
 
+def test_lemoncrow_auth_files_write_cmd_never_embeds_secret_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the write command must read each file's payload out of an
+    env var, never embed the base64 data literally. harbor's
+    BaseInstalledAgent._exec logs command= verbatim into trial.log/job.log
+    (which `harbor upload` makes public) but only attaches env= as logging
+    `extra`, which the default log formatter drops -- so secrets baked into
+    command= leak into every job dir and any uploaded job, while secrets that
+    only travel through env= do not.
+    """
+    import base64
+
+    import lemoncrow.core.foundation.paths as paths_mod
+
+    store_dir = tmp_path / "host_store"
+    store_dir.mkdir()
+    secret_token = "super-secret-token-do-not-leak"
+    secret_json = '{"accessToken": "super-secret-access-token", "plan": "pro"}'
+    (store_dir / "auth_token").write_text(secret_token)
+    (store_dir / "auth.json").write_text(secret_json)
+    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
+
+    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
+    env = lemoncrow_agent._lemoncrow_auth_files_env()
+
+    # Neither the raw secrets nor their base64 encoding show up in the
+    # command string -- only the env var names they travel under.
+    assert secret_token not in cmd
+    assert secret_json not in cmd
+    assert base64.b64encode(secret_token.encode()).decode() not in cmd
+    assert base64.b64encode(secret_json.encode()).decode() not in cmd
+    assert "$LEMONCROW_AUTH_FILE_AUTH_TOKEN" in cmd
+    assert "$LEMONCROW_AUTH_FILE_AUTH_JSON" in cmd
+
+    # The env dict is where the payload actually lives, keyed to match.
+    assert base64.b64decode(env["LEMONCROW_AUTH_FILE_AUTH_TOKEN"]).decode() == secret_token
+    assert base64.b64decode(env["LEMONCROW_AUTH_FILE_AUTH_JSON"]).decode() == secret_json
+    assert "LEMONCROW_AUTH_FILE_AUTH_USER_JSON" not in env  # absent on host -- skipped
+
+
 def test_lemoncrow_auth_files_write_cmd_no_op_when_host_has_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
