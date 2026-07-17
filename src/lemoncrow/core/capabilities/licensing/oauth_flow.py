@@ -16,7 +16,6 @@ import hmac
 import http.server
 import json
 import logging
-import platform
 import secrets
 import socket
 import threading
@@ -121,7 +120,8 @@ def run_oauth_login(
 
     base = "http://localhost:4321" if dev_mode else "https://lemoncrow.com"
 
-    hostname = (platform.node() or "cli")[:100]
+    # Do not leak the real hostname; the optional account only needs a label.
+    hostname = "lemoncrow-cli"
     stable_device_id = load_or_create_device_id()
     callback_state = secrets.token_urlsafe(32)
     received: dict[str, str] = {}

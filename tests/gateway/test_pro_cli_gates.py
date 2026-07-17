@@ -39,12 +39,14 @@ GATED = [
 
 
 @pytest.mark.parametrize("args", GATED)
-def test_free_install_blocks_pro_cli(tmp_path: Path, args: tuple[str, ...]) -> None:
+def test_free_install_allows_formerly_pro_cli(tmp_path: Path, args: tuple[str, ...]) -> None:
+    # Open-source runtime: no feature is gated. Formerly-Pro commands are never
+    # blocked with an upsell (they may still fail for unrelated setup reasons).
     root = tmp_path / "a"
     init_store_at(str(root))
     res = _invoke(root, *args)
-    assert res.exit_code != 0
-    assert "LemonCrow Pro feature" in res.output
+    assert "LemonCrow Pro feature" not in res.output
+    assert "Unlock at" not in res.output
 
 
 def test_free_install_opens_recall(tmp_path: Path) -> None:

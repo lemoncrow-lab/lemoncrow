@@ -79,29 +79,28 @@ def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) 
     assert "seeded" not in res.output
 
 
-def test_init_requires_a_free_account(tmp_path: Path, monkeypatch) -> None:
+def test_init_runs_locally_without_an_account(tmp_path: Path, monkeypatch) -> None:
+    # Open-source runtime: init is fully local and never requires an account.
     monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     res = _invoke(tmp_path / "a", "init", "--no-seed", "--no-index")
-    assert res.exit_code != 0
-    assert "free LemonCrow account is required" in res.output
+    assert res.exit_code == 0, res.output
+    assert "store initialized" in res.output
+    assert "account is required" not in res.output
 
 
-def test_init_login_ctrl_c_continues_local_setup(tmp_path: Path, monkeypatch) -> None:
-    """Ctrl+C during the browser-login wait degrades to the --no-login path.
-
-    The account-free steps (store init, seed, code index) must still run and
-    the declined marker must be set; only project activation is skipped.
+def test_init_runs_locally_with_no_login_prompt(tmp_path: Path, monkeypatch) -> None:
+    """Open-source `lc init` is fully local: it never attempts a browser login,
+    and the account-free steps (store init, code index) run normally.
     """
-    from lemoncrow.core.capabilities.licensing.store import is_login_declined
     from lemoncrow.gateway.cli.commands import admin, code
 
     monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     monkeypatch.setattr(admin, "_is_interactive_terminal", lambda: True)
 
-    def _interrupted_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
-        raise KeyboardInterrupt
+    def _fail_if_login(*args: object, **kwargs: object) -> None:
+        raise AssertionError("lc init must never attempt a login")
 
-    monkeypatch.setattr(admin, "_oauth_login", _interrupted_login)
+    monkeypatch.setattr(admin, "_oauth_login", _fail_if_login)
     index_calls: list[object] = []
 
     def _fake_index(engine: object, **_kw: object) -> dict[str, int]:
@@ -114,10 +113,10 @@ def test_init_login_ctrl_c_continues_local_setup(tmp_path: Path, monkeypatch) ->
     res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "Aborted" not in res.output
-    assert "Login skipped" in res.output
+    assert "Login skipped" not in res.output
     assert "store initialized" in res.output
-    assert index_calls, "code index must still run after an aborted login"
-    assert is_login_declined()
+    assert "account is required" not in res.output
+    assert index_calls, "code index must still run"
 
 
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
@@ -317,9 +316,9 @@ def test_plugin_auth_status_share_and_settings_cli(tmp_path: Path) -> None:
     # fields that surface only once a key is pinned. See
     # tests/core/test_cap_verdict.py for the verified, signed-token case.
     assert json.loads(cap.output) == {
-        "cap_usd": 200.0,
+        "cap_usd": None,
         "over_cap": False,
-        "remaining_usd": 200.0,
+        "remaining_usd": None,
         "saved_usd": 0.0,
         "verified": None,
         "reason": None,

@@ -2741,74 +2741,25 @@ run_setup() {
         printf "  service:  %bhttp://localhost:${LEMONCROW_SERVICE_PORT:-8787}%b\n\n" "$C_PURPLE" "$C_RESET"
     fi
     
-    # Deferred, un-spun on purpose: `lemoncrow init` requires a LemonCrow account and
-    # opens an interactive browser login when none is found. Running it earlier
-    # under `spin` (which captures stdout via command substitution) breaks TTY
-    # detection, so login could never actually open — it just failed straight
-    # to the "run lemoncrow account loginnt login" error. Installation succeeds independent of this;
-    # only project activation needs it, so it only runs when a repo was
-    # detected, after the install is already reported complete.
-    #
-    # Also reconnect stdout/stderr to fd 7 (the real terminal, saved before the
-    # `exec > >(tee ...)` redirect above) instead of the tee pipe: the CLI's
-    # login-flow gate checks sys.stdout.isatty(), which is false through the
-    # pipe even when the script itself is fully interactive. Without this,
-    # `lc init` would deterministically hit the non-interactive error path on
-    # every fresh install and never actually offer the login flow.
+    # `lemoncrow init` registers this project locally. It runs fully offline with
+    # no account and no login prompt, so it is safe to run non-interactively.
+    # (stdout/stderr reconnect to fd 7 — the real terminal saved before the
+    # `exec > >(tee ...)` redirect — so init's output reaches the user directly.)
     local cli="lemoncrow"
     [[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
     if [[ -n "$index_target" ]]; then
         printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
             echo "[dry-run] $lemoncrow_cli init"
-        elif [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && "$LEMONCROW_NON_INTERACTIVE" != "1" ]]; then
-            "$lemoncrow_cli" init >&7 2>&7 || true
         else
-            printf "   Run '%s login' then '%s init' to activate this project.\n" "$cli" "$cli"
+            "$lemoncrow_cli" init >&7 2>&7 || true
         fi
         printf "\n"
     fi
 
-    # Anonymous accounts still get savings tracked, just capped; logging in
-    # removes the cap. Skip asking when already logged in (env token or
-    # ~/.lemoncrow/auth_token on disk) -- nothing to gain by asking, and
-    # `lemoncrow login` would just pop a redundant browser tab. Otherwise ask
-    # once, here, with the completion report already on screen -- not
-    # mid-spin, for the same TTY/isatty reasons documented above.
-    local _already_logged_in=0
-    if [[ -n "${LEMONCROW_AUTH_TOKEN:-}" || -s "${HOME}/.lemoncrow/auth_token" ]]; then
-        _already_logged_in=1
-    fi
-    if [[ "$_already_logged_in" == "1" ]]; then
-        :
-    elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] prompt: log in to save uncapped? (anonymous savings capped to \$100/month)"
-    elif [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && "$LEMONCROW_NON_INTERACTIVE" != "1" ]] && has_interactive_input; then
-        if supports_interactive_selector; then
-            local login_yn=1
-            interactive_single_select \
-                "Log in now to save uncapped?" \
-                login_yn \
-                0 \
-                "Yes - log in now" \
-                "No - cap my savings to \$100/month"
-            if [[ "$login_yn" == "0" ]]; then
-                "$lemoncrow_cli" login >&7 2>&7 || true
-            else
-                printf "   Savings capped to \$100.\n\n"
-            fi
-        else
-            local login_ans=""
-            printf "  ◇  Log in now to save uncapped? [y/N] "
-            IFS= read -r login_ans </dev/tty 2>/dev/null || login_ans=""
-            case "$login_ans" in
-                y | Y | yes | YES) "$lemoncrow_cli" login >&7 2>&7 || true ;;
-                *) printf "   Savings capped to \$100.\n\n" ;;
-            esac
-        fi
-    else
-        printf "%b💰 Savings tracking:%b capped to \$100/month (run '%s login' to remove the cap)\n\n" "$C_PURPLE" "$C_RESET" "$cli"
-    fi
+    # Open-source runtime: no account, no savings cap, and no login prompt.
+    # Local savings are tracked and shown regardless (see `lc session stats`).
+    printf "%b💰 Savings tracking:%b all local. '%s account login to opt in for online savings.\n\n" "$C_PURPLE" "$C_RESET" "$cli"
 
     local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
     code_display="${code_display/#$HOME/~}"

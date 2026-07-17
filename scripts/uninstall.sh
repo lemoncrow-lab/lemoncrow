@@ -190,6 +190,8 @@ purge_leftovers() {
     esac
 
     remove_path "${HOME}/.lemoncrow"
+    # Telemetry id + config live under XDG config, outside ~/.lemoncrow.
+    remove_path "${XDG_CONFIG_HOME:-${HOME}/.config}/lemoncrow"
 
     if [ -n "$install_dir" ]; then
         local script_root_real install_dir_real
@@ -257,6 +259,8 @@ if command -v lc &>/dev/null; then
             ;;
     esac
 
+    info "Removing LemonCrow background services (systemd user units / launchd agents)..."
+    run "lc background uninstall 2>/dev/null || true"
     info "Stopping LemonCrow background service controller..."
     run "lc servicectl stop --force 2>/dev/null || true"
     info "Stopping LemonCrow visualization stack..."
@@ -296,10 +300,21 @@ for cmd in lemoncrow lc lemoncrowd lcd; do
     fi
 done
 
+# Also remove LemonCrow symlinks from ~/.local/bin (created at install). Only
+# remove a symlink that points into the LemonCrow tree -- never clobber an
+# unrelated binary a user placed there.
+for cmd in lemoncrow lc lemoncrowd lcd; do
+    target="${HOME}/.local/bin/${cmd}"
+    if [ -L "$target" ]; then
+        link_dest="$(readlink "$target" 2>/dev/null || true)"
+        case "$link_dest" in
+            *lemoncrow*) run "rm -f $(printf %q "$target")"; info "Removed ${target}" ;;
+        esac
+    fi
+done
+
 # ---- remove PATH sentinel from shell profile --------------------------------
 _remove_path_sentinel() {
-    local sentinel_start="# >>> lemoncrow path setup >>>"
-    local sentinel_end="# <<< lemoncrow path setup <<<"
     local profile_file shell_name
 
     shell_name="$(basename "${SHELL:-bash}")"
@@ -312,10 +327,18 @@ _remove_path_sentinel() {
 
     [[ -f "$profile_file" ]] || return 0
 
-    if grep -qF "$sentinel_start" "$profile_file" 2>/dev/null; then
+    # Two installer variants write different markers: scripts/lib/common.sh uses
+    # the "path setup" pair; scripts/install.sh uses the bare marker. Remove both.
+    local -a starts=("# >>> lemoncrow path setup >>>" "# >>> lemoncrow >>>")
+    local -a ends=("# <<< lemoncrow path setup <<<" "# <<< lemoncrow <<<")
+    local i sentinel_start sentinel_end
+    for i in 0 1; do
+        sentinel_start="${starts[$i]}"
+        sentinel_end="${ends[$i]}"
+        grep -qF "$sentinel_start" "$profile_file" 2>/dev/null || continue
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] Remove LemonCrow PATH block from ${profile_file}"
-            return 0
+            echo "[dry-run] Remove LemonCrow PATH block (${sentinel_start}) from ${profile_file}"
+            continue
         fi
         local tmp_file in_block line
         tmp_file="$(mktemp)"
@@ -330,10 +353,57 @@ _remove_path_sentinel() {
             fi
         done < "$profile_file" > "$tmp_file"
         mv "$tmp_file" "$profile_file"
-        info "Removed LemonCrow PATH block from ${profile_file/#$HOME/~}"
-    fi
+        info "Removed LemonCrow PATH block (${sentinel_start}) from ${profile_file/#$HOME/~}"
+    done
 }
 _remove_path_sentinel
+
+# ---- remove LemonCrow git attribution hook from the workspace ---------------
+_remove_attribution_hook() {
+    local repo_dir="${1:-$PWD}"
+    local marker="# >>> lemoncrow attribution >>>"
+    local end_marker="# <<< lemoncrow attribution <<<"
+    git -C "$repo_dir" rev-parse --git-dir >/dev/null 2>&1 || return 0
+    local hooks_dir hook
+    hooks_dir="$(git -C "$repo_dir" rev-parse --git-path hooks 2>/dev/null)" || return 0
+    case "$hooks_dir" in /*) : ;; *) hooks_dir="${repo_dir}/${hooks_dir}" ;; esac
+    hook="${hooks_dir}/prepare-commit-msg"
+    [[ -f "$hook" ]] || return 0
+    grep -qF "$marker" "$hook" 2>/dev/null || return 0
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] Remove LemonCrow attribution block from ${hook}"
+        return 0
+    fi
+    local tmp in_block line
+    tmp="$(mktemp)"
+    in_block=0
+    while IFS= read -r line; do
+        if [[ "$line" == "$marker" ]]; then in_block=1
+        elif [[ "$line" == "$end_marker" ]]; then in_block=0
+        elif [[ "$in_block" == "0" ]]; then printf '%s\n' "$line"
+        fi
+    done < "$hook" > "$tmp"
+    # If only a shebang/blank lines remain, remove the hook entirely.
+    if [[ -z "$(grep -vE '^#!|^[[:space:]]*$' "$tmp")" ]]; then
+        run "rm -f $(printf %q "$hook")"
+        info "Removed LemonCrow attribution hook ${hook}"
+    else
+        mv "$tmp" "$hook"
+        chmod +x "$hook" 2>/dev/null || true
+        info "Removed LemonCrow attribution block from ${hook}"
+    fi
+    [[ -e "$tmp" ]] && run "rm -f $(printf %q "$tmp")"
+}
+
+# Clean the attribution hook from the workspace (explicit --workspace, else CWD).
+_uninstall_workspace="$PWD"
+_pt=("${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}")
+for ((_i = 0; _i < ${#_pt[@]}; _i++)); do
+    if [[ "${_pt[$_i]}" == "--workspace" && $((_i + 1)) -lt ${#_pt[@]} ]]; then
+        _uninstall_workspace="${_pt[$((_i + 1))]}"
+    fi
+done
+_remove_attribution_hook "$_uninstall_workspace"
 
 if [[ "$PURGE" == "1" ]]; then
     local_install_dir="${LEMONCROW_INSTALL_DIR:-$(install_dir_from_record)}"
@@ -364,6 +434,13 @@ if [[ "$PURGE" == "1" ]]; then
 fi
 
 printf "%b│%b\n" "$C_FRAME" "$C_RESET"
+if [[ "$PURGE" == "1" ]]; then
+    info "Removed: binaries, host integrations, background services, PATH entries, and all LemonCrow state (~/.lemoncrow, ~/.config/lemoncrow)."
+else
+    info "Removed: binaries, host integrations, background services, and PATH entries."
+    info "Preserved: your data in ~/.lemoncrow and ~/.config/lemoncrow (sessions, memory, index, config, installation id)."
+    info "Run 'bash scripts/uninstall.sh --purge' to also remove all LemonCrow state."
+fi
 info "Uninstall complete."
 
 if [[ -n "$DEFERRED_REMOVE_INSTALL_DIR" ]]; then
