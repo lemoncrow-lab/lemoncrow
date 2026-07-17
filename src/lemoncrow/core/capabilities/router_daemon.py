@@ -105,6 +105,18 @@ def _host_settings_path(host: str) -> Path:
     return Path(cfg) / "settings.json"
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write via a sibling temp file + os.replace so a concurrent reader/writer
+    (e.g. Claude Code editing the same settings.json) never sees a truncated file.
+
+    Mirrors ``core/settings.py`` ``_write_json``.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _wire_host(host: str, base_url: str) -> str | None:
     """Point the host at the proxy; return the prior ANTHROPIC_BASE_URL (or None)."""
     if host != "claude":
@@ -122,8 +134,7 @@ def _wire_host(host: str, base_url: str) -> str | None:
     env["ANTHROPIC_BASE_URL"] = base_url
     data["env"] = env
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _atomic_write_text(path, json.dumps(data, indent=2))
     except OSError:
         pass
     return prev
@@ -147,7 +158,7 @@ def _unwire_host(host: str, prev_base_url: str | None) -> None:
         env["ANTHROPIC_BASE_URL"] = prev_base_url
     data["env"] = env
     try:
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _atomic_write_text(path, json.dumps(data, indent=2))
     except OSError:
         pass
 
@@ -180,6 +191,15 @@ def start(
     current = status(root)
     if current.get("running"):
         return {**current, "already_running": True}
+    # A stale record can survive a dead proxy while the host is still wired to it.
+    # Load it so a re-start can preserve the *original* prev_base_url instead of
+    # re-reading the host settings (whose ANTHROPIC_BASE_URL is already the proxy).
+    try:
+        existing = json.loads(daemon_state_path(root).read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        existing = {}
+    if not isinstance(existing, dict):
+        existing = {}
     router_dir(root).mkdir(parents=True, exist_ok=True)
     cfg_path = litellm_config_path(root)
     cfg_path.write_text(_to_yaml(generate_litellm_config(root)), encoding="utf-8")
@@ -195,7 +215,15 @@ def start(
         "prev_base_url": None,
     }
     if wire_host:
-        record["prev_base_url"] = _wire_host(wire_host, base_url)
+        if existing.get("host_wired") == wire_host:
+            # Host is already wired to a prior proxy; re-reading its settings would
+            # capture the (now-dead) proxy URL as prev_base_url and strand the host
+            # there on stop. Re-point at the fresh proxy but carry forward the
+            # originally-saved prev_base_url.
+            _wire_host(wire_host, base_url)
+            record["prev_base_url"] = existing.get("prev_base_url")
+        else:
+            record["prev_base_url"] = _wire_host(wire_host, base_url)
         record["host_wired"] = wire_host
     daemon_state_path(root).write_text(json.dumps(record, indent=2), encoding="utf-8")
     return {"running": True, **record}

@@ -285,13 +285,23 @@ def _bulk_raw_artifact_fingerprints(store: StoreBundle, artifact_ids: set[str]) 
     """
     if not artifact_ids:
         return {}
-    placeholders = ",".join("?" for _ in artifact_ids)
+    # Chunk into batches well under SQLITE_MAX_VARIABLE_NUMBER (999 on older
+    # SQLite): a single ``IN (?,?,...)`` over up to limit*5 (~5000) ids raises
+    # OperationalError, 500-ing the whole /v1/sessions dashboard poll.
+    result: dict[str, tuple[str, int]] = {}
+    ids = list(artifact_ids)
     with sqlite3.connect(store.history.db_path) as conn:
-        rows = conn.execute(
-            f"SELECT id, source_file_mtime, byte_count_original FROM raw_artifacts WHERE id IN ({placeholders})",
-            list(artifact_ids),
-        ).fetchall()
-    return {row[0]: (row[1] or "", int(row[2] or -1)) for row in rows}
+        for start in range(0, len(ids), 900):
+            batch = ids[start : start + 900]
+            placeholders = ",".join("?" for _ in batch)
+            rows = conn.execute(
+                f"SELECT id, source_file_mtime, byte_count_original FROM raw_artifacts WHERE id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            # ``row[2] is not None`` (not ``or -1``) so a genuine 0-byte original
+            # maps to 0, not the -1 sentinel — else its import cache never hits.
+            result.update({row[0]: (row[1] or "", int(row[2]) if row[2] is not None else -1) for row in rows})
+    return result
 
 
 _SWARM_FILE_SKIP_DIRS = {
@@ -539,7 +549,10 @@ def _materialize_swarm_spec(
     if spec_mode == "inline" and spec_content is None:
         raise ValueError("inline swarm specs require spec_content")
     target, relative_path = _resolve_swarm_spec_target(project_root, spec_path)
-    if spec_content is not None:
+    # Only an *inline* request writes the spec. Gating on ``spec_content is not
+    # None`` alone let a ``spec_mode="existing"`` request with an empty/bound
+    # textarea value overwrite (blank out) the user's on-disk spec.
+    if spec_mode == "inline" and spec_content is not None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(spec_content, encoding="utf-8")
     resolved_spec_path, spec_resolution, used_program_md = resolve_swarm_spec_path(
@@ -947,6 +960,17 @@ def _filter_analytics_rows(
     return filtered
 
 
+# ~100 years — comfortably beyond any real analytics window, yet small enough
+# that ``datetime.now() - timedelta(days=_MAX_WINDOW_DAYS)`` stays in range. A
+# user-supplied ``days=1000000000`` otherwise raises OverflowError -> HTTP 500.
+_MAX_WINDOW_DAYS = 36600
+
+
+def _clamp_days(value: int) -> int:
+    """Clamp a user-supplied day/window count to a sane, non-overflowing range."""
+    return max(1, min(int(value), _MAX_WINDOW_DAYS))
+
+
 def _build_analytics_summary(rows: list[dict[str, Any]], *, days: int | None) -> dict[str, Any]:
     total_output_tokens = sum(
         int(row.get("output_tokens") or 0)
@@ -975,7 +999,21 @@ def _build_analytics_summary(rows: list[dict[str, Any]], *, days: int | None) ->
         sum(float(row.get("cost") or 0.0) for row in rows if row.get("event_type") in _BILLABLE_ANALYTICS_EVENTS),
         6,
     )
-    effective_days = max(1, days or 1)
+    if days is not None:
+        effective_days = max(1, days)
+    else:
+        # No explicit window: ``days or 1`` collapsed the span to 1 day, turning
+        # the projection into (all-time cost) x 30. Derive the real span from the
+        # row timestamps instead so the monthly estimate is meaningful.
+        stamps: list[datetime] = []
+        for row in rows:
+            for key in ("first_seen", "last_seen"):
+                raw = str(row.get(key) or "")
+                if raw:
+                    with contextlib.suppress(ValueError):
+                        stamps.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+        span_days = (max(stamps) - min(stamps)).days + 1 if stamps else 1
+        effective_days = max(1, span_days)
     estimated_monthly_cost = round(total_cost * (30 / effective_days), 6)
 
     tool_costs: defaultdict[str, float] = defaultdict(float)
@@ -1186,10 +1224,14 @@ def _query_analytics_rows(
     grouped: bool,
     days: int | None,
     limit: int,
+    agent: str | None = None,
+    model: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
 ) -> list[dict[str, Any]]:
     start_day = None
     if days is not None:
-        window_days = max(1, int(days))
+        window_days = _clamp_days(int(days))
         start_day = (datetime.now().astimezone().date() - timedelta(days=window_days - 1)).isoformat()
 
     params: list[Any] = []
@@ -1223,6 +1265,11 @@ def _query_analytics_rows(
                     payload,
                 )
             )
+
+    # Filter BEFORE applying the row limit: filtering the newest-N slice (as the
+    # callers used to) silently dropped matching rows that fell outside the most
+    # recent `limit` events, understating or zeroing filtered results.
+    events = _filter_analytics_rows(events, agent=agent, model=model, category=category, search=search)
 
     if grouped:
         return _group_analytics_rows(events, limit=limit)
@@ -1375,7 +1422,7 @@ def _trace_cache_leverage(trace: Trace) -> float:
 
 
 def _recent_traces(store: StoreBundle, *, window_days: int) -> list[Trace]:
-    cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
+    cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
     traces = store.history.list_traces(limit=5000)
     recent = [trace for trace in traces if _trace_created_at(trace) >= cutoff]
     return sorted(recent, key=_trace_created_at)
@@ -1556,7 +1603,7 @@ def _build_auto_optimizations(
     *,
     window_days: int,
 ) -> list[dict[str, Any]]:
-    start_day = datetime.now(UTC).date() - timedelta(days=max(1, window_days) - 1)
+    start_day = datetime.now(UTC).date() - timedelta(days=_clamp_days(window_days) - 1)
     per_lever = {
         str(key): int(value or 0)
         for key, value in (savings_payload.get("per_lever") or {}).items()
@@ -1650,7 +1697,7 @@ def _reread_kind(event: dict[str, Any]) -> str | None:
 
 
 def _build_reread_telemetry(root: Path, *, window_days: int) -> dict[str, Any]:
-    start_day = datetime.now(UTC).date() - timedelta(days=max(1, window_days) - 1)
+    start_day = datetime.now(UTC).date() - timedelta(days=_clamp_days(window_days) - 1)
     by_kind: dict[str, dict[str, Any]] = {}
     by_path: dict[str, dict[str, Any]] = {}
     total_tokens_saved = 0
@@ -1814,7 +1861,7 @@ def _live_event_datetime(event: dict[str, Any]) -> datetime | None:
 
 
 def _recent_live_model_recommendations(live_events: list[dict[str, Any]], *, window_days: int) -> list[dict[str, Any]]:
-    cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
+    cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
     rows: list[dict[str, Any]] = []
     for event in live_events:
         if event.get("kind") != "model_recommendation":
@@ -1844,7 +1891,7 @@ def _recent_live_model_recommendations(live_events: list[dict[str, Any]], *, win
 
 
 def _build_actual_routing_savings(live_events: list[dict[str, Any]], *, window_days: int) -> dict[str, Any]:
-    cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
+    cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
     calls_downtiered = 0
     total_cost_saved = 0.0
     by_tier: dict[str, dict[str, Any]] = {}
@@ -1940,7 +1987,7 @@ def _build_actual_routing_savings(live_events: list[dict[str, Any]], *, window_d
 
 
 def _build_compact_session_history(live_events: list[dict[str, Any]], *, window_days: int) -> list[dict[str, Any]]:
-    cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
+    cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
     rows: list[dict[str, Any]] = []
     for event in live_events:
         lever = _normalize_lever(str(event.get("lever") or event.get("kind") or ""))
@@ -2046,7 +2093,7 @@ def _savings_summary_payload(
     history = load_cost_history(root)
     ops = history.get("operations", {}) if isinstance(history, dict) else {}
     today = datetime.now(UTC).date()
-    start_day = today - timedelta(days=window_days - 1)
+    start_day = today - timedelta(days=_clamp_days(window_days) - 1)
 
     by_day_seed: dict[str, dict[str, int | str]] = {}
     for i in range(window_days):
@@ -2066,6 +2113,19 @@ def _savings_summary_payload(
         for call in calls:
             if not isinstance(call, dict):
                 continue
+            at_raw = str(call.get("at", ""))
+            try:
+                at_date = datetime.fromisoformat(at_raw.replace("Z", "+00:00")).date()
+            except Exception as exc:
+                logging.exception("Recovered from broad exception handler")
+                logger.debug("Bad timestamp %r in savings call, using today: %s", at_raw, exc)
+                at_date = today
+            # Skip calls outside the requested window BEFORE accumulating totals —
+            # otherwise the headline total_naive/total_actual/per_lever cover all
+            # history while the by_day chart is windowed, so they contradict each
+            # other (mirrors the live-events loop's own `at_date < start_day` guard).
+            if at_date < start_day:
+                continue
             input_tokens = int(call.get("input_tokens", 0) or 0)
             output_tokens = int(call.get("output_tokens", 0) or 0)
             cache_read_tokens = int(call.get("cache_read_tokens", 0) or 0)
@@ -2074,13 +2134,6 @@ def _savings_summary_payload(
             total_naive += naive
             total_actual += actual
             per_lever[_normalize_lever(str(call.get("operation", "unknown")))] += max(0, naive - actual)
-            at_raw = str(call.get("at", ""))
-            try:
-                at_date = datetime.fromisoformat(at_raw.replace("Z", "+00:00")).date()
-            except Exception as exc:
-                logging.exception("Recovered from broad exception handler")
-                logger.debug("Bad timestamp %r in savings call, using today: %s", at_raw, exc)
-                at_date = today
             day_key = at_date.isoformat()
             if day_key in by_day_seed:
                 by_day_seed[day_key]["naive"] = int(by_day_seed[day_key]["naive"]) + naive
@@ -2756,7 +2809,7 @@ def _optimization_lever_tokens(
 
 
 def _optimization_lever_cost(live_events: list[dict[str, Any]], *, lever: str, window_days: int) -> float:
-    cutoff = datetime.now(UTC) - timedelta(days=max(1, window_days))
+    cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
     total = 0.0
     for event in live_events:
         normalized = _normalize_lever(str(event.get("lever") or event.get("kind") or ""))
@@ -3142,6 +3195,20 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.middleware.gzip import GZipMiddleware
 
+    def _req_int(value: Any, field: str) -> int:
+        """Coerce a request value to int, answering 400 (not 500) on bad input."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{field} must be an integer") from None
+
+    def _req_dt(value: str, field: str) -> datetime:
+        """Parse an ISO-8601 request value, answering 400 (not 500) on bad input."""
+        try:
+            return datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{field} must be an ISO-8601 datetime") from None
+
     app = FastAPI(
         title="LemonCrow",
         description="Agent Reasoning Runtime API",
@@ -3226,7 +3293,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
         root = Path(cfg.lemoncrow_root)
         store = get_store()
-        since = datetime.now(UTC) - timedelta(days=days)
+        since = datetime.now(UTC) - timedelta(days=_clamp_days(days))
         summary = summarize(store, since=since)
 
         # Calculate tokens/cost from traces in database within the time window
@@ -3288,7 +3355,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
         store = get_store()
-        since = datetime.now(UTC) - timedelta(days=days) if days else None
+        since = datetime.now(UTC) - timedelta(days=_clamp_days(days)) if days else None
         traces = _list_traces_filtered(
             store,
             domain=domain,
@@ -3647,7 +3714,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         existing = mem.get_block(agent_id, label)
         if existing is None:
             value = str(payload.get("value", ""))
-            limit_chars = int(payload.get("limit_chars", 8000))
+            limit_chars = _req_int(payload.get("limit_chars", 8000), "limit_chars")
             if len(value) > limit_chars:
                 raise HTTPException(status_code=400, detail="value exceeds limit_chars")
             block = MemoryBlock(
@@ -3662,7 +3729,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             )
         else:
             expected_version = payload.get("expected_version")
-            if expected_version is not None and existing.version != int(expected_version):
+            if expected_version is not None and existing.version != _req_int(expected_version, "expected_version"):
                 raise HTTPException(
                     status_code=409,
                     detail=f"version conflict: expected {expected_version}, got {existing.version}",
@@ -3726,7 +3793,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         passages = mem.search_passages(
             agent_id,
             str(query),
-            top_k=int(payload.get("top_k", 5)),
+            top_k=_req_int(payload.get("top_k", 5), "top_k"),
             tags=list(payload.get("tags") or []) or None,
             since=since_dt,
         )
@@ -3825,7 +3892,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             manager.require_admin(user_id or None)
         except TeamPermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
-        since_dt = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else None
+        since_dt = _req_dt(since, "since").replace(tzinfo=UTC) if since else None
         return summarize_workspace_usage(store_path, manager=manager, since=since_dt)
 
     @app.get("/v1/governance/policy", tags=["governance"], dependencies=[Depends(verify_api_key)])
@@ -3873,7 +3940,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         except TeamPermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         since_raw = str(payload.get("since") or "").strip()
-        since_dt = datetime.fromisoformat(since_raw).replace(tzinfo=UTC) if since_raw else None
+        since_dt = _req_dt(since_raw, "since").replace(tzinfo=UTC) if since_raw else None
         result = export_audit_bundle(store_path, out_dir=Path(str(out_dir)), since=since_dt)
         manager.append_audit_event(
             TeamAuditEvent(
@@ -3949,8 +4016,14 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     def post_local_telemetry(payload: dict[str, Any]) -> dict[str, bool]:
         from lemoncrow.core.service.telemetry.local_store import LocalTelemetryStore
 
+        event = payload.get("event")
+        if not isinstance(event, str) or not event:
+            raise HTTPException(status_code=400, detail="event (non-empty string) is required")
+        props = payload.get("props", {})
+        if not isinstance(props, dict):
+            raise HTTPException(status_code=400, detail="props must be an object")
         store = LocalTelemetryStore()
-        store.write_event(event=payload["event"], props=payload["props"], exported=False)
+        store.write_event(event=event, props=props, exported=False)
         return {"ok": True}
 
     @app.get("/telemetry/summary", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
@@ -3988,8 +4061,8 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         to ensure 100% lossless session-level accuracy.
         """
         db_path = store.history.db_path
-        rows = _query_analytics_rows(db_path, grouped=grouped, days=days, limit=limit)
-        return _filter_analytics_rows(rows, agent=agent, category=category)
+        # Filters are applied inside _query_analytics_rows, before the row limit.
+        return _query_analytics_rows(db_path, grouped=grouped, days=days, limit=limit, agent=agent, category=category)
 
     @app.get("/analytics/summary", tags=["analytics"], dependencies=[Depends(verify_api_key)])
     def analytics_summary(
@@ -4001,9 +4074,18 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         grouped: bool = Query(True),
         days: int | None = Query(None),
     ) -> dict[str, Any]:
-        rows = _query_analytics_rows(store.history.db_path, grouped=grouped, days=days, limit=limit)
-        filtered = _filter_analytics_rows(rows, agent=agent, model=model, category=category, search=search)
-        return _build_analytics_summary(filtered, days=days)
+        # Filters are applied inside _query_analytics_rows, before the row limit.
+        rows = _query_analytics_rows(
+            store.history.db_path,
+            grouped=grouped,
+            days=days,
+            limit=limit,
+            agent=agent,
+            model=model,
+            category=category,
+            search=search,
+        )
+        return _build_analytics_summary(rows, days=days)
 
     @app.get("/analytics/dashboard", tags=["analytics"], dependencies=[Depends(verify_api_key)])
     def analytics_dashboard(
@@ -4016,7 +4098,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         top sessions, and tool-type distributions in one call.
         """
         db_path = store.history.db_path
-        start_day = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
+        start_day = (datetime.now().astimezone().date() - timedelta(days=_clamp_days(days) - 1)).isoformat()
         host_filter = "AND COALESCE(host, agent) = ?" if host else ""
         sql = f"""
             SELECT
@@ -4452,7 +4534,11 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         import html as _html
 
         meta = artifact.model_dump(mode="json")
-        meta_json = json.dumps(meta, default=str, indent=2)
+        # Escape ``</`` so a ``</script>`` inside the JSON literal can't break out
+        # of the inline <script> below (json.dumps does NOT escape '/'). Without
+        # this, artifact content containing ``</script><img src=x onerror=...>``
+        # executes on the API origin — stored XSS.
+        meta_json = json.dumps(meta, default=str, indent=2).replace("</", "<\\/")
 
         line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
 
@@ -4470,8 +4556,10 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                     pass
         is_jsonl = non_empty > 0 and (json_lines / non_empty) >= 0.8
 
-        # Escape content as a JS-safe string via JSON
-        content_js = json.dumps(content)
+        # Escape content as a JS-safe string via JSON. ``</`` → ``<\/`` so a
+        # ``</script>`` in the artifact body can't terminate the inline <script>
+        # and inject markup (json.dumps does not escape '/'). See meta_json above.
+        content_js = json.dumps(content).replace("</", "<\\/")
 
         short_id = artifact.id[:24] + "…" if len(artifact.id) > 24 else artifact.id
 
@@ -6257,7 +6345,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         if since.endswith("d"):
             with contextlib.suppress(ValueError):
                 days = int(since[:-1])
-        cutoff = datetime.now(UTC) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(days))
 
         files = _cached_list_run_files(root, days=days, cutoff=cutoff)
         results: list[dict[str, Any]] = []
@@ -6418,11 +6506,15 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "raw_meta": fact.raw_meta,
         }
 
-    # 60-second LRU cache — keyed on (since, root_str)
+    # 60-second LRU cache keyed on (since, root_str, time_bucket). The time
+    # bucket shards the cache per TTL window so a stale entry simply misses
+    # (recomputing only THAT window) and the LRU maxsize bounds growth — instead
+    # of a manual timestamp dict that grew unbounded per distinct user `since`
+    # value and a cache_clear() that wiped every window on any one's expiry.
     import functools
 
-    @functools.lru_cache(maxsize=32)
-    def _cached_insights(since_str: str, root_str: str) -> dict[str, Any]:
+    @functools.lru_cache(maxsize=64)
+    def _cached_insights(since_str: str, root_str: str, _bucket: int) -> dict[str, Any]:
         from datetime import timedelta
 
         from lemoncrow.pro.runtime.insights import build_insights
@@ -6433,7 +6525,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             with contextlib.suppress(ValueError):
                 days = int(since_str[:-1])
         now = datetime.now(UTC)
-        since_dt = now - timedelta(days=days)
+        since_dt = now - timedelta(days=_clamp_days(days))
         window = build_insights(root, since=since_dt, until=now)
         return {
             "since": window.since.isoformat(),
@@ -6474,19 +6566,16 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     import time as _time
 
-    _insights_cache_timestamps: dict[str, float] = {}
     _INSIGHTS_CACHE_TTL = 60.0
 
     @app.get("/v1/insights", tags=["insights"], dependencies=[Depends(verify_api_key)])
     def get_insights(since: str = Query("7d")) -> dict[str, Any]:
         """Weekly insights window — cost, top sessions, opportunities. Cached 60s."""
         root_str = str(cfg.lemoncrow_root)
-        cache_key = f"{since}:{root_str}"
-        now_ts = _time.monotonic()
-        if _insights_cache_timestamps.get(cache_key, 0) + _INSIGHTS_CACHE_TTL < now_ts:
-            _cached_insights.cache_clear()
-            _insights_cache_timestamps[cache_key] = now_ts
-        return _cached_insights(since, root_str)
+        # Integer TTL bucket: entries older than one TTL fall in a prior bucket
+        # (natural miss) and drop out of the LRU; each window keeps its own TTL.
+        bucket = int(_time.monotonic() // _INSIGHTS_CACHE_TTL)
+        return _cached_insights(since, root_str, bucket)
 
     @app.get(
         "/v1/outcomes/summary",
@@ -6505,7 +6594,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         if since.endswith("d"):
             with contextlib.suppress(ValueError):
                 days = int(since[:-1])
-        cutoff = datetime.now(UTC) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(days))
 
         files = list_run_files(root, since=cutoff)
         route_scores: list[float] = []
