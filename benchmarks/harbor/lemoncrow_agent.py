@@ -682,11 +682,21 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # dir ships every agent persona + the full skill list into the system
         # prompt on every turn, dead prefix weight this benchmark never
         # exercises (mirrors benchmarks/codebench/run.py's _lean_plugin_root).
+        # Plugin source comes out of the bundle's *installed* lemoncrow package
+        # (integrations/ is force-included in the wheel -- see pyproject.toml's
+        # [tool.hatch.build.targets.wheel.force-include]), not a live source
+        # bind mount -- harbor run no longer mounts the working tree at
+        # /lemoncrow at all.
         await self.exec_as_root(
             environment,
             command=(
+                "PLUGIN_SRC=\"$(/opt/lemoncrow-venv/bin/python -c '"
+                "import os, lemoncrow; print(os.path.join(os.path.dirname(lemoncrow.__file__), "
+                '"integrations", "claude", "plugin"'
+                "))'"
+                ')" && '
                 "rm -rf /opt/lemoncrow-plugin-lean && "
-                "cp -r /lemoncrow/integrations/claude/plugin /opt/lemoncrow-plugin-lean && "
+                'cp -r "$PLUGIN_SRC" /opt/lemoncrow-plugin-lean && '
                 "find /opt/lemoncrow-plugin-lean/agents -maxdepth 1 -name '*.md' ! -name 'solve.md' -delete && "
                 "rm -rf /opt/lemoncrow-plugin-lean/skills"
             ),
