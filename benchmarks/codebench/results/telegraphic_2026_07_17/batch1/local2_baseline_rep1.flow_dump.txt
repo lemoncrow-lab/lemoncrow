@@ -1,0 +1,130 @@
+
+=== Turn 1 ===
+[user] <session>
+Explain database connection pooling.
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Explain database connection pooling"}
+[usage] input=523 cache_read=0 cache_write=0 output=14
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] Database connection pooling is a technique for **reusing a set of established database connections** rather than opening and closing a new one for every query. Here's the full picture.
+
+## The problem it solves
+
+Opening a database connection is expensive. Each new connection typically requires:
+
+1. A TCP handshake (and TLS negotiation if encrypted)
+2. Authentication (username/password, certificate validation)
+3. Session/backend setup on the database server (memory allocation, process/thread spawn)
+
+This can take anywhere from a few milliseconds to tens of milliseconds — often far longer than the query itself. If your web app opens a fresh connection on every HTTP request, you pay this cost repeatedly and can exhaust the database's connection limit under load.
+
+## How pooling works
+
+A **pool** is a cache of open, ready-to-use connections maintained by your application (or a middleware layer):
+
+```
+App code  ──borrow──▶  ┌─────────────────┐  ──▶  Database
+          ◀─return───  │  Connection Pool │
+                       │  [conn1] [conn2] │
+                       │  [conn3] [conn4] │
+                       └─────────────────┘
+```
+
+The lifecycle:
+
+1. **On startup**, the pool opens a minimum number of connections.
+2. When code needs the database, it **borrows** (checks out) an idle connection instead of creating one.
+3. After the query/transaction completes, the connection is **returned** to the pool — *not* closed — and reset to a clean state for the next user.
+4. If all connections are busy, new requests either **wait** in a queue or trigger creation of a new connection (up to a max).
+
+## Key configuration parameters
+
+| Parameter | What it controls |
+|-----------|------------------|
+| **Min / initial size** | Connections kept warm even when idle |
+| **Max size** | Ceiling on total connections (protects the DB) |
+| **Acquire/checkout timeout** | How long a caller waits for a free connection before erroring |
+| **Idle timeout** | Close connections unused for too long, to free resources |
+| **Max lifetime** | Retire connections after a set age (avoids stale/leaked server-side state) |
+| **Validation / test query** | Verify a connection is still alive before handing it out |
+
+## Sizing the pool
+
+Bigger is **not** better. A common formula for a starting point:
+
+```
+pool_size ≈ (core_count × 2) + effective_spindle_count
+```
+
+Databases like PostgreSQL spawn a process per connection, so an oversized pool causes context-switching and memory pressure that *reduces* throughput. It's usually better to have a small pool with a queue than hundreds of connections thrashing the server.
+
+## Common pitfalls
+
+- **Connection leaks** — borrowing without returning (forgetting to close/release) slowly drains the pool until everything hangs. Always use try/finally, `using`, context managers, or equivalent.
+- **Pool exhaustion under load** — long-running transactions hold connections; combined with a small max, callers time out.
+- **Stale connections** — a firewall or the DB may drop an idle connection; without validation or max-lifetime, the app gets errors on checkout.
+- **Transaction state bleed** — a returned connection left mid-transaction pollutes the next borrower; pools should roll back on return.
+
+## Where the pool lives
+
+- **In-process (library):** HikariCP (Java), `database/sql` (Go), SQLAlchemy pool (Python), node-postgres pool. Simple, but each app instance has its own pool — 50 instances × 20 connections = 1000 DB connections.
+- **External/middleware:** PgBouncer, ProxySQL, RDS Proxy. A shared proxy multiplexes many app connections onto few database connections — essential for serverless/high-instance-count architectures where in-process pools would overwhelm the database.
+
+## Why it matters
+
+Pooling turns a slow, resource-heavy per-request cost into a cheap borrow-and-return, dramatically improving latency and throughput while protecting the database from being overrun by connection churn.
+
+Want me to go deeper on a specific angle — sizing for a particular database, serverless considerations, or configuring a specific library?
+[usage] input=2973 cache_read=15023 cache_write=2072 output=1389

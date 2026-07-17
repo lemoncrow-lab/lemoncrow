@@ -119,3 +119,37 @@ def test_entitlements_persists_token_nested_in_subscription_status(
     entitlements._persist_cap_verdict_token({"plan": "pro", "subscriptionStatus": {"capVerdictToken": "nested.tok"}})
     sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
     assert sub["capVerdictToken"] == "nested.tok"
+
+
+# --- registeredAt / cycleResetsAt: the same merge-write path, different keys ---
+
+
+def test_persist_registered_at_writes_into_auth_subscription_status(tmp_path: Path) -> None:
+    auth = {"authenticated": True, "subscriptionStatus": {"plan": "LOCAL"}}
+    pr._write_json(pr.auth_state_path(tmp_path), auth, mode=0o600)
+    pr.persist_registered_at(tmp_path, "2026-01-01T00:00:00Z")
+    saved = json.loads(pr.auth_state_path(tmp_path).read_text("utf-8"))
+    assert saved["subscriptionStatus"]["registeredAt"] == "2026-01-01T00:00:00Z"
+    assert saved["subscriptionStatus"]["plan"] == "LOCAL"
+
+
+def test_persist_registered_at_ignores_empty(tmp_path: Path) -> None:
+    pr.persist_registered_at(tmp_path, None)
+    pr.persist_registered_at(tmp_path, "")
+    assert not pr.auth_state_path(tmp_path).exists()
+    assert not pr.subscription_state_path(tmp_path).exists()
+
+
+def test_persist_cycle_resets_at_writes_into_auth_subscription_status(tmp_path: Path) -> None:
+    auth = {"authenticated": True, "subscriptionStatus": {"plan": "anonymous"}}
+    pr._write_json(pr.auth_state_path(tmp_path), auth, mode=0o600)
+    pr.persist_cycle_resets_at(tmp_path, "2026-02-01T00:00:00Z")
+    saved = json.loads(pr.auth_state_path(tmp_path).read_text("utf-8"))
+    assert saved["subscriptionStatus"]["cycleResetsAt"] == "2026-02-01T00:00:00Z"
+
+
+def test_persist_cycle_resets_at_falls_back_to_subscription_json(tmp_path: Path) -> None:
+    pr.persist_cycle_resets_at(tmp_path, "2026-02-01T00:00:00Z")
+    assert not pr.auth_state_path(tmp_path).exists()
+    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
+    assert sub["cycleResetsAt"] == "2026-02-01T00:00:00Z"

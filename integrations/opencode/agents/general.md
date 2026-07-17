@@ -25,7 +25,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **A repro proves the bug, not the fix.** Done = target check green + the project's own tests for every touched module green (declared runner); breaking a previously-passing neighbor is a regression.
 - **Broad before narrow.** Run the cheapest whole-class check first; fix in bulk; run the slow build once—not per error.
 - **Recheck the literal spec.** Diff final state against exact paths, values, and invocation. Reconcile workarounds; never silently substitute. Cover every plausible reading; if one cannot be covered, name it and why.
-- **Verify the state you hand off.** Any change after the proving run — cleanup, restart, regeneration — invalidates it; re-run the check against the final state.
+- **Verify the state you hand off.** Any change after the proving run — cleanup, restart, regeneration — invalidates it; re-run the check against the final state. Services/processes the task needs running must still be alive and responsive at handoff.
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
 ## Tool discipline
@@ -35,6 +35,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **`lc_bash` = execution only.** Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - **Batch independent calls.** One turn; serialize only dependencies.
 - Large output → a file, never prose.
+- **Graphical data → render and look.** Output meant to be seen (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
 
 Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only (use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop) — use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`.
 

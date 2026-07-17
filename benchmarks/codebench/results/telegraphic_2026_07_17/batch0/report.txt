@@ -1,0 +1,116 @@
+
+=== CodeBench head-to-head ===
+metric                      baseline     lemoncrow
+cost_usd                      5.1232        3.0372
+  - input        : $       0.7704              
+  - output       : $       1.7660              
+  - cache_read   : $       0.7895              
+  - cache_write  : $       1.1233              
+  - input        :               $       0.8130
+  - output       :               $       0.8036
+  - cache_read   :               $       0.4043
+  - cache_write  :               $       0.6352
+duration_ms                1,206,260       845,506
+num_turns                        140            93
+input_tokens                 175,475       162,598
+cache_read_tokens          1,579,022       808,689
+cache_write_tokens           179,731       101,629
+thinking_tokens                    0             0
+output_tokens                 71,275        32,145
+saved_usd                     0.0000        2.0862
+saved_tokens                       0       900,442
+
+lemoncrow cost saving : +40.7%  (Eval target ~47-50%)
+lemoncrow time saving : +29.9%  (Eval target ~40%)
+
+=== Per-task medians (clean runs) ===
+
+| Task | Arm | Cost | Tokens | Time | Tool calls | Reps |
+| --- | --- | --- | --- | --- | --- | --- |
+| local1 | lemoncrow | 61.8% cheaper | 50.6% fewer | 33.3% faster | n/a | 5 |
+| local2 | lemoncrow | 52.9% cheaper | 65.7% fewer | 54.8% faster | 50% fewer | 5 |
+| local3 | lemoncrow | 56.1% cheaper | 48.9% fewer | 19.8% faster | n/a | 5 |
+| local4 | lemoncrow | 54% cheaper | 47.9% fewer | 38.5% faster | n/a | 5 |
+| local5 | lemoncrow | 58.1% cheaper | 48.1% fewer | 36.5% faster | n/a | 5 |
+| local6 | lemoncrow | 53.9% cheaper | 49.5% fewer | 40.6% faster | n/a | 5 |
+| local7 | lemoncrow | 64.2% cheaper | 50.7% fewer | 55.4% faster | n/a | 5 |
+| local8 | lemoncrow | 22.7% cheaper | 18.7% fewer | 31.7% faster | 100% more | 5 |
+| local9 | lemoncrow | 60.8% cheaper | 49.1% fewer | 55% faster | n/a | 5 |
+| local10 | lemoncrow | 29.3% pricier | 15.8% fewer | even | 66.7% more | 5 |
+
+| Task | Arm | cost_usd | tokens | time_s | tool_calls | reps |
+| --- | --- | --- | --- | --- | --- | --- |
+| local1 | baseline | 0.0654 | 21,513 | 15.2 | 0 | 5 |
+| local1 | lemoncrow | 0.0250 | 10,637 | 10.2 | 0 | 5 |
+| local2 | baseline | 0.1477 | 64,101 | 35.9 | 2 | 5 |
+| local2 | lemoncrow | 0.0696 | 21,974 | 16.3 | 1 | 5 |
+| local3 | baseline | 0.0910 | 22,530 | 26.1 | 0 | 5 |
+| local3 | lemoncrow | 0.0400 | 11,522 | 20.9 | 0 | 5 |
+| local4 | baseline | 0.0697 | 21,677 | 18.9 | 0 | 5 |
+| local4 | lemoncrow | 0.0321 | 11,302 | 11.6 | 0 | 5 |
+| local5 | baseline | 0.0584 | 21,342 | 8.5 | 0 | 5 |
+| local5 | lemoncrow | 0.0244 | 11,083 | 5.4 | 0 | 5 |
+| local6 | baseline | 0.0801 | 22,116 | 28.7 | 0 | 5 |
+| local6 | lemoncrow | 0.0369 | 11,168 | 17.0 | 0 | 5 |
+| local7 | baseline | 0.0700 | 21,760 | 15.7 | 0 | 5 |
+| local7 | lemoncrow | 0.0250 | 10,729 | 7.0 | 0 | 5 |
+| local8 | baseline | 0.1261 | 43,058 | 27.0 | 1 | 5 |
+| local8 | lemoncrow | 0.0974 | 34,994 | 18.5 | 2 | 5 |
+| local9 | baseline | 0.0757 | 21,933 | 19.7 | 0 | 5 |
+| local9 | lemoncrow | 0.0297 | 11,172 | 8.9 | 0 | 5 |
+| local10 | baseline | 0.1919 | 90,718 | 43.5 | 3 | 5 |
+| local10 | lemoncrow | 0.2481 | 76,374 | 43.1 | 5 | 5 |
+
+=== Per-rep spread (min / median / max -- noise check) ===
+
+| Task | Arm | cost_usd | tokens | correct (cheap->exp) | reps |
+| --- | --- | --- | --- | --- | --- |
+| local1 | baseline | 0.0634 / 0.0654 / 0.0683 | 21,435 / 21,513 / 21,628 | ? / ? / ? / ? / ? | 5 |
+| local1 | lemoncrow | 0.0237 / 0.0250 / 0.0291 | 8,681 / 10,637 / 11,168 | ? / ? / ? / ? / ? | 5 |
+| local2 | baseline | 0.1051 / 0.1477 / 0.1807 | 23,121 / 64,101 / 106,685 | ? / ? / ? / ? / ? | 5 |
+| local2 | lemoncrow | 0.0662 / 0.0696 / 0.1068 | 21,546 / 21,974 / 23,263 | ? / ? / ? / ? / ? | 5 |
+| local3 | baseline | 0.0828 / 0.0910 / 0.0923 | 22,203 / 22,530 / 22,584 | ? / ? / ? / ? / ? | 5 |
+| local3 | lemoncrow | 0.0383 / 0.0400 / 0.0753 | 11,237 / 11,522 / 21,669 | ? / ? / ? / ? / ? | 5 |
+| local4 | baseline | 0.0668 / 0.0697 / 0.0719 | 21,563 / 21,677 / 21,766 | ? / ? / ? / ? / ? | 5 |
+| local4 | lemoncrow | 0.0320 / 0.0321 / 0.0333 | 8,956 / 11,302 / 11,355 | ? / ? / ? / ? / ? | 5 |
+| local5 | baseline | 0.0577 / 0.0584 / 0.1017 | 21,318 / 21,342 / 41,835 | ? / ? / ? / ? / ? | 5 |
+| local5 | lemoncrow | 0.0216 / 0.0244 / 0.0250 | 10,585 / 11,083 / 11,087 | ? / ? / ? / ? / ? | 5 |
+| local6 | baseline | 0.0788 / 0.0801 / 0.0845 | 22,060 / 22,116 / 22,292 | ? / ? / ? / ? / ? | 5 |
+| local6 | lemoncrow | 0.0350 / 0.0369 / 0.0378 | 11,003 / 11,168 / 11,576 | ? / ? / ? / ? / ? | 5 |
+| local7 | baseline | 0.0676 / 0.0700 / 0.0741 | 21,666 / 21,760 / 21,925 | ? / ? / ? / ? / ? | 5 |
+| local7 | lemoncrow | 0.0244 / 0.0250 / 0.0288 | 10,703 / 10,729 / 10,908 | ? / ? / ? / ? / ? | 5 |
+| local8 | baseline | 0.1192 / 0.1261 / 0.1761 | 42,676 / 43,058 / 105,812 | ? / ? / ? / ? / ? | 5 |
+| local8 | lemoncrow | 0.0749 / 0.0974 / 0.1152 | 22,090 / 34,994 / 46,656 | ? / ? / ? / ? / ? | 5 |
+| local9 | baseline | 0.0675 / 0.0757 / 0.1369 | 21,604 / 21,933 / 63,419 | ? / ? / ? / ? / ? | 5 |
+| local9 | lemoncrow | 0.0281 / 0.0297 / 0.0324 | 10,821 / 11,172 / 11,271 | ? / ? / ? / ? / ? | 5 |
+| local10 | baseline | 0.1784 / 0.1919 / 0.2622 | 86,083 / 90,718 / 144,751 | ? / ? / ? / ? / ? | 5 |
+| local10 | lemoncrow | 0.0924 / 0.2481 / 0.3204 | 34,143 / 76,374 / 147,658 | ? / ? / ? / ? / ? | 5 |
+
+=== Per-task correctness and cost ===
+
+| Task | Arm | Correct | Score | vs baseline | Cost | Cost delta | Winner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| local1 | lemoncrow | 0/0 | unjudged | unjudged | $0.1304 | 60.2% cheaper | unjudged |
+| local1 | baseline | 0/0 | unjudged | baseline | $0.3276 | baseline | unjudged |
+| local2 | lemoncrow | 0/0 | unjudged | unjudged | $0.3892 | 47.1% cheaper | unjudged |
+| local2 | baseline | 0/0 | unjudged | baseline | $0.7357 | baseline | unjudged |
+| local3 | lemoncrow | 0/0 | unjudged | unjudged | $0.2615 | 41.5% cheaper | unjudged |
+| local3 | baseline | 0/0 | unjudged | baseline | $0.4471 | baseline | unjudged |
+| local4 | lemoncrow | 0/0 | unjudged | unjudged | $0.1621 | 53.1% cheaper | unjudged |
+| local4 | baseline | 0/0 | unjudged | baseline | $0.3456 | baseline | unjudged |
+| local5 | lemoncrow | 0/0 | unjudged | unjudged | $0.1200 | 64.3% cheaper | unjudged |
+| local5 | baseline | 0/0 | unjudged | baseline | $0.3357 | baseline | unjudged |
+| local6 | lemoncrow | 0/0 | unjudged | unjudged | $0.1834 | 55% cheaper | unjudged |
+| local6 | baseline | 0/0 | unjudged | baseline | $0.4072 | baseline | unjudged |
+| local7 | lemoncrow | 0/0 | unjudged | unjudged | $0.1286 | 63.3% cheaper | unjudged |
+| local7 | baseline | 0/0 | unjudged | baseline | $0.3508 | baseline | unjudged |
+| local8 | lemoncrow | 0/0 | unjudged | unjudged | $0.4707 | 32.8% cheaper | unjudged |
+| local8 | baseline | 0/0 | unjudged | baseline | $0.7000 | baseline | unjudged |
+| local9 | lemoncrow | 0/0 | unjudged | unjudged | $0.1492 | 65.5% cheaper | unjudged |
+| local9 | baseline | 0/0 | unjudged | baseline | $0.4322 | baseline | unjudged |
+| local10 | lemoncrow | 0/0 | unjudged | unjudged | $1.0421 | even | unjudged |
+| local10 | baseline | 0/0 | unjudged | baseline | $1.0414 | baseline | unjudged |
+Runs ok     : baseline 50/50  lemoncrow 50/50
+Valid       : baseline 50/50  lemoncrow 50/50
+Quality     : unjudged; headline savings are exploratory until pairwise_quality.csv passes.
+Chart data  : summary.csv, task_metrics.csv, model_audit.csv, task_correctness.csv, pairwise_quality.csv, quality_adjusted_summary.csv

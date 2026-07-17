@@ -121,6 +121,40 @@ def subscription_state_path(root: str | Path) -> Path:
     return Path(root) / "subscription.json"
 
 
+def _merge_subscription_display_field(root: str | Path, key: str, value: str) -> None:
+    """Best-effort merge of one field into the local subscription cache.
+
+    Shared write path for :func:`persist_cap_verdict_token`,
+    :func:`persist_registered_at`, and :func:`persist_cycle_resets_at`: prefer
+    ``auth.json``'s ``subscriptionStatus`` (what the compiled gate and
+    ``resolve_subscription`` read), falling back to the display-only
+    ``subscription.json`` when there is no local auth state at all.
+
+    Idempotent: an unchanged value is a no-op (no write, no mtime bump).
+    """
+    root_path = Path(root)
+    auth = _read_json(auth_state_path(root_path), None)
+    if isinstance(auth, dict):
+        sub = auth.get("subscriptionStatus")
+        if not isinstance(sub, dict):
+            sub = {}
+        if sub.get(key) == value:
+            return  # unchanged -> skip the write
+        sub[key] = value
+        auth["subscriptionStatus"] = sub
+        with suppress(OSError, ValueError):
+            _write_json(auth_state_path(root_path), auth, mode=0o600)
+        return
+    sub = _read_json(subscription_state_path(root_path), {})
+    if not isinstance(sub, dict):
+        sub = {}
+    if sub.get(key) == value:
+        return
+    sub[key] = value
+    with suppress(OSError, ValueError):
+        _write_json(subscription_state_path(root_path), sub)
+
+
 def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
     """Persist the server's signed cap-verdict token where the gate reads it.
 
@@ -132,27 +166,41 @@ def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
     """
     if not isinstance(token, str) or not token:
         return
-    root_path = Path(root)
-    auth = _read_json(auth_state_path(root_path), None)
-    if isinstance(auth, dict):
-        sub = auth.get("subscriptionStatus")
-        if not isinstance(sub, dict):
-            sub = {}
-        if sub.get("capVerdictToken") == token:
-            return  # unchanged -> skip the write
-        sub["capVerdictToken"] = token
-        auth["subscriptionStatus"] = sub
-        with suppress(OSError, ValueError):
-            _write_json(auth_state_path(root_path), auth, mode=0o600)
+    _merge_subscription_display_field(root, "capVerdictToken", token)
+
+
+def persist_registered_at(root: str | Path, iso_ts: str | None) -> None:
+    """Persist the account/device "since" anchor for `lc account cap`'s display.
+
+    Display-only and unsigned (never gates entitlement or the cap). Mirrors
+    :func:`persist_cap_verdict_token`'s write pattern: the server's value (once
+    available, e.g. from the report-anon endpoint's ``deviceRegisteredAt``)
+    overwrites any earlier local guess, since it is the more authoritative,
+    reinstall-resistant figure.
+
+    Idempotent and best-effort: an empty/unchanged timestamp is a no-op, and
+    callers never receive a persistence exception.
+    """
+    if not isinstance(iso_ts, str) or not iso_ts:
         return
-    sub = _read_json(subscription_state_path(root_path), {})
-    if not isinstance(sub, dict):
-        sub = {}
-    if sub.get("capVerdictToken") == token:
+    _merge_subscription_display_field(root, "registeredAt", iso_ts)
+
+
+def persist_cycle_resets_at(root: str | Path, iso_ts: str | None) -> None:
+    """Persist the anonymous cap's fixed calendar-cycle reset boundary.
+
+    Display-only and unsigned. Populated from the report-anon endpoint's
+    ``cycleResetsAt`` (see ``cycleSavings`` in landing/functions/api/usage.ts)
+    -- the instant the anon identity's $ cap hard-resets to 0, distinct from
+    every other plan's cap (all uncapped) and from the anon cap's OWN local
+    unverified fallback (still a rolling window, no fixed reset).
+
+    Idempotent and best-effort: an empty/unchanged timestamp is a no-op, and
+    callers never receive a persistence exception.
+    """
+    if not isinstance(iso_ts, str) or not iso_ts:
         return
-    sub["capVerdictToken"] = token
-    with suppress(OSError, ValueError):
-        _write_json(subscription_state_path(root_path), sub)
+    _merge_subscription_display_field(root, "cycleResetsAt", iso_ts)
 
 
 # _price_savings_row drops cost_saved_usd entirely when tokens<=0, so the
@@ -470,6 +518,11 @@ def claim_anonymous_trial(root: str | Path, *, monthly_limit_usd: float = 0.0) -
         "monthlySavingsInUsd": 0.0,
         "monthlyLimitInUsd": monthly_limit_usd,
         "message": "Local free mode active.",
+        # Display-only "since" anchor for `lc account cap` -- the moment this
+        # device first claimed a local trial. A later signed-in server-verified
+        # anon identity (see usage_report.py's report-anon path) overwrites this
+        # with the server's authoritative deviceRegisteredAt once available.
+        "registeredAt": _iso_now(),
     }
     auth = normalize_auth_credentials(
         {

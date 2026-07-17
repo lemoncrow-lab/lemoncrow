@@ -396,7 +396,7 @@ def _docker_run_cmd(
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
     if arm == "lemoncrow":
-        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:auto')}:/mnt/plugin:ro"]
+        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
         host_store = default_store_root()
         for fname in _HOST_AUTH_FILES:

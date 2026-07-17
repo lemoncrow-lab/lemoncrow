@@ -1,0 +1,161 @@
+
+=== Turn 1 ===
+[user] <session>
+Implement a React error boundary component that catches render errors, shows a fallback UI with a retry button, and logs the error details.
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Implement React error boundary with retry"}
+[usage] input=544 cache_read=0 cache_write=0 output=15
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll take a look at the repo structure first to match conventions.[tool_use: Bash] {"command": "cd /tmp/codebench_workspaces/batch0-e306e1afd42e/local10_baseline_rep4 && ls -la && echo \"---\" && find . -path ./node_modules -prune -o \\( -name \"*.tsx\" -o -name \"*.jsx\" -o -name \"package.json\" -o -name \"tsconfig.json\" \\) -print 2>/dev/null | grep -v node_modules | head -50", "description": "List repo structure and find React files"}
+[usage] input=2973 cache_read=15023 cache_write=2100 output=263
+
+=== Turn 3 ===
+[user] [tool_result] ---
+[assistant] [tool_use: Bash] {"command": "ls -la; echo \"---git---\"; git log --oneline -5 2>/dev/null; echo \"---all files---\"; find . -not -path './.git/*' -type f | head -50", "description": "Inspect repo contents"}
+[usage] input=2 cache_read=17123 cache_write=3199 output=147
+
+=== Turn 4 ===
+[user] [tool_result] ---git---
+---all files---
+./README.md
+./.lemoncrow/.gitignore
+./reports/benchmark/telegraphic/20260716T101000Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T101000Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T123202Z/summary.csv
+./reports/benchmark/telegraphic/20260716T123202Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T123202Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260713T162323Z/results.jsonl
+./reports/benchmark/telegraphic/20260713T162323Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T075522Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T075522Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T170245Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T170245Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260713T162412Z/results.jsonl
+./reports/benchmark/telegraphic/20260713T162412Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260716T085058Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T085058Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260712T175956Z/results.jsonl
+./reports/benchmark/telegraphic/20260712T175956Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/pairwise_quality.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/task_metrics.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/quality_adjusted_summary.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/summary.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/model_audit.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/results.csv
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/results.jsonl
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/report.txt
+./reports/benchmark/telegraphic/20260712T175956Z/batch0/task_correctness.csv
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local2_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local1_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local4_lemoncrow_rep1.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local4_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local3_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local5_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local1_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local4_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local2_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local5_lemoncrow_rep2.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local6_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local5_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local7_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local4_lemoncrow_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local5_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260717T083705Z/batch0/local4_lemoncrow_rep0.flow
+[assistant] This is a benchmark workspace with no existing React project, so I'll create a self-contained, production-quality component. I'll use TypeScript since that's the modern default.[tool_use: Write] {"file_path": "/tmp/codebench_workspaces/batch0-e306e1afd42e/local10_baseline_rep4/src/ErrorBoundary.tsx", "content": "import { Component, type ErrorInfo, type ReactNode } from \"react\";\n\ninterface FallbackProps {\n  /** The error that was thrown during render. */\n  error: Error;\n  /** Reset the boundary and attempt to re-render the children. */\n  retry: () => void;\n}\n\ninterface ErrorBoundaryProps {\n  children: ReactNode;\n  /**\n   * Custom fallback UI. Can be a render function that receives the error and a\n   * retry callback, or a static node. Defaults to the built-in fallback.\n   */\n  fallback?: ((props: FallbackProps) => ReactNode) | ReactNode;\n  /**\n   * Called whenever an error is caught. Use this to forward errors to an\n   * external logging/monitoring service (Sentry, Datadog, etc.).\n   */\n  onError?: (error: Error, errorInfo: ErrorInfo) => void;\n  /**\n   * When any value in this array changes, the boundary resets automatically.\n   * Useful for clearing the error when route or props change.\n   */\n  resetKeys?: unknown[];\n}\n\ninterface ErrorBoundaryState {\n  error: Error | null;\n}\n\n/**\n * Catches render errors from its descendants, shows a fallback UI with a retry\n * button, and logs the error details.\n *\n * Note: error boundaries only catch errors during rendering, in lifecycle\n * methods, and in constructors of the tree below them. They do NOT catch errors\n * in event handlers, async code, or the boundary itself.\n */\nexport class ErrorBoundary extends Component<\n  ErrorBoundaryProps,\n  ErrorBoundaryState\n> {\n  state: ErrorBoundaryState = { error: null };\n\n  static getDerivedStateFromError(error: Error): ErrorBoundaryState {\n    // Update state so the next render shows the fallback UI.\n    return { error };\n  }\n\n  componentDidUpdate(prevProps: ErrorBoundaryProps): void {\n    // Auto-reset when any resetKey changes while an error is displayed.\n    if (this.state.error === null) return;\n    const { resetKeys } = this.props;\n    const prevKeys = prevProps.resetKeys;\n    if (\n      resetKeys &&\n      prevKeys &&\n      (resetKeys.length !== prevKeys.length ||\n        resetKeys.some((key, i) => !Object.is(key, prevKeys[i])))\n    ) {\n      this.reset();\n    }\n  }\n\n  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {\n    // Log the error details for debugging and forward to any external handler.\n    console.error(\"ErrorBoundary caught an error:\", error, errorInfo);\n    this.props.onError?.(error, errorInfo);\n  }\n\n  reset = (): void => {\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n    const { children, fallback } = this.props;\n\n    if (error !== null) {\n      if (typeof fallback === \"function\") {\n        return fallback({ error, retry: this.reset });\n      }\n      if (fallback !== undefined) {\n        return fallback;\n      }\n      return <DefaultFallback error={error} retry={this.reset} />;\n    }\n\n    return children;\n  }\n}\n\nfunction DefaultFallback({ error, retry }: FallbackProps): ReactNode {\n  return (\n    <div\n      role=\"alert\"\n      style={{\n        padding: \"1.5rem\",\n        margin: \"1rem 0\",\n        border: \"1px solid #f5c2c7\",\n        borderRadius: 8,\n        background: \"#fff5f5\",\n        color: \"#842029\",\n        fontFamily: \"system-ui, sans-serif\",\n      }}\n    >\n      <h2 style={{ margin: \"0 0 0.5rem\", fontSize: \"1.1rem\" }}>\n        Something went wrong.\n      </h2>\n      <p style={{ margin: \"0 0 1rem\" }}>\n        An unexpected error occurred while rendering this section.\n      </p>\n      {import.meta.env?.DEV && (\n        <pre\n          style={{\n            whiteSpace: \"pre-wrap\",\n            fontSize: \"0.8rem\",\n            background: \"#fdeaea\",\n            padding: \"0.75rem\",\n            borderRadius: 4,\n            overflowX: \"auto\",\n          }}\n        >\n          {error.message}\n        </pre>\n      )}\n      <button\n        type=\"button\"\n        onClick={retry}\n        style={{\n          padding: \"0.5rem 1rem\",\n          border: \"none\",\n          borderRadius: 6,\n          background: \"#842029\",\n          color: \"#fff\",\n          cursor: \"pointer\",\n          fontSize: \"0.9rem\",\n        }}\n      >\n        Try again\n      </button>\n    </div>\n  );\n}\n"}
+[usage] input=2 cache_read=20322 cache_write=2016 output=1919
+
+=== Turn 5 ===
+[user] [tool_result] File created successfully at: /tmp/codebench_workspaces/batch0-e306e1afd42e/local10_baseline_rep4/src/ErrorBoundary.tsx (file state is current in your context — no need to Read it back)
+[assistant] I created `src/ErrorBoundary.tsx`. Here's what it does and how to use it.
+
+## What it does
+
+- **Catches render errors** via `getDerivedStateFromError` — the required lifecycle for React error boundaries (must be a class component; there's no Hooks equivalent).
+- **Shows a fallback UI with a retry button** — the built-in `DefaultFallback` renders an accessible `role="alert"` panel and a "Try again" button that clears the error state so the children re-render.
+- **Logs error details** via `componentDidCatch`, which logs to the console and forwards `(error, errorInfo)` — including the component stack — to an optional `onError` handler for Sentry/Datadog/etc.
+
+## Beyond the minimum
+
+- **Custom fallback** — pass a node or a render function `({ error, retry }) => ...`.
+- **`onError` hook** for external monitoring.
+- **`resetKeys`** — the boundary auto-resets when a supplied key (e.g. route or user id) changes, so a stale error doesn't stick around after navigation.
+- The dev-only error message uses `import.meta.env?.DEV` (Vite). If you're on CRA/webpack, swap that for `process.env.NODE_ENV !== "production"`.
+
+## Usage
+
+```tsx
+import { ErrorBoundary } from "./ErrorBoundary";
+
+<ErrorBoundary
+  onError={(error, info) => reportToSentry(error, info)}
+  resetKeys={[location.pathname]}
+>
+  <Dashboard />
+</ErrorBoundary>
+```
+
+## Two caveats worth knowing
+
+1. Error boundaries **only catch errors during render/lifecycle/constructors** of descendants — not in event handlers, async callbacks, `setTimeout`, or SSR. Handle those with regular try/catch.
+2. It won't catch errors thrown by itself, only by its children.
+
+One note: this repo is a benchmark workspace with no `package.json`, React dependency, or build config, so the file isn't wired into a runnable app — I can't type-check or exercise it here. If you want, I can add a minimal Vite + React setup (or adapt it to an existing project) so it actually compiles and runs.
+[usage] input=2 cache_read=22338 cache_write=2000 output=730

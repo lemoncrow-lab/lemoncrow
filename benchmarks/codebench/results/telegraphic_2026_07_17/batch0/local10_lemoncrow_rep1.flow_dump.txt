@@ -1,0 +1,224 @@
+
+=== Turn 1 ===
+[system] SessionStart hook additional context: Working directory: /tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1
+Platform: linux (7.0.0-27-generic)
+
+The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebSearch
+mcp__claude_ai_Gmail__apply_sensitive_message_label
+mcp__claude_ai_Gmail__apply_sensitive_thread_label
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Gmail__create_label
+mcp__claude_ai_Gmail__get_message
+mcp__claude_ai_Gmail__get_thread
+mcp__claude_ai_Gmail__label_message
+mcp__claude_ai_Gmail__label_thread
+mcp__claude_ai_Gmail__list_drafts
+mcp__claude_ai_Gmail__list_labels
+mcp__claude_ai_Gmail__search_threads
+mcp__claude_ai_Gmail__unlabel_message
+mcp__claude_ai_Gmail__unlabel_thread
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__delete_event
+mcp__claude_ai_Google_Calendar__get_event
+mcp__claude_ai_Google_Calendar__list_calendars
+mcp__claude_ai_Google_Calendar__list_events
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Google_Calendar__suggest_time
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Drive__copy_file
+mcp__claude_ai_Google_Drive__create_file
+mcp__claude_ai_Google_Drive__download_file_content
+mcp__claude_ai_Google_Drive__get_file_metadata
+mcp__claude_ai_Google_Drive__get_file_permissions
+mcp__claude_ai_Google_Drive__list_recent_files
+mcp__claude_ai_Google_Drive__read_file_content
+mcp__claude_ai_Google_Drive__search_files
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## lc
+LemonCrow replaces the grep→read→re-read loop.
+- Lead with `code_search`: one call = ranked matches (top source inline, the rest as precise path:Lx-Ly pointers) + related_symbols + candidate_files. Inline source = already read. Never shell-grep workspace code or re-verify indexed results.
+- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, never the same file twice. Never cat/sed/head/tail.
+- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.
+- `bash` = execution only (tests, git, builds).
+- Large output → a file, never inline prose.
+- Graphical data (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__lc__bash] {"command": "ls -la; echo ---; cat package.json 2>/dev/null; echo ---; find . -name '*.tsx' -o -name '*.jsx' 2>/dev/null | grep -v node_modules | head", "cwd": "/tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1"}
+[usage] input=3521 cache_read=7402 cache_write=0 output=202
+
+=== Turn 2 ===
+[user] [tool_result] total 24
+drwxrwxr-x  5 pankaj pankaj 4096 Jul 17 11:05 .
+drwxrwxr-x 99 pankaj pankaj 4096 Jul 17 11:05 ..
+drwxrwxr-x  3 pankaj pankaj 4096 Jul 17 11:05 .git
+drwxrwxr-x  3 pankaj pankaj 4096 Jul 13 18:54 .lemoncrow
+-rw-rw-r--  1 pankaj pankaj  304 Jul 12 19:36 README.md
+drwxrwxr-x  3 pankaj pankaj 4096 Jul 12 19:36 reports
+---
+---
+[assistant] [tool_use: mcp__lc__bash] {"command": "cat README.md; echo ---; find . -path ./.git -prune -o -type f -print | grep -v node_modules", "cwd": "/tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1"}
+[usage] input=2 cache_read=7402 cache_write=3959 output=152
+
+=== Turn 3 ===
+[user] [tool_result] # Telegraphic benchmark scratch repo
+
+Intentionally minimal. Exists only so `lc benchmark telegraphic` has a
+real git repo to hand each Claude Code arm -- the prompts are general dev
+Q&A, not tied to any specific codebase, so there is deliberately nothing
+here to explore. Answer from general knowledge.
+---
+./reports/benchmark/telegraphic/20260717T083310Z/batch0/state/local1_baseline_rep0/state.json
+./reports/benchmark/telegraphic/20260717T083310Z/batch0/local1_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260717T083310Z/batch0/results.jsonl
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/pairwise_quality.csv
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local7_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep2.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_lemoncrow_rep3.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_lemoncrow_rep4.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local3_lemoncrow_rep0.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local4_baseline_rep0.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local5_baseline_rep4.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local3_lemoncrow_rep3.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local8_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/task_metrics.csv
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local10_baseline_rep2.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local9_lemoncrow_rep2.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local8_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local7_baseline_rep1.flow
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/local2_lemoncrow_rep0.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local6_lemoncrow_rep3/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local3_baseline_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local6_baseline_rep2/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local7_baseline_rep3/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local2_lemoncrow_rep1/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local3_lemoncrow_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local1_lemoncrow_rep0/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local4_lemoncrow_rep2/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local3_baseline_rep3/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local2_lemoncrow_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local8_lemoncrow_rep0/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local2_baseline_rep0/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local5_lemoncrow_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local5_baseline_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local3_lemoncrow_rep3/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local1_baseline_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local2_baseline_rep1/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local7_baseline_rep4/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local10_lemoncrow_rep0/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local1_lemoncrow_rep1/state.json
+./reports/benchmark/telegraphic/20260716T101000Z/batch0/state/local10_baseline_rep0/state.json
+... (4496 lines omitted) ...
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local10_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local4_baseline_rep3.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local4_caveman_rep2.flow_dump.txt
+./reports/benchmark/telegraphic/2026071
+... (10,896 chars trimmed) ...
+0260716T170245Z/batch1/local8_lemoncrow_rep2.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local8_lemoncrow_rep4.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local9_caveman_rep2.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local10_caveman_rep0.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local7_caveman_rep4.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local1_lemoncrow_rep0.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local4_lemoncrow_rep1.flow_dump.txt
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/local10_lemoncrow_rep1.flow
+./reports/benchmark/telegraphic/20260716T170245Z/batch1/task_correctness.csv
+./reports/benchmark/telegraphic/20260716T170245Z/results.jsonl
+./reports/benchmark/telegraphic/20260716T170245Z/telegraphic_report.md
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/state/local1_lemoncrow_rep0/state.json
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/state/local2_baseline_rep0/state.json
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/state/local1_baseline_rep0/state.json
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/local1_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/local2_baseline_rep0.flow
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/results.jsonl
+./reports/benchmark/telegraphic/20260713T162311Z/batch0/local1_lemoncrow_rep0.flow
+./.lemoncrow/.gitignore
+./README.md
+
+[lc: shrunk 415428→6032; full: /tmp/lemoncrow-spill/bash-611761e2.txt]
+[lc: mostly elided -- if the answer may be in the omitted middle, read the spill file before concluding]
+[assistant] Scratch repo — deliver as file.[tool_use: mcp__lc__edit] {"edits": [{"path": "ErrorBoundary.tsx", "replace": true, "new": "import React, { Component, ErrorInfo, ReactNode } from 'react';\n\ninterface Props {\n  children: ReactNode;\n  /** Custom fallback renderer; receives the error and a retry callback. */\n  fallback?: (error: Error, retry: () => void) => ReactNode;\n  /** Hook for external logging (Sentry, etc.). */\n  onError?: (error: Error, info: ErrorInfo) => void;\n}\n\ninterface State {\n  error: Error | null;\n}\n\nexport class ErrorBoundary extends Component<Props, State> {\n  state: State = { error: null };\n\n  static getDerivedStateFromError(error: Error): State {\n    // Render pass: flip into the fallback state.\n    return { error };\n  }\n\n  componentDidCatch(error: Error, info: ErrorInfo): void {\n    // Commit pass: log full details (component stack included).\n    console.error('ErrorBoundary caught an error:', error, info.componentStack);\n    this.props.onError?.(error, info);\n  }\n\n  retry = (): void => {\n    // Clear the error so children re-mount and re-render.\n    this.setState({ error: null });\n  };\n\n  render(): ReactNode {\n    const { error } = this.state;\n    const { children, fallback } = this.props;\n\n    if (error) {\n      if (fallback) return fallback(error, this.retry);\n      return (\n        <div role=\"alert\" style={{ padding: 16 }}>\n          <h2>Something went wrong.</h2>\n          <pre style={{ whiteSpace: 'pre-wrap', color: '#b00020' }}>{error.message}</pre>\n          <button type=\"button\" onClick={this.retry}>\n            Retry\n          </button>\n        </div>\n      );\n    }\n\n    return children;\n  }\n}\n\nexport default ErrorBoundary;\n"}]}
+[usage] input=2 cache_read=11361 cache_write=3281 output=805
+
+=== Turn 4 ===
+[user] [tool_result] ok
+[assistant] done: `ErrorBoundary.tsx` → class boundary; `getDerivedStateFromError`→fallback, `componentDidCatch`→logs error+componentStack & `onError` hook, `retry` clears state to re-mount. Fallback: alert with message + Retry button; overridable via `fallback` prop.
+
+Usage: `<ErrorBoundary onError={report}><App/></ErrorBoundary>`.
+
+Note: boundaries catch render/lifecycle errors only — not event handlers or async.
+[usage] input=2 cache_read=14642 cache_write=812 output=171
+
+=== Turn 5 ===
+[user] Stop hook feedback:
+FIXME (verify): edited ErrorBoundary.tsx, run test/verification.
+[assistant] [tool_use: mcp__lc__bash] {"command": "node -v; npm -v; npx -v 2>/dev/null; ls node_modules 2>/dev/null | head", "cwd": "/tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1"}
+[usage] input=2 cache_read=15454 cache_write=212 output=257
+
+=== Turn 6 ===
+[user] [tool_result] v24.12.0
+11.6.2
+11.6.2
+[assistant] Verify via real render test. Set up isolated harness.[tool_use: mcp__lc__bash] {"command": "set -e\nd=/tmp/eb-verify; rm -rf $d; mkdir -p $d; cd $d\ncp /tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1/ErrorBoundary.tsx .\nnpm init -y >/dev/null 2>&1\nnpm i react@18 react-dom@18 react-test-renderer@18 esbuild typescript >/dev/null 2>&1\necho installed\nnpx tsc --jsx react-jsx --esModuleInterop --noEmit --strict --skipLibCheck ErrorBoundary.tsx && echo \"TSC_OK\""}
+[usage] input=2 cache_read=15666 cache_write=280 output=583
+
+=== Turn 7 ===
+[user] [tool_result] destructive rm -rf blocked
+[assistant] [tool_use: mcp__lc__bash] {"command": "set -e\nd=/tmp/eb-verify-$$; mkdir -p $d; cd $d\ncp /tmp/codebench_workspaces/batch0-e306e1afd42e/local10_lemoncrow_rep1/ErrorBoundary.tsx .\nnpm init -y >/dev/null 2>&1\nnpm i react@18 react-dom@18 react-test-renderer@18 typescript >/dev/null 2>&1\necho installed\nnpx tsc --jsx react-jsx --esModuleInterop --noEmit --strict --skipLibCheck ErrorBoundary.tsx && echo TSC_OK\necho \"DIR=$d\""}
+[usage] input=2 cache_read=15946 cache_write=599 output=274
+
+=== Turn 8 ===
+[user] [tool_result] installed
+TSC_OK
+DIR=/tmp/eb-verify-4166243
+[assistant] [tool_use: mcp__lc__bash] {"command": "set -e\nd=$(ls -d /tmp/eb-verify-* | head -1); cd $d\nnpx tsc --jsx react-jsx --esModuleInterop --module commonjs --skipLibCheck --outDir out ErrorBoundary.tsx\ncat > test.js <<'EOF'\nconst React = require('react');\nconst TR = require('react-test-renderer');\nconst { ErrorBoundary } = require('./out/ErrorBoundary.js');\nlet shouldThrow = true;\nconst logs = [];\nconst orig = console.error; console.error = (...a)=>logs.push(a[0]);\nfunction Boom(){ if(shouldThrow) throw new Error('kaboom'); return React.createElement('span',null,'recovered'); }\nlet onErrCalled=false;\nlet tree;\nTR.act(()=>{ tree = TR.create(React.createElement(ErrorBoundary,{onError:()=>onErrCalled=true}, React.createElement(Boom))); });\nconst json = tree.toJSON();\nconsole.error = orig;\nconst html = JSON.stringify(json);\nif(!html.includes('Something went wrong')) throw new Error('FAIL: no fallback');\nif(!onErrCalled) throw new Error('FAIL: onError not called');\nif(!logs.some(l=>String(l).includes('ErrorBoundary caught'))) throw new Error('FAIL: no log');\n// find retry button and click\nconst btn = tree.root.findByType('button');\nshouldThrow=false;\nconsole.error=()=>{};\nTR.act(()=>{ btn.props.onClick(); });\nconsole.error=orig;\nconst after = JSON.stringify(tree.toJSON());\nif(!after.includes('recovered')) throw new Error('FAIL: retry did not recover: '+after);\nconsole.log('BEHAVIOR_OK: fallback+log+onError+retry');\nEOF\nnode test.js"}
+[usage] input=2 cache_read=16545 cache_write=307 output=777
+
+=== Turn 9 ===
+[system] The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+
+[assistant] done: `ErrorBoundary.tsx` verified → tsc strict clean; react-test-renderer: throwing child → fallback "Something went wrong" shown, `console.error` logged, `onError` fired, Retry click re-rendered child → "recovered". All green.
+[usage] input=131 cache_read=16852 cache_write=805 output=90
