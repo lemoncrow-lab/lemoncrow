@@ -140,11 +140,23 @@ def _kill_orphan_servicectl_processes(current_root: Path) -> None:
         except OSError:
             continue
         cmdline = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        # Compare the parsed ``--root`` value for exact equality: a bare
+        # substring test would let ``~/.lemoncrow`` match (and kill) the daemon
+        # of ``~/.lemoncrow-work`` (and vice versa).
+        tokens = cmdline.split()
+        root_value: str | None = None
+        for i, tok in enumerate(tokens):
+            if tok == "--root" and i + 1 < len(tokens):
+                root_value = tokens[i + 1]
+                break
+            if tok.startswith("--root="):
+                root_value = tok[len("--root=") :]
+                break
         if (
             "lemoncrow.gateway.cli" in cmdline
             and "servicectl" in cmdline
             and " run " in cmdline
-            and current_root_str in cmdline
+            and root_value == current_root_str
         ):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.kill(pid, signal.SIGTERM)
@@ -219,7 +231,18 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
         (hosts_dir / "status.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
 
     # Primary: write to servicectl's root
-    _write_to(Path(root) / "hosts")
+    root_hosts = Path(root) / "hosts"
+    _write_to(root_hosts)
+
+    # Secondary: also write to the CWD's ``.lemoncrow/hosts`` when it is a
+    # different store dir (Docker mounts the project's ``.lemoncrow`` while
+    # servicectl runs against ``~/.lemoncrow``), so the containerized API can
+    # read host-tool status too. Best-effort: a read-only CWD must not defeat
+    # the primary write above.
+    cwd_hosts = Path.cwd() / ".lemoncrow" / "hosts"
+    if cwd_hosts.resolve() != root_hosts.resolve():
+        with contextlib.suppress(OSError):
+            _write_to(cwd_hosts)
 
     return status
 

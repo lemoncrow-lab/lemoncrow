@@ -10701,7 +10701,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
         # instead of an object. mypyc-compiled handlers enforce dict at the boundary
         # and would reject it with "dict object expected; got str", so parse it here.
         if isinstance(args, str):
-            with contextlib.suppress(json.JSONDecodeError, ValueError):
+            with contextlib.suppress(json.JSONDecodeError, ValueError, RecursionError):
                 args = json.loads(args)
         if not isinstance(args, dict):
             args = {}
@@ -12130,8 +12130,11 @@ def serve() -> None:
                 continue
             try:
                 req = json.loads(line)
-            except json.JSONDecodeError as exc:
-                _write_jsonrpc(_err(None, -32700, f"parse error: {exc}"))
+            except (json.JSONDecodeError, RecursionError) as exc:
+                # RecursionError (deeply-nested JSON, e.g. a line of many '[')
+                # is NOT a JSONDecodeError; without it here one adversarial line
+                # kills the reader thread and tears down the whole stdio server.
+                _write_jsonrpc(_err(None, -32700, f"parse error: {type(exc).__name__}"))
                 continue
             # Valid JSON but not a request object (batch array, string, null):
             # answer -32600 instead of letting .get() kill the reader thread

@@ -45,7 +45,7 @@ class AntigravityImporter:
         sorted_cascades = sorted(
             cascades.items(),
             key=lambda item: (
-                item[1]["calls"][0].get("timestamp")
+                item[1]["calls"][0].get("timestamp") or ""
                 if isinstance(item[1], dict) and isinstance(item[1].get("calls"), list) and item[1]["calls"]
                 else ""
             ),

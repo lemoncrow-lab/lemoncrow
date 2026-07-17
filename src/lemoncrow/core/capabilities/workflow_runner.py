@@ -269,7 +269,8 @@ class WorkflowRunner:
                 raise ValueError(f"unsupported step kind: {step.kind}")
         except (WorkflowLoopGuardError, WorkflowMapGuardError):
             raise
-        except (RuntimeError, ValueError, OSError, KeyError, TypeError) as exc:
+        except Exception as exc:
+            logger.exception("workflow step %s failed: %s", step.step_id, exc)
             result = StepResult(
                 step_id=step.step_id,
                 kind=step.kind,
@@ -399,7 +400,7 @@ class WorkflowRunner:
         for index, item in enumerate(items):
             child = self._child_state(context_state, {step.item_var: item, "index": index})
             ok, results = self._run_sub_body(step.body, child, ledger)
-            terminal = results[self._ordered_sub_steps(step.body)[-1].step_id] if results else None
+            terminal = results.get(self._ordered_sub_steps(step.body)[-1].step_id)
             iterations.append({rid: r.to_dict() for rid, r in results.items()})
             if not ok:
                 return StepResult(
@@ -442,7 +443,7 @@ class WorkflowRunner:
             )
         child = self._child_state(context_state)
         ok, results = self._run_sub_body(body, child, ledger)
-        terminal = results[self._ordered_sub_steps(body)[-1].step_id] if results else None
+        terminal = results.get(self._ordered_sub_steps(body)[-1].step_id)
         status = "done" if ok else "failed"
         return StepResult(
             step_id=step.step_id,
@@ -472,7 +473,7 @@ class WorkflowRunner:
         for index in range(cap):
             child = self._child_state(context_state, {"index": index})
             ok, results = self._run_sub_body(step.body, child, ledger)
-            terminal = results[self._ordered_sub_steps(step.body)[-1].step_id] if results else None
+            terminal = results.get(self._ordered_sub_steps(step.body)[-1].step_id)
             iterations.append({rid: r.to_dict() for rid, r in results.items()})
             completed = index + 1
             if not ok:

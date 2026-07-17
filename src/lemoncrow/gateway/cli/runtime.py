@@ -497,6 +497,16 @@ class InteractiveRuntime:
                     if tool_call_counts[fingerprint] > 6:
                         looping = True
             if looping:
+                # The assistant message with tool_calls was already appended
+                # above. Breaking without emitting a matching tool result for
+                # each call would persist orphaned tool_calls, which the provider
+                # rejects with a 400 on the next request ("assistant message with
+                # tool_calls must be followed by tool responses") — permanently
+                # corrupting the session. Close out every pending call first.
+                for tc in tool_calls_list:
+                    messages.append(
+                        {"role": "tool", "tool_call_id": tc["id"], "content": "[stopped: identical tool-call loop]"}
+                    )
                 break
 
             prepared_calls: list[tuple[str, str, dict[str, Any]]] = []

@@ -323,8 +323,7 @@ def benchmark_mini_cmd(
     help="Path to prebuilt lemoncrow bundle (claude-code arm only).",
 )
 @click.option(
-    "--rebuild-bundle",
-    is_flag=True,
+    "--rebuild-bundle/--no-rebuild-bundle",
     default=True,
     help="Rebuild bundle from current source before a fresh run (default: on).",
 )
