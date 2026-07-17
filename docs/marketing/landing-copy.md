@@ -4,7 +4,7 @@ _Audience: daily coding-agent power users on real repositories. Primary promise:
 
 ## Nav
 
-\`LemonCrow · Replay · Compare · Pricing · Docs · Install\`
+\`LemonCrow · Replay · Compare · Docs · Install\`
 
 ## Hero
 
@@ -21,7 +21,7 @@ LemonCrow gives your existing agent a local code graph, exact-range tools, bound
 **Secondary CTA:** See matched proof
 
 \`\`\`bash
-curl -fsSL https://install.lemoncrow.com | bash
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 \`\`\`
 
 Hero side panel:
@@ -94,7 +94,7 @@ Say exactly:
 - Parsing and indexing run locally.
 - Model calls still go to the provider already configured in the host.
 - Optional anonymous telemetry excludes source and prompts and can be disabled.
-- Published source/integrations are Apache-2.0; Pro engine is proprietary.
+- All of LemonCrow, including the engine, is Apache-2.0 and ships as readable source.
 
 Do not claim every competitor requires uploading code.
 
@@ -117,8 +117,6 @@ Cards:
 Keep the model, editor, and workflow already chosen. Add the runtime and judge it on a hard repository.
 
 **Install on a hard repo** · **Inspect on GitHub**
-
-Team path: contact@lemoncrow.com
 
 ## Removed from homepage
 

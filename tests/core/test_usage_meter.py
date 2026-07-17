@@ -200,7 +200,9 @@ def test_oauth_subscription_overrides_stale_local_trial(lemoncrow_root: Path, mo
     stale = pr.compute_usage_meter(lemoncrow_root)
     pr._write_json(pr.subscription_state_path(lemoncrow_root), stale)
     assert stale["plan"] == "LOCAL"
-    assert stale["monthlySavingsCapInUsd"] == pr.ANONYMOUS_SAVINGS_CAP_USD
+    # The local trial is uncapped now (no anonymous $100 cap), so the stale blob
+    # already carries a null cap; the OAuth override below keeps it null.
+    assert stale["monthlySavingsCapInUsd"] is None
 
     monkeypatch.setattr(
         "lemoncrow.core.capabilities.licensing.entitlements.auth_user",

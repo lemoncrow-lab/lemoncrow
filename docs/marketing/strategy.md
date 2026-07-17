@@ -22,7 +22,7 @@ Champion: the same developer standardizing agent workflows for a team.
 
 Economic buyer: Developer Productivity, Platform Engineering, or an engineering leader paying for shared policy, memory, evaluation, and governance.
 
-Write the main landing page for the primary reader. Give the champion a team path. Put procurement language on pricing and future enterprise material.
+Write the main landing page for the primary reader.
 
 ## 3. Pain
 
@@ -108,5 +108,5 @@ Team memory must be reviewable, permission-aware, provenance-rich, and staleable
 - Benchmark results are not universal guarantees.
 - Cumulative token throughput is not context occupancy.
 - Roadmap capabilities are labeled.
-- Published source is Apache-2.0; the Pro engine is proprietary.
+- All of LemonCrow, including the engine, is Apache-2.0 and ships as readable source.
 - Local-first means parsing/indexing stay local; model calls still go to the user's configured provider.

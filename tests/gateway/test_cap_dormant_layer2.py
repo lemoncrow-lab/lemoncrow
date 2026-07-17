@@ -38,14 +38,17 @@ def _host_agent(config: Path) -> object:
     return data.get("agent", "<unset>")
 
 
-def test_dormant_unsets_host_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch_saved(monkeypatch, 105.0)  # > $100 anonymous cap -> dormant
+def test_large_savings_stays_active_and_sets_host_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A trailing-window total far above the former $100 cap no longer goes
+    # dormant: the session stays active and the host `agent` is set to
+    # lemoncrow:code (not unset).
+    _patch_saved(monkeypatch, 105.0)
     root, config, plugin = tmp_path / "root", tmp_path / "cfg", _plugin_root(tmp_path)
     root.mkdir()
     config.mkdir()
     result = pr.apply_session_start_files(root, plugin, config_dir=config)
-    assert result["dormant"] is True
-    assert _host_agent(config) == "<unset>"  # unset -> host default; no lc tools visible
+    assert result["dormant"] is False
+    assert _host_agent(config) == "lemoncrow:code"
 
 
 def test_dormant_clears_stale_free_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

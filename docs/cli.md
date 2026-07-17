@@ -28,9 +28,9 @@ optional visualization stack.
 
 | Command                  | Purpose                                                        |
 | ------------------------ | -------------------------------------------------------------- |
-| `lc init`           | Initialize the runtime store under `--root`.                   |
+| `lc init`           | Initialize the runtime store under `--root`. Fully local; no login or account required. |
 | `lc uninstall`      | Remove LemonCrow-managed host integrations and wrappers.         |
-| `lc status`         | Show local plugin, auth, and subscription status.              |
+| `lc status`         | Show local plugin and runtime status.                          |
 | `lc stack ...`      | Start, stop, inspect, or log the optional native UI/API stack. |
 | `lc service ...`    | Manage the HTTP/API service surface.                           |
 | `lc background ...` | Manage OS-level background services and auto-updates.          |
@@ -270,20 +270,24 @@ wire-level cost verification (requires `mitmproxy` and its CA cert).
 The internal/dev suites are `lc benchmark {codebench,swe}` and
 `lc eval {mcp,retrieval,fitness}`.
 
-## Configuration and Account State
+## Configuration and Optional Account
 
-| Command                   | Purpose                                                 |
-| ------------------------- | ------------------------------------------------------- |
-| `lc settings ...`         | Manage local plugin settings.                           |
-| `lc telemetry ...`        | Enable, disable, or inspect product telemetry settings. |
-| `lc account login`        | Create local auth state for plugin operations.          |
-| `lc account logout`       | Remove local auth state.                                |
-| `lc account status`       | Show account and authentication status.                 |
-| `lc account subscription` | Show subscription details.                              |
-| `lc account cap`          | Show monthly savings-cap usage.                         |
-| `lc share`                | Render referral or share text.                          |
-| `lc domain ...`           | Manage internal domain bundles.                         |
-| `lc letta ...`            | Manage the self-hosted Letta sidecar.                   |
+The `lc account` commands are an **optional** convenience for linking a hosted
+account. They gate nothing — LemonCrow is fully local and every feature works
+without them; they are never required and never prompted. Remote telemetry is
+**off by default** and strictly opt-in (see
+[Privacy & network behavior](privacy.md)).
+
+| Command             | Purpose                                                            |
+| ------------------- | ----------------------------------------------------------------- |
+| `lc settings ...`   | Manage local plugin settings.                                     |
+| `lc telemetry ...`  | Inspect or toggle telemetry; remote telemetry is off by default.  |
+| `lc account login`  | Optional: link a hosted account. Gates nothing; never required.   |
+| `lc account logout` | Remove the optional local account link.                           |
+| `lc account status` | Show whether an optional account link is present.                 |
+| `lc share`          | Render referral or share text.                                    |
+| `lc domain ...`     | Manage internal domain bundles.                                   |
+| `lc letta ...`      | Manage the self-hosted Letta sidecar.                             |
 
 ## JSON Output
 
