@@ -2769,6 +2769,47 @@ run_setup() {
         printf "\n"
     fi
 
+    # Anonymous accounts still get savings tracked, just capped; logging in
+    # removes the cap. Skip asking when already logged in (env token or
+    # ~/.lemoncrow/auth_token on disk) -- nothing to gain by asking, and
+    # `lemoncrow login` would just pop a redundant browser tab. Otherwise ask
+    # once, here, with the completion report already on screen -- not
+    # mid-spin, for the same TTY/isatty reasons documented above.
+    local _already_logged_in=0
+    if [[ -n "${LEMONCROW_AUTH_TOKEN:-}" || -s "${HOME}/.lemoncrow/auth_token" ]]; then
+        _already_logged_in=1
+    fi
+    if [[ "$_already_logged_in" == "1" ]]; then
+        :
+    elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] prompt: log in to save uncapped? (anonymous savings capped to \$100/month)"
+    elif [[ "$ORIGINAL_STDOUT_IS_TTY" == "1" && "$LEMONCROW_NON_INTERACTIVE" != "1" ]] && has_interactive_input; then
+        if supports_interactive_selector; then
+            local login_yn=1
+            interactive_single_select \
+                "Log in now to save uncapped?" \
+                login_yn \
+                0 \
+                "Yes - log in now" \
+                "No - cap my savings to \$100/month"
+            if [[ "$login_yn" == "0" ]]; then
+                "$lemoncrow_cli" login >&7 2>&7 || true
+            else
+                printf "   Savings capped to \$100.\n\n"
+            fi
+        else
+            local login_ans=""
+            printf "  ◇  Log in now to save uncapped? [y/N] "
+            IFS= read -r login_ans </dev/tty 2>/dev/null || login_ans=""
+            case "$login_ans" in
+                y | Y | yes | YES) "$lemoncrow_cli" login >&7 2>&7 || true ;;
+                *) printf "   Savings capped to \$100.\n\n" ;;
+            esac
+        fi
+    else
+        printf "%b💰 Savings tracking:%b capped to \$100/month (run '%s login' to remove the cap)\n\n" "$C_PURPLE" "$C_RESET" "$cli"
+    fi
+
     local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
     code_display="${code_display/#$HOME/~}"
     printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
