@@ -103,16 +103,16 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "rg",
                     "-n",
                     "def\\s+tool_|def\\s+search_symbols|def\\s+_tool_call_graph",
-                    "src/lemoncrow/core/capabilities/code_context/engine.py",
+                    "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 ],
             ],
             [
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "tests/gateway/test_p0_mcp_surfaces.py",
                 "tests/gateway/test_mcp_tool_handlers.py",
                 "tests/core/test_code_context.py",
-                "src/lemoncrow/core/capabilities/tool_supervision/native_search.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/native_search.py",
             ],
         ),
         "search": (
@@ -123,13 +123,13 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "rg",
                     "-n",
                     "search_symbols|tool_search|resolve_search_mode",
-                    "src/lemoncrow/core/capabilities/code_context/engine.py",
+                    "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 ],
             ],
             [
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
                 "tests/core/test_code_context.py",
             ],
         ),
@@ -140,12 +140,12 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "rg",
                     "-n",
                     "classify_command",
-                    "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+                    "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
                 ],
             ],
             [
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
             ],
         ),
@@ -156,12 +156,12 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "rg",
                     "-n",
                     "classify_command|CommandPolicyDecision",
-                    "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+                    "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
                 ],
             ],
             [
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
             ],
         ),
@@ -172,10 +172,10 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                 ["rg", "-n", "run_command", "src", "tests", "benchmarks"],
             ],
             [
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
                 "tests/gateway/test_run_tool.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
             ],
         ),
         "callers": (
@@ -191,8 +191,8 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
             ],
             [
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "tests/gateway/test_run_tool.py",
             ],
         ),
@@ -203,12 +203,12 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "rg",
                     "-n",
                     "classify_command|_is_|split\\(",
-                    "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+                    "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
                 ],
             ],
             [
-                "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
             ],
         ),
@@ -220,12 +220,12 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                     "-n",
                     "def\\s+tool_pattern|tool_pattern\\(",
                     "src/lemoncrow/gateway/adapters/mcp_server.py",
-                    "src/lemoncrow/core/capabilities/code_context/engine.py",
+                    "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 ],
             ],
             [
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "tests/gateway/test_p0_mcp_surfaces.py",
             ],
         ),
@@ -237,7 +237,7 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
             ],
             [
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
                 "tests/gateway/test_mcp_tool_handlers.py",
                 "tests/gateway/test_p0_mcp_surfaces.py",
                 "tests/core/test_code_context.py",
@@ -256,8 +256,8 @@ def _baseline_plan_for_case(case: BenchCase) -> tuple[list[list[str]], list[str]
                 ],
             ],
             [
-                "src/lemoncrow/core/capabilities/code_context/engine.py",
-                "src/lemoncrow/core/capabilities/code_context/renderer.py",
+                "src/lemoncrow/pro/capabilities/code_context/engine.py",
+                "src/lemoncrow/pro/capabilities/code_context/renderer.py",
                 "src/lemoncrow/gateway/adapters/mcp_server.py",
                 "tests/core/test_code_context.py",
                 "tests/gateway/test_mcp_tool_handlers.py",
@@ -358,7 +358,7 @@ def _assert_search_compact_location_only(result: dict[str, Any]) -> None:
     _assert_search_lexical(result)
     rendered = str(result.get("rendered") or "")
     assert rendered, "compact search must render a non-empty summary"
-    assert "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py" in rendered
+    assert "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py" in rendered
     assert "classify shell command text" not in rendered
     assert "```" not in rendered
 
@@ -833,7 +833,7 @@ CODE_CASES: list[BenchCase] = [
         label="hover — positional lookup at known line",
         args={
             "op": "hover",
-            "path": "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+            "path": "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
             "line": 133,
             "budget_tokens": 300,
         },
@@ -848,7 +848,7 @@ CODE_CASES: list[BenchCase] = [
         args={
             "op": "usages",
             "symbol_name": "run_command",
-            "path": "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+            "path": "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
             "limit": 20,
             "snippet": "none",
             "budget_tokens": 1000,
@@ -864,7 +864,7 @@ CODE_CASES: list[BenchCase] = [
         args={
             "op": "callers",
             "symbol_name": "run_command",
-            "path": "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+            "path": "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
             "depth": 1,
             "budget_tokens": 800,
         },
@@ -940,7 +940,7 @@ CODE_CASES: list[BenchCase] = [
         args={
             "op": "usages",
             "symbol_name": "run_command",
-            "path": "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+            "path": "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
             "group_by": "none",
             "snippet_lines": 20,
             "limit": 200,
@@ -957,7 +957,7 @@ CODE_CASES: list[BenchCase] = [
         args={
             "op": "callers",
             "symbol_name": "run_command",
-            "path": "src/lemoncrow/core/capabilities/tool_supervision/bash_exec.py",
+            "path": "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
             "depth": 2,
             "limit": 200,
             "budget_tokens": 12000,
