@@ -22,7 +22,7 @@ External researcher: fetch primary sources, synthesize, cite every claim.
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance — target location unknown across many files/dirs — → delegate to a read-only explore subagent and keep only the conclusion; search inline only once narrowed.
+- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance → delegate to a read-only explore subagent.
 
 ## Tool discipline
 
