@@ -1,4 +1,4 @@
-"""Savings-cap metering: anonymous $50, every signed-in account uncapped."""
+"""Savings-cap metering: anonymous $100, every signed-in account uncapped."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def _patch_window(monkeypatch: pytest.MonkeyPatch, *, saved: float, spend: float
 
 
 def test_anonymous_over_cap_flips(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch_window(monkeypatch, saved=55.0)
+    _patch_window(monkeypatch, saved=105.0)
     m = pr.compute_usage_meter(tmp_path, subscription={"plan": "LOCAL"})
     assert m["savingsOverCap"] is True
     assert m["savingsRemainingUsd"] == 0.0
@@ -62,7 +62,7 @@ def test_anonymous_under_cap_not_over(monkeypatch: pytest.MonkeyPatch, tmp_path:
     _patch_window(monkeypatch, saved=5.0)
     m = pr.compute_usage_meter(tmp_path, subscription={"plan": "anonymous"})
     assert m["savingsOverCap"] is False
-    assert m["savingsRemainingUsd"] == 45.0
+    assert m["savingsRemainingUsd"] == 95.0
 
 
 @pytest.mark.parametrize("plan", ["free", "lite", "pro", "enterprise"])
@@ -74,7 +74,7 @@ def test_signed_in_plans_never_over_cap(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 
 def test_cap_exhausted_reads_persisted_anonymous_meter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch_window(monkeypatch, saved=55.0)
+    _patch_window(monkeypatch, saved=105.0)
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
 
     _write_json(subscription_state_path(tmp_path), {"plan": "LOCAL"})
@@ -114,7 +114,7 @@ def test_server_meter_not_over_local_cannot_raise(monkeypatch: pytest.MonkeyPatc
 
 
 def test_local_meter_used_when_no_server_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _patch_window(monkeypatch, saved=55.0)
+    _patch_window(monkeypatch, saved=105.0)
     m = pr.compute_usage_meter(tmp_path, subscription={"plan": "LOCAL"})
     assert m["savingsOverCap"] is True
 

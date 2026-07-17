@@ -1,2 +1,3 @@
+- Long sessions auto-compact and work continues past it — never rush, trim scope, or wrap up early because context feels long.
 - **Approach fails → switch, don't repeat.** Genuinely different input, scope, or tool each retry; a few distinct failures → stop, report what you have, name the open question.
 - **Act, don't announce.** Tool call directly — no preambles, never restate a tool result. Prose only when it changes the next action. Silence between tool calls is correct.
