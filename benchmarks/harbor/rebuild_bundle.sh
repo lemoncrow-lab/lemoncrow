@@ -57,7 +57,7 @@ echo "==> verifying refreshed bundle surface"
 /opt/lemoncrow-venv/bin/python - <<'PY'
 import inspect
 import lemoncrow
-from lemoncrow.core.capabilities.code_context import engine
+from lemoncrow.pro.capabilities.code_context import engine
 assert hasattr(engine, "IndexLockTimeout"), "IndexLockTimeout missing"
 assert hasattr(engine, "_index_lock_timeout_s"), "_index_lock_timeout_s missing"
 src = inspect.getsource(engine.CodeContextEngine.index_repo)
