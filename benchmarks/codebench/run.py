@@ -251,33 +251,31 @@ _PLUGIN_STAGE_LOCK = threading.Lock()
 
 @functools.cache
 def _lean_plugin_root(persona: str) -> Path:
-    """Stage a bench-lean copy of the Claude plugin: one persona, zero skills.
+    """Stage a bench-lean copy of the Claude plugin: every persona, zero skills.
 
     The repo plugin dir doubles as the on-demand install SOURCE (every role
-    agent + optional skills), so mounting/loading it raw ships every agent
-    persona and the full skill list into the system prompt on every turn --
-    dead prefix weight never exercised by a single-persona benchmark arm
-    (measured: ~950 output-of-context tokens per call on a plain Q&A prompt).
-    Strip ``agents/`` down to *persona*'s own file and drop ``skills/``
-    entirely; the bench measures the CODING surface only.
+    agent + optional skills), so mounting/loading it raw ships the full skill
+    list into the system prompt on every turn -- dead prefix weight never
+    exercised by the benchmark arms. Drop ``skills/`` entirely (the bench
+    measures the CODING surface only) but keep every file under ``agents/``:
+    a diagnostic run may override the persona via CODEBENCH_LEMONCROW_AGENT
+    (e.g. lemoncrow:solve) independently of the persona this dir was staged
+    for, and Claude Code only resolves ``--agent`` values it finds mounted --
+    stripping down to one persona's file turned every other agent name into a
+    hard "--agent '<name>' not found" failure.
 
-    Cached per persona and guarded by a lock: two concurrent arms/jobs
-    staging different personas must not interleave rmtree/copytree on a
-    shared dest. The pid+persona suffix keeps a fresh driver process from
-    clobbering a still-running older one and keeps personas isolated from
-    each other within one process.
+    Still cached/keyed per persona (identical content per key, harmless
+    duplication) and guarded by a lock: two concurrent arms/jobs staging
+    different personas must not interleave rmtree/copytree on a shared dest.
+    The pid+persona suffix keeps a fresh driver process from clobbering a
+    still-running older one and keeps personas isolated from each other
+    within one process.
     """
     dest = Path(tempfile.gettempdir()) / f"codebench-plugin-lean-{os.getpid()}-{persona.replace(':', '_')}"
     with _PLUGIN_STAGE_LOCK:
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(LEMONCROW_CLAUDE_PLUGIN_ROOT, dest)
-        agents = dest / "agents"
-        if agents.is_dir():
-            keep = persona.split(":", 1)[-1]
-            for p in agents.glob("*.md"):
-                if p.stem != keep:
-                    p.unlink()
         skills = dest / "skills"
         if skills.is_dir():
             shutil.rmtree(skills)
