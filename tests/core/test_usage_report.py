@@ -268,6 +268,44 @@ def test_anonymous_offline_returns_false(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert not (tmp_path / "cap_anon_token").exists()
 
 
+def test_anonymous_persists_registered_at_and_cycle_resets_at(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The report-anon response's display-only unix-seconds fields land as ISO
+    strings in the local subscription cache (see plugin_runtime.persist_registered_at
+    / persist_cycle_resets_at) -- what `lc account cap` reads for its "since" /
+    "resets" lines.
+    """
+    from lemoncrow.core.capabilities import plugin_runtime as pr
+
+    _patch(monkeypatch, token=None, saved=40.0)
+
+    def _post(_url: str, _payload: dict, _tok: str) -> dict:
+        return {
+            "capVerdictToken": "v.tok",
+            "anonToken": "anon.signed.tok",
+            "deviceRegisteredAt": 1_700_000_000,
+            "cycleResetsAt": 1_702_592_000,
+        }
+
+    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
+    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
+    assert sub["registeredAt"] == "2023-11-14T22:13:20Z"
+    assert sub["cycleResetsAt"] == "2023-12-14T22:13:20Z"
+
+
+def test_anonymous_ignores_missing_display_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lemoncrow.core.capabilities import plugin_runtime as pr
+
+    _patch(monkeypatch, token=None, saved=0.0)
+
+    def _post(_url: str, _payload: dict, _tok: str) -> dict:
+        return {"capVerdictToken": "v.tok", "anonToken": "anon.signed.tok"}
+
+    assert ur.report_usage_once(tmp_path, http_post=_post) is True  # type: ignore[arg-type]
+    sub = json.loads(pr.subscription_state_path(tmp_path).read_text("utf-8"))
+    assert "registeredAt" not in sub
+    assert "cycleResetsAt" not in sub
+
+
 def test_throttle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _posted, post = _patch(monkeypatch, token="tok", saved=25.0)
     assert ur.maybe_report_usage(tmp_path, http_post=post, now=1_000_000) is True  # type: ignore[arg-type]

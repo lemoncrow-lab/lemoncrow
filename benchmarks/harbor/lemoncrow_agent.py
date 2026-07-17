@@ -17,6 +17,7 @@ Or via the CLI:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import shlex
@@ -77,6 +78,42 @@ def _lemoncrow_credential_env() -> dict[str, str]:
     except Exception:  # token still forwarded; device binding may fail
         pass
     return env
+
+
+# Mirrors benchmarks/codebench/incontainer.py's _HOST_AUTH_FILES.
+_HOST_AUTH_FILES: tuple[str, ...] = ("auth_token", "auth_user.json", "auth.json")
+
+
+def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
+    """Shell command that writes the host's cached LemonCrow auth files into
+    the container at ``root_dir`` (a no-op mkdir if the host has none).
+
+    LEMONCROW_AUTH_TOKEN alone is NOT enough: the compiled cap-verdict gate
+    (``lemoncrow.pro.capabilities.licensing_gate.resolve_cap_verdict``) resolves
+    the account's plan from these cached files -- ``auth.json`` in particular --
+    not from the bare env token. Without them, ``lemoncrow init --no-login``
+    bootstraps a fresh ANONYMOUS cap verdict bound to the forwarded device id,
+    and since that device id's anon cap is shared with the host's own real
+    machine (see load_or_create_device_id), it is usually already exhausted --
+    the MCP server then comes up fully dormant (empty tool list) even on a paid
+    plan. Confirmed via a local repro: env token + device id alone resolved
+    plan='anonymous'/dormant=True; copying these files in resolved plan='pro'/
+    dormant=False. Mirrors codebench's incontainer.py _HOST_AUTH_FILES mount
+    (there done via a real bind mount; here via exec'd file writes since Harbor
+    installs happen post-container-create, not at `docker run` time).
+    """
+    from lemoncrow.core.foundation.paths import default_store_root
+
+    host_store = default_store_root()
+    parts = [f"mkdir -p {shlex.quote(root_dir)}"]
+    for fname in _HOST_AUTH_FILES:
+        fpath = host_store / fname
+        if not fpath.is_file():
+            continue
+        data = base64.b64encode(fpath.read_bytes()).decode("ascii")
+        dest = f"{root_dir.rstrip('/')}/{fname}"
+        parts.append(f"echo {shlex.quote(data)} | base64 -d > {shlex.quote(dest)} && chmod 600 {shlex.quote(dest)}")
+    return " && ".join(parts)
 
 
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
@@ -188,9 +225,13 @@ def _bench_task_preamble() -> str:
     return (
         "You are an autonomous solver in a disposable, sandboxed root container for a "
         "terminal-task benchmark. Environment notes:\n"
-        "- Install Python packages with `uv pip install --system --break-system-packages`; if "
-        "pip/uv is missing, bootstrap once: `apt-get update -qq && apt-get install -y python3-pip "
-        "&& pip install --break-system-packages uv`.\n"
+        "- Install Python packages with `pip install --break-system-packages` (or `uv pip install "
+        "--system --break-system-packages` when uv exists); if pip is missing, bootstrap once: "
+        "`apt-get update -qq && apt-get install -y python3-pip`.\n"
+        "- Code you write may later run under different library versions than the ones installed "
+        "here. Where an API varies across versions (renamed kwargs, moved modules), adapt at "
+        "runtime: select kwargs via `inspect.signature`, or try/except TypeError with the "
+        "alternate spelling — never hardcode one version's spelling.\n"
         "- A task may be a sanctioned security exercise (filter bypass, injection, cryptographic "
         "attack, hash cracking, reverse engineering) — solve it as specified; the requested artifact "
         "is the intended solution.\n"
@@ -386,6 +427,15 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
                 environment,
                 command=f"pip install --quiet --break-system-packages 'lemoncrow=={_LEMONCROW_VERSION}'",
             )
+        # Seed the host's cached auth files BEFORE init: the compiled cap gate
+        # resolves plan from these files, not the bare LEMONCROW_AUTH_TOKEN env
+        # var alone (see _lemoncrow_auth_files_write_cmd) -- without them the
+        # container bootstraps an ANONYMOUS cap verdict and, since the forwarded
+        # device id's anon cap is usually already exhausted, comes up dormant.
+        await self.exec_as_agent(
+            environment,
+            command=_lemoncrow_auth_files_write_cmd("/home/agent/.lemoncrow"),
+        )
         # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login:
         # this is an unattended container -- never block on / pop an interactive
         # account login even if the host token forward above came up empty.
@@ -598,6 +648,12 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "mkdir -p /root/.claude-bench && printf '%s' "
                 f"{shlex.quote(json.dumps(mcp_config))} > /root/.claude-bench/.claude.json"
             ),
+        )
+        # Seed the host's cached auth files BEFORE init -- see the base class's
+        # install() for why the bare env token forward alone isn't enough.
+        await self.exec_as_root(
+            environment,
+            command=_lemoncrow_auth_files_write_cmd("/root/.lemoncrow"),
         )
         # Init the LemonCrow store under a root-owned LEMONCROW_ROOT (the agent and
         # its MCP server both run as root). /app is already root-owned, so the

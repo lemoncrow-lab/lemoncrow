@@ -31,6 +31,34 @@ _LIFETIME_DAYS = 36_500
 _HttpPost = Callable[[str, dict[str, Any], str], "dict[str, Any] | None"]
 
 
+def _persist_registered_at_iso(root: str | Path, iso_ts: str) -> None:
+    from lemoncrow.core.capabilities.plugin_runtime import persist_registered_at
+
+    persist_registered_at(root, iso_ts)
+
+
+def _persist_cycle_resets_at_iso(root: str | Path, iso_ts: str) -> None:
+    from lemoncrow.core.capabilities.plugin_runtime import persist_cycle_resets_at
+
+    persist_cycle_resets_at(root, iso_ts)
+
+
+def _persist_unix_display(root: str | Path, unix_value: object, writer: Callable[[str | Path, str], None]) -> None:
+    """Best-effort: convert a unix-seconds response field to ISO and persist it.
+
+    Shared by the two display-only anon-report anchors (``deviceRegisteredAt``,
+    ``cycleResetsAt``) -- never raises, since a persistence failure here must
+    never fail the underlying usage report.
+    """
+    if not isinstance(unix_value, int | float):
+        return
+    with suppress(Exception):
+        from datetime import UTC, datetime
+
+        iso_ts = datetime.fromtimestamp(unix_value, UTC).replace(microsecond=0, tzinfo=None).isoformat() + "Z"
+        writer(root, iso_ts)
+
+
 def _machine_hash() -> str:
     """Hash the stable OS-backed device id; the raw id never leaves the client."""
     try:
@@ -215,6 +243,13 @@ def report_usage_once(
         minted = result.get("anonToken")
         if isinstance(minted, str) and minted:
             _write_anon_token(root, minted)
+        # Display-only anchors for `lc account cap` -- the server's
+        # authoritative first-usage day for this anon identity, and (when the
+        # anon cap is a verified fixed calendar cycle, not a rolling estimate)
+        # the instant it hard-resets to 0. See firstSeenDay/cycleSavings in
+        # landing/functions/api/usage.ts.
+        _persist_unix_display(root, result.get("deviceRegisteredAt"), _persist_registered_at_iso)
+        _persist_unix_display(root, result.get("cycleResetsAt"), _persist_cycle_resets_at_iso)
 
     _write_watermark(
         root,

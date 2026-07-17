@@ -338,6 +338,73 @@ def test_install_forwards_lemoncrow_credentials_to_init(
     }
 
 
+def test_lemoncrow_auth_files_write_cmd_includes_present_files_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LEMONCROW_AUTH_TOKEN alone does NOT establish plan/cap identity inside
+    the container -- the compiled cap gate resolves plan from these cached
+    files (auth.json in particular), not the bare env token. Without writing
+    them into the container root before `init --no-login`, the container
+    bootstraps an ANONYMOUS identity and the MCP server comes up dormant
+    (empty tool list) even on a paid host plan -- confirmed via a local repro:
+    env token + device id alone resolved plan='anonymous'/dormant=True;
+    writing these files in resolved plan='pro'/dormant=False. Mirrors
+    benchmarks/codebench/incontainer.py's _HOST_AUTH_FILES mount.
+    """
+    import lemoncrow.core.foundation.paths as paths_mod
+
+    store_dir = tmp_path / "host_store"
+    store_dir.mkdir()
+    (store_dir / "auth_token").write_text("tok123")
+    (store_dir / "auth.json").write_text('{"plan":"pro"}')
+    # auth_user.json intentionally absent -- must be skipped, not error.
+    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
+    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
+    assert "mkdir -p /root/.lemoncrow" in cmd
+    assert "/root/.lemoncrow/auth_token" in cmd
+    assert "/root/.lemoncrow/auth.json" in cmd
+    assert "/root/.lemoncrow/auth_user.json" not in cmd
+
+
+def test_lemoncrow_auth_files_write_cmd_no_op_when_host_has_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lemoncrow.core.foundation.paths as paths_mod
+
+    empty_dir = tmp_path / "no_host_store"
+    empty_dir.mkdir()
+    monkeypatch.setattr(paths_mod, "default_store_root", lambda: empty_dir)
+    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
+    assert cmd == "mkdir -p /root/.lemoncrow"
+
+
+def test_install_writes_auth_files_before_init(
+    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """install() must seed the host's cached auth files into the container
+    root BEFORE `lemoncrow init --no-login` runs, or init bootstraps a
+    dormant anonymous identity regardless of the token/device-id env forward
+    (see test_lemoncrow_auth_files_write_cmd_includes_present_files_only).
+    """
+    import lemoncrow.core.foundation.paths as paths_mod
+
+    store_dir = tmp_path / "host_store"
+    store_dir.mkdir()
+    (store_dir / "auth.json").write_text('{"plan":"pro"}')
+    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
+    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
+    calls: list[str] = []
+
+    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+        calls.append(command)
+
+    agent.exec_as_root = fake_exec
+    asyncio.run(agent.install(None))
+    write_idx = next(i for i, c in enumerate(calls) if "/root/.lemoncrow/auth.json" in c)
+    init_idx = next(i for i, c in enumerate(calls) if "lemoncrow init --no-login" in c)
+    assert write_idx < init_idx
+
+
 def test_install_configures_and_probes_lemoncrow_mcp(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:

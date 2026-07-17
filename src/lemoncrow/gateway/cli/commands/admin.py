@@ -1613,10 +1613,19 @@ def _account_subscription(root: Path) -> dict[str, Any]:
     raw: object = None
     auth_token, user = _load_oauth_account()
     if auth_token and isinstance(user, dict):
-        raw = user.get("subscriptionStatus") or user.get("subscription_status")
-        if not isinstance(raw, dict) and user.get("plan"):
+        nested = user.get("subscriptionStatus") or user.get("subscription_status")
+        raw = dict(nested) if isinstance(nested, dict) else {}
+        if not raw and user.get("plan"):
             raw = {"plan": user["plan"]}
-    if not isinstance(raw, dict):
+        # /api/auth/me returns these "since" anchors top-level (never nested
+        # under subscriptionStatus) -- carry them through so `lc account cap`
+        # can show the real billing-cycle/account-creation period instead of
+        # falling back to the generic rolling-window label.
+        if isinstance(raw, dict):
+            for key in ("accountCreatedAt", "planPeriodStart", "planPeriodEnd"):
+                if key in user:
+                    raw[key] = user[key]
+    if not isinstance(raw, dict) or not raw:
         account = auth_status(root)
         raw = account.get("subscription")
     subscription = compute_usage_meter(root, subscription=raw if isinstance(raw, dict) else {})
@@ -1645,6 +1654,79 @@ def account_subscription_cmd(ctx: click.Context, as_json: bool) -> None:
         click.echo(f"status: {subscription['message']}")
 
 
+def _format_period_date(value: Any) -> str | None:
+    """Best-effort YYYY-MM-DD from a unix-seconds int/float or an ISO string."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        try:
+            from datetime import UTC, datetime
+
+            return datetime.fromtimestamp(value, UTC).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str) and len(value) >= 10:
+        return value[:10]
+    return None
+
+
+def _account_cap_period_line(subscription: dict[str, Any], window_days: Any) -> str | None:
+    """The `lc account cap` "period"/"since" line: a real per-plan identity
+    anchor when the account/server has one, else the rolling-window fallback.
+
+    A paid plan's Stripe billing cycle and a free account's creation date are
+    purely informational (those plans are uncapped -- ``monthlySavingsCapInUsd``
+    is ``None`` -- so there is no reset semantic to report). The anonymous/local
+    device's first-seen date doubles as its cap cycle's anchor: see
+    ``_account_cap_mechanics`` for the actual reset boundary that pairs with it.
+
+    Requires BOTH ``planPeriodStart`` and ``planPeriodEnd`` before calling it a
+    "billing cycle": a genuine Stripe-sourced snapshot always carries both,
+    populated atomically from the same subscription object
+    (``subscriptionSnapshot`` in stripe-events.ts). ``planPeriodEnd`` alone
+    (no start) means this plan came from something other than a live Stripe
+    subscription -- a manually granted or lifetime/promo row, whose
+    ``current_period_end`` is often a far-future sentinel (e.g. year 2100) that
+    would misleadingly print as a "billing cycle" -- so it falls through to the
+    account-creation anchor instead.
+    """
+    plan = str(subscription.get("plan") or "").lower()
+    period_start = _format_period_date(subscription.get("planPeriodStart"))
+    period_end = _format_period_date(subscription.get("planPeriodEnd"))
+    if period_start and period_end:
+        return f"period: {period_start} - {period_end} (billing cycle)"
+    if plan in {"local", "anonymous"}:
+        registered = _format_period_date(subscription.get("registeredAt"))
+        if registered:
+            return f"since: device registered {registered}"
+    else:
+        created = _format_period_date(subscription.get("accountCreatedAt"))
+        if created:
+            return f"since: account created {created}"
+    if window_days is not None:
+        return f"period: trailing {int(window_days)}-day window"
+    return None
+
+
+def _account_cap_mechanics(subscription: dict[str, Any], window_days: Any) -> tuple[str, str | None]:
+    """(cap-line suffix, optional "resets: ..." line) describing HOW the cap
+    resets -- distinct from ``_account_cap_period_line``'s identity anchor.
+
+    The anonymous cap has two different real mechanisms depending on whether a
+    verified server verdict backs it: a server-confirmed anon identity
+    (``capVerdictReason == "signed_anonymous"``) uses a FIXED calendar cycle
+    that hard-resets at ``cycleResetsAt`` (see ``cycleSavings`` in
+    landing/functions/api/usage.ts); everything else showing a $ cap (offline,
+    unverified, or the local dev fallback) is still the client's rolling
+    ``window_days``-day estimate (``compute_usage_meter`` / ``windowSavings``).
+    Reporting the wrong one here would mislead the one case (anon) where the
+    cap actually blocks tool access.
+    """
+    if subscription.get("capVerdictReason") == "signed_anonymous":
+        resets = _format_period_date(subscription.get("cycleResetsAt"))
+        return "30-day cycle", (f"resets: {resets}" if resets else None)
+    days = int(window_days) if window_days is not None else 30
+    return f"rolling {days}-day window", None
+
+
 @account_group.command("cap")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
@@ -1662,15 +1744,33 @@ def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
         # which tools are actually visible in the session.
         "verified": subscription.get("capVerdictVerified"),
         "reason": subscription.get("capVerdictReason"),
+        # A verified anon identity (reason=="signed_anonymous") is a FIXED
+        # calendar cycle that hard-resets at cycle_resets_at; every other cap
+        # shown here is the client's rolling window_days estimate (see
+        # _account_cap_mechanics). period_start/end/account_created_at/
+        # device_registered_at are separate, display-only identity anchors
+        # (Stripe billing cycle / account creation / device first-seen).
+        "period_days": subscription.get("windowDays"),
+        "period_start": subscription.get("planPeriodStart"),
+        "period_end": subscription.get("planPeriodEnd"),
+        "account_created_at": subscription.get("accountCreatedAt"),
+        "device_registered_at": subscription.get("registeredAt"),
+        "cycle_resets_at": subscription.get("cycleResetsAt"),
     }
     if as_json:
         _emit(payload, as_json=True)
         return
     cap = payload["cap_usd"]
-    click.echo("cap: uncapped" if cap is None else f"cap: ${float(cap):.2f}/month")
+    cap_suffix, resets_line = _account_cap_mechanics(subscription, payload["period_days"])
+    click.echo("cap: uncapped" if cap is None else f"cap: ${float(cap):.2f} ({cap_suffix})")
     click.echo(f"saved: ${float(payload['saved_usd'] or 0.0):.2f}")
     if payload["remaining_usd"] is not None:
         click.echo(f"remaining: ${float(payload['remaining_usd']):.2f}")
+    period_line = _account_cap_period_line(subscription, payload["period_days"])
+    if period_line:
+        click.echo(period_line)
+    if cap is not None and resets_line:
+        click.echo(resets_line)
     if payload["over_cap"] and not payload["verified"]:
         click.echo("status: dormant (no verified credential — log in or check network; tools disabled)")
     else:
