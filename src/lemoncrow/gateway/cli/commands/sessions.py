@@ -1633,7 +1633,7 @@ def _import_live_host_sessions(
         trace = store.history.get_trace(tid)
         if trace is None:
             continue
-        if cutoff is not None and trace.created_at < cutoff:
+        if cutoff is not None and (trace.created_at is None or trace.created_at < cutoff):
             continue
         sid = (trace.session_id or trace.id or "").strip().lower()
         if session_filter and session_filter not in sid:

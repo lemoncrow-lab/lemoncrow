@@ -735,11 +735,21 @@ def init(
                     "A free LemonCrow account is required to activate this install. Run lc account login, then retry lc init."
                 )
             click.echo("No LemonCrow account found — starting login...")
-            _oauth_login(ctx.obj["root"], as_json=False)
-            if not load_auth_token():
-                raise click.ClickException("Login did not complete. Run lc account login, then retry lc init.")
-    else:
-        # Explicit --no-login: remember this so the MCP server's background
+            try:
+                _oauth_login(ctx.obj["root"], as_json=False)
+            except (KeyboardInterrupt, click.Abort):
+                # Ctrl+C during the browser-login wait: degrade to the
+                # --no-login local-only path instead of aborting the whole init.
+                click.echo(
+                    "Login skipped — continuing local setup. Run 'lc account login' "
+                    "then 'lc init' to activate this project."
+                )
+                login = False
+            else:
+                if not load_auth_token():
+                    raise click.ClickException("Login did not complete. Run lc account login, then retry lc init.")
+    if not login:
+        # Explicit --no-login (or an aborted login above): remember this so the MCP server's background
         # seamless login (mcp_server._try_seamless_login) doesn't keep popping
         # a browser tab every cooldown window in an unattended install.
         # Cleared automatically the moment a token is next saved (lc account login /

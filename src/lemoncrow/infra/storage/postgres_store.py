@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS environments (
 CREATE TABLE IF NOT EXISTS traces (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id        UUID REFERENCES projects(id) ON DELETE SET NULL,
-    session_id            TEXT,
+    session_id            TEXT UNIQUE,
     agent             TEXT NOT NULL,
     adapter           TEXT NOT NULL DEFAULT '',
     domain            TEXT NOT NULL,
@@ -383,8 +383,13 @@ class PostgresStore:
     # ----- lifecycle ------------------------------------------------------- #
 
     def _connect(self) -> Any:
-        """Return a new psycopg connection (autocommit=False)."""
-        return _psycopg.connect(self._url)
+        """Return a new psycopg connection (autocommit=False).
+
+        Uses the ``dict_row`` factory: every reader below accesses columns by
+        name (``dict(row)``, ``row["id"]``, ...), which psycopg3's default
+        tuple rows do not support.
+        """
+        return _psycopg.connect(self._url, row_factory=_psycopg.rows.dict_row)
 
     def init(self) -> None:
         """Create tables and (optionally) enable pgvector."""
@@ -404,9 +409,18 @@ class PostgresStore:
         active_conn = conn or self._connect()
         try:
             try:
-                active_conn.execute(postgres_vector_script(dim=self._embedding_dim))
                 if owns_connection:
+                    active_conn.execute(postgres_vector_script(dim=self._embedding_dim))
                     active_conn.commit()
+                else:
+                    # Shared connection (called from init()): isolate the vector
+                    # DDL in a SAVEPOINT so a failure (e.g. the pgvector
+                    # extension is unavailable) rolls back only this statement
+                    # instead of poisoning the caller's transaction. Without
+                    # this, the next statement (verify_v2_schema) would raise
+                    # InFailedSqlTransaction; init() now degrades to FTS-only.
+                    with active_conn.transaction():
+                        active_conn.execute(postgres_vector_script(dim=self._embedding_dim))
                 return True
             except Exception:
                 logging.exception("Recovered from broad exception handler")
@@ -622,7 +636,22 @@ class PostgresStore:
                     %(repeated_failures)s, %(diff_summary)s, %(output_summary)s,
                     %(validation_results)s, %(metadata)s, %(created_at)s, %(updated_at)s
                 )
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (session_id) DO UPDATE SET
+                    agent = EXCLUDED.agent,
+                    adapter = EXCLUDED.adapter,
+                    domain = EXCLUDED.domain,
+                    task = EXCLUDED.task,
+                    status = EXCLUDED.status,
+                    files_touched = EXCLUDED.files_touched,
+                    tools_called = EXCLUDED.tools_called,
+                    commands_run = EXCLUDED.commands_run,
+                    errors_seen = EXCLUDED.errors_seen,
+                    repeated_failures = EXCLUDED.repeated_failures,
+                    diff_summary = EXCLUDED.diff_summary,
+                    output_summary = EXCLUDED.output_summary,
+                    validation_results = EXCLUDED.validation_results,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = EXCLUDED.updated_at
                 """,
                 {
                     "session_id": trace.id,
