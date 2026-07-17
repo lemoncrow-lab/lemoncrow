@@ -1,8 +1,11 @@
 # LemonCrow Roadmap
 
-> Last revised 2026-06-15. Cadence: reviewed every 2 weeks.
+> LemonCrow is in low-maintenance mode. There is no committed roadmap and no
+> release schedule. This page records what has shipped and lists possible
+> technical directions as non-promises — not planned deliverables or dates.
 
-This roadmap tracks shipped capabilities against what's in active development. Detailed execution specs are maintained internally.
+The sections below separate shipped capabilities from ideas that may or may not
+be pursued on a best-effort basis. Nothing here is a commitment.
 
 ## Shipped capabilities
 
@@ -63,11 +66,14 @@ LemonCrow is not building a general-purpose organizational knowledge warehouse. 
 
 Future team context must be reviewable, permission-aware, tied to source and commit provenance, checked for staleness, and promoted from verified outcomes rather than raw transcripts. These are direction statements, not shipped-feature claims.
 
-## Active development
+## Possible directions (non-promises)
+
+These are directions that may be explored on a best-effort basis. They are not
+commitments, dated deliverables, or shipped features.
 
 | Area                  | Description                                                                              |
 | --------------------- | ---------------------------------------------------------------------------------------- |
-| Model routing         | Provider/model evaluation and reliability work; not available in current plans           |
+| Model routing         | Provider/model evaluation and reliability work                                          |
 | Optimization advisor  | `lc optimize` with compaction type taxonomy, golden tests, policy presets, shadow runner |
 | Cross-machine sync    | Encrypted workspace sync across machines                                                 |
 | Web dashboard         | Browser-based spend trends and management                                                |
@@ -77,5 +83,4 @@ Future team context must be reviewable, permission-aware, tied to source and com
 
 - Custom models, fine-tuning, or in-house embeddings
 - IDE plugins
-- Enterprise sales motion before Team tier is repeating
 - Mobile companion

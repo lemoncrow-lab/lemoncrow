@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import uuid
@@ -190,72 +189,29 @@ def device_id_path() -> Path:
     return default_store_root() / "device_id"
 
 
-def _read_os_machine_id() -> str | None:
-    """Read the OS-provided stable machine identifier."""
-    import subprocess
-    import sys
-
-    if sys.platform == "linux":
-        for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
-            try:
-                val = Path(path).read_text(encoding="utf-8").strip()
-                if val:
-                    return val
-            except OSError:
-                pass
-    elif sys.platform == "darwin":
-        try:
-            out = subprocess.check_output(
-                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
-                stderr=subprocess.DEVNULL,
-                timeout=3,
-            ).decode()
-            for line in out.splitlines():
-                if "IOPlatformUUID" in line:
-                    parts = line.split('"')
-                    if len(parts) >= 4:
-                        return parts[-2]
-        except Exception:  # noqa: BLE001
-            pass
-    elif sys.platform == "win32":
-        try:
-            import winreg  # type: ignore[import]
-
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
-            val, _ = winreg.QueryValueEx(key, "MachineGuid")
-            return str(val)
-        except Exception:  # noqa: BLE001
-            pass
-    return None
+def _generate_local_device_id() -> str:
+    """A cryptographically-secure random 12-hex id — never machine-derived."""
+    return uuid.uuid4().hex[:12]
 
 
 def stable_machine_device_id() -> str:
-    """The OS-machine-derived device id, IGNORING the ``LEMONCROW_DEVICE_ID``
-    override.
+    """A random, locally-generated installation id (NOT derived from hardware).
 
-    The ANONYMOUS cap identity binds to THIS (see
-    ``licensing_gate._anonymous_cap_identity``), never the override: the server
-    derives an anonymous ``account_id`` FROM the device id (sha256), so an
-    overridable id would let a signed anon verdict be replayed on any machine by
-    exporting one env var (plus a throwaway token string to satisfy the override
-    gate in :func:`load_or_create_device_id`). The override stays honored for the
-    AUTHENTICATED path only, where the server keys the cap by ``account_id`` and
-    a forwarded, already-signed device id cannot dodge that account's cap.
-
-    Derived from the OS machine ID (stable across reboots/re-logins); falls back
-    to a locally-generated UUID cached in ~/.lemoncrow/device_id.
+    Open-source runtime: this id is used only by the OPTIONAL hosted-account
+    link (``lc account login``). It gates nothing, enforces no cap, and is never
+    required. It is generated locally with a cryptographically secure random
+    UUID — never from ``/etc/machine-id``, hostname, MAC address, disk serial,
+    OS id, or any other machine property — and cached at
+    ``~/.lemoncrow/device_id`` (0600). Reset it by deleting that file. The name
+    is kept for backward-compatible imports; "machine" no longer implies
+    hardware derivation. See docs/maintenance-mode-transition.md.
     """
-    os_id = _read_os_machine_id()
-    if os_id:
-        return hashlib.sha256(os_id.encode()).hexdigest()[:12]
-
-    # Fallback: persistent local UUID
     path = device_id_path()
     if path.exists():
         val = path.read_text(encoding="utf-8").strip()
         if val:
             return val
-    device_id = uuid.uuid4().hex[:12]
+    device_id = _generate_local_device_id()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
@@ -267,26 +223,15 @@ def stable_machine_device_id() -> str:
 
 
 def load_or_create_device_id() -> str:
-    """Return a stable device ID for this machine (AUTHENTICATED-path resolver).
+    """Return the local installation id used by the optional hosted-account link.
 
-    ``LEMONCROW_DEVICE_ID`` (validated) wins ONLY while an auth token is also
-    present (env or file) -- containers and CI runners have their own
-    ``/etc/machine-id``, so an environment that forwards an already-activated
-    auth token MUST forward the host's device id with it, or the account/plan
-    token/cap verdict (all bound to the device that logged in) never verify.
-
-    The gate on a real token matters: the server's cap accumulator is keyed
-    by account_id for an authenticated identity (see
-    services/license-issuer/src/usage.ts::accumulateUsage), so a forwarded
-    device id there cannot reset or dodge that account's cap -- it only lets
-    a container's LOCAL verification match a token the server already signed
-    for the real account. The ANONYMOUS identity has no such account_id and must
-    never honor this override -- it binds to :func:`stable_machine_device_id`
-    instead, so the anon path is override-immune even when a throwaway token is
-    present. With no token the override is ignored here too, falling through to
-    the same stable machine id.
+    ``LEMONCROW_DEVICE_ID`` (validated) overrides it when set — useful for
+    containers/CI that want a stable id across ephemeral filesystems. Otherwise a
+    random, local id is used. This value gates nothing, enforces no cap, and is
+    never derived from machine properties, so there is no longer any reason to
+    tie the override to an auth token.
     """
     env_id = os.environ.get(DEVICE_ID_ENV_VAR, "").strip()
-    if env_id and _DEVICE_ID_RE.fullmatch(env_id) and load_auth_token() is not None:
+    if env_id and _DEVICE_ID_RE.fullmatch(env_id):
         return env_id
     return stable_machine_device_id()

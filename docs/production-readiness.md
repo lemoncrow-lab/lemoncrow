@@ -1,16 +1,18 @@
-# Production Readiness Checklist
+# Self-Hosting Notes
 
-This checklist is the release gate for LemonCrow Phase D hardening.
+LemonCrow runs fully locally and needs no server. These are optional
+operational notes for anyone who chooses to self-host the optional HTTP/service
+surface (for example, a Postgres backend shared across machines). None of this
+is required for normal local, single-machine use.
 
-## Deployment Checklist
+## Self-Hosting Checklist
 
 - `uv sync --all-extras` completed in a clean environment.
 - `make verify` passes (ruff, black --check, mypy --strict, pytest, runtime smoke tests, host checks).
-- `make benchmark` passes when benchmark evidence is required for the release.
 - Service config reviewed with `lc service config`.
-- `LEMONCROW_REQUIRE_AUTH=true` for non-local environments.
-  Local development defaults to `false`.
-- `LEMONCROW_API_KEY` set for service environments.
+- `LEMONCROW_REQUIRE_AUTH=true` when exposing the service beyond localhost.
+  Local use defaults to `false`.
+- `LEMONCROW_API_KEY` set when the service requires auth.
 
 ## Backups
 
@@ -72,19 +74,10 @@ This checklist is the release gate for LemonCrow Phase D hardening.
 - Enable worker process for queued jobs in production.
 - Periodically archive old traces/runs to control storage growth.
 
-## Knowledge Bundle Governance
+## Knowledge Bundle Maintenance
 
 - Built-in seed blocks under `src/lemoncrow/infra/seed_playbooks/` and built-in rubrics under `src/lemoncrow/core/rubrics/` remain source-controlled artifacts.
 - Domain bundle metadata exposed through `lc domain list` and `lc domain info` should match the shipped content.
-- New or updated knowledge artifacts require a clean `lc init` against a fresh store plus targeted benchmark or eval evidence when they affect execution policy, retrieval, or savings claims.
+- New or updated knowledge artifacts benefit from a clean `lc init` against a fresh store plus targeted benchmark or eval evidence when they affect execution policy, retrieval, or savings claims.
 - `lc benchmark packs` remains the benchmark-only coverage surface; there is no public `lc pack install` workflow on the current CLI.
-- Runtime-learned Playbooks are review/promote candidates, not auto-published governance records.
-
-## Release Sign-Off
-
-- [ ] T1 full system validation completed
-- [ ] T2 golden dogfood scenarios completed
-- [ ] T3 benchmark suite completed
-- [ ] T4 install/deploy verification completed
-- [ ] T5 documentation audit completed
-- [ ] T6 checklist fully reviewed and signed
+- Runtime-learned Playbooks are review/promote candidates, not auto-published records.

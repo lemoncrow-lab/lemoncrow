@@ -1,11 +1,9 @@
 # Benchmark Results
 
-Every number on [lemoncrow.com](https://lemoncrow.com) and in the repo's
+Every number in the repo's
 [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)
 traces back to a committed raw run. This page is the index: what was measured,
-against what, and where the receipts live. See also: [every "vs" comparison on
-lemoncrow.com](https://lemoncrow.com/vs) for the marketing-facing version of the same
-data, and [Marketing & Positioning](../marketing/strategy.md) for voice.
+against what, and where the receipts live.
 
 ## Suite index
 
@@ -52,7 +50,8 @@ fff-mcp, code-index-mcp, and jCodeMunch. Every tool ran the identical 14-repo,
 | universal-ctags | 0.237 | 0.226 | 1ms | 12ms |
 
 What's checked, per tool (verbatim quotes, primary sources, verified before
-publishing -- full detail per tool at [lemoncrow.com/vs](https://lemoncrow.com/vs)):
+publishing -- full detail per tool in
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)):
 
 - **Publishes a real benchmark of some kind:** ripgrep (25-scenario speed
   comparison vs. grep/ag/ucg/pt/ack), jCodeMunch (95% token-reduction table
@@ -78,9 +77,10 @@ same corpus, before this table existed.
 ## Two comparisons outside the retrieval table
 
 Neither of these is a code-search tool, so neither is in the MRR table above --
-both get their own page on [lemoncrow.com/vs](https://lemoncrow.com/vs) instead.
+both are covered separately in
+[BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md).
 
-- **[rtk](https://lemoncrow.com/vs/rtk)** (github.com/rtk-ai/rtk, ~69.6k stars --
+- **[rtk](https://github.com/rtk-ai/rtk)** (github.com/rtk-ai/rtk, ~69.6k stars --
   the most-starred tool in this entire comparison set) is a Rust CLI proxy
   that rewrites Bash tool calls to compact equivalents before output reaches
   the model. Its own README publishes a per-command savings table ("60-90%"),
@@ -89,7 +89,7 @@ both get their own page on [lemoncrow.com/vs](https://lemoncrow.com/vs) instead.
   LemonCrow's Terminal-Bench 2.1 result is the accuracy-checked version of the
   same claim: -28.1% cost with correctness held flat (78.7% vs. 78.9%
   expected, -0.2pp).
-- **["Just tell Claude to be terse"](https://lemoncrow.com/vs/caveman)** is the
+- **["Just tell Claude to be terse"](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)** is the
   free DIY alternative every reader can try with no install: a system-prompt
   instruction (`benchmarks/telegraphic/caveman_skill.md`) layered on vanilla
   Claude Code. Same run as the Telegraphic Q&A table above
@@ -123,8 +123,7 @@ changes. Anthropic publishes Claude **model** accuracy on SWE-bench (e.g.
 Opus 4.8: 88.6%) but not Claude Code's own cost/token/turn efficiency against
 any baseline; GitHub is the one vendor we found publishing a comparable
 harness-vs-harness efficiency study (GitHub Copilot's agent vs. model-vendor
-harnesses). See [lemoncrow.com/vs/claude-code](https://lemoncrow.com/vs/claude-code)
-for the marketing rollup, or
+harnesses). See
 [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)
 for every suite in full.
 

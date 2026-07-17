@@ -788,14 +788,15 @@ def _check_auto_update() -> None:
     the install script.  Logs errors and emits telemetry on failure but
     never blocks the MCP server.
 
-    Enabled by default. Set ``LEMONCROW_AUTO_UPDATE=0`` (or false/no/off) to
-    disable startup git checkout auto-update.
+    Opt-in. Set ``LEMONCROW_AUTO_UPDATE=1`` (or true/yes/on) to enable startup
+    git-checkout auto-update; it is OFF by default so the runtime never contacts
+    the network unless the user asks.
     """
     import re
     import subprocess
 
-    if os.environ.get("LEMONCROW_AUTO_UPDATE", "").strip().lower() in ("0", "false", "no", "off"):
-        _log.debug("auto-update disabled by LEMONCROW_AUTO_UPDATE")
+    if os.environ.get("LEMONCROW_AUTO_UPDATE", "").strip().lower() not in ("1", "true", "yes", "on"):
+        _log.debug("auto-update is opt-in; set LEMONCROW_AUTO_UPDATE=1 to enable")
         return
 
     # Dev/source installs (`make dev` writes <root>/.dev_mode) must never
@@ -11256,24 +11257,9 @@ def _feature_locked_response(rid: str | int | None, exc: Exception) -> dict[str,
     The LLM sees this as regular tool output and explains it naturally to the
     user — far better than a cryptic error code.
     """
-    from lemoncrow.core.capabilities.licensing.models import FeatureLocked
-    from lemoncrow.core.capabilities.licensing.store import load_auth_token
-
-    if not isinstance(exc, FeatureLocked):
-        return None
-
-    if load_auth_token():
-        msg = (
-            f"This feature ({exc.feature}) requires LemonCrow Pro. "
-            "You're signed in but on the free plan. "
-            "Upgrade at https://lemoncrow.com/account."
-        )
-    else:
-        msg = (
-            f"This feature ({exc.feature}) requires LemonCrow Pro and you're not signed in. "
-            "Run `lc account login` in your terminal to sign in, then try again."
-        )
-    return _ok(rid, {"content": [{"type": "text", "text": msg}]})
+    # Open-source runtime: no feature is gated, so FeatureLocked is never raised.
+    # Retained as a no-op for backward-compatible call sites.
+    return None
 
 
 def _mcp_max_workers() -> int:
@@ -11707,17 +11693,9 @@ def _tick_usage_report(root: Path) -> None:
     already throttles itself via an on-disk watermark, so most calls here are
     a single fast disk read that no-ops.
     """
-    global _usage_report_tick_at
-    now = time.monotonic()
-    if _usage_report_tick_at is not None and now - _usage_report_tick_at < _USAGE_REPORT_TICK_INTERVAL_SECONDS:
-        return
-    _usage_report_tick_at = now
-    try:
-        from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
-
-        maybe_report_usage(root)
-    except Exception:  # noqa: BLE001 — opportunistic; dormancy resolution stands
-        _log.exception("Opportunistic usage report tick failed")
+    # Open-source runtime: no usage reporting, no cap, no phone-home. The former
+    # per-request server report is removed; nothing to tick.
+    return None
 
 
 def _mint_missing_verdict(root: Path) -> bool:
@@ -11821,11 +11799,9 @@ def _start_dormant_refresher() -> None:
     cached bool.
     """
     global _dormant_refresher_started
-    with _dormant_lock:
-        if _dormant_refresher_started:
-            return
-        _dormant_refresher_started = True
-    threading.Thread(target=_dormant_refresh_loop, name="lemoncrow-dormancy", daemon=True).start()
+    # Open-source runtime: no cap, no dormancy, no background verdict minting.
+    # The refresher is intentionally not started.
+    return
 
 
 def _snapshot_dormant() -> bool:
@@ -11853,12 +11829,10 @@ def _snapshot_dormant() -> bool:
 
 
 def _savings_dormant() -> bool:
-    """Cap gate for every tool-list and tool-call boundary — an in-memory read of
-    the cached cap-authority decision (:func:`_snapshot_dormant`). A verdict
-    change takes effect within the ~5-minute background refresh, so crossing the
-    cap is never grandfathered until restart.
+    """Open-source runtime: there is no savings cap and no dormancy — every tool
+    is always available. See docs/maintenance-mode-transition.md.
     """
-    return _snapshot_dormant()
+    return False
 
 
 def _read_path_arg(args: dict[str, Any]) -> str:
@@ -12211,30 +12185,10 @@ def _try_seamless_login(lemoncrow_root: Path) -> bool:
     -- that opt-out persists until the next successful `lc account login` / `lc init`
     without --no-login, so an unattended install never gets a surprise browser tab.
     """
-    from lemoncrow.core.capabilities.licensing import store as _licensing_store
-
-    if _licensing_store.is_login_declined():
-        return False
-    marker = Path(lemoncrow_root) / ".login_attempted_at"
-    try:
-        last = float(marker.read_text("utf-8").strip())
-        if time.time() - last < _LOGIN_COOLDOWN_SECONDS:
-            return False
-    except (OSError, ValueError):
-        pass
-    with contextlib.suppress(OSError):
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(str(time.time()), encoding="utf-8")
-
-    from lemoncrow.core.capabilities.licensing.oauth_flow import run_oauth_login
-
-    result = run_oauth_login(timeout=120.0)
-    if result is None:
-        return False
-    with contextlib.suppress(OSError):
-        marker.unlink(missing_ok=True)
-    _log.info("Activated LemonCrow account: %s (%s plan)", result.email, result.plan)
-    return True
+    # Open-source runtime: never open a browser or solicit login automatically.
+    # The optional hosted account is only ever linked via an explicit
+    # `lc account login`. See docs/maintenance-mode-transition.md.
+    return False
 
 
 def _ensure_account_activated(lemoncrow_root: Path) -> bool:
@@ -12245,19 +12199,9 @@ def _ensure_account_activated(lemoncrow_root: Path) -> bool:
     threads spawned at stdio startup share one attempt instead of each
     popping its own browser tab).
     """
-    from lemoncrow.core.capabilities.licensing.store import load_auth_token
-
-    if load_auth_token():
-        return True
-    with _account_gate_lock:
-        if "ok" in _account_gate_state:
-            return _account_gate_state["ok"]
-        if load_auth_token():
-            _account_gate_state["ok"] = True
-            return True
-        ok = _try_seamless_login(lemoncrow_root)
-        _account_gate_state["ok"] = ok
-        return ok
+    # Open-source runtime: no account is ever required. Auto-init and code-index
+    # warm always proceed locally; login is never solicited.
+    return True
 
 
 def _auto_init_workspace() -> None:

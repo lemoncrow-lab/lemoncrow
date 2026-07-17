@@ -20,10 +20,10 @@ def app_no_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
-    # Remote telemetry is mandatory (no opt-out); bypass the pytest-only
-    # suppression guard so these assertions exercise the real default
-    # instead of the blanket test-suite safety override. None of the
-    # requests this fixture drives ever reach the network.
+    # Bypass the pytest-only suppression guard so these assertions exercise the
+    # real config default (remote telemetry OFF / opt-in) instead of the blanket
+    # test-suite safety override. None of the requests this fixture drives ever
+    # reach the network.
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
     return TestClient(create_app(store_root=tmp_path / ".lemoncrow"))
 
@@ -31,9 +31,8 @@ def app_no_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 def test_telemetry_api_local_schema_summary_and_config(app_no_auth: TestClient) -> None:
     cfg = app_no_auth.get("/telemetry/config")
     assert cfg.status_code == 200
-    # Remote telemetry is mandatory since d41e3d88 ("make product telemetry
-    # mandatory (remove opt-out)") -- there is no user-facing off switch.
-    assert cfg.json()["remote_enabled"] is True
+    # Remote telemetry is OFF by default (opt-in via `lc telemetry remote on`).
+    assert cfg.json()["remote_enabled"] is False
 
     write = app_no_auth.post(
         "/telemetry/local",
@@ -70,7 +69,7 @@ def test_telemetry_api_local_schema_summary_and_config(app_no_auth: TestClient) 
 
     ack = app_no_auth.post("/telemetry/ack")
     assert ack.status_code == 200
-    assert ack.json()["remote_enabled"] is True
+    assert ack.json()["remote_enabled"] is False
 
 
 def test_telemetry_api_filters_by_window_and_host(app_no_auth: TestClient, tmp_path: Path) -> None:

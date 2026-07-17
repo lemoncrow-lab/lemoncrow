@@ -16,8 +16,6 @@ Public API::
 
 from __future__ import annotations
 
-import os
-
 from lemoncrow.core.capabilities.licensing.entitlements import (
     current_identity,
     current_license,
@@ -40,18 +38,6 @@ from lemoncrow.core.capabilities.licensing.models import (
     LicenseStatus,
 )
 
-_DEFAULT_PRO_URL = "https://lemoncrow.com/pro"
-
-
-def pro_url() -> str:
-    """Where to send users to buy Pro.
-
-    Override with ``LEMONCROW_PRO_URL`` to point straight at your Stripe Payment
-    Link (or any storefront) without rebuilding the client.
-    """
-    return os.environ.get("LEMONCROW_PRO_URL", "").strip() or _DEFAULT_PRO_URL
-
-
 __all__ = [
     "ENTERPRISE_FEATURES",
     "FREE_FEATURES",
@@ -64,7 +50,6 @@ __all__ = [
     "current_license",
     "has_feature",
     "is_pro",
-    "pro_url",
     "refresh_plan",
     "reload",
     "require",

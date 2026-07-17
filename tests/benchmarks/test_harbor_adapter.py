@@ -281,28 +281,25 @@ def test_supports_atif_and_commit_version(
     assert agent.version() == "abc1234"
 
 
-def test_agent_env_forwards_lemoncrow_auth_token(
+def test_agent_env_forwards_no_lemoncrow_account_credentials(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`lemoncrow init` inside the container needs an activated account or it
-    blocks on an interactive `lc account login` -- not viable headless. The host's
-    already-activated token must ride along in _agent_env (used by run())."""
+    # Account-free: benchmarks never forward a LemonCrow token or device id --
+    # the runtime is fully unlocked without an account.
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
-    assert agent._agent_env["LEMONCROW_AUTH_TOKEN"] == "lc-faketoken"
+    assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
+    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
 
 
-def test_agent_env_forwards_host_device_id_with_token(
+def test_agent_env_never_forwards_host_device_id(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The token alone is NOT enough: the account's plan token and signed cap
-    verdict are bound to the device that logged in on the host. Without the
-    host device id the container's own /etc/machine-id wins, the plan degrades
-    to free, and the cap gate stays dormant (empty MCP tool list)."""
+    # Account-free: device minting is removed; no device id is ever forwarded.
     from lemoncrow.core.capabilities.licensing import store
 
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
     monkeypatch.setattr(store, "load_or_create_device_id", lambda: "hostdev12345")
-    assert agent._agent_env["LEMONCROW_DEVICE_ID"] == "hostdev12345"
+    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
 
 
 def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
@@ -313,12 +310,11 @@ def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
     assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
 
 
-def test_install_forwards_lemoncrow_credentials_to_init(
+def test_install_forwards_no_lemoncrow_credentials_to_init(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The `lemoncrow init` exec_as_root call builds its own env= (separate
-    from run()'s _agent_env) -- it must carry the same token AND device id or
-    init runs device-mismatched inside the container (plan degrades to free)."""
+    # Account-free: the `lemoncrow init` exec carries no LemonCrow token/device
+    # env -- init runs fully local with no account.
     from lemoncrow.core.capabilities.licensing import store
 
     monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
@@ -332,10 +328,7 @@ def test_install_forwards_lemoncrow_credentials_to_init(
     asyncio.run(agent.install(None))  # type: ignore[arg-type]
     init_calls = [c for c in calls if "lemoncrow init" in c[0]]
     assert init_calls, "no `lemoncrow init` exec_as_root call captured"
-    assert init_calls[0][1] == {
-        "LEMONCROW_AUTH_TOKEN": "lc-faketoken",
-        "LEMONCROW_DEVICE_ID": "hostdev12345",
-    }
+    assert not init_calls[0][1]  # no LemonCrow account credentials in the init env
 
 
 def test_lemoncrow_auth_files_write_cmd_includes_present_files_only(
@@ -360,10 +353,10 @@ def test_lemoncrow_auth_files_write_cmd_includes_present_files_only(
     # auth_user.json intentionally absent -- must be skipped, not error.
     monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
     cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
-    assert "mkdir -p /root/.lemoncrow" in cmd
-    assert "/root/.lemoncrow/auth_token" in cmd
-    assert "/root/.lemoncrow/auth.json" in cmd
-    assert "/root/.lemoncrow/auth_user.json" not in cmd
+    # Account-free: only the store dir is created; NO host auth files are copied.
+    assert cmd == "mkdir -p /root/.lemoncrow"
+    assert "auth_token" not in cmd
+    assert "auth.json" not in cmd
 
 
 def test_lemoncrow_auth_files_write_cmd_never_embeds_secret_data(
@@ -392,19 +385,13 @@ def test_lemoncrow_auth_files_write_cmd_never_embeds_secret_data(
     cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
     env = lemoncrow_agent._lemoncrow_auth_files_env()
 
-    # Neither the raw secrets nor their base64 encoding show up in the
-    # command string -- only the env var names they travel under.
+    # Account-free: no host secret is forwarded at all -- not in the command
+    # string and not in the env dict (which is now always empty).
     assert secret_token not in cmd
     assert secret_json not in cmd
     assert base64.b64encode(secret_token.encode()).decode() not in cmd
     assert base64.b64encode(secret_json.encode()).decode() not in cmd
-    assert "$LEMONCROW_AUTH_FILE_AUTH_TOKEN" in cmd
-    assert "$LEMONCROW_AUTH_FILE_AUTH_JSON" in cmd
-
-    # The env dict is where the payload actually lives, keyed to match.
-    assert base64.b64decode(env["LEMONCROW_AUTH_FILE_AUTH_TOKEN"]).decode() == secret_token
-    assert base64.b64decode(env["LEMONCROW_AUTH_FILE_AUTH_JSON"]).decode() == secret_json
-    assert "LEMONCROW_AUTH_FILE_AUTH_USER_JSON" not in env  # absent on host -- skipped
+    assert env == {}
 
 
 def test_lemoncrow_auth_files_write_cmd_no_op_when_host_has_none(
@@ -419,13 +406,12 @@ def test_lemoncrow_auth_files_write_cmd_no_op_when_host_has_none(
     assert cmd == "mkdir -p /root/.lemoncrow"
 
 
-def test_install_writes_auth_files_before_init(
+def test_install_creates_store_dir_but_writes_no_auth_files_before_init(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """install() must seed the host's cached auth files into the container
-    root BEFORE `lemoncrow init --no-login` runs, or init bootstraps a
-    dormant anonymous identity regardless of the token/device-id env forward
-    (see test_lemoncrow_auth_files_write_cmd_includes_present_files_only).
+    """Account-free: install() creates the container store dir before
+    `lemoncrow init --no-login`, but copies NO host auth files (init runs fully
+    local and unlocked, so nothing needs seeding).
     """
     import lemoncrow.core.foundation.paths as paths_mod
 
@@ -441,9 +427,11 @@ def test_install_writes_auth_files_before_init(
 
     agent.exec_as_root = fake_exec
     asyncio.run(agent.install(None))
-    write_idx = next(i for i, c in enumerate(calls) if "/root/.lemoncrow/auth.json" in c)
+    mkdir_idx = next(i for i, c in enumerate(calls) if "mkdir -p /root/.lemoncrow" in c)
     init_idx = next(i for i, c in enumerate(calls) if "lemoncrow init --no-login" in c)
-    assert write_idx < init_idx
+    assert mkdir_idx < init_idx
+    # No host auth file is ever written into the container.
+    assert not any("/root/.lemoncrow/auth.json" in c for c in calls)
 
 
 def test_install_configures_and_probes_lemoncrow_mcp(

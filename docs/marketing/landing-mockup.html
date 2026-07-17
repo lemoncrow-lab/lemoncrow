@@ -706,7 +706,7 @@
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
-  /* ---- pricing ---- */
+  /* ---- open source ---- */
   .price {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -851,7 +851,7 @@
     <nav class="top">
       <a href="#proof">Proof</a>
       <a href="#why">Why</a>
-      <a href="#pricing">Pricing</a>
+      <a href="#opensource">Open source</a>
       <a href="#docs">Docs</a>
       <a href="#">GitHub ★</a>
     </nav>
@@ -865,14 +865,14 @@
     <div class="hero-grid">
       <div>
         <span class="eyebrow">For Claude Code subscribers</span>
-        <h1>Honestly, get <span class="b2">30% more</span> out of your Claude subscription.</h1>
+        <h1>Honestly, get <span class="b2">30% more</span> out of your Claude usage.</h1>
         <p class="lede">LemonCrow is a 30-second install that helps Claude Code waste fewer tokens while you work. It
           gives your agent better search, shorter file reads, cleaner tool output, and reusable memory so more of your
-          subscription goes into fixing code.</p>
+          Claude usage goes into fixing code.</p>
         <div class="claim"><b class="tnum">29.5%</b> cheaper &nbsp;·&nbsp; <b class="tnum">+12.0pp</b> more tasks solved
           on SWE-bench Verified — same model, same tasks, same environment. Raw runs published.</div>
-        <div class="cmd" id="install"><span class="p">$</span> curl -fsSL https://install.lemoncrow.com | bash <button
-            class="copy" data-cmd="curl -fsSL https://install.lemoncrow.com | bash">COPY</button></div>
+        <div class="cmd" id="install"><span class="p">$</span> curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash <button
+            class="copy" data-cmd="curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash">COPY</button></div>
         <div class="cta-row">
           <a class="btn" href="#est">Check my savings first</a>
           <a class="btn ghost" href="#proof">See the receipts</a>
@@ -976,8 +976,8 @@
     <div class="est">
       <span class="eyebrow" style="color:var(--accent-2)">60 seconds · read-only</span>
       <h2>Do not take our 30% claim on faith.</h2>
-      <div class="cmd2"><span class="p">$</span> curl -fsSL https://savings.lemoncrow.com | bash <button class="copy"
-          data-cmd="curl -fsSL https://savings.lemoncrow.com | bash">COPY</button></div>
+      <div class="cmd2"><span class="p">$</span> curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash <button class="copy"
+          data-cmd="curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash">COPY</button></div>
       <div class="fine2">Scans local agent sessions · temporary store · no login · no API keys · prints savings from
         your own files.</div>
     </div>
@@ -997,43 +997,21 @@
     </div>
   </section>
 
-  <!-- PRICING -->
-  <section class="wrap" id="pricing">
-    <div class="rule"><span class="tick"></span><span class="lab"><span class="idx">┼</span> PRICING</span><span
+  <!-- OPEN SOURCE -->
+  <section class="wrap" id="opensource">
+    <div class="rule"><span class="tick"></span><span class="lab"><span class="idx">┼</span> OPEN SOURCE</span><span
         class="line"></span></div>
     <div class="price">
-      <div class="tier">
-        <span class="nm">Free</span>
+      <div class="tier mid">
+        <span class="nm">Free &amp; open source</span>
         <div class="pr">$0</div>
         <ul>
-          <li>Grounded local tool loop</li>
-          <li>Recall and durable handovers</li>
-          <li>Local swarm</li>
-          <li>Uncapped after free sign-in</li>
+          <li>Every feature, running locally</li>
+          <li>No account, no login, no limits</li>
+          <li>Grounded tools, recall, swarm, memory, optimization</li>
+          <li>Apache-2.0 in full — engine included</li>
         </ul>
-        <a class="btn ghost" href="#install">Start free</a>
-      </div>
-      <div class="tier mid">
-        <span class="nm">Pro</span>
-        <div class="pr">$20<small>/mo</small></div>
-        <ul>
-          <li>Search for larger repositories</li>
-          <li>Cross-vendor memory</li>
-          <li>Context compression</li>
-          <li>Optimization and full history</li>
-        </ul>
-        <a class="btn" href="#">lc account login</a>
-      </div>
-      <div class="tier">
-        <span class="nm">Enterprise</span>
-        <div class="pr">Custom</div>
-        <ul>
-          <li>Shared team context</li>
-          <li>Governance</li>
-          <li>SSO · retention</li>
-          <li>Audit</li>
-        </ul>
-        <a class="btn ghost" href="#">Contact us</a>
+        <a class="btn" href="#install">Install</a>
       </div>
     </div>
   </section>

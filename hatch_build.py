@@ -13,7 +13,10 @@ What it does
    the .so is packaged (no readable source shipped).
 5. In finalize(), restores all deleted .py files and cleans up .so artifacts.
 
-Set LEMONCROW_SKIP_MYPYC=1 to skip compilation (dev builds, CI unit tests).
+Pure-Python is the DEFAULT, officially-supported distribution. The mypyc
+compile is EXPERIMENTAL and opt-in: set LEMONCROW_ENABLE_MYPYC=1 to enable it
+(and only publish a compiled build once CI verifies it on every supported
+platform). LEMONCROW_SKIP_MYPYC=1 remains honored as an explicit force-skip.
 """
 
 from __future__ import annotations
@@ -124,6 +127,14 @@ class CustomBuildHook(BuildHookInterface):
     PLUGIN_NAME = "custom"
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
+        # Pure-Python by default; the mypyc compile is experimental and opt-in.
+        if os.environ.get("LEMONCROW_ENABLE_MYPYC") != "1":
+            print(
+                "[hatch-mypyc] pure-Python build (default, supported). "
+                "Set LEMONCROW_ENABLE_MYPYC=1 for the experimental compiled build.",
+                flush=True,
+            )
+            return
         if os.environ.get("LEMONCROW_SKIP_MYPYC") == "1":
             return
 
@@ -180,16 +191,11 @@ class CustomBuildHook(BuildHookInterface):
         for so in module_sos:
             build_data.setdefault("force_include", {})[str(so)] = str(so.relative_to(src_dir))
 
-        # Delete .py for compiled modules; restore in finalize()
+        # Open-source build: KEEP the .py source alongside the compiled .so so the
+        # wheel is source-readable. mypyc is an optional performance layer, never a
+        # source-stripping obfuscation step. See docs/maintenance-mode-transition.md.
         self._deleted_py: dict[pathlib.Path, str] = {}
-        for so in module_sos:
-            stem = so.name.split(".")[0]
-            py = so.parent / f"{stem}.py"
-            if py.exists():
-                self._deleted_py[py] = py.read_text(encoding="utf-8")
-                py.unlink()
-
-        print(f"[hatch-mypyc] {len(self._deleted_py)} .py sources replaced by .so in wheel", flush=True)
+        print(f"[hatch-mypyc] compiled {len(module_sos)} modules; .py source retained in wheel", flush=True)
 
     def finalize(self, version: str, build_data: dict[str, Any], artifact_path: str) -> None:
         repo = pathlib.Path(self.root)
@@ -253,12 +259,12 @@ def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list
         result.append(rel)
     if pro_uncompilable:
         details = "\n".join(f"  - {rel}  [{why}]" for rel, why in pro_uncompilable)
-        raise RuntimeError(
-            "IP-leak guard: these lemoncrow/pro modules cannot be mypyc-compiled "
-            "and would ship as READABLE SOURCE in the wheel. Refactor them to be "
-            "compilable (move pydantic models to the open code_context_contract, "
-            "drop @runtime_checkable, replace __import__) before building a "
-            f"release:\n{details}"
+        # Open-source engine: an uncompilable pro module simply ships as (open) .py.
+        # No IP-leak guard — there is no proprietary source to protect.
+        print(
+            "[hatch-mypyc] these lemoncrow/pro modules are not mypyc-compilable and "
+            f"will ship as .py (open source):\n{details}",
+            flush=True,
         )
     return result
 

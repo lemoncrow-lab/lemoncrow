@@ -1,4 +1,9 @@
-"""Server-enforced cap gate for live tools/list and tools/call boundaries."""
+"""Open-source runtime: the MCP tool surface is NEVER gated or hidden.
+
+The former savings-cap dormancy gate on tools/list and tools/call was removed
+(see docs/maintenance-mode-transition.md). Every tool is always advertised and
+callable, regardless of any legacy over-cap subscription state left on disk.
+"""
 
 from __future__ import annotations
 
@@ -7,18 +12,16 @@ from pathlib import Path
 import pytest
 
 
-def _seed(root: Path, *, over: bool) -> None:
+def _seed_legacy_over_cap(root: Path) -> None:
+    # A leftover "over cap" flag from a legacy install must have NO effect.
     from lemoncrow.core.capabilities.plugin_runtime import _write_json, subscription_state_path
 
-    _write_json(subscription_state_path(root), {"plan": "free", "savingsOverCap": over})
+    _write_json(subscription_state_path(root), {"plan": "free", "savingsOverCap": True})
 
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities import licensing_gate
-
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.setattr(licensing_gate, "_public_key_hex", lambda: "")
 
 
 def _list() -> list[dict]:
@@ -29,39 +32,35 @@ def _list() -> list[dict]:
     return resp["result"]["tools"]
 
 
-def test_tools_hidden_when_over_cap(tmp_path: Path) -> None:
-    _seed(tmp_path, over=True)
-    assert _list() == []
-
-
-def test_tools_present_when_under_cap(tmp_path: Path) -> None:
-    _seed(tmp_path, over=False)
+def test_tools_always_listed(tmp_path: Path) -> None:
     tools = _list()
     assert len(tools) > 0
     assert any(t["name"] in {"read", "code_search", "bash", "edit"} for t in tools)
 
 
-def test_tools_call_hard_rejected_when_dormant(tmp_path: Path) -> None:
+def test_tools_listed_even_with_legacy_over_cap_state(tmp_path: Path) -> None:
+    _seed_legacy_over_cap(tmp_path)
+    tools = _list()
+    assert len(tools) > 0
+    assert any(t["name"] in {"read", "code_search", "bash", "edit"} for t in tools)
+
+
+def test_tools_call_never_rejected_by_cap(tmp_path: Path) -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
-    _seed(tmp_path, over=True)
+    _seed_legacy_over_cap(tmp_path)
     resp = mcp_server._handle(
         {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "read", "arguments": {"path": "x"}}}
     )
     assert isinstance(resp, dict)
-    assert resp["error"]["code"] == -32601
-    assert "cap reached" in resp["error"]["message"].lower()
+    # Never the old "anonymous savings cap reached" rejection.
+    assert "cap reached" not in str(resp).lower()
 
 
-def test_crossing_cap_applies_without_reconnect(tmp_path: Path) -> None:
+def test_crossing_legacy_cap_state_has_no_effect(tmp_path: Path) -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
-    _seed(tmp_path, over=False)
     mcp_server._handle({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
     assert len(_list()) > 0
-
-    _seed(tmp_path, over=True)
-    assert _list() == []
-
-    _seed(tmp_path, over=False)
+    _seed_legacy_over_cap(tmp_path)
     assert len(_list()) > 0

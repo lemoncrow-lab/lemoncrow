@@ -152,11 +152,13 @@ def test_public_rollup_payload_tags_custom_domain(telemetry_env: Path) -> None:
     assert payload["domain"] == "docs"
 
 
-def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(
+def test_public_rollup_is_gated_by_remote_opt_in(
     telemetry_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Public rollup fires unconditionally — no opt-out path."""
+    """The public savings rollup is remote telemetry: it must NOT leave the
+    machine unless the user opted into remote telemetry, and it must fire once
+    they have."""
     calls: list[dict[str, Any]] = []
 
     def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float) -> bool:
@@ -164,11 +166,28 @@ def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(
         return True
 
     monkeypatch.setattr("lemoncrow.core.service.telemetry.public_rollup._post_json", fake_post)
-    monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")  # product telemetry off — must not affect public rollup
     monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
 
+    # Remote telemetry OFF (fixture sets LEMONCROW_TELEMETRY=0): must not fire.
+    assert (
+        publish_public_savings_rollup(
+            session_id="session-off",
+            saved_usd=0.5,
+            tokens_saved=500,
+            calls_avoided=1,
+            turn_count=4,
+            source="claude",
+        )
+        is False
+    )
+    assert calls == []
+
+    # Opt in, then it fires exactly once with a hashed session key.
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
+    save_telemetry_config(remote_enabled=True)
     result = publish_public_savings_rollup(
-        session_id="session-always",
+        session_id="session-on",
         saved_usd=0.5,
         tokens_saved=500,
         calls_avoided=1,
@@ -179,7 +198,7 @@ def test_public_rollup_always_fires_regardless_of_product_telemetry_setting(
     assert len(calls) == 1
     anon_id = get_anon_id()
     assert "session_id" not in calls[0]
-    assert calls[0]["session_key"] == hashlib.sha256(f"{anon_id}:session-always".encode()).hexdigest()
+    assert calls[0]["session_key"] == hashlib.sha256(f"{anon_id}:session-on".encode()).hexdigest()
 
 
 def test_public_rollup_posts_correct_payload(
@@ -195,6 +214,10 @@ def test_public_rollup_posts_correct_payload(
     monkeypatch.setattr("lemoncrow.core.service.telemetry.public_rollup._post_json", fake_post)
     monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
     monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_TIMEOUT_MS", "250")
+    # Opt into remote telemetry so the rollup network path is exercised.
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
+    save_telemetry_config(remote_enabled=True)
 
     assert publish_public_savings_rollup(
         session_id="session-1",

@@ -1818,14 +1818,6 @@ SETTINGS: list[SettingSpec] = [
         "licensing",
         "OAuth session token created by `lc account login`; used for plan checks.",
     ),
-    SettingSpec(
-        "licensing.pro_url",
-        "LEMONCROW_PRO_URL",
-        "str",
-        "",
-        "licensing",
-        "URL surfaced for upgrading to the licensed/Pro tier.",
-    ),
     # -- lessons --
     SettingSpec(
         "lessons.cluster_threshold",

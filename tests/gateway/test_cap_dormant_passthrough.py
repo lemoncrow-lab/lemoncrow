@@ -1,4 +1,11 @@
-"""The MCP exposure helper evaluates the compiled cap authority live."""
+"""The MCP exposure helper is never dormant: `_savings_dormant()` is always False.
+
+The savings-cap dormancy gate was neutralized, so `_savings_dormant` no longer
+consults the cap authority and can never hide tools — not for a legacy over-cap
+meter on disk, not on an authority error, and not for a signed "over cap" verdict.
+(The `_refresh_dormant_snapshot` self-heal/reconcile plumbing below is retained
+and still exercised directly.)
+"""
 
 from __future__ import annotations
 
@@ -24,12 +31,13 @@ def _local_meter_build(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mcp_server, "_dormant_snapshot", None)
 
 
-def test_dormant_true_when_over_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_never_dormant_even_with_legacy_over_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from lemoncrow.gateway.adapters import mcp_server
 
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     _seed_meter(tmp_path, over=True)
-    assert mcp_server._savings_dormant() is True
+    # A leftover over-cap meter on disk no longer hides tools.
+    assert mcp_server._savings_dormant() is False
 
 
 def test_dormant_false_when_under_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -40,16 +48,18 @@ def test_dormant_false_when_under_cap(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert mcp_server._savings_dormant() is False
 
 
-def test_authority_error_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_authority_error_no_longer_gates(monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters import mcp_server
     from lemoncrow.pro.capabilities import licensing_gate
 
+    # _savings_dormant no longer consults the cap authority at all, so even a
+    # broken/raising gate cannot hide tools.
     monkeypatch.setattr(
         licensing_gate,
         "resolve_cap_verdict",
         lambda _root: (_ for _ in ()).throw(RuntimeError("broken")),
     )
-    assert mcp_server._savings_dormant() is True
+    assert mcp_server._savings_dormant() is False
 
 
 def test_dormant_tool_error_points_to_free_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,13 +202,9 @@ def test_ledger_reconcile_is_throttled(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert len(calls) == 1
 
 
-def test_snapshot_ticks_an_opportunistic_usage_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Real reporting is otherwise host-stop-hook-driven with a 30-minute
-    # on-disk throttle: a long session that never triggers a stop event would
-    # never re-report, so local usage can run well past the cap while the
-    # signed verdict -- and thus dormancy -- stays stale for the whole
-    # session. _snapshot_dormant must tick an opportunistic report on every
-    # request boundary so a long session still converges within ~30 minutes.
+def test_snapshot_no_longer_ticks_a_usage_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The opportunistic per-request usage report was removed: _tick_usage_report
+    # is a no-op, so a dormant-snapshot refresh never phones home.
     from lemoncrow.core.capabilities.licensing import usage_report
     from lemoncrow.gateway.adapters import mcp_server
     from lemoncrow.pro.capabilities import licensing_gate
@@ -215,10 +221,11 @@ def test_snapshot_ticks_an_opportunistic_usage_report(monkeypatch: pytest.Monkey
     calls: list[Path] = []
     monkeypatch.setattr(usage_report, "maybe_report_usage", lambda root, **_kw: calls.append(Path(root)) or True)
     assert mcp_server._refresh_dormant_snapshot() is False
-    assert calls == [tmp_path]
+    assert calls == []
 
 
-def test_usage_report_tick_is_throttled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_usage_report_tick_is_gone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # No usage report is ever ticked, no matter how many times the snapshot refreshes.
     from lemoncrow.core.capabilities.licensing import usage_report
     from lemoncrow.gateway.adapters import mcp_server
     from lemoncrow.pro.capabilities import licensing_gate
@@ -235,13 +242,13 @@ def test_usage_report_tick_is_throttled(monkeypatch: pytest.MonkeyPatch, tmp_pat
     calls: list[Path] = []
     monkeypatch.setattr(usage_report, "maybe_report_usage", lambda root, **_kw: calls.append(Path(root)) or True)
     assert mcp_server._refresh_dormant_snapshot() is False
-    assert mcp_server._refresh_dormant_snapshot() is False  # within the throttle window -- no second tick
-    assert len(calls) == 1
+    assert mcp_server._refresh_dormant_snapshot() is False
+    assert len(calls) == 0
 
 
-def test_verified_dormancy_never_self_heals(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # A SIGNED "over cap" verdict is the server's final word — re-reporting
-    # can't change it, so don't burn a network attempt on every tools/list.
+def test_savings_dormant_ignores_the_gate_and_never_self_heals(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Even a signed "over cap" verdict cannot make _savings_dormant True (it no
+    # longer consults the gate), and it never attempts a self-heal report.
     from lemoncrow.core.capabilities.licensing import usage_report
     from lemoncrow.gateway.adapters import mcp_server
     from lemoncrow.pro.capabilities import licensing_gate
@@ -255,5 +262,5 @@ def test_verified_dormancy_never_self_heals(monkeypatch: pytest.MonkeyPatch, tmp
     )
     attempts: list[bool] = []
     monkeypatch.setattr(usage_report, "report_usage_once", lambda _root, **_kw: attempts.append(True) or True)
-    assert mcp_server._savings_dormant() is True
+    assert mcp_server._savings_dormant() is False
     assert attempts == []

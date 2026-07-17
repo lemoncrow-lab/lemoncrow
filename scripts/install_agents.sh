@@ -102,16 +102,25 @@ else
     warn "LemonCrow persona source not found: $AGENTS_SOURCE"
 fi
 
-# ── 2. Git attribution ───────────────────────────────────────────────────────
-# Host-agnostic co-author attribution for commits made by any LemonCrow-backed
-# agent in this workspace.
-lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+# ── 2. Git attribution (opt-in) ──────────────────────────────────────────
+# Commit co-author attribution is OFF by default. Set LEMONCROW_ATTRIBUTION=1 to
+# install the host-agnostic prepare-commit-msg hook for this workspace. It is
+# removed by scripts/uninstall.sh.
+_attribution_installed=0
+if [[ "${LEMONCROW_ATTRIBUTION:-0}" == "1" ]]; then
+    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
+    _attribution_installed=1
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 info "Universal agents config installed in ${WORKSPACE}"
 info "  ${AGENTS_FILE}  — lemoncrow:code persona (respected by all agent CLIs)"
-info "  Git hook       — LemonCrow co-author attribution for agent commits"
+if [[ "$_attribution_installed" == "1" ]]; then
+    info "  Git hook       — LemonCrow co-author attribution (opt-in) for agent commits"
+else
+    info "  Git attribution — off (opt in with LEMONCROW_ATTRIBUTION=1)"
+fi
 echo ""
 info "Next: install per-host configs (if needed)"
 info "  bash scripts/install_opencode.sh --workspace '${WORKSPACE}'"
