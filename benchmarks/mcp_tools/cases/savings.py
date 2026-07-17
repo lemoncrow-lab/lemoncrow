@@ -623,7 +623,7 @@ _INTEL_CASES: list[BenchCase] = [
         custom_assert=lambda r: None,
         baseline_builder=_make_node_baseline(
             "smart_read",
-            "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py",
+            "src/lemoncrow/pro/capabilities/semantic_file_memory/capability.py",
         ),
         min_baseline_tokens=0,
     ),
@@ -664,7 +664,7 @@ _REPO_EXTRA_OUTLINE: list[BenchCase] = [
         op="read",
         label="read/outline/repo/capability.py",
         args={
-            "path": str(_REPO_ROOT / "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py"),
+            "path": str(_REPO_ROOT / "src/lemoncrow/pro/capabilities/semantic_file_memory/capability.py"),
             "include_meta": True,
         },
         assert_keys=["mode"],
@@ -745,7 +745,7 @@ _REPO_EXTRA_GREP: list[BenchCase] = [
 _NODE_TARGETS = [
     ("compute_savings_summary", "src/lemoncrow/core/capabilities/savings_summary.py"),
     ("tool_smart_read", "src/lemoncrow/gateway/adapters/mcp_server.py"),
-    ("smart_read", "src/lemoncrow/core/capabilities/semantic_file_memory/capability.py"),
+    ("smart_read", "src/lemoncrow/pro/capabilities/semantic_file_memory/capability.py"),
     ("_append_savings", "src/lemoncrow/gateway/adapters/mcp_server.py"),
     ("_extract_tokens_saved", "src/lemoncrow/gateway/adapters/mcp_server.py"),
     ("claude_transcript_candidates", "src/lemoncrow/core/capabilities/savings_summary.py"),
