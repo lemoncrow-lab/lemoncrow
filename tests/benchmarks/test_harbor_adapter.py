@@ -271,6 +271,23 @@ def test_web_tools_fully_off_by_default_matching_baseline(
     assert "mcp__lc__web_fetch" not in segment_tools  # correctly NOT here -- it's hidden via MCP, not disallowed
 
 
+def test_run_requests_dynamic_system_prompt_section_exclusion(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    """claude's --exclude-dynamic-system-prompt-sections flag moves
+    per-machine sections (cwd, env info, memory paths, git status) out of the
+    cached system-prompt block into the first user message. Every trial in
+    this benchmark runs a different task/repo (different git status at
+    minimum), so leaving those sections in the system prompt can break
+    prompt-cache reuse of the otherwise byte-identical static prefix (tool
+    schemas + persona) shared by every trial on the same OAuth token --
+    turning this on should convert more of that shared prefix from cache
+    writes into cache reads. Must default on (not just be available via env
+    override).
+    """
+    assert lemoncrow_agent._EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS is True
+    command, _ = _run_and_capture(agent)
+    assert "--exclude-dynamic-system-prompt-sections" in command
+
+
 def _session_event(uuid: str, typ: str, message: dict[str, Any], ts: str) -> dict[str, Any]:
     return {
         "uuid": uuid,

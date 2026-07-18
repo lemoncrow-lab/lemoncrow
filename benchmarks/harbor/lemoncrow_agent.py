@@ -115,6 +115,25 @@ _DEFAULT_EFFORT = os.environ.get("LEMONCROW_BENCH_EFFORT", "high")
 # instead of ever completing a tool call. Set via CLAUDE_CODE_MAX_OUTPUT_TOKENS;
 # overridable via LEMONCROW_BENCH_MAX_OUTPUT_TOKENS, unset -> CLI default (32000).
 _DEFAULT_MAX_OUTPUT_TOKENS = os.environ.get("LEMONCROW_BENCH_MAX_OUTPUT_TOKENS", "")
+# claude's own --exclude-dynamic-system-prompt-sections flag (default off in
+# the CLI) moves per-machine sections -- cwd, env info, memory paths, git
+# status -- out of the cached system-prompt block and into the first user
+# message instead. Every one of this benchmark's trials runs a DIFFERENT
+# task/repo (different git status at minimum), so left in the system prompt
+# those sections vary trial-to-trial and can break prompt-cache reuse for the
+# otherwise byte-identical static prefix (tool schemas + persona) shared by
+# every trial on the same OAuth token/subscription -- turning this on should
+# convert more of that shared prefix from cache WRITES (the first trial to
+# run a given task/config) into cache READS (every other concurrent or
+# subsequent trial), 20x cheaper per token at the 1h TTL rate ($0.50/M read
+# vs $10/M write). Real turn-1 cache_read data confirms this cross-trial
+# sharing already happens to some extent even without the flag (baseline's
+# own turn-1 cache_read is nonzero too) -- this should raise the hit rate
+# further, not create it from nothing. Doc says it's "ignored with
+# --system-prompt" -- moot here, this harness never passes that flag.
+_EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS = os.environ.get(
+    "LEMONCROW_BENCH_EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS", "true"
+).strip().lower() not in {"", "0", "false", "no"}
 # Tools disabled for every benchmark run via `claude --disallowedTools` (this
 # REMOVES their schemas from the request, so it also trims tokens). No-ask
 # (AskUserQuestion/EnterPlanMode/ExitPlanMode) stops the headless agent stalling
@@ -768,6 +787,9 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
         # Reasoning effort -- Anthropic's official Opus 4.8 TB-2.1 config is "high".
         effort_flag = f"--effort {shlex.quote(_DEFAULT_EFFORT)}" if _DEFAULT_EFFORT else ""
+        cache_reuse_flag = (
+            "--exclude-dynamic-system-prompt-sections " if _EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS else ""
+        )
         log = shlex.quote(self._CLAUDE_LOG)
         # Borrow a token slot for this trial (weighted across both subscriptions
         # when configured); released in the finally below. _agent_env reads
@@ -818,7 +840,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             )
         )
         inner = (
-            prewarm + f"claude -p {escaped} {model_flag} {effort_flag} "
+            prewarm + f"claude -p {escaped} {model_flag} {effort_flag} {cache_reuse_flag}"
             # stream-json (requires --verbose) captures the full turn-by-turn
             # trajectory -- every assistant turn + MCP tool call -- to the tee'd
             # log, not just the final result blob. Needed for leaderboard
