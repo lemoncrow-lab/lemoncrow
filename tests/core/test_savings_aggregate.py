@@ -117,6 +117,21 @@ def test_incremental_equals_full_recompute_multi_day(tmp_path: Path) -> None:
     assert agg2["first_ts"] > 0
 
 
+def test_large_writer_accumulated_row_survives_window_fold(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    tokens = 7_214_776
+    usd = 3.607388
+    _append(
+        root,
+        "aggtest-large",
+        [json.dumps({"ts": _iso(NOW - 3600), "kind": "input_style", "tokens": tokens, "cost_saved_usd": usd})],
+    )
+
+    window = _windows(reconcile_savings_aggregate(root))[1]
+    assert window[0] == pytest.approx(usd)
+    assert window[1] == tokens
+
+
 def test_rows_age_out_of_windows(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     _append(root, "aggtest-age", [_row(NOW - 40 * DAY, 40, 40.0)])  # out of every window
