@@ -1,3 +1,0 @@
-scope,n_tasks,n_trials_or_tasks,n_pass,n_fail,n_no_data,pass_rate,total_input_tokens,total_output_tokens,total_cache_tokens,total_tokens,total_cost_usd,total_duration_seconds,total_duration_hours
-"all_reps (5x, sum of every trial)",89,440,351,88,1,0.7995,281193279,8316849,265158777,554668905,288.15,264219.0,73.39
-"one_run (avg per task x 89, i.e. a single pass through the suite)",89,89,70.25,18.75,1,0.7893,56635347,1669563,53406407,111711319,57.9,53163.0,14.77

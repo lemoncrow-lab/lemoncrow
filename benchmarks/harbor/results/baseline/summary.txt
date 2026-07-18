@@ -1,42 +1,47 @@
-Terminal-Bench 2.1 -- Claude Code 2.1.152 / Claude Opus 4.8 -- Baseline Summary
+Terminal-Bench 2.1 -- Claude Code 2.1.205 / Claude Opus 4.8 -- Baseline Summary
 ==============================================================================
-Source: https://www.tbench.ai/leaderboard/terminal-bench/2.1/claude-code/2.1.152/claude-opus-4-8%40anthropic
+Source: https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/dcd48d03-9df9-46ab-bc4c-ade6dc35b8da?tab=results
 Tasks:            89
-Trials (reps):    440  (expected 445, see README for gaps)
+Trials (reps):    445  (89 tasks x 5 reps, complete)
   pass:           351
-  fail:           88
-  no data:        1  (task ran, but tbench.ai recorded no telemetry)
-  fail w/o cost:  1  (trial errored before any billed API call)
-Overall pass rate (of 439 scored trials): 80.0%
-
-Trials with cost/token data: 438
+  fail:           91
+  no data:        3  (trial ran, reward never recorded)
+  fail w/o cost:  34  (errored/timed out before a billed cost was logged)
+Overall pass rate (of 442 scored trials): 79.4%
 ------------------------------------------------------------------------------
-                                 total       avg/trial   avg/task (x5)
-Input tokens            281,193,279.00      641,993.79    3,209,968.94
-Output tokens             8,316,849.00       18,988.24       94,941.20
-Cache tokens*           265,158,777.00      605,385.34    3,026,926.68
-Total tokens            554,668,905.00    1,266,367.36    6,331,836.82
-Cost (USD)                      288.15            0.66            3.29
+                                          total      avg/trial     avg/task (x5)
+Input tokens             174,804,998.00     392,820.22      1,964,101.10
+Output tokens              8,089,069.00      18,177.68         90,888.42
+Cache tokens*            161,931,526.00     363,891.07      1,819,455.35
+Total tokens             182,894,067.00     410,997.90      2,054,989.52
+Cost (USD)                       286.92           0.70              3.49
 ------------------------------------------------------------------------------
-Duration total:   264,219s  (73.4h)
-Duration average: 602s  (10.0m) per trial
+Duration total:   244,953s  (68.0h)
+Duration average: 550s  (9.2m) per trial
 
-* Cache tokens are combined cache-read + cache-write; tbench.ai does not
+* Cache tokens are combined cache-read + cache-write; Harbor Hub does not
   expose the two separately (see README.md).
 
 Costliest tasks (total cost across their reps):
-  regex-chess                            $    19.4  (5/5 pass)
-  path-tracing-reverse                   $   16.48  (4/5 pass)
-  path-tracing                           $    13.0  (4/5 pass)
-  install-windows-3.11                   $   11.98  (4/5 pass)
-  make-mips-interpreter                  $   11.91  (4/5 pass)
+  path-tracing-reverse                   $   26.99  (5/5 pass)
+  make-mips-interpreter                  $   14.78  (5/5 pass)
+  winning-avg-corewars                   $   13.67  (5/5 pass)
+  schemelike-metacircular-eval           $   10.54  (4/5 pass)
+  dna-assembly                           $    9.45  (3/5 pass)
+
+Longest-running tasks (avg duration/trial):
+  regex-chess                               59m 52s  (4/5 pass)
+  train-fasttext                            44m 13s  (0/5 pass)
+  query-optimize                            38m 58s  (0/5 pass)
+  caffe-cifar-10                            38m 57s  (5/5 pass)
+  compile-compcert                          36m 46s  (2/5 pass)
 
 Lowest pass-rate tasks:
-  db-wal-recovery                           0.0  (0/5 pass)
-  dna-insert                                0.0  (0/5 pass)
-  extract-moves-from-video                  0.0  (0/5 pass)
-  make-doom-for-mips                        0.0  (0/5 pass)
-  model-extraction-relu-logits              0.0  (0/5 pass)
-  protein-assembly                          0.0  (0/1 pass)
-  raman-fitting                             0.0  (0/5 pass)
-  train-fasttext                            0.0  (0/5 pass)
+  make-doom-for-mips                       0.00  (0/5 pass)
+  protein-assembly                         0.00  (0/5 pass)
+  query-optimize                           0.00  (0/5 pass)
+  raman-fitting                            0.00  (0/5 pass)
+  train-fasttext                           0.00  (0/5 pass)
+  chess-best-move                          0.20  (1/5 pass)
+  db-wal-recovery                          0.20  (1/5 pass)
+  dna-insert                               0.20  (1/5 pass)

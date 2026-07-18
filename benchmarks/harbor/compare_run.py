@@ -3,8 +3,8 @@
 
 Saves you re-deriving the breakdown by hand. Shows, for every task the RUN
 actually finished, its mean cost + pass rate next to an optional second run
-(--vs) and the normalized baseline, sorted by cost delta (cheapest-vs-reference
-first).
+(--vs) and the baseline's own raw per-task cost, sorted by cost delta
+(cheapest-vs-reference first).
 
 Usage:
     uv run python benchmarks/harbor/compare_run.py [RUN] [--vs OTHER] [--all]
@@ -34,7 +34,7 @@ from pathlib import Path
 
 HARBOR = Path(__file__).resolve().parent
 RESULTS = HARBOR / "results" / "lemoncrow"
-BASELINE = HARBOR / "results" / "baseline" / "normalized_cost.csv"
+BASELINE = HARBOR / "results" / "baseline" / "tbench_opus48_claudecode_2.1.205_per_task.csv"
 
 
 def resolve(ref: str | None) -> Path:
@@ -114,8 +114,7 @@ def main() -> None:
     R = load(run)
     OT = load(other) if other else {}
     base = {
-        row["task"]: (float(row["cost_norm_blended_1h"]), float(row["pass_rate"]))
-        for row in csv.DictReader(BASELINE.open())
+        row["task"]: (float(row["avg_cost_usd"]), float(row["pass_rate"])) for row in csv.DictReader(BASELINE.open())
     }
 
     tasks = sorted(base) if args.all else sorted(t for t in R if any(rw is not None for _, rw in R[t]))
