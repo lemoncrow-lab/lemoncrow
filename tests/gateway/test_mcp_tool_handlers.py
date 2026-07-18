@@ -3287,3 +3287,99 @@ def test_lean_code_search_view_doc_query_skips_doc_capping() -> None:
     rel_paths = [s["path"] for s in lean["related_symbols"]]
     # Doc-seeking query: score order untouched, markdown keeps its slots.
     assert rel_paths[:6] == [f"docs/page_{i}.md" for i in range(6)]
+
+
+def test_shell_high_timeout_waits_out_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`timeout` is a pure wait budget: set high it blocks to the finished
+    result in one call; past a low one a still-running handle comes back
+    (bench transcripts: agents sleep-polled handles for up to ~30 turns
+    because they read `timeout` as a kill deadline and never raised it)."""
+    from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
+
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
+    result = _run_bash_tool("sleep 1.3; echo waited-out", timeout=30)
+    assert result.get("status") != "running"
+    assert result["exit_code"] == 0
+    assert "waited-out" in result["stdout"]
+
+    # Control: a low timeout hands back a running handle (and never kills).
+    handle = _run_bash_tool("sleep 30", timeout=1)
+    assert handle.get("status") == "running"
+    _run_bash_tool(session_id=str(handle["session_id"]), action="kill")
+
+
+def test_smart_edit_new_file_sources_replacement_content(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    payload_file = tmp_path / "payload.txt"
+    payload_file.write_text("BIG GENERATED BODY\n" * 5, encoding="utf-8")
+    target = Path("out.txt")
+
+    result = tool_smart_edit(
+        {"post_edit_hooks": False, "edits": [{"path": str(target), "new_file": str(payload_file), "replace": True}]}
+    )
+
+    assert not result.get("failed")
+    assert target.read_text(encoding="utf-8") == payload_file.read_text(encoding="utf-8")
+
+
+def test_smart_edit_new_file_missing_is_a_clear_error(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = store_root
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    with pytest.raises(Exception, match="new_file"):
+        tool_smart_edit(
+            {"post_edit_hooks": False, "edits": [{"path": "out.txt", "new_file": "nope-missing.txt", "replace": True}]}
+        )
+
+
+def test_smart_edit_old_without_new_rejected(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Schema now requires only `path` (so a hidden new_file retry validates
+    # client-side); a bare {path, old} must be rejected loudly -- treating a
+    # missing new as "" would silently DELETE the matched text.
+    _ = store_root
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    with pytest.raises(Exception, match="new"):
+        tool_smart_edit({"post_edit_hooks": False, "edits": [{"path": "out.txt", "old": "something"}]})
+
+
+def test_smart_edit_failed_edit_preserves_large_new_payload(
+    store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed edit must never force the model to REGENERATE a big `new`
+    payload: the content is preserved to the spill store and the retry
+    references it via new_file."""
+    _ = store_root
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
+    target = Path("mod.py")
+    target.write_text("def f():\n    return 1\n", encoding="utf-8")
+    big = "# regenerated-content-line\n" * 200  # comfortably past the 2000-char preserve floor
+
+    result = tool_smart_edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"path": str(target), "old_string": "ANCHOR THAT DOES NOT EXIST ANYWHERE", "new_string": big}],
+        }
+    )
+
+    failed = result.get("failed") or []
+    assert failed, result
+    preserved = failed[0].get("new_preserved_at")
+    assert preserved, failed[0]
+    assert Path(preserved).read_text(encoding="utf-8") == big
+
+    # The no-regeneration retry: same content, referenced by path.
+    retry = tool_smart_edit(
+        {"post_edit_hooks": False, "edits": [{"path": str(target), "new_file": preserved, "replace": True}]}
+    )
+    assert not retry.get("failed")
+    assert target.read_text(encoding="utf-8") == big
