@@ -3235,3 +3235,52 @@ def test_lean_code_search_view_candidates_keep_symbol_map_paths() -> None:
     # main.py: source returned -> excluded. covered.py: symbol-map pointer AND
     # ranked candidate -> kept. fresh.py: plain ranked candidate -> kept.
     assert lean["candidate_files"] == ["src/covered.py", "src/fresh.py"]
+
+
+def _doc_heavy_payload() -> dict[str, object]:
+    # 6 markdown headings outscore 2 code symbols; without the filetype
+    # diversity pass the whole related_symbols window is documentation.
+    eps = [
+        {
+            "qualified_name": f"title: doc {i}",
+            "path": f"docs/page_{i}.md",
+            "line": 1,
+            "end_line": 4,
+            "kind": "heading",
+            "score": 20.0 - i,
+        }
+        for i in range(6)
+    ]
+    eps += [
+        {
+            "qualified_name": "handler",
+            "path": "src/server.py",
+            "line": 5,
+            "end_line": 9,
+            "kind": "function",
+            "score": 2.0,
+        },
+        {"qualified_name": "parse", "path": "src/parse.py", "line": 1, "end_line": 3, "kind": "function", "score": 1.0},
+    ]
+    files = [{"path": e["path"], "source_sections": []} for e in eps]
+    return {"exact_match": False, "entry_points": eps, "files": files}
+
+
+def test_lean_code_search_view_caps_doc_filetype_in_ranked_windows() -> None:
+    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="read tool png support")
+    # related_symbols window (8): docs capped at a quarter (2); the code
+    # symbols are promoted ahead of the demoted markdown overflow.
+    rel_paths = [s["path"] for s in lean["related_symbols"]]
+    assert rel_paths[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
+    # candidate_files keeps every path (permutation, not a filter) with the
+    # same promotion applied.
+    cands = lean["candidate_files"]
+    assert cands[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
+    assert sorted(cands) == sorted({str(e["path"]) for e in _doc_heavy_payload()["entry_points"]})  # type: ignore[union-attr]
+
+
+def test_lean_code_search_view_doc_query_skips_doc_capping() -> None:
+    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="where are the docs for setup")
+    rel_paths = [s["path"] for s in lean["related_symbols"]]
+    # Doc-seeking query: score order untouched, markdown keeps its slots.
+    assert rel_paths[:6] == [f"docs/page_{i}.md" for i in range(6)]
