@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TypedDict
 
 RESULTS_DIR = Path(__file__).parent / "results" / "lemoncrow"
-BASELINE_CSV = Path(__file__).parent / "results" / "baseline" / "normalized_cost.csv"
+BASELINE_CSV = Path(__file__).parent / "results" / "baseline" / "tbench_opus48_claudecode_2.1.205_per_task.csv"
 
 
 class TaskResult(TypedDict):
@@ -137,14 +137,14 @@ def main() -> None:
         if not v or v["status"] != "ok":
             return None
         cost = float(v["cost"] or 0.0)
-        base_cost = float(baseline_rows[task]["cost_norm_blended_1h"])
+        base_cost = float(baseline_rows[task]["avg_cost_usd"])
         return base_cost - cost
 
     def saving_value(task: str) -> float | None:
         abs_saving = saving_abs(task)
         if abs_saving is None:
             return None
-        base_cost = float(baseline_rows[task]["cost_norm_blended_1h"])
+        base_cost = float(baseline_rows[task]["avg_cost_usd"])
         if base_cost == 0:
             return None
         return abs_saving / base_cost * 100.0
@@ -170,7 +170,7 @@ def main() -> None:
         row = baseline_rows[task]
         n_reps = int(row["n_reps"])
         pass_rate = float(row["pass_rate"])
-        cost = float(row["cost_norm_blended_1h"])
+        cost = float(row["avg_cost_usd"])
         n_pass = pass_rate * n_reps
         frac = f"{round(n_pass)}/{n_reps}" if abs(n_pass - round(n_pass)) < 1e-9 else f"{n_pass:.1f}/{n_reps}"
         return f"{frac} ({pass_rate:.2f}) {cost:.2f}"
@@ -206,7 +206,7 @@ def main() -> None:
     lemoncrow_total_correct = sum(float(all_runs[latest][t]["reward"] or 0.0) for t in attempted)
     baseline_total_expected_correct = sum(float(baseline_rows[t]["pass_rate"]) for t in attempted)
     lemoncrow_total_cost = sum(float(all_runs[latest][t]["cost"] or 0.0) for t in ok_tasks)
-    baseline_total_cost = sum(float(baseline_rows[t]["cost_norm_blended_1h"]) for t in ok_tasks)
+    baseline_total_cost = sum(float(baseline_rows[t]["avg_cost_usd"]) for t in ok_tasks)
 
     n = len(attempted)
     total_saving = (

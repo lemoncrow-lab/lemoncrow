@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Compare the current LemonCrow Harbor run against normalized baseline costs."""
+"""Compare the current LemonCrow Harbor run against the baseline's raw per-task costs.
+
+Both sides use their own real, self-reported cost_usd -- no re-pricing. The baseline's
+per-task average (avg_cost_usd) comes straight from
+results/baseline/tbench_opus48_claudecode_2.1.205_per_task.csv.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +12,11 @@ import csv
 import json
 from pathlib import Path
 
-RUN_DIR = Path("/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29")
+HERE = Path(__file__).resolve().parent
+RUN_DIR = HERE / "results" / "lemoncrow" / "2026-07-14__13-44-30"
 RUN_RESULT = RUN_DIR / "result.json"
-BASELINE_CSV = Path("/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/harbor/results/baseline/normalized_cost.csv")
-COMPARISON_CSV = Path(
-    "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/harbor/results/baseline/lemoncrow_vs_baseline_per_task.csv"
-)
+BASELINE_CSV = HERE / "results" / "baseline" / "tbench_opus48_claudecode_2.1.205_per_task.csv"
+COMPARISON_CSV = HERE / "results" / "baseline" / "lemoncrow_vs_baseline_per_task.csv"
 
 
 def money(value: float) -> str:
@@ -49,31 +53,10 @@ def completed_trials() -> list[str]:
     return sorted(trials)
 
 
-def write_comparison_csv(lemoncrow_by_task: dict[str, tuple[str, str]]) -> None:
-    """Refresh lemoncrow_resolved/lemoncrow_cost in the CSV from the current run.
-
-    Leaves baseline_* columns untouched -- re-blend those afterwards with
-    normalize_baseline_cost.py, which reads lemoncrow_cost back out of this file.
-    save_pct is cleared here since it is stale until that re-blend runs.
-    """
-    with COMPARISON_CSV.open(newline="") as f:
-        existing = list(csv.DictReader(f))
-    for row in existing:
-        resolved, cost = lemoncrow_by_task.get(row["task"], (row["lemoncrow_resolved"], row["lemoncrow_cost"]))
-        row["lemoncrow_resolved"] = resolved
-        row["lemoncrow_cost"] = cost
-        row["save_pct"] = ""
-    with COMPARISON_CSV.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(existing[0].keys()))
-        writer.writeheader()
-        writer.writerows(existing)
-    print(f"wrote {COMPARISON_CSV} ({len(lemoncrow_by_task)} tasks refreshed)")
-
-
 def main() -> None:
     baseline = load_baseline()
     rows = []
-    lemoncrow_by_task: dict[str, tuple[str, str]] = {}
+    comparison_rows = []
 
     lemoncrow_total_cost = 0.0
     lemoncrow_total_correct = 0.0
@@ -90,11 +73,11 @@ def main() -> None:
         base = baseline[task]
         n_reps = int(base["n_reps"])
         pass_rate = float(base["pass_rate"])
-        baseline_cost = float(base["cost_norm_blended_1h"])
+        baseline_cost = float(base["avg_cost_usd"])
 
         cost_value = trial["agent_result"].get("cost_usd")
         if cost_value is None:
-            lemoncrow_by_task[task] = ("no data" if lemoncrow_correct < 0.5 else "pass", "")
+            lemoncrow_resolved = "no data" if lemoncrow_correct < 0.5 else "pass"
             lemoncrow_total_correct += lemoncrow_correct
             baseline_total_expected_correct += pass_rate
             rows.append(
@@ -106,12 +89,21 @@ def main() -> None:
                     "cheaper": "N/A",
                 }
             )
+            comparison_rows.append(
+                {
+                    "task": task,
+                    "baseline_resolved": baseline_correct(pass_rate, n_reps),
+                    "lemoncrow_resolved": lemoncrow_resolved,
+                    "baseline_avg_cost_raw": f"{baseline_cost:.4f}",
+                    "lemoncrow_cost": "",
+                    "save_pct": "",
+                }
+            )
             continue
 
         lemoncrow_cost = float(cost_value)
         saving = (baseline_cost - lemoncrow_cost) / baseline_cost * 100.0 if baseline_cost else 0.0
 
-        lemoncrow_by_task[task] = ("pass" if lemoncrow_correct >= 0.5 else "fail", f"{lemoncrow_cost:.4f}")
         lemoncrow_total_cost += lemoncrow_cost
         lemoncrow_total_correct += lemoncrow_correct
         baseline_total_cost += baseline_cost
@@ -124,6 +116,16 @@ def main() -> None:
                 "baseline": f"{baseline_correct(pass_rate, n_reps)}, {money(baseline_cost)}",
                 "saving": pct(saving),
                 "cheaper": "yes" if lemoncrow_cost < baseline_cost else "no",
+            }
+        )
+        comparison_rows.append(
+            {
+                "task": task,
+                "baseline_resolved": baseline_correct(pass_rate, n_reps),
+                "lemoncrow_resolved": "pass" if lemoncrow_correct >= 0.5 else "fail",
+                "baseline_avg_cost_raw": f"{baseline_cost:.4f}",
+                "lemoncrow_cost": f"{lemoncrow_cost:.4f}",
+                "save_pct": f"{saving:.1f}",
             }
         )
 
@@ -157,7 +159,11 @@ def main() -> None:
         print(f"  Cost/correct saving: {pct((baseline_cpc - lemoncrow_cpc) / baseline_cpc * 100.0)}")
 
     print()
-    write_comparison_csv(lemoncrow_by_task)
+    with COMPARISON_CSV.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(comparison_rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(comparison_rows)
+    print(f"wrote {COMPARISON_CSV} ({len(comparison_rows)} tasks)")
 
 
 if __name__ == "__main__":
