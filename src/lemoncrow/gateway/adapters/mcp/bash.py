@@ -703,11 +703,11 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     if status == "running":
         over_budget = bool(result.get("over_budget"))
         if explicit_background:
-            parts.append(f"background running id={session_id}")
+            parts.append(f"background running id={session_id}; bash(id={session_id}) waits for it")
         elif result.get("interactive"):
             parts.append(f"interactive session id={session_id}")
         elif over_budget:
-            parts.append(f"still running id={session_id}")
+            parts.append(f"still running id={session_id}; bash(id={session_id}) waits for it — don't sleep-poll")
         else:
             parts.append(f"running id={session_id}")
     elif status and status != "completed":
@@ -788,7 +788,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "command": {
             "type": "string",
-            "description": "Command to run. Blocked: inline bash -c/sh -c (script files ok), rm -rf, git reset --hard, git clean -fd. Auto-rewritten: cat→read, rg/grep→grep.",
+            "description": "Command to run. Blocked: git reset --hard, git clean -fd. Auto-rewritten: cat→read, rg/grep→grep.",
         },
         "cwd": {
             "type": "string",
@@ -833,7 +833,9 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     description=(
         "Run a shell command, return compact text. Prefer read/grep/search where "
         "possible; bash = git, make, uv, npm, etc. cd doesn't persist — pass cwd= or "
-        "absolute paths."
+        "absolute paths. A long run past its budget returns `still running id=X`: "
+        "call bash(id=X) alone to WAIT for it (blocks until done) — never poll with "
+        "repeated sleep commands."
     ),
     hidden_params=("max_lines", "max_output_tokens", "idle_ttl"),
     param_aliases={"session_id": "id", "background": "bg"},

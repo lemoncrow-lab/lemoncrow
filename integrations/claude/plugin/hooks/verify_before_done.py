@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.pro.capabilities.verify_gate import (
-    _TEST_RUN,
     VerifySignals,
     disabled,
     is_code_path,
@@ -95,10 +94,15 @@ def scan_transcript(transcript_path: str | None) -> tuple[list[str], bool]:
 def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
     """Parse a Claude Code transcript JSONL into host-neutral VerifySignals.
 
-    A test run only counts as verification when it happened AFTER the last
+    ANY bash/shell run counts as verification when it happened AFTER the last
     code edit (a pre-edit run proves nothing about the change) and, when the
     outcome is detectable via the tool_result ``is_error`` flag, only when it
-    succeeded. A run with no visible result is counted (fail-open).
+    succeeded. A run with no visible result is counted (fail-open). The old
+    bar (only a recognized test-runner command counts) misfired on suite-less
+    tasks where a custom script IS the only possible check -- measured on
+    Terminal-Bench transcripts it re-blocked ~half of already-verified trials
+    at +1-4 wasted turns each. Sessions that edit and then never run anything
+    still block.
 
     An edit tool call only counts as an edit when its own tool_result did NOT
     come back ``is_error`` -- a rejected/no-op edit (user declined it, nothing
@@ -118,7 +122,7 @@ def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
     edit_events: list[tuple[int, str, list[str], list[tuple[str, str, str]]]] = (
         []
     )  # (order, tool_use id, targets, diffs)
-    test_runs: list[tuple[int, str]] = []  # (event order, tool_use id)
+    runs: list[tuple[int, str]] = []  # every bash/shell run: (event order, tool_use id)
     failed_ids: set[str] = set()
     idx = 0
     cmds: list[str] = []
@@ -175,8 +179,7 @@ def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
             elif name in {"bash", "shell"}:
                 cmd = str(tool_input.get("command") or "")
                 cmds.append(cmd)
-                if _TEST_RUN.search(cmd):
-                    test_runs.append((idx, str(block.get("id") or "")))
+                runs.append((idx, str(block.get("id") or "")))
     # Second pass: drop edit attempts whose own tool_result came back is_error
     # (rejected/no-op -- see docstring) now that failed_ids covers the whole
     # transcript.
@@ -185,7 +188,7 @@ def scan_transcript_rich(transcript_path: str | None) -> VerifySignals:
         edited.extend(targets)
         diffs.extend(call_diffs)
     last_edit_idx = max((i for i, _, _, _ in live_edits), default=-1)
-    verified = any(i > last_edit_idx and (not tid or tid not in failed_ids) for i, tid in test_runs)
+    verified = any(i > last_edit_idx and (not tid or tid not in failed_ids) for i, tid in runs)
     # A data/artifact deliverable has no test suite -- exercising it (a bash command
     # naming the edited file) is the authoritative check. Code keeps the stricter
     # test-runner bar in decide(); the >=5 length guard avoids tiny-basename matches.

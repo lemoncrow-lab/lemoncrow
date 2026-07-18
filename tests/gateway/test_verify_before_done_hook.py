@@ -82,26 +82,25 @@ def test_edit_with_django_runtests_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
-def test_code_run_snippet_does_not_count_as_verification(tmp_path: Path) -> None:
-    # A python -c / repro-script run is NOT a real test: it checks only what the
-    # author thought of and misses regressions, so the gate still blocks.
+def test_code_run_snippet_counts_as_verification(tmp_path: Path) -> None:
+    # ANY post-edit run counts: on suite-less tasks a custom script is the only
+    # possible check, and the old test-runner-only bar re-blocked ~half of
+    # already-verified Terminal-Bench trials (+1-4 wasted turns each).
     t = _transcript(
         tmp_path,
         _assistant(("Edit", {"file_path": "app/core.py"})),
         _assistant(("Bash", {"command": "python repro.py"})),
     )
-    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
 
 
-def test_python_c_snippet_does_not_count_as_verification(tmp_path: Path) -> None:
-    # The exact requests-2931 regression shape: a `python -c` repro that passed but
-    # missed a broken neighbor. Must block to push the model onto the real suite.
+def test_python_c_snippet_counts_as_verification(tmp_path: Path) -> None:
     t = _transcript(
         tmp_path,
         _assistant(("mcp__lc__edit", {"edits": [{"file_path": "requests/models.py", "new_string": "..."}]})),
         _assistant(("mcp__lc__bash", {"command": 'python -c "import requests; print(requests.get)"'})),
     )
-    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
 
 
 def _assistant_with_id(name: str, tool_input: dict, tool_use_id: str) -> dict:
@@ -256,15 +255,14 @@ def test_text_deliverable_exercised_by_command_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
-def test_code_edit_run_by_name_still_blocks(tmp_path: Path) -> None:
-    # Code keeps the strict test-runner bar -- running the file by name in a
-    # snippet is not enough (misses regressions a withheld suite catches).
+def test_code_edit_run_by_name_allows(tmp_path: Path) -> None:
+    # Running the edited file by name is a real post-edit check.
     t = _transcript(
         tmp_path,
         _assistant(("Edit", {"file_path": "app/core.py"})),
         _assistant(("Bash", {"command": "python app/core.py"})),
     )
-    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
 
 
 def test_skip_suffixes_env_excludes_configured_types(tmp_path: Path) -> None:
@@ -281,13 +279,14 @@ def test_no_edits_allows(tmp_path: Path) -> None:
     assert not _blocked(_run(t))
 
 
-def test_lint_only_still_blocks(tmp_path: Path) -> None:
+def test_lint_run_counts_as_verification(tmp_path: Path) -> None:
+    # Any post-edit run clears the gate; only edit-then-stop-silent blocks.
     t = _transcript(
         tmp_path,
         _assistant(("Edit", {"file_path": "app/core.py"})),
         _assistant(("Bash", {"command": "ruff check . && mypy src && black --check ."})),
     )
-    assert _blocked(_run(t))
+    assert not _blocked(_run(t))
 
 
 def test_stop_hook_active_does_not_block(tmp_path: Path) -> None:
