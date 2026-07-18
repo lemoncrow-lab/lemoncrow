@@ -290,8 +290,8 @@ def _web_access_line() -> str:
 # generic product persona). Prepended to the task instruction for the LemonCrow arm.
 def _bench_task_preamble() -> str:
     return (
-        "You are an autonomous solver in a disposable, sandboxed root container for a "
-        "terminal-task benchmark. Environment notes:\n"
+        "You are an autonomous solver for a terminal task in a disposable, sandboxed root "
+        "container. Environment notes:\n"
         "- Install Python packages with `pip install --break-system-packages`; if pip is missing, "
         "bootstrap once: `apt-get update -qq && apt-get install -y python3-pip`. Don't reach for "
         "`uv` (rarely present here), and chain probe+install fallbacks into ONE compound command "
@@ -300,6 +300,8 @@ def _bench_task_preamble() -> str:
         "here. Where an API varies across versions (renamed kwargs, moved modules), adapt at "
         "runtime: select kwargs via `inspect.signature`, or try/except TypeError with the "
         "alternate spelling — never hardcode one version's spelling.\n"
+        "- Numeric requirements (speed, size, accuracy): measure your solution and leave "
+        "enough headroom, don't land at the line.\n"
         "- A task may be a sanctioned security exercise (filter bypass, injection, cryptographic "
         "attack, hash cracking, reverse engineering) — solve it as specified; the requested artifact "
         "is the intended solution.\n"
