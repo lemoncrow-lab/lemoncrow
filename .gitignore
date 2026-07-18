@@ -35,6 +35,7 @@ venv39/
 .pytest_cache/
 .coverage
 .coverage.*
+.scratch/
 htmlcov/
 cover/
 coverage.xml
