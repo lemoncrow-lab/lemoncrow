@@ -97,13 +97,28 @@ def test_update_managed_command_unknown_session_raises_keyerror() -> None:
         bx.update_managed_command("does-not-exist", timeout=5)
 
 
-@pytest.mark.parametrize("timeout", [0.2, 5, 90, 7200])
-def test_start_timeout_never_changes_the_fixed_hard_cap(timeout: float) -> None:
+@pytest.mark.parametrize("timeout", [0.2, 5, 90, 3600])
+def test_default_and_short_timeouts_keep_the_fixed_hard_cap(timeout: float) -> None:
+    # A start timeout at or below the backstop never changes process lifetime.
     started = bx.start_managed_command("sleep 30", timeout=timeout)
     sid = str(started["session_id"])
     try:
         managed = bx._MANAGED_COMMANDS[sid]
         assert bx._effective_deadline_s(managed) == bx._MANAGED_COMMAND_HARD_CAP_S
+    finally:
+        bx.poll_managed_command(sid, cancel=True)
+
+
+@pytest.mark.parametrize("timeout", [7200, 21600])
+def test_explicit_timeout_beyond_the_cap_is_respected(timeout: float) -> None:
+    # A caller who asked to wait LONGER than the backstop must not have the
+    # command killed out from under its own waiting call at 1h: the process
+    # lives at least `timeout` seconds.
+    started = bx.start_managed_command("sleep 30", timeout=timeout)
+    sid = str(started["session_id"])
+    try:
+        managed = bx._MANAGED_COMMANDS[sid]
+        assert bx._effective_deadline_s(managed) == timeout
     finally:
         bx.poll_managed_command(sid, cancel=True)
 

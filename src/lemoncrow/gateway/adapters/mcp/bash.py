@@ -788,39 +788,39 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "command": {
             "type": "string",
-            "description": "Command to run. Blocked: git reset --hard, git clean -fd. Auto-rewritten: cat→read, rg/grep→grep.",
+            "description": "Shell command to run. Read-only lookups are auto-rewritten to the faster indexed tools (cat→read, rg/grep→internal grep).",
         },
         "cwd": {
             "type": "string",
-            "description": "Working directory (cd doesn't persist).",
+            "description": "Working directory for this command. cd does not persist between calls — pass cwd or absolute paths.",
         },
         "timeout": {
             "type": "integer",
             "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Soft response budget (s); then returns a live handle while the command continues. Only bg survives shutdown. Fixed 1h safety cap; action=update sets an exact deadline.",
+            "description": "Seconds this call WAITS for the result. if < 1hr handle is returned and command continues running; if > 1hr the command is killed at the deadline. To kill a long-running command use action=kill or action=update with a new timeout. Pass longer timeouts(e.g. 21600) to wait and execute in one call for long-running work (builds, tests, installs).",
         },
         "bg": {
             "type": "boolean",
             "default": False,
-            "description": "Run in background, return id immediately, and preserve the command when the MCP session exits.",
+            "description": "Start detached and return id immediately. The only mode that survives this MCP session's exit — use for servers/daemons the task needs left running.",
         },
         "id": {
             "type": "string",
-            "description": "Background run id. bash(id=x) alone waits for it to finish.",
+            "description": "Session id from an earlier call. bash(id=X) alone blocks until that run finishes — the right way to wait, never sleep-poll.",
         },
         "action": {
             "type": "string",
             "enum": ["poll", "status", "kill", "update", "send"],
-            "description": "With id: poll=wait; status=peek; kill=stop; update=set timeout; send=write input and get new output.",
+            "description": "with id: poll = wait until finished (default if bash(id=X)); status = peek without waiting; kill = terminate now; update = install an exact kill deadline timeout= seconds from now; send = write input to an interactive session and return the new output.",
         },
         "interactive": {
             "type": "boolean",
             "default": False,
-            "description": "Keep stdin open for a REPL. Use action=send + input; killed after 300s idle (each send resets it).",
+            "description": "Keep stdin open as a REPL session (e.g. one `python -i` keeps imports loaded across sends). Drive it with action=send + input. Dies after 300s without a send; every send resets the clock.",
         },
         "input": {
             "type": "string",
-            "description": "action=send: text written to the session's stdin (newline appended). Empty = wait for and drain new output only.",
+            "description": "Text for action=send, written to the session's stdin with a newline appended. Empty string = send nothing, just wait for and drain new output.",
         },
     },
     "additionalProperties": False,
@@ -831,11 +831,14 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     name="bash",
     input_schema=BASH_TOOL_INPUT_SCHEMA,
     description=(
-        "Run a shell command, return compact text. Prefer read/grep/search where "
-        "possible; bash = git, make, uv, npm, etc. cd doesn't persist — pass cwd= or "
-        "absolute paths. A long run past its budget returns `still running id=X`: "
-        "call bash(id=X) alone to WAIT for it (blocks until done) — never poll with "
-        "repeated sleep commands."
+        "Run a shell command, return compact output. Bash is for EXECUTION — git, "
+        "make, builds, tests, installs; prefer the indexed read/grep/search tools "
+        "for looking at code. cd doesn't persist — pass cwd= or absolute paths. "
+        "Lifecycle: the call waits up to `timeout` (a wait budget — nothing is "
+        "killed by it); expect long work → set timeout high up front and finish in "
+        "one call; a run past it returns `still running id=X` and keeps going — "
+        "bash(id=X) waits it out; never poll with sleep. Servers/daemons → bg=true. "
+        "REPLs → interactive=true."
     ),
     hidden_params=("max_lines", "max_output_tokens", "idle_ttl"),
     param_aliases={"session_id": "id", "background": "bg"},
