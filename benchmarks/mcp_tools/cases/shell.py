@@ -49,16 +49,15 @@ def _assert_truncated(result: object) -> None:
     assert "lines omitted" in text, f"line omission marker missing, got: {text!r}"
 
 
-def _assert_blocked_rm(result: object) -> None:
+def _assert_allowed_rm(result: object) -> None:
+    # rm -rf is no longer blocked; a clean run of a nonexistent -f target exits 0.
     text = _as_text(result)
-    assert text.startswith("blocked (exit_code=-1)"), f"blocked command must show exit_code=-1, got: {text!r}"
-    assert "Destructive rm -rf commands are blocked" in text, f"blocked rm reason missing, got: {text!r}"
+    assert "blocked" not in text.lower(), f"rm -rf must not be blocked anymore, got: {text!r}"
 
 
-def _assert_blocked_bash(result: object) -> None:
+def _assert_blocked_git_reset(result: object) -> None:
     text = _as_text(result)
-    assert text.startswith("blocked (exit_code=-1)"), f"blocked command must show exit_code=-1, got: {text!r}"
-    assert "Direct bash execution is blocked" in text, f"blocked bash reason missing, got: {text!r}"
+    assert "git reset --hard blocked" in text, f"blocked git reset reason missing, got: {text!r}"
 
 
 def _case(
@@ -167,10 +166,11 @@ SHELL_CASES: list[BenchCase] = [
     _case("shell/nonzero-exit/01", "exit 1", _prefix_assert("exit_code=1"), baseline_tokens=0),
     _case("shell/nonzero-exit/02", "ls /definitely/missing/path", _assert_nonzero, baseline_tokens=0),
     _case(
-        "shell/blocked-rm",
+        "shell/allowed-rm",
         "rm -rf /tmp/lemoncrow_bench_never_runs",
-        _assert_blocked_rm,
+        _assert_allowed_rm,
         baseline_tokens=0,
     ),
-    _case("shell/blocked-bash", "bash -c 'echo no'", _assert_blocked_bash, baseline_tokens=0),
+    _case("shell/inline-bash", "bash -c 'echo no'", _contains_assert("no"), baseline_tokens=0),
+    _case("shell/blocked-git-reset", "git reset --hard", _assert_blocked_git_reset, baseline_tokens=0),
 ]

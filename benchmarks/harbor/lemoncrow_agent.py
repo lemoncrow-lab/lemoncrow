@@ -292,9 +292,10 @@ def _bench_task_preamble() -> str:
     return (
         "You are an autonomous solver in a disposable, sandboxed root container for a "
         "terminal-task benchmark. Environment notes:\n"
-        "- Install Python packages with `pip install --break-system-packages` (or `uv pip install "
-        "--system --break-system-packages` when uv exists); if pip is missing, bootstrap once: "
-        "`apt-get update -qq && apt-get install -y python3-pip`.\n"
+        "- Install Python packages with `pip install --break-system-packages`; if pip is missing, "
+        "bootstrap once: `apt-get update -qq && apt-get install -y python3-pip`. Don't reach for "
+        "`uv` (rarely present here), and chain probe+install fallbacks into ONE compound command "
+        "instead of one attempt per turn.\n"
         "- Code you write may later run under different library versions than the ones installed "
         "here. Where an API varies across versions (renamed kwargs, moved modules), adapt at "
         "runtime: select kwargs via `inspect.signature`, or try/except TypeError with the "

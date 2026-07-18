@@ -542,6 +542,37 @@ def test_read_image_file_returns_viewable_image_block(tmp_path: Path, monkeypatc
     assert payload["bytes_total"] == len(_TINY_PNG)
 
 
+def test_read_text_file_with_stray_non_utf8_bytes_is_lossy_decoded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A text-typed file with raw high bytes but no NULs (doom's boot log shape:
+    # bench trial B6kapda burned 7 turns on cat/head/wc/strings archaeology
+    # because read answered "not UTF-8 text, not decoded") must be served
+    # lossy-decoded, not dead-ended as binary.
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    target = tmp_path / "boot.txt"
+    target.write_bytes(b"loading doom\xff\xfe graphics init\nline two\n")
+
+    payload = tool_smart_read({"path": str(target)})
+
+    assert payload.get("mode") != "binary"
+    content = str(payload.get("content") or "")
+    assert "loading doom" in content
+    assert "line two" in content
+
+
+def test_read_true_binary_with_nuls_stays_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # NUL bytes = genuinely binary, even with a text extension: keep the
+    # structured binary signal (mojibake would be worse than the message).
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    target = tmp_path / "blob.txt"
+    target.write_bytes(b"\x00\x01\x02 junk \xff")
+
+    payload = tool_smart_read({"path": str(target)})
+
+    assert payload["mode"] == "binary"
+
+
 def test_read_tool_description_advertises_image_support() -> None:
     """Regression guard for the actual fix: the description text the model
     sees, not just the implementation, must say `read` can show it an image --
