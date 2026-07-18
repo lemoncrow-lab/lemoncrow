@@ -122,26 +122,82 @@ _DEFAULT_MAX_OUTPUT_TOKENS = os.environ.get("LEMONCROW_BENCH_MAX_OUTPUT_TOKENS",
 # token overhead -- we strip them here so the `auto` agent stays token-light
 # without needing the `bare` variant (whose coding guide says "if confused ask").
 #
-# Web IS enabled by default -- matching the official Terminal-Bench baseline
-# (web-on) and because some tasks (e.g. mteb-leaderboard) are DESIGNED to be
-# solved by reading a live web resource, not recalled. Integrity is kept by
-# denying only the benchmark's OWN domains, not the whole web: the /etc/hosts
-# block in install() DNS-blackholes tbench.ai/harborframework.com, and
-# _web_access_line() auto-emits the Terminal-Bench integrity instruction (no
-# harbor-framework/laude-institute repos, no terminal-bench leaderboard/dataset
-# page, no solution-search) whenever web is on -- reward hacking ("finding
-# solutions on the internet") is scored 0 retroactively on the trajectory
-# (https://www.tbench.ai/news/leaderboard-integrity-update). Residual gap:
-# github.com stays open (tasks pip/npm/git-install from it) and hosts cannot
-# path-block github.com/laude-institute, so that repo is instruction-only +
-# trajectory-reviewed -- the same guard the official baseline relies on. For a
-# stricter web-off comparison run, add the web tools back via
-# LEMONCROW_BENCH_DISALLOWED_TOOLS (append: WebFetch WebSearch
-# mcp__lc__web_fetch mcp__plugin_lemoncrow_lc__web_fetch).
+# The Cron*/DesignSync/EnterWorktree/ExitWorktree/Monitor/NotebookEdit/
+# PushNotification/RemoteTrigger/ReportFindings/SendMessage/Skill/Task* block
+# below is data-backed, not speculative: a full scrape of every tool_use call
+# across all 445 trials of the 2026-07-14 Harbor run (see
+# results/baseline/tbench_opus48_claudecode_2.1.205_turns.csv and
+# scrape_baseline_trajectories.py for the baseline side) showed these 19
+# built-in Claude Code tools were invoked ZERO times -- none of them apply to
+# a disposable single-task terminal container (no cron jobs, no worktrees, no
+# push notifications, no remote triggers, no multi-agent task queue). They
+# still cost real tokens every turn: registered tools sit in the cached
+# system-prompt prefix and get re-read on every one of a trial's ~18 turns
+# regardless of use. This was the single largest measured driver of
+# LemonCrow's higher per-turn cache-read vs. baseline's Bash/Edit/Read-only
+# tool set (~26,192 vs ~19,008 cache tokens/turn). Re-verify by rerunning
+# scrape_baseline_trajectories.py's tool-name tally against a fresh LemonCrow
+# run before ever removing an entry from this list.
+#
+# Web is OFF by default. Corrects an earlier claim here that it matched an
+# "official Terminal-Bench baseline (web-on)" -- checking the actual baseline
+# Harbor job's own init event shows `"tools":["Bash","Edit","Read"]`, zero web
+# tools registered at all, and a full scrape of every tool_use call across all
+# 445 real baseline trials confirms zero WebSearch/WebFetch calls, ever (see
+# results/baseline/tbench_opus48_claudecode_2.1.205_turns.csv). WebSearch is
+# stripped here (a Claude Code built-in); web_fetch is an `lc` MCP tool, so it
+# is hidden at the MCP surface instead, via _HIDDEN_MCP_TOOLS below -- see that
+# constant for why disallowing it here alone was previously a no-op. Some
+# tasks (e.g. mteb-leaderboard) are DESIGNED to be solved by reading a live
+# web resource -- if re-enabling web for a specific comparison run, add the
+# Terminal-Bench integrity guard back too (never access tbench.ai,
+# github.com/harbor-framework/*, github.com/laude-institute/*, or any
+# terminal-bench leaderboard/dataset page -- reward hacking is scored 0
+# retroactively: https://www.tbench.ai/news/leaderboard-integrity-update).
+# Re-enable via: LEMONCROW_BENCH_DISALLOWED_TOOLS (drop WebSearch from the
+# default below) and LEMONCROW_BENCH_HIDDEN_MCP_TOOLS=sql,memory (drop
+# web_fetch from the default in _HIDDEN_MCP_TOOLS).
+#
+# The rest of this list (Cron*/DesignSync/EnterWorktree/ExitWorktree/Monitor/
+# NotebookEdit/PushNotification/RemoteTrigger/ReportFindings/SendMessage/
+# Skill/Task*/ToolSearch) is data-backed, not speculative: the same 445-trial
+# scrape showed these built-in Claude Code tools were invoked ZERO times --
+# none of them apply to a disposable single-task terminal container (no cron
+# jobs, no worktrees, no push notifications, no remote triggers, no
+# multi-agent task queue, and with everything else on this list already gone
+# there is nothing left for ToolSearch to discover). They still cost real
+# tokens every turn: registered tools sit in the cached system-prompt prefix
+# and get re-read on every one of a trial's ~18 turns regardless of use. This
+# was the single largest measured driver of LemonCrow's higher per-turn
+# cache-read vs. baseline's Bash/Edit/Read-only tool set (~26,192 vs ~19,008
+# cache tokens/turn). Combined with _HIDDEN_MCP_TOOLS below, the LemonCrow arm
+# now registers exactly 4 tools (mcp__lc__bash/edit/read/code_search) --
+# matching baseline's 3 (Bash/Edit/Read) as closely as it can while still
+# using its own MCP tools instead of Claude Code's built-ins. Re-verify by
+# rerunning scrape_baseline_trajectories.py's tool-name tally against a fresh
+# LemonCrow run before ever removing an entry from this list.
 _DISALLOWED_TOOLS = os.environ.get(
     "LEMONCROW_BENCH_DISALLOWED_TOOLS",
-    "AskUserQuestion EnterPlanMode ExitPlanMode Workflow ScheduleWakeup",
+    "AskUserQuestion EnterPlanMode ExitPlanMode Workflow ScheduleWakeup "
+    "CronCreate CronDelete CronList DesignSync EnterWorktree ExitWorktree "
+    "Monitor NotebookEdit PushNotification RemoteTrigger ReportFindings "
+    "SendMessage Skill TaskCreate TaskGet TaskList TaskOutput TaskStop TaskUpdate "
+    "WebSearch ToolSearch",
 )
+
+# MCP-side tool hiding (LEMONCROW_HIDE_TOOLS, comma-separated bare names, read
+# by lemoncrow.core.environment._extra_hidden_tools): hides a tool from the
+# `lc` MCP server's advertised surface entirely -- its schema is never sent to
+# Claude Code at all, unlike --disallowedTools above which still requires
+# Claude Code to register the tool first and then filter it. web_fetch is an
+# `lc` MCP tool (not a Claude Code built-in), so _DISALLOWED_TOOLS can't touch
+# it -- an earlier version of this file claimed "WebFetch is in
+# _DISALLOWED_TOOLS above" and treated hiding it here as moot, which was
+# simply wrong: mcp__lc__web_fetch was never in that list under any spelling,
+# and the 445-trial scrape confirms it, showing 35 real calls to it. This
+# mirrors benchmarks/codebench/incontainer.py's identical `sql,memory,
+# web_fetch` hide.
+_HIDDEN_MCP_TOOLS = os.environ.get("LEMONCROW_BENCH_HIDDEN_MCP_TOOLS", "sql,memory,web_fetch")
 
 # Path inside the container where LemonCrow writes its run log
 _CONTAINER_LOG = "/logs/lemoncrow-run.jsonl"
@@ -178,12 +234,17 @@ async def _install_rtk(agent: BaseInstalledAgent, environment: BaseEnvironment) 
 
 
 def _web_access_line() -> str:
-    """Describe actual web-tool availability -- must track _DISALLOWED_TOOLS,
-    not assume it's always off, so the instruction never contradicts the real
-    tool list the model was actually given.
+    """Describe actual web-tool availability -- must track _DISALLOWED_TOOLS
+    and _HIDDEN_MCP_TOOLS, not assume a fixed state, so the instruction never
+    contradicts the real tool list the model was actually given. web_fetch is
+    controlled via _HIDDEN_MCP_TOOLS (MCP-side hide), not _DISALLOWED_TOOLS
+    (Claude Code built-ins only) -- checking the wrong one here is exactly how
+    an earlier version silently kept web_fetch enabled while claiming it was
+    off (see _HIDDEN_MCP_TOOLS's docstring).
     """
     disallowed = _DISALLOWED_TOOLS.split()
-    fetch_on = "mcp__lc__web_fetch" not in disallowed
+    hidden_mcp = {t.strip() for t in _HIDDEN_MCP_TOOLS.split(",") if t.strip()}
+    fetch_on = "web_fetch" not in hidden_mcp and "mcp__lc__web_fetch" not in disallowed
     search_on = "WebSearch" not in disallowed
     if not fetch_on and not search_on:
         return "- Web access is disabled; solve from the task and the files present.\n"
@@ -532,10 +593,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             "LEMONCROW_BASH_SOFT_TIMEOUT": "60",
             # Isolated config dir: no pre-installed plugins/hooks/MCP.
             "CLAUDE_CONFIG_DIR": "/root/.claude-bench",
-            # Hide sql + memory tools (same as codebench/incontainer.py).
-            # web_fetch is NOT hidden here (unlike codebench) — kept consistent
-            # but moot since WebFetch is in _DISALLOWED_TOOLS above.
-            "LEMONCROW_HIDE_TOOLS": "sql,memory",
+            # See _HIDDEN_MCP_TOOLS's docstring above for why web_fetch is
+            # included here (it wasn't, previously -- a real gap, not a
+            # no-op).
+            "LEMONCROW_HIDE_TOOLS": _HIDDEN_MCP_TOOLS,
             # Strict: the benchmark must nag on every text/data deliverable, so
             # pin the verify skip-list empty (the isolated CLAUDE_CONFIG_DIR
             # already blocks the host's production .md,csv setting from leaking).

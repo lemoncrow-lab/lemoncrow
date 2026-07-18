@@ -587,7 +587,12 @@ def benchmark_harbor_cmd(
     pythonpath = f"{repo_root_str}:{existing_pythonpath}" if existing_pythonpath else repo_root_str
     run_env = {**_os.environ, "PYTHONPATH": pythonpath, "LEMONCROW_BENCH_TOKEN_SLOTS": str(slots)}
     # Forward all bench env vars from .env
-    for key in ("LEMONCROW_BENCH_MODEL", "LEMONCROW_BENCH_EFFORT", "LEMONCROW_BENCH_DISALLOWED_TOOLS"):
+    for key in (
+        "LEMONCROW_BENCH_MODEL",
+        "LEMONCROW_BENCH_EFFORT",
+        "LEMONCROW_BENCH_DISALLOWED_TOOLS",
+        "LEMONCROW_BENCH_HIDDEN_MCP_TOOLS",
+    ):
         val = _read_env(key)
         if val:
             run_env[key] = val
