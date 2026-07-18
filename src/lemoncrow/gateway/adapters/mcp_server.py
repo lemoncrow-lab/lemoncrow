@@ -6347,15 +6347,38 @@ def _normalize_edit_aliases(edit: dict[str, Any]) -> dict[str, Any]:
                 break
     if "new_string" not in edit:
         for key in _NEW_ALIASES:
-            if key in edit:
+            # Strings only: `replace` doubles as the boolean whole-file flag, and
+            # a bool/None must stay a flag, not become the replacement content
+            # (matters now that `new` is no longer schema-required).
+            if isinstance(edit.get(key), str):
                 edit = {**edit, "new_string": edit[key]}
                 break
+    if "new_string" not in edit and isinstance(edit.get("new_file"), str) and edit["new_file"]:
+        # `new` sourced from a file: huge payloads (or a preserved /tmp payload
+        # from a prior failed edit) are referenced, never re-inlined -- the
+        # failure mode this kills is an LLM regenerating 20KB it already wrote.
+        _nf = _workspace_path(edit["new_file"])
+        try:
+            edit = {**edit, "new_string": _nf.read_text(encoding="utf-8", errors="replace")}
+        except OSError as exc:
+            raise _ToolArgumentError(f"new_file {_nf} could not be read: {exc}") from exc
     return edit
 
 
 def _require_edits(edits: list[dict[str, Any]]) -> None:
     if not edits:
         raise _ToolArgumentError("edits must include at least one descriptor")
+    # The schema requires only `path` (so a hidden new_file retry validates
+    # client-side); content presence is enforced here, after alias/new_file
+    # normalization. replace/overwrite edits pass through -- the downstream
+    # empty-truncation guard already rejects zeroing a non-empty file -- but a
+    # bare {path, old} must not silently DELETE the matched text.
+    for i, edit in enumerate(edits):
+        if not isinstance(edit, dict) or edit.get("kind"):
+            continue  # structured kinds (symbol/projection/notebook) carry their own fields
+        if "new_string" in edit or edit.get("replace") or edit.get("overwrite"):
+            continue
+        raise _ToolArgumentError(f"edits[{i}] has no replacement content: provide new (or new_file)")
 
 
 def _edit_verify_enabled(verify_flag: bool) -> bool:
@@ -6574,7 +6597,7 @@ EDIT_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "description": "File edits to apply in one batch.",
             "items": {
                 "type": "object",
-                "required": ["path", "new"],
+                "required": ["path"],
                 "additionalProperties": False,
                 "properties": {
                     "path": {
@@ -6618,7 +6641,7 @@ def _lift_flattened_edit_args(args: dict[str, Any], known_params: frozenset[str]
     if not stray:
         return args
     has_path = any(key in stray for key in ("path", "file_path"))
-    has_content = any(key in stray for key in ("new_string", "new_body", *_NEW_ALIASES))
+    has_content = any(key in stray for key in ("new_string", "new_body", "new_file", *_NEW_ALIASES))
     if not (has_path and has_content):
         return args
     lifted = {key: value for key, value in args.items() if key in known_params}
@@ -6825,8 +6848,7 @@ _EDIT_DIAG_CAP = 20
         "batch many range+new hunks in one call, even same-file hunks "
         "(ranges use the original snapshot). Use {path, old, new} only without "
         "a fresh range. Whole file: {path, new, replace:true}. "
-        "No re-read after success. If a very large `new` payload fails host-side "
-        "JSON validation, don't resend it -- write that file via bash heredoc."
+        "No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but
