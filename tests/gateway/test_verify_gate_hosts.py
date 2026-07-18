@@ -91,11 +91,22 @@ def test_disabled_env_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # --- Codex adapter (systemMessage nudge -- Codex Stop rejects unsupported decisions) ---
 def test_codex_verify_nudges_on_unverified_edit(tmp_path: Path) -> None:
+    # Edit with NO post-edit run at all: the only shape that still nudges (any
+    # post-edit run -- even a snippet -- now counts as verification).
+    root, ws = tmp_path / ".lc", tmp_path / "proj"
+    ws.mkdir()
+    payload = _seed_ledger(root, ws, "cx", [_cmd_mcp("ls -la"), _edit(str(ws / "mod.py"))])
+    out = pr.build_codex_verify_output(root, {**payload, "hook_event_name": "Stop"})
+    assert out["systemMessage"].startswith("FIXME (verify): edited mod.py")
+
+
+def test_codex_verify_silent_after_snippet_run(tmp_path: Path) -> None:
+    # Parity with the Claude hook: a post-edit custom-script run verifies.
     root, ws = tmp_path / ".lc", tmp_path / "proj"
     ws.mkdir()
     payload = _seed_ledger(root, ws, "cx", [_edit(str(ws / "mod.py")), _cmd_mcp("python repro.py")])
     out = pr.build_codex_verify_output(root, {**payload, "hook_event_name": "Stop"})
-    assert out["systemMessage"].startswith("FIXME (verify): edited mod.py")
+    assert out.get("no_output") is True
 
 
 def test_codex_verify_silent_after_pytest(tmp_path: Path) -> None:

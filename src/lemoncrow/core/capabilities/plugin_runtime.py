@@ -2942,7 +2942,6 @@ def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: s
     events into the same ledger shape, so the verify signals derive identically.
     """
     from lemoncrow.pro.capabilities.verify_gate import (
-        _TEST_RUN,
         VerifySignals,
         is_code_path,
         is_verifiable_path,
@@ -2987,7 +2986,9 @@ def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: s
             if command:
                 commands.append((idx, command, bool(ev_payload.get("ok", True))))
 
-    verified = any(i > last_edit_idx and ok and bool(_TEST_RUN.search(cmd)) for i, cmd, ok in commands)
+    # ANY successful post-edit run verifies (parity with the Claude hook); a
+    # session that edits and never runs anything is the only unverified shape.
+    verified = any(i > last_edit_idx and ok for i, _cmd, ok in commands)
     bases = {b for b in (Path(p.split("#")[0]).name for p in edited) if len(b) >= 5}
     checked = any(b in cmd for _, cmd, _ in commands for b in bases)
     return VerifySignals(edited=edited, verified=verified, checked=checked, diffs=diffs, prompt=prompt)

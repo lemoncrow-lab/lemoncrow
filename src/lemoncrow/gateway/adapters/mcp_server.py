@@ -236,6 +236,7 @@ SERVER_INSTRUCTIONS = (
     "- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, "
     "never the same file twice. Never cat/sed/head/tail.\n"
     "- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.\n"
+    "- Independent calls (any tools) → ONE message, not one per turn.\n"
     "- `bash` = execution only (tests, git, builds).\n"
     "- Large output → a file, never inline prose.\n"
     "- Graphical data (plots, rendered text, pixel grids, UI) → write a PNG and read the "
@@ -5535,6 +5536,16 @@ def _smart_read_single(
                     _sniff[:-4].decode("utf-8")
                 except UnicodeDecodeError:
                     _binary = True
+        if _binary and b"\x00" not in _sniff:
+            import mimetypes as _mtypes
+
+            # A text-typed file with stray non-UTF8 bytes but no NULs (a build
+            # log with raw control bytes, a latin-1 .txt) is mixed text, not a
+            # true binary: serve it lossy-decoded (downstream readers open with
+            # errors="replace") instead of a "not decoded" dead-end that
+            # measurably sent agents into cat/head/wc/strings archaeology.
+            if (_mtypes.guess_type(str(resolved))[0] or "").startswith("text/"):
+                _binary = False
         if _binary:
             import mimetypes
 
@@ -6814,7 +6825,8 @@ _EDIT_DIAG_CAP = 20
         "batch many range+new hunks in one call, even same-file hunks "
         "(ranges use the original snapshot). Use {path, old, new} only without "
         "a fresh range. Whole file: {path, new, replace:true}. "
-        "No re-read after success."
+        "No re-read after success. If a very large `new` payload fails host-side "
+        "JSON validation, don't resend it -- write that file via bash heredoc."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but

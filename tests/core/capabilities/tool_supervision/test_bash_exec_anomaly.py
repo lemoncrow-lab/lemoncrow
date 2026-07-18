@@ -46,9 +46,10 @@ def test_compact_result_generic_command_surfaces_a_buried_fatal_line() -> None:
     assert "FATAL: connection to db refused" in result.stdout
 
 
-def test_compact_result_generic_command_unaffected_when_clean() -> None:
-    """No anomaly marker anywhere -> falls back to the existing head+tail path
-    unchanged; a clean run's output shape doesn't change."""
+def test_compact_result_ships_under_budget_output_whole() -> None:
+    """An under-char-budget body is never line-elided at the default max_lines:
+    bench transcripts showed the same 247-line file middle-elided three times,
+    costing ~7 recon turns for zero token savings."""
     lines = [f"line {i}: all good" for i in range(300)]
     stdout = "\n".join(lines)
     result = _compact_result(
@@ -59,9 +60,27 @@ def test_compact_result_generic_command_unaffected_when_clean() -> None:
         duration_ms=10,
         max_lines=200,
     )
-    assert "lines omitted" in result.stdout
+    assert "lines omitted" not in result.stdout
     assert "line 0:" in result.stdout
+    assert "line 100:" in result.stdout
     assert "line 299:" in result.stdout
+    assert result.lines_omitted == 0
+
+
+def test_compact_result_explicit_max_lines_still_a_hard_bound() -> None:
+    # A caller that TIGHTENED max_lines keeps the line-elision contract even
+    # for an under-budget body.
+    lines = [f"line {i}: all good" for i in range(300)]
+    result = _compact_result(
+        command="python3 build.py",
+        raw_stdout="\n".join(lines),
+        raw_stderr="",
+        exit_code=0,
+        duration_ms=10,
+        max_lines=50,
+    )
+    assert "lines omitted" in result.stdout
+    assert result.lines_omitted > 0
 
 
 def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,7 +90,8 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
     """
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
     monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
-    lines = [f"line {i}: all good" for i in range(300)]
+    # Over the char budget: elision (and therefore spill) still applies.
+    lines = [f"line {i}: all good" for i in range(3000)]
     stdout = "\n".join(lines)
     result = _compact_result(
         command="python3 build.py",
@@ -92,7 +112,7 @@ def test_compact_result_spills_full_output_when_truncated(tmp_path: Path, monkey
 
 def test_compact_result_no_spill_hint_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
-    lines = [f"line {i}: all good" for i in range(300)]
+    lines = [f"line {i}: all good" for i in range(3000)]
     result = _compact_result(
         command="python3 build.py",
         raw_stdout="\n".join(lines),
