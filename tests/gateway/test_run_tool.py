@@ -53,6 +53,17 @@ def test_run_duration_recorded(tmp_path: Path) -> None:
     assert result.duration_ms >= 0
 
 
+def test_run_non_utf8_output_survives_with_replacement_chars(tmp_path: Path) -> None:
+    # Regression: text=True with default errors='strict' raised inside the
+    # reader thread's suppress() on the first invalid byte, silently returning
+    # EMPTY stdout for exit 0 (bench evidence: doom's boot log -> "" -> agents
+    # burned 7 turns on cat/head/wc/strings archaeology).
+    result = run_command("printf 'ok\\xff\\xfe end'", cwd=str(tmp_path))
+    assert result.exit_code == 0
+    assert "ok" in result.stdout
+    assert "end" in result.stdout
+
+
 def test_classify_rewrite_cat() -> None:
     decision = classify_command("cat README.md")
     assert decision.action == "rewrite"
@@ -70,21 +81,24 @@ def test_classify_rewrite_rg() -> None:
     assert payload["output_mode"] in ("content", "file_paths_with_content")
 
 
-def test_run_blocks_destructive_rm(tmp_path: Path) -> None:
-    # A target outside the OS temp dir: rm -rf confined to the temp dir is a
-    # deliberate exception (agents cleaning up their own scratch files) --
-    # see _rm_confined_to_safe_roots. This path stays hard-blocked.
-    result = run_command("rm -rf /nonexistent-root-path-never-run", cwd=str(tmp_path))
-    assert result.exit_code == -1
-    assert result.policy_action == "block"
-    assert "blocked" in result.stderr
+def test_run_allows_destructive_rm(tmp_path: Path) -> None:
+    # The hard rm -rf block was removed (benchmark transcripts showed it
+    # costing recovery turns while protecting a disposable tree); rm now runs.
+    target = tmp_path / "scratch-dir"
+    target.mkdir()
+    result = run_command(f"rm -rf {target}", cwd=str(tmp_path))
+    assert result.exit_code == 0
+    assert result.policy_action != "block"
+    assert not target.exists()
 
 
-def test_run_blocks_shell_interpreter(tmp_path: Path) -> None:
+def test_run_allows_inline_shell(tmp_path: Path) -> None:
+    # The inline bash -c / sh -c block was removed; the payload still gets
+    # block-checked (see test_classify_inline_shell_payload_still_scanned).
     result = run_command("bash -c 'echo no'", cwd=str(tmp_path))
-    assert result.exit_code == -1
-    assert result.policy_action == "block"
-    assert result.policy_category == "shell-interpreter"
+    assert result.exit_code == 0
+    assert result.policy_action != "block"
+    assert "no" in result.stdout
 
 
 def test_classify_allows_shell_noexec_syntax_check() -> None:
@@ -94,19 +108,30 @@ def test_classify_allows_shell_noexec_syntax_check() -> None:
         assert decision.category != "shell-interpreter", cmd
 
 
-def test_classify_still_blocks_executing_shell(tmp_path: Path) -> None:
+def test_classify_allows_inline_and_stdin_shell(tmp_path: Path) -> None:
     script = tmp_path / "real.sh"
     script.write_text("echo ok\n")
     for cmd in (
         "bash -c 'echo hi'",
         "bash -lc 'echo hi'",
         "sh -s",
-        "sh nonexistent-script.sh",  # missing file: stays blocked
-        f"bash -c 'echo hi' {script}",  # -c wins even with a real file argument
+        "sh nonexistent-script.sh",  # missing file: bash reports it at runtime
+        f"bash -c 'echo hi' {script}",
+    ):
+        decision = classify_command(cmd)
+        assert decision.action != "block", cmd
+
+
+def test_classify_inline_shell_payload_still_scanned() -> None:
+    # Allowing bash -c must not launder the remaining destructive-git guards.
+    for cmd in (
+        "bash -c 'git reset --hard'",
+        "sh -c 'echo hi && git clean -fd'",
+        'bash -lc "git reset --hard HEAD~1"',
     ):
         decision = classify_command(cmd)
         assert decision.action == "block", cmd
-        assert decision.category == "shell-interpreter", cmd
+        assert decision.category == "destructive", cmd
 
 
 def test_classify_allows_existing_script_file(tmp_path: Path) -> None:
@@ -119,16 +144,24 @@ def test_classify_allows_existing_script_file(tmp_path: Path) -> None:
 
 def test_classify_blocks_script_with_destructive_content(tmp_path: Path) -> None:
     script = tmp_path / "cleanup.sh"
-    script.write_text("#!/bin/bash\necho starting\nrm -rf /important-data\n")
+    script.write_text("#!/bin/bash\necho starting\ngit reset --hard\n")
     decision = classify_command(f"bash {script}")
     assert decision.action == "block"
     assert str(script) in decision.reason
-    assert "rm -rf" in decision.reason
+    assert "git reset --hard" in decision.reason
 
 
 def test_classify_allows_script_with_comment_only_mentions(tmp_path: Path) -> None:
     script = tmp_path / "ok.sh"
-    script.write_text("#!/bin/bash\n# this used to rm -rf the build dir\necho ok\n")
+    script.write_text("#!/bin/bash\n# this used to git reset --hard the build dir\necho ok\n")
+    decision = classify_command(f"bash {script}")
+    assert decision.action != "block"
+
+
+def test_classify_allows_script_with_rm_rf_content(tmp_path: Path) -> None:
+    # rm -rf is no longer on the blocklist, in scripts either.
+    script = tmp_path / "cleanup.sh"
+    script.write_text("#!/bin/bash\nrm -rf /important-data\n")
     decision = classify_command(f"bash {script}")
     assert decision.action != "block"
 
@@ -144,7 +177,7 @@ def test_classify_script_scan_survives_mutual_recursion(tmp_path: Path) -> None:
 
 def test_classify_scans_script_run_through_chaining(tmp_path: Path) -> None:
     script = tmp_path / "evil.sh"
-    script.write_text("rm -rf /important-data\n")
+    script.write_text("git reset --hard\n")
     decision = classify_command(f"echo hi && bash {script}")
     assert decision.action == "block"
 

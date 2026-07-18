@@ -2578,7 +2578,10 @@ def test_render_shell_text_warns_once_past_its_soft_budget() -> None:
             "over_budget": True,
         }
     )
-    assert text == "still running id=abc123"
+    # The handle line must carry the wait recipe: benchmark transcripts showed
+    # agents sleep-polling for up to ~30 turns because nothing told them
+    # bash(id=...) blocks until the command finishes.
+    assert text == "still running id=abc123; bash(id=abc123) waits for it — don't sleep-poll"
 
 
 def test_render_shell_text_identifies_explicit_background_job() -> None:
@@ -2592,7 +2595,7 @@ def test_render_shell_text_identifies_explicit_background_job() -> None:
             "log_file": "/tmp/x.stdout.txt",
         }
     )
-    assert text == "background running id=abc123\n[logs: /tmp/x.stdout.txt]"
+    assert text == "background running id=abc123; bash(id=abc123) waits for it\n[logs: /tmp/x.stdout.txt]"
 
 
 def test_render_shell_text_running_before_budget_has_no_nudge() -> None:

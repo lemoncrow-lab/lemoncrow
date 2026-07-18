@@ -230,7 +230,7 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     assert result["over_budget"] is True  # timeout=0 -- immediately past its soft budget
     # peek-sourced result also carries a tail marker line -- just check the handle line.
     rendered = mcp_server._render_bash_text(result)
-    assert rendered.startswith(f"still running id={result['session_id']}\n")
+    assert rendered.startswith(f"still running id={result['session_id']};")
     assert "[logs:" in rendered
     sid = result["session_id"]
     with bx._MANAGED_COMMANDS_LOCK:

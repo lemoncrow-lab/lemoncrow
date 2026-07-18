@@ -102,6 +102,28 @@ def _split_suffix(raw: str) -> tuple[str, str]:
     return bare, ""
 
 
+def _read_after_edit_line_cap() -> int:
+    """Line-count gate for the deny (LEMONCROW_READ_AFTER_EDIT_MAX_LINES, default 400).
+
+    Parity with the Codex adapter: only a LARGE edited file's whole-file
+    re-read is real waste. Hard-denying small files starved agents for
+    near-zero savings -- benchmark transcripts showed a 3-turn recovery dance
+    (denied :full -> ranged read -> edit retry) on files a range read barely
+    shrinks.
+    """
+    raw = os.environ.get("LEMONCROW_READ_AFTER_EDIT_MAX_LINES", "").strip()
+    return int(raw) if raw.isdigit() else 400
+
+
+def _file_line_count(path: str) -> int:
+    """On-disk line count, or 0 when unreadable (treated as small: fail-open)."""
+    try:
+        with open(path, "rb") as fh:
+            return sum(1 for _ in fh)
+    except OSError:
+        return 0
+
+
 def _resolve(path: str) -> str:
     """Workspace-anchored absolute path; '' when resolution is impossible."""
     if not path:
@@ -208,6 +230,7 @@ def main() -> int:
     basename_entries = {e for e in edited if "/" not in e and "\\" not in e}
     all_basenames = {Path(e).name for e in edited}
     hit = ""
+    hit_resolved = ""
     for target in _full_read_targets(ti):
         resolved = _resolve(target)
         base = Path(target).name
@@ -217,8 +240,14 @@ def main() -> int:
             or (not resolved and base in all_basenames)
         ):
             hit = base or target
+            hit_resolved = resolved
             break
     if not hit:
+        return 0
+    # Size gate (Codex parity): a small edited file's full re-read is not real
+    # waste -- deny only when the re-ingest is actually large. Unknown size
+    # (0 lines) fails toward allow.
+    if _file_line_count(hit_resolved or hit) < _read_after_edit_line_cap():
         return 0
     reason = (
         f'Edited {hit} already -- read a range (range="L1-L120"), not the whole file; :full re-caches it every turn.'

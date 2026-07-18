@@ -18,6 +18,17 @@ from tests.helpers import python_script_with_development_cap
 HOOKS = Path(__file__).resolve().parents[2] / "integrations" / "claude" / "plugin" / "hooks"
 
 
+def _write_big(tmp_path: Path, rel: str, lines: int = 500) -> None:
+    """Materialize an edited file LARGE enough (>=400 lines) to trip the deny.
+
+    The guard is size-gated (Codex parity): small/unknown files are allowed a
+    full re-read, so deny tests must back the path with a real big file.
+    """
+    p = tmp_path / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(f"# line {i}" for i in range(lines)) + "\n", encoding="utf-8")
+
+
 def _run(hook: str, payload: dict, tmp_path: Path, env_extra: dict | None = None) -> str:
     env = {
         **os.environ,
@@ -40,6 +51,7 @@ def _run(hook: str, payload: dict, tmp_path: Path, env_extra: dict | None = None
 def test_edit_tracking_then_read_after_edit_blocks_expand_reread(tmp_path: Path) -> None:
     # loop_discipline_post records the edit (no output), then pre_tool_discipline
     # blocks a full expand re-read of that same file.
+    _write_big(tmp_path, "shop/pricing.py")
     edit = {
         "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"file_path": "shop/pricing.py", "old_string": "a", "new_string": "b"}]},
@@ -65,6 +77,7 @@ def test_edit_tracking_then_read_after_edit_blocks_expand_reread(tmp_path: Path)
 def test_files_schema_full_reads_blocked_after_edit(tmp_path: Path) -> None:
     # The read tool's real input shape is files=[]; the guard must catch full
     # reads expressed as ':full' strings, bare-path strings, and dict entries.
+    _write_big(tmp_path, "shop/pricing.py")
     edit = {
         "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
@@ -109,6 +122,7 @@ def test_edit_by_one_agent_does_not_block_read_by_another(tmp_path: Path) -> Non
     # State is keyed per-agent (agent_id, else session_id, else "main"). An edit
     # by the top-level agent must NOT block a read-only sub-agent that only
     # enumerates/reads the same file -- the bug that stalled scope agents.
+    _write_big(tmp_path, "shop/pricing.py")
     edit = {
         "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"path": "shop/pricing.py:L3-L9", "new": "x"}]},
@@ -131,6 +145,7 @@ def test_edit_by_one_agent_does_not_block_read_by_another(tmp_path: Path) -> Non
 def test_subagent_full_reread_of_its_own_edit_is_denied(tmp_path: Path) -> None:
     # Per-agent scoping must not weaken the guard within one agent: a sub-agent
     # that edits then :full-rereads the same file is still denied.
+    _write_big(tmp_path, "shop/pricing.py")
     aid = "a92a09810b278eaf7"
     edit = {
         "tool_name": "mcp__lc__edit",
@@ -179,6 +194,8 @@ def test_prune_removes_stale_agent_state_keeps_fresh(tmp_path: Path) -> None:
 def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
     # utils.py edited in one package must not block a full read of a different
     # package's utils.py -- comparison is on resolved paths, not basenames.
+    _write_big(tmp_path, "pkg_a/utils.py")
+    _write_big(tmp_path, "pkg_b/utils.py")
     edit = {
         "tool_name": "mcp__lc__edit",
         "tool_input": {"edits": [{"file_path": "pkg_a/utils.py", "old_string": "a", "new_string": "b"}]},
@@ -196,6 +213,31 @@ def test_basename_collision_does_not_false_positive(tmp_path: Path) -> None:
 def test_read_after_edit_no_block_without_prior_edit(tmp_path: Path) -> None:
     expand_reread = {"tool_name": "mcp__lc__read", "tool_input": {"path": "shop/pricing.py", "full": True}}
     assert _run("pre_tool_discipline.py", expand_reread, tmp_path) == ""
+
+
+def test_small_edited_file_full_reread_is_allowed(tmp_path: Path) -> None:
+    # Size gate: a small edited file's :full re-read is NOT real waste. The
+    # unconditional deny measurably forced a 3-turn recovery dance (denied
+    # :full -> ranged read -> edit retry) in benchmark trials.
+    _write_big(tmp_path, "shop/small.py", lines=40)
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "tool_input": {"edits": [{"path": "shop/small.py:L1-L2", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+    reread = {"tool_name": "mcp__lc__read", "tool_input": {"files": ["shop/small.py:full"]}}
+    assert _run("pre_tool_discipline.py", reread, tmp_path) == ""
+
+
+def test_missing_file_full_reread_fails_open(tmp_path: Path) -> None:
+    # Unknown size (unreadable/missing) counts as small -> allow, never deny.
+    edit = {
+        "tool_name": "mcp__lc__edit",
+        "tool_input": {"edits": [{"path": "shop/ghost.py:L1-L2", "new": "x"}]},
+    }
+    assert _run("loop_discipline_post.py", edit, tmp_path) == ""
+    reread = {"tool_name": "mcp__lc__read", "tool_input": {"files": ["shop/ghost.py:full"]}}
+    assert _run("pre_tool_discipline.py", reread, tmp_path) == ""
 
 
 def test_workspace_code_grep_is_not_blocked(tmp_path: Path) -> None:
