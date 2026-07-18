@@ -149,6 +149,7 @@ from lemoncrow.infra.runtime.run_ledger import (
 )
 from lemoncrow.infra.storage.factory import make_memory_store
 from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError, MemorySidecarUnavailable
+from lemoncrow.pro.capabilities.code_context.diversity import demote_doc_overflow, query_wants_docs
 from lemoncrow.pro.capabilities.owned_execution_lanes import (
     OwnedExecutionError,
     execute_owned_prompt,
@@ -3458,6 +3459,51 @@ _tool_call_raw_result: threading.local = threading.local()
 _tool_call_images: threading.local = threading.local()
 _MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
 
+_ARCHIVE_SUFFIXES = frozenset({".gz", ".bz2", ".xz", ".zst", ".tgz", ".tbz2"})
+_ARCHIVE_MEDIA_TYPES = frozenset(
+    {
+        "application/zip",
+        "application/x-tar",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+        "application/x-rar-compressed",
+    }
+)
+
+
+def _binary_read_message(media_type: str, size_bytes: int, suffix: str = "") -> str:
+    """Type-aware guidance for a binary file `read` can't decode as text.
+
+    Every category used to fall through to the same "not UTF-8 text, not
+    decoded" dead end regardless of what the file actually was. Each branch
+    here instead names a concrete next step the agent can take with tools it
+    already has (bash + this same `read` tool) -- e.g. extract a video frame
+    and read() *that* as an image, rather than leaving the agent to rediscover
+    ffmpeg/pdftoppm/tesseract from scratch the way real trials did.
+    """
+    base = f"Binary file ({media_type}, {size_bytes} bytes) -- not UTF-8 text, not decoded."
+    if media_type.startswith("image/"):
+        return base + f" Image too large to inline (> {_MAX_INLINE_IMAGE_BYTES} bytes)."
+    if media_type.startswith("video/"):
+        return (
+            base + " Video is not viewable directly by this tool. Extract a representative "
+            "frame with ffmpeg (e.g. `ffmpeg -ss <time> -i <file> -frames:v 1 frame.png`) "
+            "and read() that frame instead -- images ARE viewable directly."
+        )
+    if media_type.startswith("audio/"):
+        return base + " Audio is not transcribed by this tool; no transcript path is available here."
+    if media_type == "application/pdf":
+        return (
+            base + " PDF text/images are not extracted by this tool. Use `pdftotext` "
+            "(poppler-utils) for text, or `pdftoppm -png` to render a page and read() "
+            "the resulting PNG instead -- images ARE viewable directly."
+        )
+    if media_type in _ARCHIVE_MEDIA_TYPES or suffix in _ARCHIVE_SUFFIXES:
+        return (
+            base + " Archive contents are not listed by this tool; use bash (e.g. `unzip -l`, `tar -tf`) to inspect it."
+        )
+    return base
+
 
 def _bootstrap_context_status(root: Path) -> dict[str, Any]:
     from lemoncrow.core.service.bootstrap_context import bootstrap_status, missing_bootstrap_labels
@@ -5520,9 +5566,7 @@ def _smart_read_single(
                     }
                 except OSError:
                     pass
-            _msg = f"Binary file ({_mt}, {_sz} bytes) — not UTF-8 text, not decoded."
-            if _mt.startswith("image/"):
-                _msg += " Image too large to inline (> " + str(_MAX_INLINE_IMAGE_BYTES) + " bytes)."
+            _msg = _binary_read_message(_mt, _sz, suffix=resolved.suffix.lower())
             return {
                 "mode": "binary",
                 "path": str(resolved),
@@ -5870,6 +5914,10 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
         "Whole file → ONE :full (or ONE wide range) — never successive narrow ranges. "
         "Batch all files/ranges into one call's files=[] array: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
+        "Images (png/jpg/gif/webp/bmp, up to 4MB) are returned as a real viewable image, not text — "
+        "read(files=['board.png']) to SEE it directly instead of writing pixel/OCR/CV extraction code. "
+        "Other binary types (video, audio, pdf, archives) return a message with the concrete next step "
+        "(e.g. extract a video frame or PDF page to PNG, then read() that image). "
         ":summary = bounded gist, any file. :outline = force structural outline at any size. "
         ":summary/:outline/:full mutually exclusive. symbol='name' or ['a', 'b']."
     ),
@@ -9237,11 +9285,15 @@ def _code_search_section_savings(lean: dict[str, Any], workspace_root: Path) -> 
 
 
 def _lean_code_search_view(
-    result: dict[str, Any], *, max_files: int, seed_files: list[str] | None = None
+    result: dict[str, Any], *, max_files: int, seed_files: list[str] | None = None, query: str = ""
 ) -> dict[str, Any]:
     """Collapse engine.tool_explore output into a lean, edit-ready view."""
     if not isinstance(result, dict):
         return result
+    # Filetype diversity: unless the query asks for docs, documentation files
+    # (.md/.rst/...) may occupy at most a quarter of each ranked window --
+    # excess docs are demoted below it, never dropped from the surface order.
+    wants_docs = query_wants_docs(query)
     eps = sorted((result.get("entry_points") or []), key=_lean_score, reverse=True)
     files = result.get("files") or []
     exact = bool(result.get("exact_match"))
@@ -9313,8 +9365,19 @@ def _lean_code_search_view(
             continue
         seen_sig.add(sig)
         candidates.append(candidate)
-        if len(candidates) >= _LEAN_MAX_CANDIDATES:
+        # Scan past the window so the diversity pass below has non-doc
+        # candidates to promote when docs dominate the top scores.
+        if len(candidates) >= _LEAN_MAX_CANDIDATES * 3:
             break
+    if not wants_docs:
+        # Effective window: the list head IS the ranked space when the list is
+        # shorter than the cap.
+        candidates = demote_doc_overflow(
+            candidates,
+            window=min(_LEAN_MAX_CANDIDATES, len(candidates)),
+            path_of=lambda c: str(c.get("path") or ""),
+        )
+    candidates = candidates[:_LEAN_MAX_CANDIDATES]
     # Exclude ONLY files whose source was returned (seen_paths). Files that
     # appear in the symbol map STAY in candidate_files: candidate_files is the
     # ranked recall surface (the retrieval eval and rank-consumers read files +
@@ -9340,6 +9403,9 @@ def _lean_code_search_view(
     for p in result.get("deep_recall") or []:
         if p and p not in seen_paths and p not in cand_files:
             cand_files.append(p)
+
+    if cand_files and not wants_docs:
+        cand_files = demote_doc_overflow(cand_files, window=min(_LEAN_MAX_CANDIDATE_FILES, len(cand_files)))
 
     lean: dict[str, Any] = {"exact_match": exact, "files": out_files}
     if candidates:
@@ -9448,7 +9514,7 @@ def tool_code_search(
     # Project the engine's rich candidate set to a lean, exact view so the agent
     # can go code_search -> edit without grep/read round-trips (seed files are
     # boosted to the top inside the view).
-    lean = _lean_code_search_view(result, max_files=max_files, seed_files=explore_seeds)
+    lean = _lean_code_search_view(result, max_files=max_files, seed_files=explore_seeds, query=query)
     if resolved_path and not any(
         isinstance(e, dict) and e.get("path") == resolved_path and e.get("sections") for e in (lean.get("files") or [])
     ):
