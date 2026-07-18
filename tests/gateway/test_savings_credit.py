@@ -56,6 +56,26 @@ def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate:
     assert usd == pytest.approx(input_rate)
 
 
+def test_large_writer_accumulated_input_style_row_is_not_discarded(tmp_path: Path) -> None:
+    tokens = 7_214_776
+    usd = 3.607388
+    _write_sidecar(
+        tmp_path,
+        "s1",
+        [{"kind": "input_style", "tokens": tokens, "cost_saved_usd": usd, "model": MODEL}],
+    )
+
+    priced, calls, total_usd, unpriced = _read_claude_session_savings("s1", tmp_path)
+    assert (priced, calls, unpriced) == (tokens, 0, 0)
+    assert total_usd == pytest.approx(usd)
+
+    summary = compute_savings_summary("s1", lemoncrow_root=tmp_path)
+    assert summary.ctx_saved == tokens
+    assert summary.saved_usd == pytest.approx(usd)
+    assert summary.input_saved_tokens == tokens
+    assert summary.input_saved_usd == pytest.approx(usd)
+
+
 def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.core.foundation.paths import session_dir
 
@@ -432,10 +452,9 @@ def test_carry_credit_ignores_input_style_and_turn_cut_rows(tmp_path: Path) -> N
     assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=2000), abs=1e-9)
 
 
-def test_carry_credit_caps_resident_at_context_window(tmp_path: Path) -> None:
-    """Tokens carried into any single later turn cannot exceed the model's
-    context window: a session that saved more than a window's worth before a
-    turn is capped at the window, not credited the unbounded cumulative sum."""
+def test_carry_credit_caps_large_writer_accumulated_row_at_context_window(tmp_path: Path) -> None:
+    """Writer-owned rows can exceed 2M, while per-turn carry still cannot
+    exceed the model's context window."""
     base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     pricing = get_model_pricing(MODEL)
     assert pricing is not None and pricing.context_window > 0
@@ -446,17 +465,15 @@ def test_carry_credit_caps_resident_at_context_window(tmp_path: Path) -> None:
         [
             {
                 "tool": "read",
-                "tokens": window,
+                "tokens": 3_000_000,
                 "calls": 0,
                 "model": MODEL,
-                "ts": (base + timedelta(seconds=i)).isoformat(),
+                "ts": (base + timedelta(seconds=1)).isoformat(),
             }
-            for i in range(1, 4)  # 3 x window tokens saved before the turn
         ],
     )
     turn_ts = [(base + timedelta(minutes=1)).isoformat()]
     carry_tokens, carry_usd = _carry_credit("s1", tmp_path, turn_ts)
-    # One later turn: resident capped at one window, not 3x the window.
     assert carry_tokens == window
     assert carry_usd == pytest.approx(pricing.request_cost_usd(cache_read_tokens=window), abs=1e-9)
 
@@ -533,11 +550,11 @@ def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> Non
     _write_sidecar(
         tmp_path,
         "s1",
-        [{"tool": "read", "tokens": 10_000, "calls": 0, "model": MODEL, "ts": at(1)}],
+        [{"tool": "read", "tokens": 3_000_000, "calls": 0, "model": MODEL, "ts": at(1)}],
     )
     pricing = get_model_pricing(MODEL)
     assert pricing is not None and pricing.long_context_threshold() == 200_000
-    # 196k actual + 10k saved = 206k > 200k: the whole request would have
+    # 196k actual + the accumulated saving crosses 200k: the whole request would have
     # billed premium — credit the premium-minus-base delta on actual usage.
     turn = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 190_000, "cW": 5000}
     expected = pricing.request_cost_usd(
@@ -547,9 +564,10 @@ def test_cliff_credit_reprices_turns_kept_under_threshold(tmp_path: Path) -> Non
     )
     assert expected > 0
     assert _cliff_credit("s1", tmp_path, [turn]) == pytest.approx(expected, abs=1e-6)
-    # Would not have crossed even with the saved tokens: no credit.
+    # A genuinely small saving would not cross the threshold: no credit.
     small = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 100_000, "cW": 5000}
-    assert _cliff_credit("s1", tmp_path, [small]) == 0.0
+    small_rows = [{"tool": "read", "tokens": 10_000, "calls": 0, "model": MODEL, "ts": at(1)}]
+    assert _cliff_credit("s1", tmp_path, [small], rows=small_rows) == 0.0
     # Already over the threshold: billed premium for real; savings rows are
     # premium-priced at write time instead — nothing to credit here.
     over = {"ts": at(2), "model": MODEL, "in": 1000, "out": 100, "cR": 210_000, "cW": 5000}
