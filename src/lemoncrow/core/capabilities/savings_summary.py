@@ -952,8 +952,6 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
       context at the cache-read rate and, on newer rows, also carries the
       turn's average output (billed at the output rate and re-entering context
       at the cache-write rate).
-    * tokens above the 2M per-call sanity cap are dropped (pre-fce2110
-      inflation bug).
     * ``kind == "compaction"`` rows mark a Claude-managed context reset. They
       bound carry windows but are not counted as LemonCrow-generated savings.
     * ``kind == "output_style"`` (telegraphic prose the model did not emit) and
@@ -971,8 +969,6 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
     tokens = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
     calls = max(0, int(ev.get("calls") or ev.get("calls_saved") or 0))
     calls_usd = max(0.0, float(ev.get("calls_usd") or ev.get("calls_cost_saved_usd") or 0.0))
-    if tokens > 2_000_000:
-        tokens = 0
     if str(ev.get("kind") or "") == "compaction":
         return 0, 0.0, 0, 0.0, 0
     if tokens <= 0:
@@ -1242,8 +1238,6 @@ def _read_session_read_savings(
         if not _is_read_lever(str(ev.get("tool") or "")):
             continue
         t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
-        if t > 2_000_000:
-            continue
         tokens += t
         usd += max(0.0, float(ev.get("cost_saved_usd") or 0.0))
     return tokens, round(usd, 6)
@@ -1390,7 +1384,7 @@ def _carry_credit(
             if row_dt is None:
                 continue
             t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
-            if t <= 0 or t > 2_000_000:
+            if t <= 0:
                 continue
             model = str(ev.get("model") or "").strip()
             pricing = _pricing_memo.get(model, _MEMO_MISS)
@@ -1548,7 +1542,7 @@ def _cliff_credit(
             # tokens that would otherwise still be resident in the main window.
             continue
         t = max(0, int(ev.get("tokens") or ev.get("tokens_saved") or 0))
-        if t <= 0 or t > 2_000_000:
+        if t <= 0:
             continue
         if any(s <= row_dt <= e for s, e in sub_windows):
             continue  # subagent-saved tokens never inflate the main window
@@ -2375,7 +2369,9 @@ _SAVINGS_AGGREGATE_FILENAME = "savings_aggregate.json"
 # rebuild of any persisted v1/v2 aggregate on first read.
 # v4: day buckets grew turns_avoided (column 12), summed from turn_cut rows'
 # whole-avoided-turn credit, so the daily public rollup can surface it.
-_SAVINGS_AGGREGATE_VERSION = 4
+# v5: writer-owned cumulative savings rows are no longer discarded above 2M;
+# version gate re-folds persisted aggregates that omitted those valid rows.
+_SAVINGS_AGGREGATE_VERSION = 5
 
 _aggregate_lock = threading.Lock()
 _aggregate_state: dict[str, dict[str, Any]] = {}  # root_str -> aggregate
@@ -2479,9 +2475,8 @@ def _fold_session_file(p: Path, root: Path, transcript_for: Callable[[str], Path
                 b[11] += max(0.0, float(row.get("cost_saved_usd") or 0.0))
             if not row.get("kind") and _is_read_lever(str(row.get("tool") or "")):
                 rt = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
-                if rt <= 2_000_000:
-                    b[7] += max(0.0, float(row.get("cost_saved_usd") or 0.0))
-                    b[8] += rt
+                b[7] += max(0.0, float(row.get("cost_saved_usd") or 0.0))
+                b[8] += rt
     if end_ts > 0 and (end_carry > 0 or end_carry_tokens > 0):
         # Attribute the session's carry credit to the day each saved token was
         # generated (proportional to that day's saved-token share) rather than
