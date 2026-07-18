@@ -1665,6 +1665,14 @@ SETTINGS: list[SettingSpec] = [
         "Comma-separated tool names to disallow while benchmarking.",
     ),
     SettingSpec(
+        "bench.hidden_mcp_tools",
+        "LEMONCROW_BENCH_HIDDEN_MCP_TOOLS",
+        "str",
+        "",
+        "bench",
+        "Comma-separated lc MCP tool names to hide from the advertised surface while benchmarking.",
+    ),
+    SettingSpec(
         "bench.token_slots",
         "LEMONCROW_BENCH_TOKEN_SLOTS",
         "int",

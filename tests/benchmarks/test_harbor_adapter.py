@@ -178,6 +178,99 @@ def test_run_uses_harbor_model_and_stages_sessions(agent: LemonCrowClaudeCodeHar
     assert command.rstrip("'").rstrip().endswith("exit $rc")
 
 
+def test_disallowed_tools_strips_dead_builtin_tools_never_used_in_a_real_run(
+    agent: LemonCrowClaudeCodeHarborAgent,
+) -> None:
+    """A full scrape of every tool_use call across all 445 trials of the
+    2026-07-14 Harbor run (results/baseline/tbench_opus48_claudecode_
+    2.1.205_turns.csv + scrape_baseline_trajectories.py) showed these
+    built-in Claude Code tools were invoked zero times, yet still cost real
+    cache-read tokens every turn just by being registered -- the largest
+    measured driver of LemonCrow's higher per-turn cache-read vs. baseline.
+    Regression-guards the --disallowedTools default so a future edit can't
+    silently drop one back in.
+    """
+    dead_tools = {
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "DesignSync",
+        "EnterWorktree",
+        "ExitWorktree",
+        "Monitor",
+        "NotebookEdit",
+        "PushNotification",
+        "RemoteTrigger",
+        "ReportFindings",
+        "SendMessage",
+        "Skill",
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskOutput",
+        "TaskStop",
+        "TaskUpdate",
+    }
+    disallowed = set(lemoncrow_agent._DISALLOWED_TOOLS.split())
+    missing = dead_tools - disallowed
+    assert not missing, f"dead tools missing from _DISALLOWED_TOOLS default: {missing}"
+
+    # Tools LemonCrow's arm actually uses must stay allowed.
+    live_tools = {"mcp__lc__bash", "mcp__lc__edit", "mcp__lc__read", "mcp__lc__code_search", "mcp__lc__web_fetch"}
+    assert not (live_tools & disallowed), f"live tools wrongly disallowed: {live_tools & disallowed}"
+
+    # End-to-end: the same dead tool names must reach the actual constructed
+    # claude invocation via --disallowedTools, not just the module constant.
+    command, _ = _run_and_capture(agent)
+    assert "--disallowedTools" in command
+    disallowed_segment = command.split("--disallowedTools", 1)[1].split("2>&1", 1)[0]
+    segment_tools = set(disallowed_segment.split())
+    assert dead_tools <= segment_tools, f"missing from constructed command: {dead_tools - segment_tools}"
+
+
+def test_web_tools_fully_off_by_default_matching_baseline(
+    agent: LemonCrowClaudeCodeHarborAgent,
+) -> None:
+    """Baseline's real Harbor job registers zero web tools of any kind --
+    confirmed both by its own init event (`"tools":["Bash","Edit","Read"]`)
+    and by a full scrape of every tool_use call across all 445 real baseline
+    trials (0 WebSearch/WebFetch calls). WebSearch/ToolSearch (Claude Code
+    built-ins) go through _DISALLOWED_TOOLS; web_fetch (an `lc` MCP tool, not
+    a built-in) can only be turned off via _HIDDEN_MCP_TOOLS/
+    LEMONCROW_HIDE_TOOLS -- disallowing "WebFetch"/"mcp__lc__web_fetch" alone
+    is a no-op, which is exactly the bug this regression-guards against (an
+    earlier version claimed web_fetch was off via _DISALLOWED_TOOLS while the
+    real scrape showed 35 live calls to it).
+    """
+    disallowed = set(lemoncrow_agent._DISALLOWED_TOOLS.split())
+    assert "WebSearch" in disallowed
+    assert "ToolSearch" in disallowed
+
+    hidden_mcp = {t.strip() for t in lemoncrow_agent._HIDDEN_MCP_TOOLS.split(",") if t.strip()}
+    assert "web_fetch" in hidden_mcp
+
+    # Both signals combined must report web access as fully off.
+    assert (
+        lemoncrow_agent._web_access_line() == "- Web access is disabled; solve from the task and the files present.\n"
+    )
+
+    # End-to-end: LEMONCROW_HIDE_TOOLS actually reaches the container env,
+    # and --disallowedTools actually reaches the constructed command.
+    command, env = _run_and_capture(agent)
+    assert env["LEMONCROW_HIDE_TOOLS"] == lemoncrow_agent._HIDDEN_MCP_TOOLS
+    assert "web_fetch" in set(env["LEMONCROW_HIDE_TOOLS"].split(","))
+    disallowed_segment = command.split("--disallowedTools", 1)[1].split("2>&1", 1)[0]
+    segment_tools = set(disallowed_segment.split())
+    assert "WebSearch" in segment_tools
+    assert "ToolSearch" in segment_tools
+
+    # Exactly 4 mcp__lc__ tools should remain visible after all hiding: bash,
+    # edit, read, code_search -- web_fetch is the one hidden.
+    live_lc_tools = {"mcp__lc__bash", "mcp__lc__edit", "mcp__lc__read", "mcp__lc__code_search"}
+    assert not (live_lc_tools & segment_tools), f"live lc tools wrongly disallowed: {live_lc_tools & segment_tools}"
+    assert "mcp__lc__web_fetch" not in segment_tools  # correctly NOT here -- it's hidden via MCP, not disallowed
+
+
 def _session_event(uuid: str, typ: str, message: dict[str, Any], ts: str) -> dict[str, Any]:
     return {
         "uuid": uuid,
