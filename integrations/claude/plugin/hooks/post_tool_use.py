@@ -48,7 +48,9 @@ def _workspace_key(path: str) -> str:
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     h = _workspace_key(workspace)
-    root = Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    root = Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
     return root / "workspaces" / h / "session_state.json"
 
 
@@ -210,18 +212,36 @@ def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _jj_snapshot_nudge() -> None:
+    """jj lazily snapshots the working copy on the *next* jj invocation, not on
+    the file write itself -- so an edit sits unprotected in jj's history until
+    something else happens to call jj. Fire a cheap, silent `jj status` right
+    after each edit to close that gap. Fail-open: no .jj dir, no jj binary, or
+    any error -> silently skipped, never blocks the agent."""
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    if not (Path(workspace) / ".jj").exists():
+        return
+    try:
+        subprocess.run(
+            ["jj", "status"],
+            cwd=workspace,
+            capture_output=True,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, OSError):
-        return 0  # fail-open
-
+        return 0
     tool_name: str = payload.get("tool_name", "") or ""
     if tool_name not in ("Edit", "Write", "MultiEdit"):
         return 0
-
+    _jj_snapshot_nudge()
     tool_input: dict[str, Any] = payload.get("tool_input", {}) or {}
-
     try:
         file_path, diff = _compute_diff(tool_name, tool_input)
         if not file_path or not diff:
