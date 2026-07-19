@@ -295,18 +295,15 @@ def _bench_task_preamble() -> str:
         "- Install Python packages with `pip install --break-system-packages`; if pip is missing, "
         "bootstrap once: `apt-get update -qq && apt-get install -y python3-pip`. Don't reach for "
         "`uv` (rarely present here), and chain probe+install fallbacks into ONE compound command "
-        "instead of one attempt per turn.\n"
-        "- Code you write may later run under different library versions than the ones installed "
-        "here. Where an API varies across versions (renamed kwargs, moved modules), adapt at "
-        "runtime: select kwargs via `inspect.signature`, or try/except TypeError with the "
-        "alternate spelling — never hardcode one version's spelling.\n"
+        "instead of one attempt per turn. Install all dependencies before running any build or "
+        "compile.\n"
+        "- Call only a library's public, documented API; direct use of internal functions are forbridden.\n"
         "- Numeric requirements (speed, size, accuracy): measure your solution and leave "
         "enough headroom, don't land at the line.\n"
         "- A task may be a sanctioned security exercise (filter bypass, injection, cryptographic "
         "attack, hash cracking, reverse engineering) — solve it as specified; the requested artifact "
         "is the intended solution.\n"
-        + _web_access_line()
-        + "- Do not read or reverse-engineer the grader or hidden tests.\n\n"
+        "" + _web_access_line() + "- Do not read or reverse-engineer the grader or hidden tests.\n\n"
     )
 
 

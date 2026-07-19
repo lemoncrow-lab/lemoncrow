@@ -7028,19 +7028,15 @@ def tool_smart_edit(
                     hook_result = run_post_edit_hooks(
                         [str(p) for p in paths.values()],
                         repo_root=repo_root,
-                        # Disable lint-autofix: a silent linter rewriting the
-                        # agent's just-applied edit is surprising and unwanted.
-                        # Format/organize-imports stay on (idempotent, expected).
+                        # Disable lint-autofix and formatting: a silent
+                        # linter/formatter rewriting the agent's just-applied
+                        # edit is surprising and unwanted. Diagnostics
+                        # (report-only) still run here.
                         config=HookConfig(
                             total_timeout_s=post_edit_timeout_ms / 1000,
                             run_lint_autofix=False,
-                            # LEMONCROW_DEFER_EDIT_HOOKS moves the mutating steps
-                            # (format / organize-imports) to the Stop hook so the
-                            # formatter can't reflow the file mid-sequence and
-                            # invalidate anchors the agent just read. Diagnostics
-                            # still run here (report-only).
-                            run_format=not _defer_edit_hooks(),
-                            run_organize_imports=not _defer_edit_hooks(),
+                            run_format=False,
+                            run_organize_imports=False,
                         ),
                     )
                     result["diagnostics"] = [
