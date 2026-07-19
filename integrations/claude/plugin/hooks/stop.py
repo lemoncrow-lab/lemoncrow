@@ -441,33 +441,10 @@ def _extract_edited_paths(transcript_path: str) -> list[str]:
     return seen
 
 
-def _format_deferred_edits(transcript_path: str) -> None:
-    """When LEMONCROW_DEFER_EDIT_HOOKS was on, the edit tool skipped the mutating
-    format / organize-imports steps so the formatter could not reflow files
-    mid-session and break the agent's read anchors. Run them once now, at Stop,
-    over the files edited this session. Fail-open: never break the Stop hook."""
-    if os.environ.get("LEMONCROW_DEFER_EDIT_HOOKS", "0").strip().lower() not in {"1", "true", "on", "yes"}:
-        return
-    paths = _extract_edited_paths(transcript_path)
-    if not paths:
-        return
-    try:
-        from lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks import (
-            HookConfig,
-            run_post_edit_hooks,
-        )
-
-        root = Path(os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()))
-        resolved = [str(root / pp if not Path(pp).is_absolute() else Path(pp)) for pp in paths]
-        resolved = [pp for pp in resolved if Path(pp).exists()]
-        if resolved:
-            run_post_edit_hooks(
-                resolved,
-                repo_root=root,
-                config=HookConfig(run_lint_autofix=False, run_diagnostics=False),
-            )
-    except Exception:
-        logger.exception("Failed to run deferred format at Stop")
+def _format_deferred_edits(_transcript_path: str) -> None:
+    """No-op: post-edit formatting is disabled everywhere (edit-time and Stop).
+    Kept as a stable call site / no-arg contract for main() and existing tests."""
+    return
 
 
 def _write_session_enrichment(
