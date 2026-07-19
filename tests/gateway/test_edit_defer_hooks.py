@@ -16,13 +16,13 @@ def _seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return f
 
 
-def test_default_formats_touched_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_never_formats_touched_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LEMONCROW_DEFER_EDIT_HOOKS", raising=False)
     f = _seed(tmp_path, monkeypatch)
     tool_smart_edit({"edits": [{"path": str(f), "old": "y = 1", "new": "y = 10"}]})
     txt = f.read_text(encoding="utf-8")
     assert "y = 10" in txt  # edit applied
-    assert "x = 2" in txt  # default: formatter ran and normalized the unrelated line
+    assert "x=2" in txt  # formatter never runs post-edit: unrelated line untouched
 
 
 def test_defer_skips_mutating_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
