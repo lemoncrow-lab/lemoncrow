@@ -9314,6 +9314,40 @@ def _code_search_section_savings(lean: dict[str, Any], workspace_root: Path) -> 
     return tokens_saved, calls_saved
 
 
+def _restrict_explore_result_to_scope(result: dict[str, Any], seed_files: list[str] | None) -> dict[str, Any]:
+    """Hard-filter an engine.tool_explore() payload down to an explicit paths= scope.
+
+    paths= is documented as a "file or directory scope", but engine.tool_explore
+    only uses seed_files to BIAS ranking -- whole-repo channels (Zoekt trigram
+    recall, semantic ANN, reference-file expansion) can still surface files
+    outside the requested scope into files/entry_points/candidate lists. Drop
+    anything outside scope here so an explicit paths= actually behaves like a
+    scope filter, not just a tiebreaker.
+    """
+    if not seed_files or not isinstance(result, dict):
+        return result
+    seed_norm = {s.rstrip("/") for s in seed_files if s}
+    if not seed_norm:
+        return result
+
+    def in_scope(path: Any) -> bool:
+        p = str(path or "")
+        if not p:
+            return False
+        return any(p == s or p.startswith(s + "/") for s in seed_norm)
+
+    out = dict(result)
+    for key in ("files", "entry_points"):
+        items = out.get(key)
+        if isinstance(items, list):
+            out[key] = [e for e in items if not isinstance(e, dict) or in_scope(e.get("path"))]
+    for key in ("additional_relevant_files", "fused_recall", "deep_recall"):
+        items = out.get(key)
+        if isinstance(items, list):
+            out[key] = [p for p in items if in_scope(p)]
+    return out
+
+
 def _lean_code_search_view(
     result: dict[str, Any], *, max_files: int, seed_files: list[str] | None = None, query: str = ""
 ) -> dict[str, Any]:
@@ -9539,6 +9573,10 @@ def tool_code_search(
     resolved_path = None if seed_files else _resolve_query_as_existing_file(workspace_root, query, engine)
     explore_seeds = [resolved_path] if resolved_path else seed_files
     result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=explore_seeds))
+    if seed_files:
+        # An explicit paths= scope is a hard boundary, not just a ranking hint --
+        # drop anything the engine's whole-repo channels surfaced outside it.
+        result = _restrict_explore_result_to_scope(result, explore_seeds)
     if resolved_path:
         result["exact_match"] = True
     # Project the engine's rich candidate set to a lean, exact view so the agent
