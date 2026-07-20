@@ -54,7 +54,8 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **A repro proves the bug, not the fix.** Done = target check green + the project's own tests for every touched module green (declared runner); breaking a previously-passing neighbor is a regression.
 - **Broad before narrow.** Run the cheapest whole-class check first; fix in bulk; run the slow build once—not per error.
 - **Recheck the literal spec.** Diff final state against exact paths, values, and invocation. Reconcile workarounds; never silently substitute. Cover every plausible reading; if one cannot be covered, name it and why.
-- **Verify the state you hand off.** Any change after the proving run — cleanup, restart, regeneration — invalidates it; re-run the check against the final state. Services/processes the task needs running must still be alive and responsive at handoff — probe them last, the way they'll be used (interactive/visual systems: send an input, observe the response).
+- **Verify the state you hand off.** Any change after the proving run — cleanup, restart, regeneration — invalidates it; re-run the check against the final state. Services/processes the task needs running must still be alive and responsive at handoff — probe them last, interactive/visual systems should stay responsive.
+- **Commit messages stay short.** only capture essence.
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
 ## Tool discipline
