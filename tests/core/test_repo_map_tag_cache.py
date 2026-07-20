@@ -49,10 +49,11 @@ def test_default_path_follows_per_project_convention(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     db_path = default_tag_cache_path(repo)
-    # Lives under <store_root>/workspaces/<hash>/repo_map_tags.sqlite
+    # Lives under <repo_root>/.lemoncrow/workspace/repo_map_tags.sqlite
     assert db_path.name == "repo_map_tags.sqlite"
-    assert db_path.parent.parent.name == "workspaces"
-    assert str(tmp_path / "_store") in str(db_path)
+    assert db_path.parent.name == "workspace"
+    assert db_path.parent.parent.name == ".lemoncrow"
+    assert db_path.parent.parent.parent == repo.resolve()
 
 
 def test_put_then_get_returns_cached_tags(tmp_path: Path) -> None:

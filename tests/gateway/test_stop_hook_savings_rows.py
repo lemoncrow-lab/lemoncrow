@@ -145,8 +145,10 @@ def test_credit_rtk_gain_with_fake_binary(tmp_path: Path, monkeypatch: pytest.Mo
     # Per-workspace marker: a second Stop fire credits nothing new.
     stop._credit_rtk_gain(sid, {"last_model": MODEL})
     assert len([r for r in _rows(sidecar) if r.get("kind") == "external_compactor"]) == 1
+    from lemoncrow.core.foundation.paths import workspace_key
+
     marker = json.loads((tmp_path / "rtk_gain_state.json").read_text(encoding="utf-8"))
-    assert marker["credited_by_workspace"][stop._workspace_key(str(workspace))] == 5000
+    assert marker["credited_by_workspace"][workspace_key(str(workspace))] == 5000
     # A different workspace has its own counter — project A's rtk tokens are
     # never attributed to project B's sessions.
     other = tmp_path / "other"

@@ -280,7 +280,7 @@ def reconcile_local_savings_gap(root: str | Path, server_saved_usd: float) -> bo
         sidecar.write_text(json.dumps(row) + "\n", encoding="utf-8")
         reconcile_savings_aggregate(root_path)  # fold + persist immediately, not on the next TTL
         return True
-    except Exception:  # noqa: BLE001 -- best-effort self-heal must never raise
+    except Exception:
         return False
 
 
@@ -815,7 +815,7 @@ def build_cap_nudge(root: str | Path, *, session_id: str, host: str = "claude") 
             path.parent.mkdir(parents=True, exist_ok=True)
             _write_json(path, stats)
         return cap_nudge_text(root)
-    except Exception:  # noqa: BLE001 — fail-open: a nudge must never break a tool call
+    except Exception:
         return None
 
 
@@ -1578,7 +1578,7 @@ def _swap_global_agents_md(agents_md: Path, *, dormant: bool) -> str:
             _agents_md_source,
             _upsert_managed_block,
         )
-    except Exception:  # noqa: BLE001 — helpers unavailable -> skip AGENTS.md swap
+    except Exception:
         return "noop"
     pattern = re.compile(
         rf"{re.escape(LEMONCROW_CODE_BLOCK_START)}.*?{re.escape(LEMONCROW_CODE_BLOCK_END)}\n?",
@@ -1639,7 +1639,7 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
         if host == "opencode":
             return "agents:" + _stash_agent_files(_opencode_config_home() / "agents", dormant=dormant)
         return "noop"
-    except Exception:  # noqa: BLE001 — dormancy reset must never break a hook
+    except Exception:
         return "error"
 
 
@@ -1884,10 +1884,9 @@ def _opencode_workspace_root(payload: dict[str, Any]) -> str:
 
 def _opencode_session_state_path(root: str | Path, payload: dict[str, Any]) -> Path:
     workspace = _opencode_workspace_root(payload)
-    from lemoncrow.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    digest = workspace_key(Path(workspace).resolve())
-    return Path(root) / "workspaces" / digest / "session_state.json"
+    return resolve_workspace_store_dir(workspace_root=Path(workspace)) / "session_state.json"
 
 
 def _write_opencode_session_state(root: str | Path, payload: dict[str, Any]) -> None:
@@ -2297,7 +2296,7 @@ def _opencode_prose_output_tokens(session_id: str) -> int:
         from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
         serialized = serialize_opencode_session(session_id, db_path)
-    except Exception:  # noqa: BLE001  # fail-open: a hook must never crash the agent
+    except Exception:  # fail-open: a hook must never crash the agent
         return 0
     blocks: list[tuple[str, str]] = []
     for idx, line in enumerate(serialized.splitlines()):
@@ -3049,10 +3048,9 @@ def _codex_workspace_root(payload: dict[str, Any]) -> str:
 
 def _codex_session_state_path(root: str | Path, payload: dict[str, Any]) -> Path:
     workspace = _codex_workspace_root(payload)
-    from lemoncrow.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    digest = workspace_key(Path(workspace).resolve())
-    return Path(root) / "workspaces" / digest / "session_state.json"
+    return resolve_workspace_store_dir(workspace_root=Path(workspace)) / "session_state.json"
 
 
 def _read_codex_session_state(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -4843,7 +4841,7 @@ def aggregate_session_stats(root: str | Path, session_id: str | None = None) -> 
     for file_path in files:
         try:
             data = json.loads(file_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 - best-effort skip of unreadable session-stats file
+        except Exception:
             logging.getLogger(__name__).debug("skipping unreadable session-stats file: %s", file_path, exc_info=True)
             continue
         aggregate["session_count"] += 1

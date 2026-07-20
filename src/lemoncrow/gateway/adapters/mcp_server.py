@@ -1069,11 +1069,10 @@ def _append_live_savings_event(event: dict[str, Any]) -> None:
 def _workspace_savings_path() -> Path:
     """Side log for per-session savings on Copilot CLI and other non-Claude hosts."""
 
-    from lemoncrow.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    workspace = str(Path(os.environ.get("LEMONCROW_WORKSPACE_ROOT") or os.getcwd()).resolve())
-    h = workspace_key(workspace)
-    return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
+    workspace = os.environ.get("LEMONCROW_WORKSPACE_ROOT") or os.getcwd()
+    return resolve_workspace_store_dir(workspace_root=Path(workspace)) / "session_savings.jsonl"
 
 
 # session-file + managed-bash helpers moved to mcp.session_state (imported near the top).
@@ -1089,11 +1088,10 @@ def _workspace_bridge_file() -> Path:
     workspace never clobber each other's workflow/phase/credit state.
     """
 
-    from lemoncrow.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    ws = str(Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()).resolve())
-    ws_hash = workspace_key(ws)
-    return _lemoncrow_root() / "workspaces" / ws_hash / "session_state.json"
+    ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
+    return resolve_workspace_store_dir(workspace_root=Path(ws)) / "session_state.json"
 
 
 def _workspace_session_state_file() -> Path:
@@ -2437,7 +2435,10 @@ def _workspace_bridge_session_id() -> str:
             # Claude resolves via the window-anchored resolver; a workspace-shared
             # slot would cross-contaminate concurrent windows in one repo.
             return ""
-        path = _lemoncrow_root() / "workspaces" / _workspace_ws_hash() / "session_state.json"
+        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
+
+        ws = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
+        path = resolve_workspace_store_dir(workspace_root=Path(ws)) / "session_state.json"
         if not path.is_file():
             return ""
         data = json.loads(path.read_text(encoding="utf-8"))
