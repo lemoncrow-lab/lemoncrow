@@ -85,9 +85,7 @@ def test_current_epoch_reads_session_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     assert current_epoch() == 0
-    from lemoncrow.core.foundation.paths import workspace_key
-
-    state_path = tmp_path / "workspaces" / workspace_key(tmp_path) / "session_state.json"
+    state_path = tmp_path / ".lemoncrow" / "workspace" / "session_state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps({"compaction_epoch": 3}), encoding="utf-8")
     assert current_epoch() == 3

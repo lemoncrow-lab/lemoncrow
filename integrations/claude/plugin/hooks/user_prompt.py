@@ -45,31 +45,9 @@ _MAX_PROMPT_BYTES = 8192  # 8 KB
 # ---------------------------------------------------------------------------
 
 
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
-
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    h = _workspace_key(workspace)
-    root = Path(
-        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
-    )
-    return root / "workspaces" / h / "session_state.json"
+    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -276,7 +254,7 @@ def _model_pricing(model: str | None):  # type: ignore[no-untyped-def]
         pricing = get_model_pricing(model or "")
         if pricing.known and pricing.cache_read > 0:
             return pricing
-    except Exception:  # noqa: BLE001 - hook must fail open without lemoncrow installed
+    except Exception:
         pass
     return None
 
@@ -563,7 +541,7 @@ def _check_noop_cap(prompt: str) -> bool:
                 state["noop_continue_count"] = 0
                 _write_session_state(state)
         return False
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -640,7 +618,7 @@ def _maybe_emit_compaction_advice(
         state["last_user_prompt"] = last_user_prompt
         _write_session_state(state)
         return msg
-    except Exception:  # noqa: BLE001 - hook fails open; always persist last_user_prompt
+    except Exception:
         _persist_last_user_prompt(last_user_prompt)
         return None
 
@@ -722,7 +700,7 @@ def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
             '— treat this source as already read; call code_search for more.">\n'
             f"{body}\n</lemoncrow_context>"
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None  # fail-open — the prompt must go through untouched
     finally:
         signal.alarm(0)
