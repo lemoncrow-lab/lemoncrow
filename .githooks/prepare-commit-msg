@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # >>> lemoncrow attribution >>>
-# Managed by LemonCrow (lc init). Appends the co-author trailer unless already present.
+# Managed by LemonCrow. Appends the co-author trailer unless already present.
 # Skips merge/squash commit messages.
 LEMONCROW_TRAILER="Co-Authored-By: lemoncrow <302591943+lemoncrow-agent[bot]@users.noreply.github.com>"
 case "$2" in
