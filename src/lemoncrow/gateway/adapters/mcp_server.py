@@ -9320,40 +9320,6 @@ def _code_search_section_savings(lean: dict[str, Any], workspace_root: Path) -> 
     return tokens_saved, calls_saved
 
 
-def _restrict_explore_result_to_scope(result: dict[str, Any], seed_files: list[str] | None) -> dict[str, Any]:
-    """Hard-filter an engine.tool_explore() payload down to an explicit paths= scope.
-
-    paths= is documented as a "file or directory scope", but engine.tool_explore
-    only uses seed_files to BIAS ranking -- whole-repo channels (Zoekt trigram
-    recall, semantic ANN, reference-file expansion) can still surface files
-    outside the requested scope into files/entry_points/candidate lists. Drop
-    anything outside scope here so an explicit paths= actually behaves like a
-    scope filter, not just a tiebreaker.
-    """
-    if not seed_files or not isinstance(result, dict):
-        return result
-    seed_norm = {s.rstrip("/") for s in seed_files if s}
-    if not seed_norm:
-        return result
-
-    def in_scope(path: Any) -> bool:
-        p = str(path or "")
-        if not p:
-            return False
-        return any(p == s or p.startswith(s + "/") for s in seed_norm)
-
-    out = dict(result)
-    for key in ("files", "entry_points"):
-        items = out.get(key)
-        if isinstance(items, list):
-            out[key] = [e for e in items if not isinstance(e, dict) or in_scope(e.get("path"))]
-    for key in ("additional_relevant_files", "fused_recall", "deep_recall"):
-        items = out.get(key)
-        if isinstance(items, list):
-            out[key] = [p for p in items if in_scope(p)]
-    return out
-
-
 def _lean_code_search_view(
     result: dict[str, Any], *, max_files: int, seed_files: list[str] | None = None, query: str = ""
 ) -> dict[str, Any]:
@@ -9381,11 +9347,19 @@ def _lean_code_search_view(
             return False
         return any(path == s or path.startswith(s + "/") for s in seed_norm)
 
-    def rank_key(f: dict[str, Any]) -> tuple[int, float]:
+    def _fscore(f: dict[str, Any]) -> float:
         fp = f.get("path")
-        return (1 if is_seed(fp) else 0, epscore_by_path.get(fp if isinstance(fp, str) else "", 0.0))
+        return epscore_by_path.get(fp if isinstance(fp, str) else "", 0.0)
 
-    ranked = sorted(files, key=rank_key, reverse=True)
+    # Reserve up to the top-2 spots for in-scope files that actually matched
+    # (epscore > 0), highest first; every other file -- out-of-scope neighbours the
+    # whole-repo channels surfaced, plus any 3rd+ in-scope file -- races purely on
+    # score below them. An unmatched in-scope file claims no reserved slot, so a
+    # 0-match seed lets a neighbour take rank #1.
+    _reserved = sorted((f for f in files if is_seed(f.get("path")) and _fscore(f) > 0.0), key=_fscore, reverse=True)[:2]
+    _reserved_ids = {id(f) for f in _reserved}
+    _rest = sorted((f for f in files if id(f) not in _reserved_ids), key=_fscore, reverse=True)
+    ranked = [*_reserved, *_rest]
     top_fs = epscore_by_path.get(ranked[0].get("path"), 0.0) if ranked else 0.0
     second_fs = epscore_by_path.get(ranked[1].get("path"), 0.0) if len(ranked) > 1 else 0.0
     dominant = (
@@ -9579,10 +9553,11 @@ def tool_code_search(
     resolved_path = None if seed_files else _resolve_query_as_existing_file(workspace_root, query, engine)
     explore_seeds = [resolved_path] if resolved_path else seed_files
     result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=explore_seeds))
-    if seed_files:
-        # An explicit paths= scope is a hard boundary, not just a ranking hint --
-        # drop anything the engine's whole-repo channels surfaced outside it.
-        result = _restrict_explore_result_to_scope(result, explore_seeds)
+    # paths= is a SOFT scope at every shape (single file, directory, multi-path):
+    # the engine reserves only the top-2 spots for in-scope files and lets the
+    # neighbouring files its whole-repo channels surfaced race in below, so there is
+    # no hard out-of-scope post-filter. The lean view applies the same reserve-2 cap
+    # to the agent-visible file ranking.
     if resolved_path:
         result["exact_match"] = True
     # Project the engine's rich candidate set to a lean, exact view so the agent

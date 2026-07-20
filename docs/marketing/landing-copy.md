@@ -77,7 +77,7 @@ Flagship SWE-bench Verified:
 - 23.7% faster.
 - 29.5% lower cost as a secondary note.
 
-Link every result to \`BENCHMARKS.md\`. Keep the Terminal-Bench flat-accuracy result visible in the suite strip.
+Link every result to \`BENCHMARKS.md\`. Keep the Terminal-Bench result visible in the suite strip — now +1.1pp accuracy (80.0% vs 78.9%) on matched 5-rep runs.
 
 ## Replay
 

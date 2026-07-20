@@ -18,9 +18,9 @@ against what, and where the receipts live.
 | Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/codebench/results/retrieval_2026_07_05) |
 | Indexing time | Cold full-rebuild time, 14 repos, lexical/zoekt/semantic phases | -- | see table below | same as above |
 | Embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1, LemonCrow's default)** | `benchmarks/codebench/run_embedder_sweep.py` |
-| Terminal-Bench 2.1 | 89 agentic terminal tasks, 1 attempt vs. public tbench.ai leaderboard (5-rep avg) | 78.9% expected, $96.76 | 78.7%, **$69.52 (28.1% cheaper)*** | [`harbor/results/lemoncrow/2026-07-07__02-24-29/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29) |
+| Terminal-Bench 2.1 | 89 agentic terminal tasks x 5 reps (445 trials), matched vs. Claude Code 2.1.205 leaderboard run | 78.9% (351/445) | **80.0% (356/445), +1.1pp** | [`harbor/results/lemoncrow/2026-07-14__13-44-30/`](https://github.com/lemoncrow-lab/lemoncrow/tree/main/benchmarks/harbor/results/lemoncrow/2026-07-14__13-44-30) |
 
-<sub>* Understates the real gap: 5 of 6 tasks missing cost data are real, uncounted LemonCrow spend (harness killed the process on a timeout before it logged final cost), not zero-cost runs.</sub>
+<sub>Both arms 89 tasks x 5 reps = 445 trials, so correctness is directly comparable. LemonCrow also sends 91.8% fewer fresh input tokens (1.05M vs 12.87M); cost is not a matched comparison — see [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md#terminal-bench).</sub>
 
 Full per-suite tables, setup notes, and reproduction commands are in
 [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md) --
@@ -87,8 +87,8 @@ both are covered separately in
   explicitly labeled as an estimate on "medium-sized TypeScript/Rust
   projects" -- never run against a real coding task or checked for accuracy.
   LemonCrow's Terminal-Bench 2.1 result is the accuracy-checked version of the
-  same claim: -28.1% cost with correctness held flat (78.7% vs. 78.9%
-  expected, -0.2pp).
+  same claim: measured on 89 real tasks x 5 reps, correctness a shade higher
+  (80.0% vs. 78.9%, +1.1pp) with 91.8% fewer fresh input tokens.
 - **["Just tell Claude to be terse"](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md)** is the
   free DIY alternative every reader can try with no install: a system-prompt
   instruction (`benchmarks/telegraphic/caveman_skill.md`) layered on vanilla
