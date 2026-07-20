@@ -1,4 +1,16 @@
 # Terminal-Bench 2.1 leaderboard submission metadata.
+# `harbor leaderboard submit` (used below, harbor<=0.18) is REMOVED upstream --
+# the old submit+validation flow and the harbor.leaderboard package are gone,
+# superseded by curated leaderboards on Harbor Hub (`harbor hub leaderboard`,
+# harbor>=0.19). The official terminal-bench/terminal-bench-2-1/main board is
+# curated, not self-service: `harbor hub leaderboard row create` requires
+# owning the leaderboard's package, which we don't. Per the board's own
+# description, joining it means opening a PR against
+# https://github.com/harbor-framework/terminal-bench-2-1 for maintainer
+# review -- there is no CLI command that adds a row directly.
+#
+# Historical command (kept for context; no longer runs -- server rejects it
+# with `column leaderboard.slug does not exist` since the backend migrated):
 #   harbor leaderboard submit --leaderboard terminal-bench/terminal-bench-2-1 \
 #     --job-id <JOB_UUID> --metadata benchmarks/harbor/metadata.yaml \
 #     --output validation-report.json
