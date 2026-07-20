@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from lemoncrow.infra.storage.bundle import StoreBundle
 logger = logging.getLogger(__name__)
 
 _MAX_USER_TEXT = 500
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _hermes_home() -> Path:
@@ -229,6 +231,14 @@ class HermesImporter:
         if resolved is None or not Path(resolved).is_file():
             return []
         sessions = find_hermes_sessions(resolved)
+        if not force:
+            cutoff = time.time() - (_MAX_SESSION_AGE_DAYS * 86400)
+            before = len(sessions)
+            sessions = [s for s in sessions if (s.get("last_active") or s.get("started_at") or 0) > cutoff]
+            if before != len(sessions):
+                logger.info(
+                    "hermes: skipped %d sessions older than %d days", before - len(sessions), _MAX_SESSION_AGE_DAYS
+                )
         total = len(sessions)
         if limit is not None:
             sessions = sessions[:limit]

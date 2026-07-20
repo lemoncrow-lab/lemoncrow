@@ -41,6 +41,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,6 +96,9 @@ def _codex_event_source_id(ev: dict[str, Any], raw_line: str) -> str:
     if identity:
         return identity.rsplit(":", 1)[-1]
     return _sha256(raw_line)[:16]
+
+
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _parse_ts(val: Any) -> datetime:
@@ -345,6 +349,14 @@ class CodexImporter:
             return sorted_paths[:n] if n is not None else sorted_paths
 
         all_sessions = get_newest(list(find_codex_sessions(root)), limit)
+        if not force:
+            cutoff = time.time() - (_MAX_SESSION_AGE_DAYS * 86400)
+            before = len(all_sessions)
+            all_sessions = [p for p in all_sessions if p.stat().st_mtime > cutoff]
+            if before != len(all_sessions):
+                logger.info(
+                    "codex: skipped %d sessions older than %d days", before - len(all_sessions), _MAX_SESSION_AGE_DAYS
+                )
         total = len(all_sessions)
         logger.info(
             "codex: discovering sessions (found %d, processing top %s)",
