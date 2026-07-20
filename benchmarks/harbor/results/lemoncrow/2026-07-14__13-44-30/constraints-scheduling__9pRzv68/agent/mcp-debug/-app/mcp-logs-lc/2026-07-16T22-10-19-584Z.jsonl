@@ -1,0 +1,14 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-16T22:10:20.348Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 693ms","timestamp":"2026-07-16T22:10:21.039Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-16T22:10:21.039Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T22:10:24.065Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-16T22:10:26.402Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-16T22:11:01.708Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 203ms","timestamp":"2026-07-16T22:11:01.911Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T22:11:05.504Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 73ms","timestamp":"2026-07-16T22:11:05.577Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-16T22:11:09.352Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-16T22:11:09.453Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"STDIO connection closed after 48s (cleanly)","timestamp":"2026-07-16T22:11:09.464Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-16T22:11:09.465Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-16T22:11:09.505Z","sessionId":"4721ed49-8b31-4d7a-9f65-830c902b73d3","cwd":"/app"}

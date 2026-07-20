@@ -1,0 +1,99 @@
+Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:3 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:4 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.11).
+imagemagick is already the newest version (8:6.9.12.98+dfsg1-5.2build2).
+0 upgraded, 0 newly installed, 0 to remove and 57 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading cpython-3.13.9-linux-x86_64-gnu (download) (32.0MiB)
+ Downloading cpython-3.13.9-linux-x86_64-gnu (download)
+Downloading scipy (33.6MiB)
+Downloading networkx (2.0MiB)
+Downloading pygments (1.2MiB)
+Downloading scikit-image (14.3MiB)
+Downloading numpy (15.9MiB)
+Downloading pillow (4.3MiB)
+ Downloading pygments
+ Downloading pillow
+ Downloading networkx
+ Downloading scikit-image
+ Downloading numpy
+ Downloading scipy
+Installed 14 packages in 81ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 3 items
+
+../tests/test_outputs.py ..F                                             [100%]
+
+=================================== FAILURES ===================================
+____________________ test_povray_built_from_correct_source _____________________
+
+    def test_povray_built_from_correct_source():
+        """Test that POV-Ray 2.2 was built from correct source files"""
+        source_dir = Path("/app/povray-2.2")
+        assert source_dir.exists(), (
+            "POV-Ray 2.2 source directory not found - agent may not have built from source"
+        )
+    
+        # Verify authentic POV-Ray 2.2 files using MD5 hashes
+        expected_hashes = {
+            "file_id.diz": "d405a7947a5a63e3eb1d74284bf841f9",
+            "knownbug.doc": "23a2f2afbdd7a37ed6b2e411da886de0",
+            "povlegal.doc": "b65b0a66943ac46bb02aa0e06b8866e8",
+            "whatsnew.doc": "a2e77aeae2416b35e57ab08abb89e6eb",
+            "povdoc/include/colors.inc": "0b29d7325d21399e4733e41b132e8d10",
+            "povdoc/include/shapes.inc": "61133e1cd7340793034790aab9cd8cd2",
+        }
+    
+        scene_hashes = {
+            "deps/illum1.pov": "5c51d226612b105da1b8efa957e1fa31",
+        }
+    
+        for file_path, expected_hash in expected_hashes.items():
+            full_path = source_dir / file_path
+            assert full_path.exists(), (
+                f"Expected POV-Ray 2.2 file {file_path} not found. "
+                f"This indicates the wrong POV-Ray version was downloaded."
+            )
+    
+            actual_hash = calculate_md5(full_path)
+>           assert actual_hash == expected_hash, (
+                f"MD5 hash mismatch for {file_path}. "
+                f"Expected: {expected_hash}, Got: {actual_hash}. "
+                f"This indicates the wrong POV-Ray version or corrupted download."
+            )
+E           AssertionError: MD5 hash mismatch for file_id.diz. Expected: d405a7947a5a63e3eb1d74284bf841f9, Got: 6d061e13301664fdea39501aa363ef50. This indicates the wrong POV-Ray version or corrupted download.
+E           assert '6d061e133016...9501aa363ef50' == 'd405a7947a5a...d74284bf841f9'
+E             
+E             - d405a7947a5a63e3eb1d74284bf841f9
+E             + 6d061e13301664fdea39501aa363ef50
+
+/tests/test_outputs.py:121: AssertionError
+==================================== PASSES ====================================
+________________________ test_illum1_render_and_verify _________________________
+----------------------------- Captured stdout call -----------------------------
+SSIM score: 0.8731
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_illum1_render_and_verify
+PASSED ../tests/test_outputs.py::test_povray_version
+FAILED ../tests/test_outputs.py::test_povray_built_from_correct_source - Asse...
+========================= 1 failed, 2 passed in 6.55s ==========================

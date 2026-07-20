@@ -1,0 +1,26 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-14T18:35:25.389Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 810ms","timestamp":"2026-07-14T18:35:26.191Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-14T18:35:26.191Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:35:28.807Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-14T18:35:31.421Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-14T18:35:33.449Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 120ms","timestamp":"2026-07-14T18:35:33.569Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:43:26.340Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 23ms","timestamp":"2026-07-14T18:43:26.363Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:43:31.931Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1s","timestamp":"2026-07-14T18:43:33.702Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: web_fetch","timestamp":"2026-07-14T18:43:43.075Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'web_fetch' completed successfully in 1s","timestamp":"2026-07-14T18:43:44.539Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:45:53.444Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 179ms","timestamp":"2026-07-14T18:45:53.623Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:47:13.988Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 169ms","timestamp":"2026-07-14T18:47:14.158Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:47:41.778Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 173ms","timestamp":"2026-07-14T18:47:41.951Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T18:48:14.338Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 23ms","timestamp":"2026-07-14T18:48:14.361Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-14T18:48:22.188Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-14T18:48:22.288Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"STDIO connection closed after 776s (cleanly)","timestamp":"2026-07-14T18:48:22.299Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-14T18:48:22.299Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-14T18:48:22.340Z","sessionId":"c795c80d-e54b-4736-ac8d-e68699541c80","cwd":"/app"}

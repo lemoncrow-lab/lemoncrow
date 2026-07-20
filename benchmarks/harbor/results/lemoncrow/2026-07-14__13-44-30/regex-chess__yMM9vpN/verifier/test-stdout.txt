@@ -1,0 +1,278 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Hit:4 https://deb.nodesource.com/node_20.x nodistro InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u15).
+0 upgraded, 0 newly installed, 0 to remove and 26 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+   Building chess==1.11.2
+Downloading pygments (1.2MiB)
+ Downloading pygments
+      Built chess==1.11.2
+Installed 7 packages in 10ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 4 items
+
+../tests/test_outputs.py ....                                            [100%]
+
+==================================== PASSES ====================================
+______________________________ test_immortal_game ______________________________
+----------------------------- Captured stdout call -----------------------------
+
+Testing positions from: Anderssen's Immortal Game
+PGN string length: 417
+Testing initial position
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Found 45 moves in the game
+Testing position after move 1: e2e4
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Testing position after move 3: f2f4
+Position: rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2, Our moves: 29, Python-chess moves: 29
+Testing position after move 5: f1c4
+Position: rnbqkbnr/pppp1ppp/8/8/4Pp2/8/PPPP2PP/RNBQKBNR w KQkq - 0 3, Our moves: 29, Python-chess moves: 29
+Testing position after move 7: e1f1
+Position: rnb1kbnr/pppp1ppp/8/8/2B1Pp1q/8/PPPP2PP/RNBQK1NR w KQkq - 2 4, Our moves: 3, Python-chess moves: 3
+Testing position after move 9: c4b5
+Position: rnb1kbnr/p1pp1ppp/8/1p6/2B1Pp1q/8/PPPP2PP/RNBQ1KNR w kq - 0 5, Our moves: 29, Python-chess moves: 29
+Testing position after move 11: g1f3
+Position: rnb1kb1r/p1pp1ppp/5n2/1B6/4Pp1q/8/PPPP2PP/RNBQ1KNR w kq - 1 6, Our moves: 30, Python-chess moves: 30
+Testing position after move 13: d2d3
+Position: rnb1kb1r/p1pp1ppp/5n1q/1B6/4Pp2/5N2/PPPP2PP/RNBQ1K1R w kq - 3 7, Our moves: 35, Python-chess moves: 35
+Testing position after move 15: f3h4
+Position: rnb1kb1r/p1pp1ppp/7q/1B5n/4Pp2/3P1N2/PPP3PP/RNBQ1K1R w kq - 1 8, Our moves: 38, Python-chess moves: 38
+Testing position after move 17: h4f5
+Position: rnb1kb1r/p1pp1ppp/8/1B4qn/4Pp1N/3P4/PPP3PP/RNBQ1K1R w kq - 3 9, Our moves: 36, Python-chess moves: 36
+Testing position after move 19: g2g4
+Position: rnb1kb1r/p2p1ppp/2p5/1B3Nqn/4Pp2/3P4/PPP3PP/RNBQ1K1R w kq - 0 10, Our moves: 41, Python-chess moves: 41
+Testing position after move 21: h1g1
+Position: rnb1kb1r/p2p1ppp/2p2n2/1B3Nq1/4PpP1/3P4/PPP4P/RNBQ1K1R w kq - 1 11, Our moves: 38, Python-chess moves: 38
+Testing position after move 23: h2h4
+Position: rnb1kb1r/p2p1ppp/5n2/1p3Nq1/4PpP1/3P4/PPP4P/RNBQ1KR1 w kq - 0 12, Our moves: 35, Python-chess moves: 35
+Testing position after move 25: h4h5
+Position: rnb1kb1r/p2p1ppp/5nq1/1p3N2/4PpPP/3P4/PPP5/RNBQ1KR1 w kq - 1 13, Our moves: 34, Python-chess moves: 34
+Testing position after move 27: d1f3
+Position: rnb1kb1r/p2p1ppp/5n2/1p3NqP/4PpP1/3P4/PPP5/RNBQ1KR1 w kq - 1 14, Our moves: 34, Python-chess moves: 34
+Testing position after move 29: c1f4
+Position: rnb1kbnr/p2p1ppp/8/1p3NqP/4PpP1/3P1Q2/PPP5/RNB2KR1 w kq - 3 15, Our moves: 39, Python-chess moves: 39
+Testing position after move 31: b1c3
+Position: rnb1kbnr/p2p1ppp/5q2/1p3N1P/4PBP1/3P1Q2/PPP5/RN3KR1 w kq - 1 16, Our moves: 47, Python-chess moves: 47
+Testing position after move 33: c3d5
+Position: rnb1k1nr/p2p1ppp/5q2/1pb2N1P/4PBP1/2NP1Q2/PPP5/R4KR1 w kq - 3 17, Our moves: 51, Python-chess moves: 51
+Testing position after move 35: f4d6
+Position: rnb1k1nr/p2p1ppp/8/1pbN1N1P/4PBP1/3P1Q2/PqP5/R4KR1 w kq - 0 18, Our moves: 52, Python-chess moves: 52
+Testing position after move 37: e4e5
+Position: rnb1k1nr/p2p1ppp/3B4/1p1N1N1P/4P1P1/3P1Q2/PqP5/R4Kb1 w kq - 0 19, Our moves: 51, Python-chess moves: 51
+Testing position after move 39: f1e2
+Position: rnb1k1nr/p2p1ppp/3B4/1p1NPN1P/6P1/3P1Q2/P1P5/q4Kb1 w kq - 0 20, Our moves: 3, Python-chess moves: 3
+Testing position after move 41: f5g7
+Position: r1b1k1nr/p2p1ppp/n2B4/1p1NPN1P/6P1/3P1Q2/P1P1K3/q5b1 w kq - 2 21, Our moves: 40, Python-chess moves: 40
+Testing position after move 43: f3f6
+Position: r1bk2nr/p2p1pNp/n2B4/1p1NP2P/6P1/3P1Q2/P1P1K3/q5b1 w - - 1 22, Our moves: 39, Python-chess moves: 39
+Testing position after move 45: d6e7
+Position: r1bk3r/p2p1pNp/n2B1n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 w - - 0 23, Our moves: 29, Python-chess moves: 29
+Successfully tested 24 positions from Anderssen's Immortal Game (45 moves)
+_____________________________ test_game_of_century _____________________________
+----------------------------- Captured stdout call -----------------------------
+
+Testing positions from: Fischer's Game of the Century
+PGN string length: 672
+Testing initial position
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Found 82 moves in the game
+Testing position after move 1: g1f3
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Testing position after move 3: c2c4
+Position: rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2, Our moves: 22, Python-chess moves: 22
+Testing position after move 5: b1c3
+Position: rnbqkb1r/pppppp1p/5np1/8/2P5/5N2/PP1PPPPP/RNBQKB1R w KQkq - 0 3, Our moves: 24, Python-chess moves: 24
+Testing position after move 7: d2d4
+Position: rnbqk2r/ppppppbp/5np1/8/2P5/2N2N2/PP1PPPPP/R1BQKB1R w KQkq - 2 4, Our moves: 28, Python-chess moves: 28
+Testing position after move 9: c1f4
+Position: rnbq1rk1/ppppppbp/5np1/8/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQ - 1 5, Our moves: 35, Python-chess moves: 35
+Testing position after move 11: d1b3
+Position: rnbq1rk1/ppp1ppbp/5np1/3p4/2PP1B2/2N2N2/PP2PPPP/R2QKB1R w KQ - 0 6, Our moves: 42, Python-chess moves: 42
+Testing position after move 13: b3c4
+Position: rnbq1rk1/ppp1ppbp/5np1/8/2pP1B2/1QN2N2/PP2PPPP/R3KB1R w KQ - 0 7, Our moves: 45, Python-chess moves: 45
+Testing position after move 15: e2e4
+Position: rnbq1rk1/pp2ppbp/2p2np1/8/2QP1B2/2N2N2/PP2PPPP/R3KB1R w KQ - 0 8, Our moves: 50, Python-chess moves: 50
+Testing position after move 17: a1d1
+Position: r1bq1rk1/pp1nppbp/2p2np1/8/2QPPB2/2N2N2/PP3PPP/R3KB1R w KQ - 1 9, Our moves: 53, Python-chess moves: 53
+Testing position after move 19: c4c5
+Position: r1bq1rk1/pp2ppbp/1np2np1/8/2QPPB2/2N2N2/PP3PPP/3RKB1R w K - 3 10, Our moves: 52, Python-chess moves: 52
+Testing position after move 21: f4g5
+Position: r2q1rk1/pp2ppbp/1np2np1/2Q5/3PPBb1/2N2N2/PP3PPP/3RKB1R w K - 5 11, Our moves: 56, Python-chess moves: 56
+Testing position after move 23: c5a3
+Position: r2q1rk1/pp2ppbp/2p2np1/2Q3B1/n2PP1b1/2N2N2/PP3PPP/3RKB1R w K - 7 12, Our moves: 50, Python-chess moves: 50
+Testing position after move 25: b2c3
+Position: r2q1rk1/pp2ppbp/2p2np1/6B1/3PP1b1/Q1n2N2/PP3PPP/3RKB1R w K - 0 13, Our moves: 41, Python-chess moves: 41
+Testing position after move 27: g5e7
+Position: r2q1rk1/pp2ppbp/2p3p1/6B1/3Pn1b1/Q1P2N2/P4PPP/3RKB1R w K - 0 14, Our moves: 40, Python-chess moves: 40
+Testing position after move 29: f1c4
+Position: r4rk1/pp2Bpbp/1qp3p1/8/3Pn1b1/Q1P2N2/P4PPP/3RKB1R w K - 1 15, Our moves: 40, Python-chess moves: 40
+Testing position after move 31: e7c5
+Position: r4rk1/pp2Bpbp/1qp3p1/8/2BP2b1/Q1n2N2/P4PPP/3RK2R w K - 0 16, Our moves: 47, Python-chess moves: 47
+Testing position after move 33: e1f1
+Position: r3r1k1/pp3pbp/1qp3p1/2B5/2BP2b1/Q1n2N2/P4PPP/3RK2R w K - 2 17, Our moves: 6, Python-chess moves: 6
+Testing position after move 35: c5b6
+Position: r3r1k1/pp3pbp/1qp1b1p1/2B5/2BP4/Q1n2N2/P4PPP/3R1K1R w - - 4 18, Our moves: 41, Python-chess moves: 41
+Testing position after move 37: f1g1
+Position: r3r1k1/pp3pbp/1Bp3p1/8/2bP4/Q1n2N2/P4PPP/3R1K1R w - - 0 19, Our moves: 2, Python-chess moves: 2
+Testing position after move 39: g1f1
+Position: r3r1k1/pp3pbp/1Bp3p1/8/2bP4/Q4N2/P3nPPP/3R2KR w - - 2 20, Our moves: 1, Python-chess moves: 1
+Testing position after move 41: f1g1
+Position: r3r1k1/pp3pbp/1Bp3p1/8/2bn4/Q4N2/P4PPP/3R1K1R w - - 0 21, Our moves: 3, Python-chess moves: 3
+Testing position after move 43: g1f1
+Position: r3r1k1/pp3pbp/1Bp3p1/8/2b5/Q4N2/P3nPPP/3R2KR w - - 2 22, Our moves: 1, Python-chess moves: 1
+Testing position after move 45: f1g1
+Position: r3r1k1/pp3pbp/1Bp3p1/8/2b5/Q1n2N2/P4PPP/3R1K1R w - - 4 23, Our moves: 2, Python-chess moves: 2
+Testing position after move 47: a3b4
+Position: r3r1k1/1p3pbp/1pp3p1/8/2b5/Q1n2N2/P4PPP/3R2KR w - - 0 24, Our moves: 36, Python-chess moves: 36
+Testing position after move 49: b4b6
+Position: 4r1k1/1p3pbp/1pp3p1/8/rQb5/2n2N2/P4PPP/3R2KR w - - 2 25, Our moves: 37, Python-chess moves: 37
+Testing position after move 51: h2h3
+Position: 4r1k1/1p3pbp/1Qp3p1/8/r1b5/5N2/P4PPP/3n2KR w - - 0 26, Our moves: 26, Python-chess moves: 26
+Testing position after move 53: g1h2
+Position: 4r1k1/1p3pbp/1Qp3p1/8/2b5/5N1P/r4PP1/3n2KR w - - 0 27, Our moves: 27, Python-chess moves: 27
+Testing position after move 55: h1e1
+Position: 4r1k1/1p3pbp/1Qp3p1/8/2b5/5N1P/r4nPK/7R w - - 0 28, Our moves: 35, Python-chess moves: 35
+Testing position after move 57: b6d8
+Position: 6k1/1p3pbp/1Qp3p1/8/2b5/5N1P/r4nPK/4r3 w - - 0 29, Our moves: 27, Python-chess moves: 27
+Testing position after move 59: f3e1
+Position: 3Q1bk1/1p3p1p/2p3p1/8/2b5/5N1P/r4nPK/4r3 w - - 2 30, Our moves: 30, Python-chess moves: 30
+Testing position after move 61: e1f3
+Position: 3Q1bk1/1p3p1p/2p3p1/3b4/8/7P/r4nPK/4N3 w - - 1 31, Our moves: 23, Python-chess moves: 23
+Testing position after move 63: d8b8
+Position: 3Q1bk1/1p3p1p/2p3p1/3b4/4n3/5N1P/r5PK/8 w - - 3 32, Our moves: 25, Python-chess moves: 25
+Testing position after move 65: h3h4
+Position: 1Q3bk1/5p1p/2p3p1/1p1b4/4n3/5N1P/r5PK/8 w - - 0 33, Our moves: 24, Python-chess moves: 24
+Testing position after move 67: f3e5
+Position: 1Q3bk1/5p2/2p3p1/1p1b3p/4n2P/5N2/r5PK/8 w - - 0 34, Our moves: 23, Python-chess moves: 23
+Testing position after move 69: h2g1
+Position: 1Q3b2/5pk1/2p3p1/1p1bN2p/4n2P/8/r5PK/8 w - - 2 35, Our moves: 22, Python-chess moves: 22
+Testing position after move 71: g1f1
+Position: 1Q6/5pk1/2p3p1/1pbbN2p/4n2P/8/r5P1/6K1 w - - 4 36, Our moves: 3, Python-chess moves: 3
+Testing position after move 73: f1e1
+Position: 1Q6/5pk1/2p3p1/1pbbN2p/7P/6n1/r5P1/5K2 w - - 6 37, Our moves: 1, Python-chess moves: 1
+Testing position after move 75: e1d1
+Position: 1Q6/5pk1/2p3p1/1p1bN2p/1b5P/6n1/r5P1/4K3 w - - 8 38, Our moves: 1, Python-chess moves: 1
+Testing position after move 77: d1c1
+Position: 1Q6/5pk1/2p3p1/1p2N2p/1b5P/1b4n1/r5P1/3K4 w - - 10 39, Our moves: 1, Python-chess moves: 1
+Testing position after move 79: c1b1
+Position: 1Q6/5pk1/2p3p1/1p2N2p/1b5P/1b6/r3n1P1/2K5 w - - 12 40, Our moves: 1, Python-chess moves: 1
+Testing position after move 81: b1c1
+Position: 1Q6/5pk1/2p3p1/1p2N2p/1b5P/1bn5/r5P1/1K6 w - - 14 41, Our moves: 1, Python-chess moves: 1
+Successfully tested 42 positions from Fischer's Game of the Century (82 moves)
+___________________________ test_naroditsky_ivanchuk ___________________________
+----------------------------- Captured stdout call -----------------------------
+
+Testing positions from: Unnamed Game
+PGN string length: 749
+Testing initial position
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Found 81 moves in the game
+Testing position after move 1: d2d4
+Position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1, Our moves: 20, Python-chess moves: 20
+Testing position after move 3: c2c4
+Position: rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2, Our moves: 28, Python-chess moves: 28
+Testing position after move 5: f2f3
+Position: rnbqkb1r/pppppp1p/5np1/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3, Our moves: 30, Python-chess moves: 30
+Testing position after move 7: e2e4
+Position: rnbqk2r/ppppppbp/5np1/8/2PP4/5P2/PP2P1PP/RNBQKBNR w KQkq - 1 4, Our moves: 29, Python-chess moves: 29
+Testing position after move 9: c1e3
+Position: rnbqk2r/ppp1ppbp/3p1np1/8/2PPP3/5P2/PP4PP/RNBQKBNR w KQkq - 0 5, Our moves: 33, Python-chess moves: 33
+Testing position after move 11: b1c3
+Position: rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/4BP2/PP4PP/RN1QKBNR w KQ - 2 6, Our moves: 35, Python-chess moves: 35
+Testing position after move 13: f1d3
+Position: rnbq1rk1/1pp1ppbp/p2p1np1/8/2PPP3/2N1BP2/PP4PP/R2QKBNR w KQ - 0 7, Our moves: 40, Python-chess moves: 40
+Testing position after move 15: g1e2
+Position: rnbq1rk1/1ppnppbp/p2p2p1/8/2PPP3/2NBBP2/PP4PP/R2QK1NR w KQ - 2 8, Our moves: 42, Python-chess moves: 42
+Testing position after move 17: d4d5
+Position: rnbq1rk1/1p1nppbp/p2p2p1/2p5/2PPP3/2NBBP2/PP2N1PP/R2QK2R w KQ - 0 9, Our moves: 43, Python-chess moves: 43
+Testing position after move 19: a2a4
+Position: rnbq1rk1/1p2ppbp/p2p2p1/2pPn3/2P1P3/2NBBP2/PP2N1PP/R2QK2R w KQ - 1 10, Our moves: 42, Python-chess moves: 42
+Testing position after move 21: b2b3
+Position: r1bq1rk1/1p1nppbp/p2p2p1/2pPn3/P1P1P3/2NBBP2/1P2N1PP/R2QK2R w KQ - 1 11, Our moves: 42, Python-chess moves: 42
+Testing position after move 23: d1d3
+Position: r1bq1rk1/1p1nppbp/p2p2p1/2pP4/P1P1P3/1PNnBP2/4N1PP/R2QK2R w KQ - 0 12, Our moves: 3, Python-chess moves: 3
+Testing position after move 25: a1d1
+Position: r1bq1rk1/1p1np1bp/p2p2p1/2pP1p2/P1P1P3/1PNQBP2/4N1PP/R3K2R w KQ - 0 13, Our moves: 45, Python-chess moves: 45
+Testing position after move 27: c4b5
+Position: r1bq1rk1/3np1bp/p2p2p1/1ppP1p2/P1P1P3/1PNQBP2/4N1PP/3RK2R w K - 0 14, Our moves: 42, Python-chess moves: 42
+Testing position after move 29: a4b5
+Position: r1bq1rk1/3np1bp/3p2p1/1ppP1p2/P3P3/1PNQBP2/4N1PP/3RK2R w K - 0 15, Our moves: 43, Python-chess moves: 43
+Testing position after move 31: d3c2
+Position: r1bq1rk1/4p1bp/3p2p1/1PpPnp2/4P3/1PNQBP2/4N1PP/3RK2R w K - 1 16, Our moves: 40, Python-chess moves: 40
+Testing position after move 33: c3e4
+Position: r1bq1rk1/4p1bp/3p2p1/1PpPn3/4p3/1PN1BP2/2Q1N1PP/3RK2R w K - 0 17, Our moves: 45, Python-chess moves: 45
+Testing position after move 35: e2c3
+Position: r1b2rk1/4p1bp/3p2p1/qPpPn3/4N3/1P2BP2/2Q1N1PP/3RK2R w K - 1 18, Our moves: 10, Python-chess moves: 10
+Testing position after move 37: g2f3
+Position: r1b2rk1/4p1bp/3p2p1/qPpP4/4N3/1PN1Bn2/2Q3PP/3RK2R w K - 0 19, Our moves: 4, Python-chess moves: 4
+Testing position after move 39: e1d2
+Position: r1b3k1/4p1bp/3p2p1/qPpP4/4N3/1PN1Br2/2Q4P/3RK2R w K - 0 20, Our moves: 39, Python-chess moves: 39
+Testing position after move 41: d1a1
+Position: r1b3k1/4p2p/3p2p1/qPpP4/3bN3/1PN1Br2/2QK3P/3R3R w - - 2 21, Our moves: 34, Python-chess moves: 34
+Testing position after move 43: d2e2
+Position: r1b3k1/4p2p/3p2p1/qPpP4/4N3/1PN1br2/2QK3P/R6R w - - 0 22, Our moves: 4, Python-chess moves: 4
+Testing position after move 45: a1a5
+Position: r5k1/4p2p/3p2p1/qPpP4/4N1b1/1PN1br2/2Q1K2P/R6R w - - 2 23, Our moves: 41, Python-chess moves: 41
+Testing position after move 47: e2d3
+Position: 6k1/4p2p/3p2p1/rPpP4/4N1b1/1PN1br2/2Q1K2P/7R w - - 0 24, Our moves: 32, Python-chess moves: 32
+Testing position after move 49: d3c4
+Position: 6k1/4p2p/3p2p1/rPpP4/3bN1b1/1PNK1r2/2Q4P/7R w - - 2 25, Our moves: 3, Python-chess moves: 3
+Testing position after move 51: c2d2
+Position: 6k1/4p2p/3p2p1/rPpP1b2/2KbN3/1PN2r2/2Q4P/7R w - - 4 26, Our moves: 33, Python-chess moves: 33
+Testing position after move 53: e4c3
+Position: 6k1/4p2p/3p2p1/rPpP1b2/2K1N3/1Pb2r2/3Q3P/7R w - - 0 27, Our moves: 34, Python-chess moves: 34
+Testing position after move 55: h1e1
+Position: 6k1/7p/3p2p1/rPpPpb2/2K5/1PN2r2/3Q3P/7R w - e6 0 28, Our moves: 33, Python-chess moves: 33
+Testing position after move 57: d2f4
+Position: 6k1/7p/3p2p1/rPpPpb2/2K2r2/1PN5/3Q3P/4R3 w - - 2 29, Our moves: 4, Python-chess moves: 4
+Testing position after move 59: c3e4
+Position: 6k1/7p/3p2p1/rPpP1b2/2K2p2/1PN5/7P/4R3 w - - 0 30, Our moves: 24, Python-chess moves: 24
+Testing position after move 61: e1e4
+Position: 6k1/7p/3p2p1/rPpP4/2K1bp2/1P6/7P/4R3 w - - 0 31, Our moves: 15, Python-chess moves: 15
+Testing position after move 63: b5b6
+Position: 6k1/7p/3p4/rPpP2p1/2K1Rp2/1P6/7P/8 w - - 0 32, Our moves: 15, Python-chess moves: 15
+Testing position after move 65: c4b5
+Position: r5k1/7p/1P1p4/2pP2p1/2K1Rp2/1P6/7P/8 w - - 1 33, Our moves: 16, Python-chess moves: 16
+Testing position after move 67: e4e1
+Position: r5k1/7p/1P1p4/1KpP2p1/4R3/1P3p2/7P/8 w - - 0 34, Our moves: 20, Python-chess moves: 20
+Testing position after move 69: b5c6
+Position: r5k1/7p/1P1p4/1KpP4/6p1/1P3p2/7P/4R3 w - - 0 35, Our moves: 20, Python-chess moves: 20
+Testing position after move 71: c6d6
+Position: r5k1/8/1PKp4/2pP3p/6p1/1P3p2/7P/4R3 w - - 0 36, Our moves: 23, Python-chess moves: 23
+Testing position after move 73: b6b7
+Position: 5rk1/8/1P1K4/2pP3p/6p1/1P3p2/7P/4R3 w - - 1 37, Our moves: 25, Python-chess moves: 25
+Testing position after move 75: e1g1
+Position: 5rk1/1P6/3K4/2pP4/6pp/1P3p2/7P/4R3 w - - 0 38, Our moves: 24, Python-chess moves: 24
+Testing position after move 77: g1g4
+Position: 5rk1/1P6/3K4/2pP4/6pp/1P6/5p1P/6R1 w - - 0 39, Our moves: 20, Python-chess moves: 20
+Testing position after move 79: g4h4
+Position: 5r2/1P5k/3K4/2pP4/6Rp/1P6/5p1P/8 w - - 1 40, Our moves: 24, Python-chess moves: 24
+Testing position after move 81: h4g4
+Position: 5r2/1P6/3K2k1/2pP4/7R/1P6/5p1P/8 w - - 1 41, Our moves: 22, Python-chess moves: 22
+Successfully tested 42 positions from Unnamed Game (81 moves)
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_immortal_game
+PASSED ../tests/test_outputs.py::test_game_of_century
+PASSED ../tests/test_outputs.py::test_naroditsky_ivanchuk
+PASSED ../tests/test_outputs.py::test_not_long
+========================= 4 passed in 63.96s (0:01:03) =========================
