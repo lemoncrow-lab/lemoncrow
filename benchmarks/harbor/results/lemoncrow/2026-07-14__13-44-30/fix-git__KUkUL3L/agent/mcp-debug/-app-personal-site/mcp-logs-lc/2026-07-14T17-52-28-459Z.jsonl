@@ -1,0 +1,24 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-14T17:52:29.091Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Successfully connected (transport: stdio) in 907ms","timestamp":"2026-07-14T17:52:29.996Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-14T17:52:29.996Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:33.466Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 1s","timestamp":"2026-07-14T17:52:35.400Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:38.017Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 78ms","timestamp":"2026-07-14T17:52:38.095Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:44.022Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 20ms","timestamp":"2026-07-14T17:52:44.042Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:48.833Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 37ms","timestamp":"2026-07-14T17:52:48.870Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:51.155Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 13ms","timestamp":"2026-07-14T17:52:51.168Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:52:56.799Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 12ms","timestamp":"2026-07-14T17:52:56.811Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-14T17:53:01.415Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'edit' completed successfully in 108ms","timestamp":"2026-07-14T17:53:01.523Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T17:53:05.165Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Tool 'bash' completed successfully in 70ms","timestamp":"2026-07-14T17:53:05.235Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-14T17:53:08.403Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-14T17:53:08.503Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"STDIO connection closed after 38s (cleanly)","timestamp":"2026-07-14T17:53:08.515Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-14T17:53:08.516Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-14T17:53:08.553Z","sessionId":"637dc314-d098-4b40-a97e-1a47b5dd34cd","cwd":"/app/personal-site"}
