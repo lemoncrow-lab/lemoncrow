@@ -789,6 +789,13 @@ def _run_bash_tool(
             # server a task wants left running).
             snapshot = peek_managed_command(managed_id)
             if snapshot.get("status") == "running":
+                # This only runs via the deadline watcher (register_completion
+                # fires on natural completion → status != running). A still-
+                # running, NOT-over-budget snapshot therefore means the watcher
+                # fired EARLY on the idle rule, not at the absolute deadline --
+                # tag it so the model is told "looks stuck", not "still working".
+                if not snapshot.get("over_budget"):
+                    snapshot["idle_return"] = True
                 return snapshot
             # The process has finished when this runs; poll once for the terminal
             # result and apply the identical terminal transforms the inline path
@@ -870,6 +877,7 @@ def _run_bash_tool(
                     idle_since = now
                 last_probe = probe
                 if (now - start_wait) >= idle_floor and (now - idle_since) >= _BASH_IDLE_GRACE_S:
+                    polled["idle_return"] = True  # cut early: looks stuck, not budget-spent
                     return polled  # progress stalled past the grace window
             elif probe is not None:
                 idle_since = now  # no /proc signal: stay conservative
@@ -921,10 +929,19 @@ def _render_bash_text(result: dict[str, Any]) -> str:
         return "\n".join(parts).strip()
     if status == "running":
         over_budget = bool(result.get("over_budget"))
+        idle_return = bool(result.get("idle_return"))
         if explicit_background:
             parts.append(f"background running id={session_id}; bash(id={session_id}) waits for it")
         elif result.get("interactive"):
             parts.append(f"interactive session id={session_id}")
+        elif idle_return:
+            # Cut early because progress stalled -- NOT because the budget ran
+            # out. Do not steer the model to just re-wait (that re-blocks on a
+            # stuck command); tell it the handle is a decision point.
+            parts.append(
+                f"no progress ~{int(_BASH_IDLE_GRACE_S)}s — likely stuck. id={session_id} still running "
+                f"(not killed): bash(id={session_id}, action=kill), or move on"
+            )
         elif over_budget:
             parts.append(f"still running id={session_id}; bash(id={session_id}) waits for it — don't sleep-poll")
         else:
@@ -1016,7 +1033,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "timeout": {
             "type": "integer",
             "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Seconds this call WAITS for the result. if < 1hr handle is returned and command continues running; if > 1hr the command is killed at the deadline. To kill a long-running command use action=kill or action=update with a new timeout. Pass longer timeouts(e.g. 21600) to wait and execute in one call for long-running work (builds, tests, installs).",
+            "description": "Seconds this call WAITS for the result. if < 1hr a handle is returned while the command keeps running -- or earlier if it stalls (no output/CPU/IO progress); read the returned message to tell 'still working' from 'stuck'. if > 1hr the command is killed at the deadline. To kill a long-running command use action=kill or action=update with a new timeout. Pass longer timeouts(e.g. 21600) to wait and execute in one call for long-running work (builds, tests, installs).",
         },
         "bg": {
             "type": "boolean",
