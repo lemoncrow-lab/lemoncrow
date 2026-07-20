@@ -17,6 +17,12 @@ set -a; . benchmarks/harbor/.env; set +a
 # version) and pass the model explicitly so harbor's agent_info carries it.
 export LEMONCROW_BENCH_COMMIT=$(git rev-parse --short HEAD)
 MODEL="anthropic/${LEMONCROW_BENCH_MODEL:-claude-opus-4-8}"
+# Recorded into config.agents[].kwargs.reasoning_effort so external tooling
+# (e.g. the TB-2.1 leaderboard's `lb filter`) can see it -- LemonCrowClaudeCodeHarborAgent
+# resolves the same value (this kwarg > LEMONCROW_BENCH_EFFORT env on the
+# CONTAINER side > "high") to build the actual `claude --effort` flag, so the
+# two never drift. See harbor-framework/terminal-bench-2-1#166.
+EFFORT="${LEMONCROW_BENCH_EFFORT:-high}"
 LOG=/tmp/tb21_driver.log
 MOUNTS='[{"type":"bind","source":"/home/pankaj/Projects/leanchain/lemoncrow","target":"/lemoncrow","read_only":true},{"type":"bind","source":"/tmp/avbuild/lemoncrow-bundle.tar.gz","target":"/lemoncrow-bundle.tar.gz","read_only":true}]'
 AIP=benchmarks.harbor.lemoncrow_agent:LemonCrowClaudeCodeHarborAgent
@@ -60,6 +66,7 @@ run_rep(){
     set -a; . benchmarks/harbor/.env; set +a
     uv run --no-sync harbor run -d terminal-bench/terminal-bench-2-1 \
       --agent "$AIP" --mounts "$MOUNTS" -m "$MODEL" \
+      --ak "reasoning_effort=$EFFORT" \
       -k 1 -n 4 -r 2 $extra \
       -o "$outdir" -y >>"$LOG" 2>&1
     jd=$(ls -dt "$outdir"/*/ 2>/dev/null | head -1)
