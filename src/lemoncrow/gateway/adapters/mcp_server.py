@@ -804,7 +804,6 @@ def _check_auto_update() -> None:
     import subprocess
 
     if os.environ.get("LEMONCROW_AUTO_UPDATE", "").strip().lower() not in ("1", "true", "yes", "on"):
-        _log.debug("auto-update is opt-in; set LEMONCROW_AUTO_UPDATE=1 to enable")
         return
 
     # Dev/source installs (`make dev` writes <root>/.dev_mode) must never
@@ -12259,17 +12258,31 @@ def serve() -> None:
             _lf_shutdown()
 
 
+# Rotate mcp.log at 10MB, keeping 5 backups (~60MB ceiling) so a long-lived
+# daemon's log never grows unbounded.
+_MCP_LOG_MAX_BYTES = 10 * 1024 * 1024
+_MCP_LOG_BACKUP_COUNT = 5
+
+
 def _setup_file_logging(root: str | Path) -> None:
-    """Configure the lemoncrow.mcp logger to write to a file.
+    """Configure the lemoncrow.mcp logger to write to a rotating file.
 
     This ensures logs survive process termination and can be inspected
-    via ``lc logs mcp``.
+    via ``lc logs mcp``. Rotates at ``_MCP_LOG_MAX_BYTES`` so a long-lived
+    daemon never accumulates an unbounded log.
     """
+    from logging.handlers import RotatingFileHandler
+
     log_dir = Path(root) / "mcp"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "mcp.log"
 
-    handler = logging.FileHandler(str(log_path), encoding="utf-8")
+    handler = RotatingFileHandler(
+        str(log_path),
+        maxBytes=_MCP_LOG_MAX_BYTES,
+        backupCount=_MCP_LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
     handler.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -12480,7 +12493,6 @@ def _warm_stdio_zoekt_webserver() -> None:
         ws = Path(_workspace_root())
         resolution = discover_zoekt_binary(ws)
         if not resolution.available:
-            _log.debug("zoekt pre-warm skipped: %s", resolution.reason)
             return
         server = get_zoekt_server(ws, resolution=resolution)
         # ensure_started_and_build() registers the binary handle and builds the

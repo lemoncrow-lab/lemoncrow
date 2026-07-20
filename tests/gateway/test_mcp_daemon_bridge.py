@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 
 from lemoncrow.gateway.adapters import mcp_bridge as mb
@@ -125,17 +124,18 @@ def test_live_sessions_touch_drop_ttl() -> None:
 
 def test_registration_roundtrip_perms_and_prune(tmp_path: Path) -> None:
     root = tmp_path
-    md._write_registration(root, "ws-x", port=12345, token="tok", workspace=str(tmp_path))
+    sock_path = str(md._daemon_socket_path(root, "ws-x"))
+    md._write_registration(root, "ws-x", socket_path=sock_path, token="tok", workspace=str(tmp_path))
     reg = md.read_daemon_registration(root, "ws-x")
     assert reg is not None
     assert reg["pid"] == os.getpid()
-    assert reg["port"] == 12345
+    assert reg["socket"] == sock_path
     assert reg["token"] == "tok"
     # bearer token file must be owner-only
     assert md.daemon_registration_path(root, "ws-x").stat().st_mode & 0o777 == 0o600
 
     dead = md.daemon_registration_path(root, "ws-dead")
-    dead.write_text(json.dumps({"pid": 2**31 - 1, "port": 1, "token": "t"}))
+    dead.write_text(json.dumps({"pid": 2**31 - 1, "socket": "/nonexistent.sock", "token": "t"}))
     assert md.read_daemon_registration(root, "ws-dead") is None  # dead pid -> absent
 
     assert md.prune_stale_daemons(root) >= 1
@@ -144,11 +144,11 @@ def test_registration_roundtrip_perms_and_prune(tmp_path: Path) -> None:
 
 
 def test_started_at_preserved_across_rewrites(tmp_path: Path) -> None:
-    md._write_registration(tmp_path, "ws", port=1, token="t", workspace=str(tmp_path))
+    md._write_registration(tmp_path, "ws", socket_path="/x.sock", token="t", workspace=str(tmp_path))
     first = md.read_daemon_registration(tmp_path, "ws")
     assert first is not None
     time.sleep(0.01)
-    md._write_registration(tmp_path, "ws", port=1, token="t", workspace=str(tmp_path))
+    md._write_registration(tmp_path, "ws", socket_path="/x.sock", token="t", workspace=str(tmp_path))
     second = md.read_daemon_registration(tmp_path, "ws")
     assert second is not None
     assert second["started_at"] == first["started_at"]  # heartbeat keeps origin
@@ -236,18 +236,18 @@ def test_request_session_context_overrides_resolvers() -> None:
 def test_daemon_handshake_auth_and_idempotent(repo_and_root: tuple[Path, Path]) -> None:
     work, root = repo_and_root
     reg = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)
-    base = f"http://127.0.0.1:{reg['port']}"
+    url = md._UDS_BASE_URL + "/mcp"
     auth = {"Authorization": f"Bearer {reg['token']}", "Content-Type": "application/json"}
+    client = md.daemon_client(reg, timeout=20.0)
 
     # token required
-    assert httpx.post(base + "/mcp", json=_TOOLS, timeout=10).status_code == 403
+    assert client.post(url, json=_TOOLS).status_code == 403
 
-    init = httpx.post(base + "/mcp", headers=auth, json=_INIT, timeout=20)
+    init = client.post(url, headers=auth, json=_INIT)
     assert init.json()["result"]["serverInfo"]["name"] == "lemoncrow"
-    tools = {
-        t["name"] for t in httpx.post(base + "/mcp", headers=auth, json=_TOOLS, timeout=20).json()["result"]["tools"]
-    }
+    tools = {t["name"] for t in client.post(url, headers=auth, json=_TOOLS).json()["result"]["tools"]}
     assert _CORE_TOOLS <= tools
+    client.close()
 
     # find-or-spawn is idempotent: same daemon, never a second one
     reg2 = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)

@@ -78,7 +78,7 @@ rm -rf /var/lib/apt/lists/*
 _LEMONCROW_INSTALL = r"""
 set -e
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-LEMONCROW_SKIP_MYPYC=1 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/lemoncrow[mcp,smart,parsers,rename]"
+LEMONCROW_ENABLE_MYPYC=0 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/lemoncrow[mcp,smart,parsers,rename]"
 
 # Pre-install the ast-grep binary so the codemod MCP tool works at runtime.
 # Download NOW (overlay build time) -- the mitmproxy that runs during the actual

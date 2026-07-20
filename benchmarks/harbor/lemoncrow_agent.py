@@ -748,6 +748,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                         "type": "stdio",
                         "command": "lemoncrow",
                         "args": ["mcp", "--host", "claude"],
+                        # One task per container = one session: the singleton daemon
+                        # adds a spawn + loopback handshake with zero sharing benefit,
+                        # so pin plain stdio here.
+                        "env": {"LEMONCROW_MCP_SINGLETON": "0"},
                         "alwaysLoad": True,
                     }
                 }
