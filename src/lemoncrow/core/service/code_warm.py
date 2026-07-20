@@ -27,7 +27,7 @@ from lemoncrow.core.foundation.paths import default_store_root, workspace_key
 
 logger = logging.getLogger(__name__)
 
-_POLL_SECONDS = 15.0
+_POLL_SECONDS = 60.0
 _DISABLED_VALUES = {"0", "false", "no", "off"}
 
 
