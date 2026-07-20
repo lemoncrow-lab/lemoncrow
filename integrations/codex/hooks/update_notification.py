@@ -17,13 +17,12 @@ def _lemoncrow_root() -> Path:
 
 
 def _session_state_path(cwd: str | None = None) -> Path:
-    # Canonical hashing lives in lemoncrow.core.foundation.paths.workspace_key --
+    # Canonical resolution lives in lemoncrow.core.foundation.paths --
     # import it rather than keeping a local copy in sync by hand.
-    from lemoncrow.core.foundation.paths import workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
     workspace = cwd or os.environ.get("CODEX_WORKSPACE_ROOT") or os.getcwd()
-    h = workspace_key(workspace)
-    return _lemoncrow_root() / "workspaces" / h / "session_state.json"
+    return resolve_workspace_store_dir(workspace_root=workspace) / "session_state.json"
 
 
 def _write_session_state(session_id: str, cwd: str | None = None, model: str = "") -> None:
@@ -67,7 +66,7 @@ def main() -> int:
             _dormant = cap_exhausted(_lemoncrow_root())
             reset_host_agents_for_dormancy("codex", cwd or os.getcwd(), dormant=_dormant)
             reset_lemoncrow_global_dormancy("codex", dormant=_dormant)
-        except Exception:  # noqa: BLE001 — best-effort; never break the hook
+        except Exception:
             pass
 
         # Check for update notification from daemon/MCP auto-update

@@ -15,24 +15,6 @@ def _lemoncrow_root() -> Path:
     return Path(os.environ.get("LEMONCROW_ROOT", "") or Path.home() / ".lemoncrow")
 
 
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
-
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
 def _session_savings_path(workspace: str) -> Path:
     """Resolve the per-session savings path, mirroring the MCP writer.
 
@@ -48,8 +30,7 @@ def _session_savings_path(workspace: str) -> Path:
 
     1. If GITHUB_COPILOT_SESSION_ID is set ->
        session_dir(root, "copilot", sid) / "savings.jsonl".
-    2. Else workspaces/<_workspace_key(LEMONCROW_WORKSPACE_ROOT or cwd)>/
-       session_savings.jsonl (human-readable key, matching paths.workspace_key).
+    2. Else <workspace>/.lemoncrow/workspace/session_savings.jsonl.
     """
     sid = os.environ.get("GITHUB_COPILOT_SESSION_ID", "").strip()
     if sid:
@@ -60,8 +41,7 @@ def _session_savings_path(workspace: str) -> Path:
         else:
             return session_dir(_lemoncrow_root(), "copilot", sid) / "savings.jsonl"
     workspace = str(Path(os.environ.get("LEMONCROW_WORKSPACE_ROOT") or workspace).resolve())
-    h = _workspace_key(workspace)
-    return _lemoncrow_root() / "workspaces" / h / "session_savings.jsonl"
+    return Path(workspace) / ".lemoncrow" / "workspace" / "session_savings.jsonl"
 
 
 def _write_session_state_bridge(workspace: str, session_id: str) -> None:
@@ -72,13 +52,13 @@ def _write_session_state_bridge(workspace: str, session_id: str) -> None:
     diverted to the unattributed quarantine ledger and the session recap
     always shows $0 saved (mcp_server._resolved_host_session falls back to
     _workspace_bridge_session_id, which reads this file). Mirrors the codex
-    hooks' _write_codex_session_state — same file, same workspace-hash scheme.
+    hooks' _write_codex_session_state -- same file, same project-local scheme.
     Local implementation (no lemoncrow import): this hook has no PYTHONPATH
-    guarantee, and _workspace_key above already matches paths.workspace_key.
+    guarantee.
     """
     if not session_id:
         return
-    state_path = _lemoncrow_root() / "workspaces" / _workspace_key(workspace) / "session_state.json"
+    state_path = Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
     try:
         state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
         if not isinstance(state, dict):

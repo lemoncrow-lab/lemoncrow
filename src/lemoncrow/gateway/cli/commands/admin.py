@@ -120,7 +120,7 @@ def _sync_dormant_agent_override(root: Path) -> None:
         from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
 
         dormant = cap_exhausted(root)
-    except Exception:  # noqa: BLE001 — can't resolve dormancy; nothing to sync
+    except Exception:
         return
 
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
@@ -143,7 +143,7 @@ def _sync_dormant_agent_override(root: Path) -> None:
         project_settings = Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()) / ".claude" / "settings.json"
         if project_settings.resolve() != global_settings.resolve():
             clear_dormant_agent_override(project_settings, dormant=dormant)
-    except Exception:  # noqa: BLE001 — best-effort; the next SessionStart still covers it
+    except Exception:
         pass
 
 
@@ -593,10 +593,9 @@ def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
 
 def _code_index_db_path(repo_root: Path) -> Path:
     """Return the default code index database path for a repo."""
-    from lemoncrow.core.foundation.paths import default_store_root, workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    workspace_hash = workspace_key(repo_root.resolve())
-    return default_store_root() / "workspaces" / workspace_hash / "code_context.sqlite"
+    return resolve_workspace_store_dir(workspace_root=repo_root) / "code_context.sqlite"
 
 
 def _index_stats_pretty(repo_root: Path) -> list[str]:
@@ -896,7 +895,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
         store_info["healthy"] = (
             bool(health.get("ok", health.get("healthy", True))) if isinstance(health, dict) else True
         )
-    except Exception as exc:  # noqa: BLE001 — diagnostics must never crash
+    except Exception as exc:
         store_info["healthy"] = False
         store_info["hint"] = f"store health check failed: {exc}"
     add("Core", "store", store_info)
@@ -929,7 +928,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": zr.reason if not zr.available else None,
             },
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         add("Code intelligence", "zoekt", {"ok": True, "optional": True, "installed": False})
 
     # ── Services ────────────────────────────────────────────────────────
@@ -951,7 +950,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": None if sc["running"] else "not running — start: lc servicectl start",
             },
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         add("Services", "servicectl", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
 
     service_url = None
@@ -987,7 +986,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": None if frontend_url else "not running — start: lc stack start",
             },
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         add("Services", "stack_backend", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
 
     api_info: dict[str, Any] = {"ok": True, "optional": True, "installed": False}
@@ -998,7 +997,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
             with _urllib_request.urlopen(f"{service_url.rstrip('/')}/health", timeout=1.5) as resp:
                 api_info["installed"] = resp.status == 200
                 api_info["url"] = f"{service_url.rstrip('/')}/health"
-        except Exception:  # noqa: BLE001
+        except Exception:
             api_info["hint"] = f"no response from {service_url}/health"
     add("Services", "backend_api", api_info)
 
@@ -1027,7 +1026,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": None if servers else "no active servers — full list: lc mcp list",
             },
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         add("MCP", "mcp_servers", {"ok": True, "optional": True, "installed": False, "count": 0})
 
     # ── Integrations ────────────────────────────────────────────────────
@@ -1038,7 +1037,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
 
         with _urllib_request.urlopen(f"{letta_url}/v1/health", timeout=1.5) as resp:
             letta_info["installed"] = resp.status == 200
-    except Exception:  # noqa: BLE001
+    except Exception:
         letta_info["hint"] = "unreachable — start: lc letta up"
     add("Integrations", "letta", letta_info)
 
@@ -1057,7 +1056,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
                 "hint": None if om_dir.exists() else "not set up — start: lc openmemory up",
             },
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         add("Integrations", "openmemory", {"ok": True, "optional": True, "installed": False})
 
     langfuse_on = os.environ.get("LEMONCROW_LANGFUSE_ENABLED", "").lower() in ("1", "true", "yes")
@@ -1370,7 +1369,7 @@ def _load_oauth_account() -> tuple[str | None, dict[str, object] | None]:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 cached = _json.loads(resp.read())
             save_auth_user({**cached, "_base": _base_url})
-        except Exception:  # noqa: BLE001
+        except Exception:
             cached = load_auth_user()  # fall back to disk if offline
     return auth_token, cached
 
@@ -1421,7 +1420,7 @@ def _auth_status(root: Path, as_json: bool) -> None:
             _plugin_auth_path = _auth_state_path(root)
             if _plugin_auth_path.exists():
                 _plugin_auth = _json2.loads(_plugin_auth_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         if isinstance(_plugin_auth, dict) and _plugin_auth.get("authenticated") and _plugin_auth.get("email"):

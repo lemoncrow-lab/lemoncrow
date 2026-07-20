@@ -247,10 +247,9 @@ def zoekt_reset(ctx: click.Context, yes: bool) -> None:
     container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if container_ids:
         subprocess.run(["docker", "rm", "-f", *container_ids], check=False)
-    from lemoncrow.core.foundation.paths import default_store_root, workspace_key
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-    workspace_hash = workspace_key(repo_root.resolve())
-    runtime_root = default_store_root() / "workspaces" / workspace_hash / "zoekt"
+    runtime_root = resolve_workspace_store_dir(workspace_root=repo_root) / "zoekt"
     shutil.rmtree(runtime_root, ignore_errors=True)
     click.echo("Zoekt state removed.")
 
@@ -462,7 +461,7 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
                 server = get_zoekt_server(repo_root, resolution=resolution)
                 server.ensure_started_and_build()
                 progress.update(task_id, description="[green]✓[/green]  Zoekt trigram index ready")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 progress.update(task_id, description=f"[yellow]⚠[/yellow]  Zoekt: {exc}")
     except Exception:
         logging.exception("Zoekt prewarm failed")
@@ -655,7 +654,7 @@ def code_prune_cmd(store_root: str | None, max_age_days: int | None, dry_run: bo
             return "no session_state.json (orphaned index)"
         try:
             data = json.loads(ss.read_text("utf-8"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             return "unreadable session_state.json"
         transcript_path = str(data.get("transcript_path", ""))
         lemoncrow_root = str(data.get("lemoncrow_root", ""))
@@ -1039,9 +1038,9 @@ def code_train_cmd(
     if output_dir:
         out = Path(output_dir).resolve()
     else:
-        from lemoncrow.core.foundation.paths import default_store_root, workspace_key
+        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-        out = default_store_root() / "embeddings" / workspace_key(repo)
+        out = resolve_workspace_store_dir(workspace_root=repo) / "embeddings"
     work = out / "work"
     pairs_json = work / "pairs.json"
     data_dir = work / "data"
