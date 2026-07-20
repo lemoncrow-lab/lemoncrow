@@ -24,6 +24,7 @@ path.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -31,6 +32,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -80,6 +82,22 @@ def _daemon_log_path(root: Path, ws_hash: str) -> Path:
     return _daemon_dir(root) / f"{ws_hash}.log"
 
 
+def _daemon_socket_path(root: Path, ws_hash: str) -> Path:
+    """Absolute path of the daemon's Unix-domain socket (loopback IPC, no port).
+
+    AF_UNIX paths are capped at ~108 bytes, and ``<root>/mcp_daemons/<ws_hash>``
+    can blow past that (deep store roots + up to 120-char workspace slugs). Anchor
+    the socket in a short per-user runtime dir keyed by a digest of the identity
+    instead. The registration file records the absolute path, so discovery and
+    cleanup read it back and never recompute (which would drift if XDG_RUNTIME_DIR
+    differed between the daemon and a later pruner).
+    """
+    digest = hashlib.sha256(ws_hash.encode("utf-8")).hexdigest()[:16]
+    base = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return Path(base) / f"lemoncrow-mcp-{uid}" / f"{digest}.sock"
+
+
 # ── liveness helpers ─────────────────────────────────────────────────────────
 
 
@@ -111,27 +129,43 @@ def read_daemon_registration(root: Path, ws_hash: str) -> dict[str, Any] | None:
     pid = data.get("pid")
     if not isinstance(pid, int) or not _pid_alive(pid):
         return None
-    port = data.get("port")
-    if not isinstance(port, int) or port <= 0:
+    sock = data.get("socket")
+    if not isinstance(sock, str) or not sock:
         return None
     return data
 
 
-def _base_url(reg: dict[str, Any]) -> str:
-    return f"http://127.0.0.1:{int(reg['port'])}"
+_UDS_BASE_URL = "http://lemoncrow-daemon"
+
+
+def daemon_client(reg: dict[str, Any], *, timeout: Any = 2.0) -> Any:
+    """An ``httpx.Client`` pinned to the daemon's Unix-domain socket.
+
+    A UDS transport bypasses HTTP proxy env entirely (``HTTP_PROXY``/``ALL_PROXY``
+    apply only to real host:port URLs), so a proxied host -- e.g. a benchmark
+    container behind mitmproxy -- can never hijack this loopback IPC. ``trust_env``
+    is off for the same reason. The URL host in requests is a placeholder; the
+    transport routes to the socket regardless.
+    """
+    import httpx
+
+    return httpx.Client(
+        transport=httpx.HTTPTransport(uds=str(reg["socket"])),
+        trust_env=False,
+        timeout=timeout,
+    )
 
 
 def _probe_healthy(reg: dict[str, Any], *, timeout: float = 2.0) -> bool:
     """True if the daemon answers its health route.
 
-    Liveness only (the registration's pid + a listenable port); token
+    Liveness only (the registration's pid + a listenable socket); token
     correctness is guaranteed because the bridge reads the token from the same
     file the daemon wrote, so the health route stays unauthenticated + cheap.
     """
-    import httpx
-
     try:
-        resp = httpx.get(_base_url(reg) + _HEALTHZ_PATH, timeout=timeout)
+        with daemon_client(reg, timeout=timeout) as client:
+            resp = client.get(_UDS_BASE_URL + _HEALTHZ_PATH)
     except Exception:
         return False
     return resp.status_code == 200
@@ -286,11 +320,14 @@ class _LiveSessions:
         self._seen: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def touch(self, bridge_id: str) -> None:
+    def touch(self, bridge_id: str) -> bool:
+        """Record a liveness ping; return True the first time *bridge_id* is seen."""
         if not bridge_id:
-            return
+            return False
         with self._lock:
+            is_new = bridge_id not in self._seen
             self._seen[bridge_id] = time.monotonic()
+            return is_new
 
     def drop(self, bridge_id: str) -> None:
         if not bridge_id:
@@ -333,12 +370,22 @@ def run_daemon(
 
     mcp_server._setup_file_logging(str(root))
 
-    # Bind the loopback socket up front so the port is known before we publish
-    # the registration; hand it to uvicorn unlistened (asyncio calls listen()).
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    port = int(sock.getsockname()[1])
+    # Listen on a per-workspace Unix domain socket instead of a TCP port: same-host
+    # bridge<->daemon IPC that no HTTP proxy can hijack (HTTP_PROXY et al. apply
+    # only to host:port URLs), needs no ephemeral port, and is guarded by 0600 file
+    # perms. Bind up front (unlistened; asyncio calls listen()) after clearing any
+    # stale socket a crashed predecessor left behind.
+    _daemon_dir(root).mkdir(parents=True, exist_ok=True)
+    sock_path = _daemon_socket_path(root, ws_hash)
+    sock_path.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(sock_path.parent, 0o700)  # per-user socket dir
+    with contextlib.suppress(FileNotFoundError):
+        sock_path.unlink()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(sock_path))
+    with contextlib.suppress(OSError):
+        os.chmod(sock_path, 0o600)
     token = secrets.token_urlsafe(32)
 
     activity = _ActivityTracker()
@@ -367,7 +414,8 @@ def run_daemon(
 
     @app.post(_SESSION_PING_PATH, dependencies=[Depends(_verify_token)])
     async def _session_ping(x_lemoncrow_bridge: str = Header(default="")) -> dict[str, Any]:
-        live.touch(x_lemoncrow_bridge)
+        if live.touch(x_lemoncrow_bridge):
+            _log.info("session attached: bridge=%s", x_lemoncrow_bridge[:8] or "?")
         return {"ok": True}
 
     @app.post(_SESSION_CLOSE_PATH, dependencies=[Depends(_verify_token)])
@@ -377,6 +425,7 @@ def run_daemon(
         # (explicit bg=true jobs are preserved, matching stdio shutdown).
         live.drop(x_lemoncrow_bridge)
         if x_lemoncrow_bridge:
+            _log.info("session detached: bridge=%s", x_lemoncrow_bridge[:8])
             with contextlib.suppress(Exception):
                 from lemoncrow.pro.capabilities.tool_supervision.bash_exec import cleanup_commands_for_owner
 
@@ -409,23 +458,32 @@ def run_daemon(
     )
     server = uvicorn.Server(config)
 
-    _write_registration(root, ws_hash, port=port, token=token, workspace=workspace)
+    _write_registration(root, ws_hash, socket_path=str(sock_path), token=token, workspace=workspace)
     _warm_daemon(mcp_server)
     stop = threading.Event()
-    _start_heartbeat(root, ws_hash, port=port, token=token, workspace=workspace, stop=stop)
+    _start_heartbeat(root, ws_hash, socket_path=str(sock_path), token=token, workspace=workspace, stop=stop)
     _start_idle_reaper(server, live, idle_grace_seconds=idle_grace_seconds, stop=stop)
 
+    _log.info("MCP daemon started: pid=%d workspace=%s socket=%s", os.getpid(), workspace, sock_path)
     exit_code = 0
     try:
         server.run(sockets=[sock])
-    except SystemExit as exc:  # signal-driven shutdown (SIGTERM/SIGHUP)
-        exit_code = exc.code if isinstance(exc.code, int) else 0
+    except (KeyboardInterrupt, SystemExit) as exc:
+        # Graceful signal-driven shutdown, not a crash. On SIGINT/SIGTERM uvicorn
+        # stops serving, then its capture_signals re-raises the signal on exit;
+        # the CLI's own handler (app._handler) turns that into KeyboardInterrupt.
+        # SystemExit covers a direct sys.exit(). Neither warrants a crash log.
+        exit_code = exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 0
+        _log.info("MCP daemon shutting down: pid=%d signal-driven exit_code=%d", os.getpid(), exit_code)
     except BaseException:
         _log.exception("MCP daemon crashed")
         exit_code = 1
     finally:
         stop.set()
         _shutdown_cleanup(root, ws_hash, mcp_server)
+        with contextlib.suppress(OSError):
+            sock_path.unlink()
+    _log.info("MCP daemon stopped: pid=%d exit_code=%d", os.getpid(), exit_code)
     # uvicorn / anyio / OTel can leave non-daemon threads that would keep the
     # interpreter resident after an idle self-reap, so the process must never
     # rely on a clean interpreter shutdown. Force-terminate now that cleanup has
@@ -499,14 +557,14 @@ def _start_heartbeat(
     root: Path,
     ws_hash: str,
     *,
-    port: int,
+    socket_path: str,
     token: str,
     workspace: str,
     stop: threading.Event,
 ) -> None:
     def _loop() -> None:
         while not stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
-            _write_registration(root, ws_hash, port=port, token=token, workspace=workspace)
+            _write_registration(root, ws_hash, socket_path=socket_path, token=token, workspace=workspace)
 
     threading.Thread(target=_loop, daemon=True, name="mcp-daemon-heartbeat").start()
 
@@ -518,7 +576,7 @@ def _write_registration(
     root: Path,
     ws_hash: str,
     *,
-    port: int,
+    socket_path: str,
     token: str,
     workspace: str,
 ) -> None:
@@ -527,7 +585,7 @@ def _write_registration(
     path = daemon_registration_path(root, ws_hash)
     payload = {
         "pid": os.getpid(),
-        "port": port,
+        "socket": socket_path,
         "token": token,
         "workspace": workspace,
         "ws_hash": ws_hash,
@@ -602,9 +660,13 @@ def prune_stale_daemons(root: Path | None = None) -> int:
             data = None
         pid = data.get("pid") if isinstance(data, dict) else None
         if not isinstance(pid, int) or not _pid_alive(pid):
+            sock = data.get("socket") if isinstance(data, dict) else None
             with contextlib.suppress(OSError):
                 entry.unlink()
                 removed += 1
+            if isinstance(sock, str) and sock:
+                with contextlib.suppress(OSError):
+                    Path(sock).unlink()
     return removed
 
 

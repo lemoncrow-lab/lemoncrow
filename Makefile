@@ -38,37 +38,42 @@ release/build: build ## Alias for build release jobs
 mirror: ## Incremental mirror bench → public repo (history-preserving): make mirror [f=1]
 	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror $(FORCE_ARG)
 
-release: ## Bump version, commit, push, mirror, tag public repo: make release tag=v0.4.X [f=1]
+release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP_MIRROR=1]
 	@set -e; \
-	 TAG=$${tag:-}; \
-	 [ -n "$$TAG" ] || { echo "Usage: make release tag=vX.Y.Z"; exit 1; }; \
-	 FORCE=$${f:-0}; \
-	 VER=$${TAG#v}; \
-	 sed -i.bak "s/^version = .*/version = \"$$VER\"/" pyproject.toml && rm -f pyproject.toml.bak; \
-	 echo "Bumped pyproject.toml to $$VER"; \
-	 uv lock; \
-	 git add pyproject.toml uv.lock; \
-	 git commit --no-verify -m "chore: bump to $$TAG" || echo "  → nothing new to commit, continuing..."; \
-	 git push --no-verify || echo "  → nothing to push, continuing..."; \
-	 if [ "$$FORCE" = "1" ]; then \
-	   git tag -d $$TAG 2>/dev/null || true; \
-	   git push --no-verify --delete origin $$TAG 2>/dev/null || true; \
-	 fi; \
-	 git tag $$TAG; \
-	 PUSH_FLAG=; \
-	 [ "$$FORCE" = "1" ] && PUSH_FLAG=--force; \
-	 git push --no-verify $$PUSH_FLAG origin $$TAG; \
-	 if [ "$$(uname -s)" = "Darwin" ] && command -v gh >/dev/null 2>&1; then \
-	   gh auth setup-git >/dev/null 2>&1 || true; \
-	 fi; \
-	 echo "Mirroring to public repo..."; \
-	 LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
-	 PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
-	 git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
-	 echo "✓ Released $$TAG (dev + public)"
+ TAG=$${tag:-}; \
+ [ -n "$$TAG" ] || { echo "Usage: make release tag=vX.Y.Z"; exit 1; }; \
+ FORCE=$${f:-0}; \
+ SKIP_MIRROR=$${SKIP_MIRROR:-0}; \
+ VER=$${TAG#v}; \
+ sed -i.bak "s/^version = .*/version = \"$$VER\"/" pyproject.toml && rm -f pyproject.toml.bak; \
+ echo "Bumped pyproject.toml to $$VER"; \
+ uv lock; \
+ git add pyproject.toml uv.lock; \
+ git commit --no-verify -m "chore: bump to $$TAG" || echo "  → nothing new to commit, continuing..."; \
+ git push --no-verify || echo "  → nothing to push, continuing..."; \
+ if [ "$$FORCE" = "1" ]; then \
+   git tag -d $$TAG 2>/dev/null || true; \
+   git push --no-verify --delete origin $$TAG 2>/dev/null || true; \
+ fi; \
+ git tag $$TAG; \
+ PUSH_FLAG=; \
+ [ "$$FORCE" = "1" ] && PUSH_FLAG=--force; \
+ git push --no-verify $$PUSH_FLAG origin $$TAG; \
+ if [ "$$SKIP_MIRROR" = "1" ]; then \
+   echo "✓ Released $$TAG (private only, mirror skipped)"; \
+   exit 0; \
+ fi; \
+ if [ "$$(uname -s)" = "Darwin" ] && command -v gh >/dev/null 2>&1; then \
+   gh auth setup-git >/dev/null 2>&1 || true; \
+ fi; \
+ echo "Mirroring to public repo..."; \
+ LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
+ PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
+ git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
+ echo "✓ Released $$TAG (dev + public)"
 
 prod: ## Build and install from local production build (includes mypyc compilation; expects ~2-3 min build time)
-	bash scripts/build.sh
+	LEMONCROW_ENABLE_MYPYC=1 bash scripts/build.sh
 	# Run the local installer: copies bundle/ → ~/.local/ and sets up host integrations,
 	# exactly mirroring the remote path (download → extract → bundle.sh).
 	bash scripts/install.sh --local

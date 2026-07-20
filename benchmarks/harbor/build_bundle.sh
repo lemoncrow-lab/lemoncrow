@@ -39,10 +39,10 @@ uv python install 3.13
 echo "==> creating venv"
 uv venv --python 3.13 /opt/lemoncrow-venv
 
-# Same skip as the incremental refresh: the runtime bundle ships pure-Python
-# lemoncrow (no mypyc .so); skipping avoids needing a C toolchain here and
-# avoids the hook's mypy run writing .mypy_cache into the (read-only) source.
-export LEMONCROW_SKIP_MYPYC=1
+# Same as the incremental refresh: the runtime bundle ships pure-Python lemoncrow
+# (no mypyc .so). ENABLE_MYPYC=0 avoids needing a C toolchain here and avoids the
+# hook's mypy run writing .mypy_cache into the (read-only) source.
+export LEMONCROW_ENABLE_MYPYC=0
 
 echo "==> copying source for install"
 mkdir -p /tmp/src
