@@ -581,6 +581,14 @@ def benchmark_harbor_cmd(
         cmd += ["--model", model]
     if baseline:
         cmd += ["--ak", "bench_mode=off"]
+    if agent_arm == "lemoncrow-claude-code":
+        # Recorded into config.agents[].kwargs.reasoning_effort -- the only
+        # place third-party tooling (e.g. the TB-2.1 leaderboard's `lb filter`)
+        # can see this from. LemonCrowClaudeCodeHarborAgent.CLI_FLAGS resolves
+        # the same value (kwarg > this env var > "high") to build the actual
+        # `claude --effort` flag, so the two never drift apart. See
+        # harbor-framework/terminal-bench-2-1#166.
+        cmd += ["--ak", f"reasoning_effort={_read_env('LEMONCROW_BENCH_EFFORT') or 'high'}"]
 
     # ── Env: PYTHONPATH + token pool + slots ───────────────────────────────
     existing_pythonpath = _os.environ.get("PYTHONPATH", "")
