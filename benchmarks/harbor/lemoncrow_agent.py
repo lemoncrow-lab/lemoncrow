@@ -583,10 +583,18 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
 
     Run with::
 
-        harbor run -d terminal-bench/terminal-bench-2-1 \\
-            --agent benchmarks.harbor.lemoncrow_agent:LemonCrowClaudeCodeHarborAgent \\
-            --ae CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \\
+        harbor run -d terminal-bench/terminal-bench-2-1 \
+            --agent benchmarks.harbor.lemoncrow_agent:LemonCrowClaudeCodeHarborAgent \
+            --ae CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
+            --ak reasoning_effort=high \
             -k 1 -l 5 -o jobs/tb21-pilot
+
+    The ``--ak reasoning_effort=<value>`` above isn't optional decoration: it's
+    the only way reasoning_effort round-trips into config.agents[].kwargs,
+    which is the only place external tooling (e.g. the TB-2.1 leaderboard's
+    ``lb filter``) can see it from. Omit it and it silently reads "none" there
+    even though ``claude --effort <default>`` still actually runs (CLI_FLAGS'
+    env_fallback/default below cover the *behavior*, just not that visibility).
     """
 
     # Container path. harbor creates /logs/agent (chmod 0o777) and collects it to
