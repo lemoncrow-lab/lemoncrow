@@ -21,13 +21,14 @@ import json
 import os
 import shlex
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from harbor.agents.installed.base import (
     ApiError,
     ApiRateLimitError,
     ApiUsageLimitError,
     BaseInstalledAgent,
+    CliFlag,
     NonZeroAgentExitCodeError,
     UnknownApiError,
     with_prompt_template,
@@ -105,7 +106,14 @@ def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
 
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
 # Terminal-Bench 2.1 runs use "high" effort (Opus 4.8 System Card, sec 8.3);
-# overridable via LEMONCROW_BENCH_EFFORT.
+# overridable via LEMONCROW_BENCH_EFFORT. Kept as a fallback default for
+# LemonCrowClaudeCodeHarborAgent.CLI_FLAGS below -- the *authoritative* value
+# now flows through harbor's own CLI_FLAGS/kwargs machinery (self._resolved_flags),
+# so it round-trips into config.agents[].kwargs.reasoning_effort instead of
+# being invisible to anything reading job config (e.g. the TB-2.1 leaderboard's
+# `lb filter`, which derives reasoning_effort ONLY from that field and silently
+# recorded "none" for every run before this fix -- see
+# harbor-framework/terminal-bench-2-1#166).
 _DEFAULT_EFFORT = os.environ.get("LEMONCROW_BENCH_EFFORT", "high")
 # Claude Code CLI caps a single turn's output at 32,000 tokens by default,
 # below several accounts' actual per-request model cap (e.g. 64,000) -- a task
@@ -449,9 +457,12 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         # validation requirement).
         self._model = model or self._parsed_model_name or _DEFAULT_MODEL
 
-    @staticmethod
-    def name() -> str:
-        return "lemoncrow"
+    @classmethod
+    def name(cls) -> str:
+        # See LemonCrowClaudeCodeHarborAgent.name() -- must equal the literal
+        # --agent import path so it matches config.agents[].name (job config),
+        # not a separate pretty label.
+        return cls.import_path()
 
     def version(self) -> str | None:
         return _LEMONCROW_VERSION
@@ -592,9 +603,36 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
     # CLAUDE_CODE_OAUTH_TOKEN env var.
     _oauth_token: str = ""
 
-    @staticmethod
-    def name() -> str:
-        return "lemoncrow-claude-code"
+    # Declaring this (rather than reading _DEFAULT_EFFORT directly in run())
+    # gets reasoning_effort resolved through harbor's own kwarg > env_fallback
+    # > default chain, AND -- when the caller also passes `--ak
+    # reasoning_effort=<value>` on the `harbor run` invocation (see
+    # benchmark.py's benchmark_harbor_cmd) -- recorded verbatim into
+    # config.agents[].kwargs.reasoning_effort. That field is the only place
+    # third-party tooling (e.g. the TB-2.1 leaderboard's `lb filter`) can see
+    # our reasoning effort from; before this it was invisible there even
+    # though `claude --effort high` was really running every time.
+    CLI_FLAGS: ClassVar[list[CliFlag]] = [
+        CliFlag(
+            "reasoning_effort",
+            cli="--effort",
+            type="enum",
+            choices=["low", "medium", "high", "xhigh", "max"],
+            env_fallback="LEMONCROW_BENCH_EFFORT",
+            default="high",
+        ),
+    ]
+
+    @classmethod
+    def name(cls) -> str:
+        # Must equal the exact `--agent` value harbor was invoked with (what
+        # lands in config.agents[].name) -- NOT a separate pretty label --
+        # because several external tools (the TB-2.1 leaderboard's static
+        # analysis chief among them) require the two to match verbatim. Our
+        # own display name ("Claude Code + LemonCrow") lives in the leaderboard
+        # repo's display-names.json, keyed off this raw import path; it
+        # doesn't need to be pretty here. See harbor-framework/terminal-bench-2-1#166.
+        return cls.import_path()
 
     def version(self) -> str | None:
         # The bundle installs lemoncrow from the mounted working tree; report the
@@ -790,7 +828,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         escaped = shlex.quote(task_text)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
         # Reasoning effort -- Anthropic's official Opus 4.8 TB-2.1 config is "high".
-        effort_flag = f"--effort {shlex.quote(_DEFAULT_EFFORT)}" if _DEFAULT_EFFORT else ""
+        # Resolved via CLI_FLAGS (kwarg `--ak reasoning_effort=...` > env
+        # LEMONCROW_BENCH_EFFORT > default "high"), not the bare env lookup --
+        # see CLI_FLAGS' docstring comment above for why that round-trip matters.
+        effort = self._resolved_flags.get("reasoning_effort") or _DEFAULT_EFFORT
+        effort_flag = f"--effort {shlex.quote(effort)}" if effort else ""
         cache_reuse_flag = (
             "--exclude-dynamic-system-prompt-sections " if _EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS else ""
         )
@@ -990,9 +1032,12 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
 class LemonCrowBedrockHarborAgent(LemonCrowHarborAgent):
     """LemonCrow via AWS Bedrock credentials."""
 
-    @staticmethod
-    def name() -> str:
-        return "lemoncrow-bedrock"
+    @classmethod
+    def name(cls) -> str:
+        # See LemonCrowClaudeCodeHarborAgent.name() -- must equal the literal
+        # --agent import path so it matches config.agents[].name (job config),
+        # not a separate pretty label.
+        return cls.import_path()
 
     @property
     def _agent_env(self) -> dict[str, str]:
