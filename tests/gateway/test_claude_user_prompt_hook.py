@@ -37,9 +37,7 @@ def test_user_prompt_hook_persists_last_user_prompt(tmp_path: Path) -> None:
         env=env,
     )
 
-    from lemoncrow.core.foundation.paths import workspace_key
-
-    session_state = lemoncrow_root / "workspaces" / workspace_key(workspace) / "session_state.json"
+    session_state = workspace.resolve() / ".lemoncrow" / "workspace" / "session_state.json"
     data = json.loads(session_state.read_text(encoding="utf-8"))
     assert data["last_user_prompt"] == "fix the auth flow"
 

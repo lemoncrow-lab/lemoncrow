@@ -215,10 +215,12 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: StoreBundle, monkeypa
     assert "web_fetch" in names
 
 
-def test_workflow_current_and_snapshot_actions(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workflow_current_and_snapshot_actions(
+    store: StoreBundle, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     monkeypatch.setenv("LEMONCROW_ROOT", str(store.knowledge.root))
-    workspace = store.knowledge.root / "workspace"
+    workspace = tmp_path / "proj_workspace"
     workspace.mkdir()
     monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
     state_path = resolve_session_state_path(workspace)

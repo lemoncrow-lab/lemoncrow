@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.paths import default_store_root, is_recognized_workspace, workspace_key
+from lemoncrow.core.foundation.paths import is_recognized_workspace, resolve_workspace_store_dir
 
 _MAX_SEARCH_RESULTS = 40
 _MAX_GRAPH_NODES = 160
@@ -199,7 +199,7 @@ def list_projects() -> list[dict[str, Any]]:
         if root in seen:
             continue
         seen.add(root)
-        db_path = default_store_root() / "workspaces" / workspace_key(root) / "code_context.sqlite"
+        db_path = resolve_workspace_store_dir(workspace_root=root) / "code_context.sqlite"
         projects.append(
             {
                 "root": str(root),

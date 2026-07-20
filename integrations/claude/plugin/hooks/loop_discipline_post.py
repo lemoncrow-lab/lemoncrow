@@ -24,29 +24,6 @@ from pathlib import Path
 from typing import Any
 
 
-def _root() -> Path:
-    raw = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
-    return Path(raw) if raw else Path.home() / ".lemoncrow"
-
-
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
-
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
 def _agent_key(payload: dict[str, Any]) -> str:
     """Per-agent state key so a read-only sub-agent never inherits another
     agent's edits, and its edits never falsely block the parent.
@@ -63,8 +40,7 @@ def _agent_key(payload: dict[str, Any]) -> str:
 def _state_dir() -> Path:
     # Key by workspace so concurrent/sequential tasks never share state.
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    h = _workspace_key(workspace)
-    return _root() / "workspaces" / h / "loop_discipline"
+    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "loop_discipline"
 
 
 def _state_path(agent_key: str) -> Path:
@@ -141,7 +117,7 @@ def _edit_targets(ti: dict[str, Any]) -> list[str]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
+    except Exception:
         return 0
     name = str(payload.get("tool_name") or "")
     ti = payload.get("tool_input") or {}
@@ -156,7 +132,7 @@ def main() -> int:
         state["edited_paths"] = sorted(edited)[-80:]
         _save(agent_key, state)
         _prune()
-    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
+    except Exception:
         pass
     return 0
 

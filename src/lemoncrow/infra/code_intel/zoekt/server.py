@@ -20,8 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from lemoncrow.core.foundation.paths import default_store_root
-
 from .binary import ZoektBinaryResolution, discover_zoekt_binary
 
 _BRIDGE_SENTINEL = "__LEMONCROW_ZOEKT_END__"
@@ -124,10 +122,9 @@ class ZoektServer:
 
     @property
     def runtime_root(self) -> Path:
-        from lemoncrow.core.foundation.paths import workspace_key
+        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-        workspace_hash = workspace_key(self.repo_root)
-        return default_store_root() / "workspaces" / workspace_hash / "zoekt"
+        return resolve_workspace_store_dir(workspace_root=self.repo_root) / "zoekt"
 
     @property
     def index_root(self) -> Path:
@@ -499,7 +496,7 @@ class ZoektServer:
             return {"Result": {"Files": []}}
         try:
             return self._run_webserver_search(url, payload)
-        except Exception:  # noqa: BLE001 -- HTTP/parse error: drop this query's zoekt results
+        except Exception:
             # A 4xx (e.g. a malformed-regexp query the API rejects) leaves a
             # perfectly healthy server up, so only tear it down when the
             # process has actually died; otherwise keep serving later queries.
@@ -544,7 +541,7 @@ class ZoektServer:
                 self._stop_webserver()
                 try:
                     url = self._spawn_webserver_process()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logging.debug("zoekt webserver spawn failed; using CLI fallback", exc_info=True)
                     self._stop_webserver()
                     self._webserver_failed = True
