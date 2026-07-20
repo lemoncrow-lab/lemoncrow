@@ -1,0 +1,187 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-15T02:30:45.709Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 655ms","timestamp":"2026-07-15T02:30:46.362Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-15T02:30:46.363Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:30:49.474Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-15T02:30:51.838Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:30:57.983Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 10ms","timestamp":"2026-07-15T02:30:57.993Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:06.463Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 70ms","timestamp":"2026-07-15T02:31:06.533Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:09.518Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 14ms","timestamp":"2026-07-15T02:31:09.532Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:12.172Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 12ms","timestamp":"2026-07-15T02:31:12.184Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:14.430Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 17s","timestamp":"2026-07-15T02:31:32.253Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:35.937Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1s","timestamp":"2026-07-15T02:31:37.457Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:41.524Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 402ms","timestamp":"2026-07-15T02:31:41.926Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:31:56.261Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 24ms","timestamp":"2026-07-15T02:31:56.285Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:03.797Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 13ms","timestamp":"2026-07-15T02:32:03.811Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:15.172Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 357ms","timestamp":"2026-07-15T02:32:15.529Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:21.201Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 275ms","timestamp":"2026-07-15T02:32:21.476Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:37.253Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 322ms","timestamp":"2026-07-15T02:32:37.575Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:46.207Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 318ms","timestamp":"2026-07-15T02:32:46.525Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:50.099Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 275ms","timestamp":"2026-07-15T02:32:50.374Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:53.210Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 366ms","timestamp":"2026-07-15T02:32:53.576Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:32:58.830Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 261ms","timestamp":"2026-07-15T02:32:59.091Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:33:15.385Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 340ms","timestamp":"2026-07-15T02:33:15.726Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:33:45.769Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 407ms","timestamp":"2026-07-15T02:33:46.176Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:34:13.599Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 276ms","timestamp":"2026-07-15T02:34:13.876Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:34:59.356Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 389ms","timestamp":"2026-07-15T02:34:59.745Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:35:57.486Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 390ms","timestamp":"2026-07-15T02:35:57.876Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:36:27.623Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 272ms","timestamp":"2026-07-15T02:36:27.895Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:37:15.442Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 593ms","timestamp":"2026-07-15T02:37:16.035Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:37:54.935Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1s","timestamp":"2026-07-15T02:37:56.010Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:38:05.898Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-15T02:38:08.228Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:38:17.991Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 602ms","timestamp":"2026-07-15T02:38:18.594Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:38:37.990Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-15T02:38:40.301Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:38:55.617Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 409ms","timestamp":"2026-07-15T02:38:56.026Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:39:25.774Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-15T02:39:28.098Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:39:35.096Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 398ms","timestamp":"2026-07-15T02:39:35.494Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:39:47.413Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 363ms","timestamp":"2026-07-15T02:39:47.776Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:40:28.356Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:40:58.365Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:41:28.383Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:41:32.454Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:42:02.454Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 30s","timestamp":"2026-07-15T02:42:02.515Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:42:06.766Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2ms","timestamp":"2026-07-15T02:42:06.768Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:42:09.180Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:42:39.182Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (60s elapsed)","timestamp":"2026-07-15T02:43:09.240Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:43:09.242Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:43:12.060Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 4ms","timestamp":"2026-07-15T02:43:12.064Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:43:17.359Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:43:47.359Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (60s elapsed)","timestamp":"2026-07-15T02:44:17.359Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:44:17.380Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:44:28.177Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 10ms","timestamp":"2026-07-15T02:44:28.187Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:44:37.670Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:45:07.671Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (60s elapsed)","timestamp":"2026-07-15T02:45:37.672Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:45:37.685Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:45:40.295Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2ms","timestamp":"2026-07-15T02:45:40.297Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:45:45.643Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 14ms","timestamp":"2026-07-15T02:45:45.656Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:45:48.968Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6ms","timestamp":"2026-07-15T02:45:48.974Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-15T02:46:32.827Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 1s","timestamp":"2026-07-15T02:46:34.062Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:46:37.233Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 494ms","timestamp":"2026-07-15T02:46:37.727Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:46:44.075Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6s","timestamp":"2026-07-15T02:46:50.260Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:46:59.462Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 5s","timestamp":"2026-07-15T02:47:04.774Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:47:15.469Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 4s","timestamp":"2026-07-15T02:47:20.194Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:48:00.862Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 4s","timestamp":"2026-07-15T02:48:05.746Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:48:39.781Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1s","timestamp":"2026-07-15T02:48:41.258Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:48:53.087Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 17ms","timestamp":"2026-07-15T02:48:53.104Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:48:55.550Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 4ms","timestamp":"2026-07-15T02:48:55.554Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:48:58.254Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:49:28.340Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:49:58.261Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:02.267Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 9ms","timestamp":"2026-07-15T02:50:02.276Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:05.044Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 200ms","timestamp":"2026-07-15T02:50:05.244Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:09.205Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 46ms","timestamp":"2026-07-15T02:50:09.251Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:17.785Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 407ms","timestamp":"2026-07-15T02:50:18.192Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:27.081Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 61ms","timestamp":"2026-07-15T02:50:27.142Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:50:31.068Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (30s elapsed)","timestamp":"2026-07-15T02:51:01.068Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' still running (60s elapsed)","timestamp":"2026-07-15T02:51:31.140Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 1m 0s","timestamp":"2026-07-15T02:51:31.247Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:51:33.555Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 3ms","timestamp":"2026-07-15T02:51:33.558Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:51:38.378Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 71ms","timestamp":"2026-07-15T02:51:38.449Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:51:56.044Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-15T02:51:58.248Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:00.682Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 59ms","timestamp":"2026-07-15T02:52:00.741Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:03.025Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 13ms","timestamp":"2026-07-15T02:52:03.038Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:08.150Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 39ms","timestamp":"2026-07-15T02:52:08.189Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:10.361Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 13ms","timestamp":"2026-07-15T02:52:10.374Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:13.788Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 15ms","timestamp":"2026-07-15T02:52:13.803Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:16.107Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 21ms","timestamp":"2026-07-15T02:52:16.128Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:23.514Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 72ms","timestamp":"2026-07-15T02:52:23.586Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:28.597Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 22ms","timestamp":"2026-07-15T02:52:28.619Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:36.173Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 22ms","timestamp":"2026-07-15T02:52:36.195Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-15T02:52:41.841Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 40ms","timestamp":"2026-07-15T02:52:41.881Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:52:51.933Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 23ms","timestamp":"2026-07-15T02:52:51.956Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-15T02:52:57.413Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 10ms","timestamp":"2026-07-15T02:52:57.423Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:53:12.312Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 22ms","timestamp":"2026-07-15T02:53:12.334Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-15T02:53:49.144Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 6ms","timestamp":"2026-07-15T02:53:49.150Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:54:36.745Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 23ms","timestamp":"2026-07-15T02:54:36.768Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-15T02:55:55.192Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 34ms","timestamp":"2026-07-15T02:55:55.226Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:55:58.040Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 671ms","timestamp":"2026-07-15T02:55:58.711Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:56:03.843Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6s","timestamp":"2026-07-15T02:56:10.595Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:56:24.399Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 4s","timestamp":"2026-07-15T02:56:29.122Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-15T02:56:49.917Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 12ms","timestamp":"2026-07-15T02:56:49.929Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:56:55.659Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6s","timestamp":"2026-07-15T02:57:02.594Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-15T02:57:17.717Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6s","timestamp":"2026-07-15T02:57:24.244Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-15T02:57:28.194Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-15T02:57:28.295Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"STDIO connection closed after 1601s (cleanly)","timestamp":"2026-07-15T02:57:28.303Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-15T02:57:28.304Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-15T02:57:28.347Z","sessionId":"5ed1f7ae-f080-4892-85e4-75b1e4a54edd","cwd":"/app"}

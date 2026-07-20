@@ -107,7 +107,12 @@ def _redact_error_paths(response: dict[str, Any] | None) -> dict[str, Any] | Non
     return response
 
 
-def _dispatch(request_obj: dict[str, Any], session_id: str | None = None) -> dict[str, Any] | None:
+def _dispatch(
+    request_obj: dict[str, Any],
+    session_id: str | None = None,
+    host: str | None = None,
+    bridge_id: str | None = None,
+) -> dict[str, Any] | None:
     """Run one JSON-RPC request through the shared dispatcher (fail-safe).
 
     M2 — a raw ``str(exc)`` leaks internals (paths, types, partial state) to the
@@ -116,9 +121,13 @@ def _dispatch(request_obj: dict[str, Any], session_id: str | None = None) -> dic
 
     F1 — scope the ledger to the client's ``Mcp-Session-Id`` (set on this worker
     thread, the one that runs _handle) so concurrent HTTP clients don't co-mingle
-    into the process-global ledger.
+    into the process-global ledger. The same session id + the ``X-LemonCrow-Agent``
+    host label are stamped as the request session context so every other
+    session-id/host consumer inside _handle resolves the calling session (the
+    per-workspace daemon cannot self-resolve its callers' windows).
     """
-    prior = mcp_server._set_request_ledger(session_id)
+    prior_ledger = mcp_server._set_request_ledger(session_id)
+    prior_session = mcp_server._set_request_session(session_id or "", host or "", "", bridge_id or "")
     try:
         response = mcp_server._handle(request_obj)
         if isinstance(response, mcp_server._Deferred):
@@ -136,7 +145,8 @@ def _dispatch(request_obj: dict[str, Any], session_id: str | None = None) -> dic
             f"internal error (correlation_id={correlation_id})",
         )
     finally:
-        mcp_server._clear_request_ledger(prior)
+        mcp_server._clear_request_session(prior_session)
+        mcp_server._clear_request_ledger(prior_ledger)
 
 
 def _sse_event(payload: dict[str, Any]) -> str:
@@ -210,7 +220,9 @@ def register_mcp_http(
         # worker thread so a slow tool call cannot block the event loop. Pass the
         # client's MCP session id (F1) so its ledger is scoped per session.
         session_id = request.headers.get("mcp-session-id")
-        response = await run_in_threadpool(_dispatch, body, session_id)
+        host = request.headers.get("x-lemoncrow-agent")
+        bridge_id = request.headers.get("x-lemoncrow-bridge")
+        response = await run_in_threadpool(_dispatch, body, session_id, host, bridge_id)
         # F2 — strip leaked server paths from any error message at the boundary.
         response = _redact_error_paths(response)
         accept = request.headers.get("accept", "")

@@ -116,10 +116,16 @@ from lemoncrow.gateway.adapters.mcp.ledger import (
     _clear_request_ledger as _clear_request_ledger,
 )
 from lemoncrow.gateway.adapters.mcp.ledger import (
+    _clear_request_session as _clear_request_session,
+)
+from lemoncrow.gateway.adapters.mcp.ledger import (
     _get_ledger as _get_ledger,
 )
 from lemoncrow.gateway.adapters.mcp.ledger import (
     _set_request_ledger as _set_request_ledger,
+)
+from lemoncrow.gateway.adapters.mcp.ledger import (
+    _set_request_session as _set_request_session,
 )
 from lemoncrow.gateway.adapters.mcp.session_state import (  # noqa: F401  (re-exported for back-compat)
     _MCP_ID,
@@ -195,7 +201,7 @@ def _warm_pricing_table() -> None:
         from lemoncrow.pro.capabilities.counterfactual.pricing import load_pricing_table
 
         load_pricing_table()
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.debug("pricing table pre-warm failed", exc_info=True)
 
 
@@ -911,7 +917,7 @@ def _check_auto_update() -> None:
                     current_version=_installed_cli_version() or remote_version,
                     method="git",
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _log.exception("failed to write update state")
         else:
             _log.warning("install script not found at %s", install_script)
@@ -2443,7 +2449,7 @@ def _workspace_bridge_session_id() -> str:
             # fail closed -> callers divert to the quarantine ledger.
             return ""
         return str(data.get("session_id") or "").strip()
-    except Exception:  # noqa: BLE001 - best-effort bridge read, never break MCP dispatch
+    except Exception:
         return ""
 
 
@@ -2652,7 +2658,7 @@ def _bridge_context_state(session_id: str, host: str) -> tuple[int, str]:
             )
         model = str(stats.get("last_model") or stats.get("model") or "").strip()
         return ctx, model
-    except Exception:  # noqa: BLE001 - best-effort bridge read, never break MCP dispatch
+    except Exception:
         _log.debug("bridge context state probe failed for %s/%s", host, session_id, exc_info=True)
     return 0, ""
 
@@ -2738,7 +2744,7 @@ def _savings_long_context(model: str, ctx_tokens: int) -> bool:
         from lemoncrow.core.capabilities.pricing import get_model_pricing
 
         pricing = get_model_pricing(model)
-    except Exception:  # noqa: BLE001 - pricing lookup must never break a savings write
+    except Exception:
         return False
     if pricing is None or not pricing.known:
         return False
@@ -2880,7 +2886,7 @@ def _statusline_sidecar_loop() -> None:
         _statusline_wake.clear()
         try:
             _write_statusline_sidecar_now()
-        except Exception:  # noqa: BLE001 - infrastructure path, must never raise
+        except Exception:
             _log.debug("statusline sidecar write failed", exc_info=True)
         # Rate-limit AFTER the write: the first event renders immediately and a
         # burst coalesces into one trailing refresh (wakes set during compute or
@@ -2931,7 +2937,7 @@ def _write_statusline_sidecar_now() -> None:
             # Legacy single-frame sidecar for older installed statusline.sh.
             idx = int(time.time() // 5) % len(frames)
             (seg_dir / "statusline_segment").write_text(frames[idx], encoding="utf-8")
-    except Exception:  # noqa: BLE001 - infrastructure path, must never raise
+    except Exception:
         _log.debug("statusline sidecar write failed", exc_info=True)
 
 
@@ -2948,7 +2954,7 @@ def _mcp_debug_enabled() -> bool:
     if _dev_mode_cache is None:
         try:
             _dev_mode_cache = (_lemoncrow_root() / ".dev_mode").exists()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _dev_mode_cache = False
     return _dev_mode_cache
 
@@ -3034,16 +3040,16 @@ def _prune_mcp_debug_logs() -> None:
             try:
                 if debug_file.stat().st_mtime < cutoff:
                     debug_file.unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         # Also prune the fallback unknown-session file if it is old.
         unknown = _lemoncrow_root() / "mcp_debug_unknown.jsonl"
         try:
             if unknown.exists() and unknown.stat().st_mtime < cutoff:
                 unknown.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # never disrupt the server
 
 
@@ -3096,7 +3102,7 @@ def _append_tool_profile(
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, sort_keys=True) + "\n")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # never disrupt the server
 
 
@@ -3141,7 +3147,7 @@ def _append_mcp_debug_event(
             fh.write(json.dumps(entry, sort_keys=True) + "\n")
         # Opportunistic cleanup -- at most once per hour, non-blocking.
         _prune_mcp_debug_logs()
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # never disrupt the server
 
 
@@ -5998,7 +6004,7 @@ def tool_smart_read(
             if isinstance(symbol, list):
                 return {"symbols": [_op_node(**_parse_symbol(s), path=_scope_path) for s in symbol]}
             return _op_node(**_parse_symbol(symbol), path=_scope_path)
-        except Exception:  # noqa: BLE001 -- symbol unresolved -> read the file(s) instead
+        except Exception:
             symbol = None
     # `filePath` is an accepted alias for `path` (host Read-tool habit); fold it
     # in before any dispatch so both name the same file.
@@ -6074,7 +6080,7 @@ def tool_smart_read(
                     single["tokens_saved"] = entry_saved
                     batch_saved += entry_saved
                 results.append(single)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 results.append({"path": spec_path, "error": str(exc)})
         _tool_call_tokens_saved.value = batch_saved
         batch_result: dict[str, Any] = {"files": results}
@@ -6994,7 +7000,7 @@ def tool_smart_edit(
         # explore returns stale pre-edit results on every subsequent invocation.
         try:
             _code_context_engine(str(repo_root))._index_version_cached = None
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         if not result.get("failed") and not result.get("rolled_back"):
@@ -8886,7 +8892,7 @@ def tool_statusline_segment() -> str:
             return seg
         if seg_path.exists():
             return seg_path.read_text(encoding="utf-8").strip()
-    except Exception:  # noqa: BLE001 - infrastructure path, must never raise
+    except Exception:
         _log.debug("tool_statusline_segment failed", exc_info=True)
     return ""
 
@@ -9113,7 +9119,7 @@ def _grep_badge_provider(rel_path: str, symbol_names: list[str]) -> str | None:
     try:
         engine = _code_context_engine(repo_root)
         counts = engine.badge_counts_batch(names)
-    except Exception:  # noqa: BLE001 -- badges are advisory; never fail grep
+    except Exception:
         return None
     badges: list[str] = []
     for name in names:
@@ -9255,7 +9261,7 @@ def _code_search_section_savings(lean: dict[str, Any], workspace_root: Path) -> 
         return 0, 0
     try:
         session = _resolved_host_session_id() or ""
-    except Exception:  # noqa: BLE001 — best-effort session resolution
+    except Exception:
         session = ""
     credited = _SEARCH_CREDITED_PATHS.setdefault(session, set())
 
@@ -11256,7 +11262,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                         session_id=_ok_sid,
                     )
                 return _ok(rid, response_payload)
-            except Exception as exc:  # noqa: BLE001 - delegates to the shared error finalizer
+            except Exception as exc:
                 return _finalize_error_response(exc)
 
         try:
@@ -11325,7 +11331,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                         finalize_error=_finalize_error_response,
                     )
                 return _finalize_response(result)
-        except Exception as exc:  # noqa: BLE001 - delegates to the shared error finalizer
+        except Exception as exc:
             return _finalize_error_response(exc)
         finally:
             # Always drop the request-scoped project override (N10).
@@ -11780,7 +11786,7 @@ def _effective_spill_tool(tool_name: str, args: dict[str, Any]) -> str:
         from lemoncrow.pro.capabilities.tool_supervision.bash_exec import classify_command
 
         decision = classify_command(command)
-    except Exception:  # noqa: BLE001 -- spill identity must never raise
+    except Exception:
         return tool_name
     if decision.action == "rewrite" and decision.rewrite_target:
         return _REWRITE_SPILL_IDENTITY.get(decision.rewrite_target, tool_name)
@@ -11852,7 +11858,7 @@ def _mint_missing_verdict(root: Path) -> bool:
         from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
 
         return report_usage_once(root, force=True)
-    except Exception:  # noqa: BLE001 — healing is best-effort; dormancy stands
+    except Exception:
         return False
 
 
@@ -11875,7 +11881,7 @@ def _reconcile_ledger_gap(root: Path, server_saved_usd: float) -> None:
         from lemoncrow.core.capabilities.plugin_runtime import reconcile_local_savings_gap
 
         reconcile_local_savings_gap(root, server_saved_usd)
-    except Exception:  # noqa: BLE001 — display repair is best-effort
+    except Exception:
         pass
 
 
@@ -11911,7 +11917,7 @@ def _refresh_dormant_snapshot() -> bool:
     global _dormant_snapshot
     try:
         value = _resolve_dormant(_lemoncrow_root(), side_effects=True)
-    except Exception:  # noqa: BLE001 — a broken gate must never expose paid tools
+    except Exception:
         _log.exception("Cap authority refresh failed; hiding LemonCrow tools")
         value = True
     with _dormant_lock:
@@ -11953,7 +11959,7 @@ def _snapshot_dormant() -> bool:
         return cached
     try:
         value = _resolve_dormant(_lemoncrow_root(), side_effects=False)
-    except Exception:  # noqa: BLE001 — a broken gate must never expose paid tools
+    except Exception:
         _log.exception("Cap authority failed; hiding LemonCrow tools")
         value = True
     with _dormant_lock:
@@ -12177,19 +12183,19 @@ def _handle_and_write(request: dict[str, Any]) -> None:
             def _on_complete() -> None:
                 try:
                     concrete = deferred.src.collect()
-                except Exception as exc:  # noqa: BLE001 - deferred external work failed
+                except Exception as exc:
                     # A failed deferred result (e.g. web_fetch network/SSRF error)
                     # goes through the same tool-error pipeline as the sync path,
                     # for a byte-identical error response.
                     try:
                         resp = deferred.finalize_error(exc)
-                    except Exception:  # noqa: BLE001 - error finalizer boundary
+                    except Exception:
                         _log.exception("deferred MCP error-finalize failed")
                         resp = _err(request.get("id"), -32603, f"internal error: {exc}")
                 else:
                     try:
                         resp = deferred.finalize(concrete)
-                    except Exception as exc:  # noqa: BLE001 - deferred continuation boundary
+                    except Exception as exc:
                         _log.exception("deferred MCP continuation failed")
                         resp = _err(request.get("id"), -32603, f"internal error: {exc}")
                 with contextlib.suppress(Exception):
@@ -12201,7 +12207,7 @@ def _handle_and_write(request: dict[str, Any]) -> None:
                 # produce the response now on this worker thread.
                 _on_complete()
             return
-    except Exception as exc:  # noqa: BLE001 - JSON-RPC worker boundary must return an error.
+    except Exception as exc:
         _log.exception("unhandled MCP request failure")
         response = _err(request.get("id"), -32603, f"internal error: {exc}")
     finally:
@@ -12211,7 +12217,7 @@ def _handle_and_write(request: dict[str, Any]) -> None:
             _write_jsonrpc(response)
         except OSError:
             _log.exception("failed to write MCP response (connection closed)")
-        except Exception:  # noqa: BLE001 - JSON-RPC write boundary
+        except Exception:
             _log.exception("failed to write MCP response (unexpected error)")
 
 
@@ -12453,7 +12459,7 @@ def _warm_stdio_code_index() -> None:
     try:
         engine = _code_context_engine(str(ws_root))
         _log.info("code query path warmed: %s", engine.warm_query_path())
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.debug("query-path warm failed", exc_info=True)
 
 
@@ -12471,7 +12477,7 @@ def _warm_stdio_embedder() -> None:
         if callable(getattr(embedder, "_load", None)):
             embedder._load()  # type: ignore[attr-defined]
             _log.info("Embedder pre-warmed: %s dim=%s", getattr(embedder, "name", "?"), getattr(embedder, "dim", "?"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.debug("Embedder pre-warm failed", exc_info=True)
 
 
@@ -12516,7 +12522,7 @@ def _warm_stdio_zoekt_webserver() -> None:
             atexit.register(server.stop)
         else:
             _log.debug("zoekt webserver did not start; using CLI fallback")
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.debug("zoekt pre-warm failed", exc_info=True)
 
 

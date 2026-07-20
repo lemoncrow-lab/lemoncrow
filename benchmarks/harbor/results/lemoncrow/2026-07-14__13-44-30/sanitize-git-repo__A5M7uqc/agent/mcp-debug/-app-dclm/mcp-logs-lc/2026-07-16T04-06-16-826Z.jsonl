@@ -1,0 +1,26 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-16T04:06:17.496Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Successfully connected (transport: stdio) in 615ms","timestamp":"2026-07-16T04:06:18.109Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-16T04:06:18.109Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:06:21.680Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-16T04:06:24.002Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:06:26.286Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 16ms","timestamp":"2026-07-16T04:06:26.302Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:06:32.251Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 86ms","timestamp":"2026-07-16T04:06:32.337Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:06:37.819Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 42ms","timestamp":"2026-07-16T04:06:37.861Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-16T04:06:44.843Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'read' completed successfully in 54ms","timestamp":"2026-07-16T04:06:44.897Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:06:54.742Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 169ms","timestamp":"2026-07-16T04:06:54.911Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:07:04.326Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 39ms","timestamp":"2026-07-16T04:07:04.365Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-16T04:07:12.683Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'edit' completed successfully in 128ms","timestamp":"2026-07-16T04:07:12.811Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T04:07:17.744Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Tool 'bash' completed successfully in 171ms","timestamp":"2026-07-16T04:07:17.914Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-16T04:07:22.914Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-16T04:07:23.014Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"STDIO connection closed after 64s (cleanly)","timestamp":"2026-07-16T04:07:23.026Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-16T04:07:23.026Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-16T04:07:23.066Z","sessionId":"d4ff19f0-430c-419c-bae6-b4d57363a544","cwd":"/app/dclm"}

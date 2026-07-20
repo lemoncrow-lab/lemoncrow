@@ -739,6 +739,13 @@ def _servicectl_tick(
     with suppress(Exception):
         _servicectl_refresh_host_status(root)
 
+    # Reclaim registration files for singleton MCP daemons that crashed without
+    # cleanup (a clean exit removes its own). Cheap glob; fail-open.
+    with suppress(Exception):
+        from lemoncrow.gateway.adapters.mcp_daemon import prune_stale_daemons
+
+        prune_stale_daemons(root)
+
     now = datetime.now(UTC)
     state = _read_servicectl_state(root)
     periodic = state.setdefault("periodic_jobs", {})

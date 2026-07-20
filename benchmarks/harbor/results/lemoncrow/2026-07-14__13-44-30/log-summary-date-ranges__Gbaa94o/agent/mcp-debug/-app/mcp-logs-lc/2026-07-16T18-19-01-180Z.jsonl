@@ -1,0 +1,12 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-16T18:19:01.936Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 703ms","timestamp":"2026-07-16T18:19:02.638Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-16T18:19:02.638Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T18:19:05.314Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-16T18:19:07.589Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T18:19:15.305Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 174ms","timestamp":"2026-07-16T18:19:15.479Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-16T18:19:18.758Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-16T18:19:18.859Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"STDIO connection closed after 16s (cleanly)","timestamp":"2026-07-16T18:19:18.860Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-16T18:19:18.860Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-16T18:19:18.909Z","sessionId":"b43f835a-d989-433c-a131-a85a07181a3a","cwd":"/app"}

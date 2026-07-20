@@ -25,6 +25,13 @@ _current_ledger: RunLedger | None = None
 
 _request_ledger: threading.local = threading.local()
 
+# Request-scoped session identity (singleton daemon path). The bridge -- a child
+# of the claude window -- resolves the live session id + host label and passes
+# them as headers; the daemon (not a child of the window) cannot self-resolve
+# them, so _dispatch stamps this thread-local for the duration of one request and
+# the resolvers below prefer it. Unset on the stdio path -> legacy behaviour.
+_request_session: threading.local = threading.local()
+
 _http_session_ledgers: OrderedDict[str, RunLedger] = OrderedDict()
 
 _http_session_ledgers_lock = threading.Lock()
@@ -82,6 +89,35 @@ def _ledger_for_session(session_id: str) -> RunLedger:
             _http_session_ledgers.popitem(last=False)
         _http_session_ledgers[session_id] = led
         return led
+
+
+def _set_request_session(session_id: str | None, host: str = "", model: str = "", bridge: str = "") -> Any:
+    """Stamp the per-request session identity on the CURRENT thread; return prior.
+
+    Set by the HTTP dispatcher from the client's headers so every session-id /
+    host consumer inside ``_handle`` (debug log path, savings sidecar, telemetry,
+    session-scoped run dirs) resolves the *calling* session rather than the
+    daemon process's own (wrong) window/env. ``bridge`` tags any managed bash a
+    tool starts so it can be reaped when that bridge disconnects. All-empty input
+    clears the context.
+    """
+    prior = getattr(_request_session, "value", None)
+    sid = (session_id or "").strip()
+    h = (host or "").strip()
+    m = (model or "").strip()
+    b = (bridge or "").strip()
+    _request_session.value = {"session_id": sid, "host": h, "model": m, "bridge": b} if (sid or h or m or b) else None
+    return prior
+
+
+def _clear_request_session(prior: Any) -> None:
+    _request_session.value = prior
+
+
+def _request_bridge_id() -> str:
+    """Bridge id of the in-flight request (owner tag for managed bash), or ""."""
+    ctx = getattr(_request_session, "value", None)
+    return str(ctx["bridge"]) if ctx and ctx.get("bridge") else ""
 
 
 def _set_request_ledger(session_id: str | None) -> Any:
@@ -148,6 +184,10 @@ def _detect_agent() -> str:
     every integration (not just this MCP server) resolves the identical host
     label -- the same value that segregates each host's session storage.
     """
+    ctx = getattr(_request_session, "value", None)
+    if ctx and ctx.get("host"):
+        return str(ctx["host"])
+
     from lemoncrow.core.foundation.paths import detect_host
 
     return detect_host()
@@ -208,6 +248,14 @@ def _get_claude_session_id() -> str:
     product session UUID.
     """
     global _cached_claude_session_id, _cached_mcp_model
+
+    # Singleton daemon: the request carries the caller's session id in a header
+    # (the daemon can't resolve its own window). Prefer it, and never cache it
+    # into the process-global slot -- that would leak one session's id to the
+    # next request on this pooled worker thread.
+    ctx = getattr(_request_session, "value", None)
+    if ctx and ctx.get("session_id"):
+        return str(ctx["session_id"])
 
     # Window-anchored live id: correct across /clear and immune to sibling
     # sessions sharing the workspace bridge (resolver is mtime-cached).

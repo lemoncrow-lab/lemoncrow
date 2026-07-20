@@ -1,0 +1,118 @@
+Hit:1 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:2 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.11).
+The following packages were automatically installed and are no longer required:
+  libcares2 libuv1t64 node-busboy node-cjs-module-lexer node-undici node-xtend
+Use 'apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 177 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+vncsnapshot is already the newest version (1.2a-5.2).
+The following packages were automatically installed and are no longer required:
+  libcares2 libuv1t64 node-busboy node-cjs-module-lexer node-undici node-xtend
+Use 'apt autoremove' to remove them.
+The following additional packages will be installed:
+  libarchive13t64 libgif7 liblept5 libtesseract5 tesseract-ocr-eng
+  tesseract-ocr-osd
+Suggested packages:
+  lrzip floppyd
+The following NEW packages will be installed:
+  libarchive13t64 libgif7 liblept5 libtesseract5 mtools socat tesseract-ocr
+  tesseract-ocr-eng tesseract-ocr-osd
+0 upgraded, 9 newly installed, 0 to remove and 177 not upgraded.
+Need to get 9366 kB of archives.
+After this operation, 24.9 MB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libarchive13t64 amd64 3.7.2-2ubuntu0.7 [382 kB]
+Get:2 http://archive.ubuntu.com/ubuntu noble/main amd64 libgif7 amd64 5.2.2-1ubuntu1 [35.2 kB]
+Get:3 http://archive.ubuntu.com/ubuntu noble/universe amd64 liblept5 amd64 1.82.0-3build4 [1099 kB]
+Get:4 http://archive.ubuntu.com/ubuntu noble/universe amd64 libtesseract5 amd64 5.3.4-1build5 [1291 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble/main amd64 mtools amd64 4.0.43-1build1 [197 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble/universe amd64 tesseract-ocr-eng all 1:4.1.0-2 [1818 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble/universe amd64 tesseract-ocr-osd all 1:4.1.0-2 [3841 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble/universe amd64 tesseract-ocr amd64 5.3.4-1build5 [328 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 socat amd64 1.8.0.0-4ubuntu0.1 [374 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 9366 kB in 2s (3896 kB/s)
+Selecting previously unselected package libarchive13t64:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 49670 files and directories currently installed.)
+Preparing to unpack .../0-libarchive13t64_3.7.2-2ubuntu0.7_amd64.deb ...
+Unpacking libarchive13t64:amd64 (3.7.2-2ubuntu0.7) ...
+Selecting previously unselected package libgif7:amd64.
+Preparing to unpack .../1-libgif7_5.2.2-1ubuntu1_amd64.deb ...
+Unpacking libgif7:amd64 (5.2.2-1ubuntu1) ...
+Selecting previously unselected package liblept5:amd64.
+Preparing to unpack .../2-liblept5_1.82.0-3build4_amd64.deb ...
+Unpacking liblept5:amd64 (1.82.0-3build4) ...
+Selecting previously unselected package libtesseract5:amd64.
+Preparing to unpack .../3-libtesseract5_5.3.4-1build5_amd64.deb ...
+Unpacking libtesseract5:amd64 (5.3.4-1build5) ...
+Selecting previously unselected package mtools.
+Preparing to unpack .../4-mtools_4.0.43-1build1_amd64.deb ...
+Unpacking mtools (4.0.43-1build1) ...
+Selecting previously unselected package tesseract-ocr-eng.
+Preparing to unpack .../5-tesseract-ocr-eng_1%3a4.1.0-2_all.deb ...
+Unpacking tesseract-ocr-eng (1:4.1.0-2) ...
+Selecting previously unselected package tesseract-ocr-osd.
+Preparing to unpack .../6-tesseract-ocr-osd_1%3a4.1.0-2_all.deb ...
+Unpacking tesseract-ocr-osd (1:4.1.0-2) ...
+Selecting previously unselected package tesseract-ocr.
+Preparing to unpack .../7-tesseract-ocr_5.3.4-1build5_amd64.deb ...
+Unpacking tesseract-ocr (5.3.4-1build5) ...
+Selecting previously unselected package socat.
+Preparing to unpack .../8-socat_1.8.0.0-4ubuntu0.1_amd64.deb ...
+Unpacking socat (1.8.0.0-4ubuntu0.1) ...
+Setting up mtools (4.0.43-1build1) ...
+Setting up tesseract-ocr-eng (1:4.1.0-2) ...
+Setting up socat (1.8.0.0-4ubuntu0.1) ...
+Setting up libgif7:amd64 (5.2.2-1ubuntu1) ...
+Setting up tesseract-ocr-osd (1:4.1.0-2) ...
+Setting up libarchive13t64:amd64 (3.7.2-2ubuntu0.7) ...
+Setting up liblept5:amd64 (1.82.0-3build4) ...
+Setting up libtesseract5:amd64 (5.3.4-1build5) ...
+Setting up tesseract-ocr (5.3.4-1build5) ...
+Processing triggers for libc-bin (2.39-0ubuntu8.6) ...
+Downloading cpython-3.13.9-linux-x86_64-gnu (download) (32.0MiB)
+ Downloading cpython-3.13.9-linux-x86_64-gnu (download)
+Downloading pygments (1.2MiB)
+Downloading pillow (6.6MiB)
+Downloading opencv-python (60.1MiB)
+Downloading numpy (15.9MiB)
+ Downloading pygments
+ Downloading pillow
+ Downloading numpy
+ Downloading opencv-python
+Installed 10 packages in 24ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 4 items
+
+../tests/test_outputs.py ....                                            [100%]
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_network_status
+PASSED ../tests/test_outputs.py::test_qemu_running_with_correct_params
+PASSED ../tests/test_outputs.py::test_windows_311_core_files_verification
+PASSED ../tests/test_outputs.py::test_windows_keys_with_visual_feedback
+============================== 4 passed in 7.23s ===============================

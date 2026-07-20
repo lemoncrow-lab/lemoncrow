@@ -1,0 +1,26 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-16T14:56:12.363Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 598ms","timestamp":"2026-07-16T14:56:12.959Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-16T14:56:12.959Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:16.628Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-16T14:56:18.819Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:22.937Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 3s","timestamp":"2026-07-16T14:56:26.408Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: read","timestamp":"2026-07-16T14:56:28.638Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'read' completed successfully in 119ms","timestamp":"2026-07-16T14:56:28.757Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: edit","timestamp":"2026-07-16T14:56:32.771Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'edit' completed successfully in 4ms","timestamp":"2026-07-16T14:56:32.775Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:37.094Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 37ms","timestamp":"2026-07-16T14:56:37.131Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:41.882Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 3ms","timestamp":"2026-07-16T14:56:41.885Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:47.528Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 6ms","timestamp":"2026-07-16T14:56:47.534Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:56:59.160Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 22ms","timestamp":"2026-07-16T14:56:59.182Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-16T14:57:03.388Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-16T14:57:05.458Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-16T14:57:09.627Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-16T14:57:09.727Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"STDIO connection closed after 56s (cleanly)","timestamp":"2026-07-16T14:57:09.736Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-16T14:57:09.736Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-16T14:57:09.779Z","sessionId":"3934a4bf-185a-4528-b5f0-c156df68f46d","cwd":"/app"}

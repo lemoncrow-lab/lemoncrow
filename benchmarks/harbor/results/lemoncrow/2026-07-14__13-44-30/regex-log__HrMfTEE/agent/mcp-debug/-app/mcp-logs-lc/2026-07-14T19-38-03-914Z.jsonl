@@ -1,0 +1,14 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"2026-07-14T19:38:04.574Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Successfully connected (transport: stdio) in 734ms","timestamp":"2026-07-14T19:38:05.305Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Connection established with capabilities: {\"hasTools\":true,\"hasPrompts\":false,\"hasResources\":false,\"hasResourceSubscribe\":false,\"serverVersion\":{\"name\":\"lemoncrow\",\"version\":\"0.4.0\"}}","timestamp":"2026-07-14T19:38:05.305Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T19:39:38.417Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 2s","timestamp":"2026-07-14T19:39:41.233Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T19:39:41.393Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 9ms","timestamp":"2026-07-14T19:39:41.402Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Calling MCP tool: bash","timestamp":"2026-07-14T19:39:53.462Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Tool 'bash' completed successfully in 40ms","timestamp":"2026-07-14T19:39:53.502Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Sending SIGINT to MCP server process","timestamp":"2026-07-14T19:40:02.633Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"SIGINT failed, sending SIGTERM to MCP server process","timestamp":"2026-07-14T19:40:02.734Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"STDIO connection closed after 117s (cleanly)","timestamp":"2026-07-14T19:40:02.742Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"Cleared connection cache for reconnection","timestamp":"2026-07-14T19:40:02.742Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}
+{"debug":"MCP server process exited cleanly","timestamp":"2026-07-14T19:40:02.785Z","sessionId":"2871d5c7-b700-45a8-bae0-bfb87ed43a62","cwd":"/app"}

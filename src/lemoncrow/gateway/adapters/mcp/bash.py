@@ -28,6 +28,7 @@ from lemoncrow.gateway.adapters.mcp.deferral import (
 )
 from lemoncrow.gateway.adapters.mcp.framework import TOOLS, mcp_tool
 from lemoncrow.gateway.adapters.mcp.fs_access import _claude_additional_dirs
+from lemoncrow.gateway.adapters.mcp.ledger import _request_bridge_id
 from lemoncrow.gateway.adapters.mcp.session_state import _forget_mcp_managed_bash, _record_mcp_managed_bash
 from lemoncrow.gateway.adapters.mcp.smart_state import (
     _STATE_LOCK,
@@ -453,7 +454,7 @@ def _run_bash_tool(
 
                 _wf = fetch_url(_wf_url)
                 _wf_out = _wf.get("content") if isinstance(_wf, dict) else str(_wf)
-            except Exception as _wf_exc:  # noqa: BLE001 -- redirect must never raise
+            except Exception as _wf_exc:
                 _wf_out = f"[web_fetch] {_wf_exc}"
             return {
                 "stdout": str(_wf_out or ""),
@@ -470,7 +471,7 @@ def _run_bash_tool(
         try:
             _fg_base = Path(_fg_path) if Path(_fg_path).is_absolute() else (Path(effective_cwd) / _fg_path)
             _fg_hits = sorted(str(p.relative_to(_fg_base)) for p in _fg_base.rglob(_fg_pat) if p.is_file())
-        except Exception:  # noqa: BLE001 -- redirect must never raise
+        except Exception:
             _fg_hits = []
         _fg_out = "\n".join(_fg_hits[:300]) if _fg_hits else "(no files match)"
         if len(_fg_hits) > 300:
@@ -492,7 +493,7 @@ def _run_bash_tool(
             try:
                 _rr = cast(dict[str, Any], TOOLS["read"]["handler"]({"path": str(_rr_target), "range": _rr_rng}))
                 _rr_out = _rr.get("content") if isinstance(_rr, dict) else str(_rr)
-            except Exception as _rr_exc:  # noqa: BLE001
+            except Exception as _rr_exc:
                 _rr_out = f"[read] {_rr_exc}"
             return {
                 "stdout": str(_rr_out or ""),
@@ -552,6 +553,7 @@ def _run_bash_tool(
         explicit_background=explicit_background,
         interactive=interactive,
         idle_ttl=float(idle_ttl) if idle_ttl is not None else None,
+        owner=_request_bridge_id(),
     )
     managed_id = str(started.get("session_id") or "")
     if started.get("status") != "running" or not managed_id:

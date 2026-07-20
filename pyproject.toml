@@ -133,7 +133,7 @@ force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "BLE", "UP", "RUF"]
-ignore = ["E501"]
+ignore = ["E501", "BLE001"]
 
 [tool.ruff.lint.per-file-ignores]
 
