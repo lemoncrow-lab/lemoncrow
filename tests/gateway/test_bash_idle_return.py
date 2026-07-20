@@ -46,6 +46,11 @@ def test_idle_command_returns_running_handle_early(monkeypatch: pytest.MonkeyPat
         assert result.get("status") == "running", result
         assert isinstance(result.get("session_id"), str) and result["session_id"]
         assert elapsed < 5.0, f"idle command not cut early: {elapsed:.2f}s"
+        # The idle cut must be distinguishable from a normal deadline handle,
+        # both in the raw dict and in the text the model actually reads.
+        assert result.get("idle_return") is True, result
+        rendered = bash._render_bash_text(result)
+        assert "likely stuck" in rendered and "action=kill" in rendered, rendered
     finally:
         _kill(result)
 
