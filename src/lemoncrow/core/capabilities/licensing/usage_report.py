@@ -183,7 +183,7 @@ def report_usage_once(
     if len(machine_hash) != 64:
         return False
     identity = _reporting_identity(token, machine_hash)
-    anon_token = _read_anon_token(root) if is_anon else None
+    anon_token: str | None = _read_anon_token(root) if is_anon else None
     stamp = int(time.time()) if now is None else now
     wm = _read_watermark(root, identity) if watermark is None else watermark
 
