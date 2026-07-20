@@ -116,10 +116,14 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
     bridge_id = uuid.uuid4().hex
     handle = _DaemonHandle(workspace, resolved_root)
 
+    from lemoncrow.gateway.adapters.mcp_daemon import _UDS_BASE_URL, daemon_client
+
     # No overall timeout: tool calls (bash, web_fetch) can run long, exactly as
     # they did on the stdio server. A short connect timeout still fails fast when
-    # the daemon is gone, triggering a single respawn+retry.
-    client = httpx.Client(timeout=httpx.Timeout(None, connect=10.0))
+    # the daemon is gone, triggering a single respawn+retry. The client is pinned
+    # to the daemon's Unix socket: loopback IPC no HTTP proxy can hijack, and the
+    # socket path is stable across respawns so one client serves the whole session.
+    client = daemon_client(handle.current(), timeout=httpx.Timeout(None, connect=10.0))
     stdout_lock = threading.Lock()
 
     def _write(message: dict[str, Any]) -> None:
@@ -148,7 +152,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
             if host:
                 headers["X-LemonCrow-Agent"] = host
             try:
-                resp = client.post(f"http://127.0.0.1:{reg['port']}/mcp", headers=headers, content=body)
+                resp = client.post(_UDS_BASE_URL + "/mcp", headers=headers, content=body)
             except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError, httpx.ConnectTimeout):
                 if attempt == 0:
                     handle.respawn(reg)  # daemon died/reaped -> respawn and retry once
@@ -195,7 +199,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
             reg = handle.current()
             try:
                 client.post(
-                    f"http://127.0.0.1:{reg['port']}/session/ping",
+                    _UDS_BASE_URL + "/session/ping",
                     headers={"Authorization": f"Bearer {reg['token']}", "X-LemonCrow-Bridge": bridge_id},
                     timeout=5.0,
                 )
@@ -217,7 +221,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
         reg = handle.current()
         try:
             client.post(
-                f"http://127.0.0.1:{reg['port']}/session/close",
+                _UDS_BASE_URL + "/session/close",
                 headers={"Authorization": f"Bearer {reg['token']}", "X-LemonCrow-Bridge": bridge_id},
                 timeout=5.0,
             )

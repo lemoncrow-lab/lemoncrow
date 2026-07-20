@@ -171,6 +171,208 @@ def _default_bash_soft_timeout() -> int:
 _DEFAULT_BASH_SOFT_TIMEOUT = _default_bash_soft_timeout()
 
 
+# ── Idle-aware inline wait ───────────────────────────────────────────
+# A foreground command blocks this call for up to its `timeout` budget, then a
+# running handle is returned (a sub-1h budget never kills the command). Waiting
+# the *full* budget on a command that has deadlocked -- a producer/consumer both
+# parked, a consumer blocked on a dead socket -- burns wall-clock the model could
+# spend reacting. So, past a floor, hand the handle back early once the command
+# has made no *progress* for a grace window, where progress = new output OR the
+# process group accruing CPU/IO. Keying on CPU/IO (not stdout alone) is what
+# separates a genuinely-stuck command (0 output, 0 CPU, parked in a syscall) from
+# a silent-but-working build (0 output, CPU/IO climbing): the latter keeps
+# refreshing the idle timer and runs to the full budget. Purely additive -- it
+# can only return *earlier* than the timeout, never later, and never kills
+# anything. Linux-only (needs /proc for the CPU/IO signal); a no-op elsewhere.
+def _bash_idle_return_enabled() -> bool:
+    raw = os.environ.get("LEMONCROW_BASH_IDLE_RETURN", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _bash_env_float(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Minimum elapsed wait before an idle command's handle is handed back early. A
+# command whose budget is <= this floor is never cut early, so short/default
+# waits keep today's behaviour exactly; the idle path only ever bites a call the
+# model deliberately budgeted a longer timeout for.
+_BASH_IDLE_FLOOR_S = _bash_env_float("LEMONCROW_BASH_IDLE_FLOOR", 120.0)
+# No-progress span that flips a still-running command from "working" to "stuck".
+_BASH_IDLE_GRACE_S = _bash_env_float("LEMONCROW_BASH_IDLE_GRACE", 75.0)
+# How often progress is sampled while waiting.
+_BASH_IDLE_TICK_S = _bash_env_float("LEMONCROW_BASH_IDLE_TICK", 3.0)
+
+
+def _proc_session_cpu_io(sid: int) -> tuple[int, int] | None:
+    """Sum CPU ticks (utime+stime) and IO bytes (read+write) over every process
+    in session ``sid``. The managed command runs under ``start_new_session``, so
+    its whole descendant tree shares the leader pid as session id. Returns
+    ``None`` when /proc is unavailable (non-Linux) or the session has no live
+    process -- signalling "no progress measurement available" to the caller, which
+    then stays conservative and never cuts the command early.
+    """
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return None
+    total_cpu = 0
+    total_io = 0
+    found = False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "rb") as handle:
+                data = handle.read()
+        except OSError:
+            continue
+        # comm (field 2) is parenthesised and may contain spaces/')' -- split on
+        # the last ')' so the fixed fields after it tokenise cleanly. rest[0] is
+        # field 3 (state); field N maps to rest[N-3].
+        close = data.rfind(b")")
+        if close == -1:
+            continue
+        rest = data[close + 2 :].split()
+        if len(rest) < 13:
+            continue
+        try:
+            if int(rest[3]) != sid:  # field 6: session id
+                continue
+        except ValueError:
+            continue
+        found = True
+        try:
+            total_cpu += int(rest[11]) + int(rest[12])  # fields 14/15: utime/stime
+        except ValueError:
+            pass
+        try:
+            with open(f"/proc/{entry}/io", "rb") as handle:
+                for line in handle:
+                    if line.startswith((b"read_bytes:", b"write_bytes:")):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            total_io += int(parts[1])
+        except (OSError, ValueError):
+            pass
+    if not found:
+        return None
+    return (total_cpu, total_io)
+
+
+# (output_bytes, cpu_ticks, io_bytes, have_proc)
+_BashProgress = tuple[int, int, int, bool]
+
+
+def _bash_progress_probe(session_id: str, peek_fn: Callable[[str], dict[str, Any]]) -> _BashProgress | None:
+    """Snapshot the command's monotonic progress signals, or ``None`` if it is no
+    longer running / not peekable."""
+    try:
+        snap = peek_fn(session_id)
+    except Exception:  # a peek failure just means "no reading right now"
+        return None
+    if snap.get("status") != "running":
+        return None
+    out_bytes = 0
+    for key in ("log_file", "log_file_stderr"):
+        path = snap.get(key)
+        if isinstance(path, str) and path:
+            try:
+                out_bytes += os.path.getsize(path)
+            except OSError:
+                pass
+    cpu = 0
+    io = 0
+    have_proc = False
+    pid = snap.get("pid")
+    if isinstance(pid, int):
+        cpu_io = _proc_session_cpu_io(pid)
+        if cpu_io is not None:
+            cpu, io = cpu_io
+            have_proc = True
+    return (out_bytes, cpu, io, have_proc)
+
+
+def _bash_made_progress(before: _BashProgress, after: _BashProgress) -> bool:
+    """True if any monotonic signal advanced between two probes."""
+    if after[0] > before[0]:  # new output bytes
+        return True
+    if before[3] and after[3] and (after[1] > before[1] or after[2] > before[2]):
+        return True  # CPU or IO advanced (both probes had the /proc signal)
+    return False
+
+
+def _start_idle_deadline_watcher(
+    session_id: str,
+    timeout_s: float,
+    fired: threading.Event,
+    fire: Callable[[], None],
+    peek_fn: Callable[[str], dict[str, Any]],
+) -> None:
+    """Deferred-path replacement for a single ``Timer(timeout, fire)``: fire at
+    the absolute ``timeout`` (unchanged, so the MCP response never blocks past
+    it) OR early once the command has made no progress for the grace window past
+    the floor. Exits without firing if ``fired`` is already set -- natural
+    completion won the race. A ``finally`` guarantees the result is never left
+    orphaned even if sampling raises.
+    """
+    floor = min(timeout_s, _BASH_IDLE_FLOOR_S)
+    grace = _BASH_IDLE_GRACE_S
+    tick = _BASH_IDLE_TICK_S
+    idle_on = _bash_idle_return_enabled()
+
+    def _run() -> None:
+        try:
+            start = time.monotonic()
+            idle_since = start
+            last = _bash_progress_probe(session_id, peek_fn)
+            while True:
+                elapsed = time.monotonic() - start
+                to_deadline = timeout_s - elapsed
+                if to_deadline <= 0:
+                    fire()  # absolute budget spent -- fire exactly at the deadline
+                    return
+                # Wake at the next sample OR the deadline, whichever is sooner, so
+                # a small budget is honoured precisely (a coarse tick must never
+                # overshoot it). Returns True if natural completion set `fired`.
+                if fired.wait(min(tick, to_deadline)):
+                    return
+                now = time.monotonic()
+                elapsed = now - start
+                if elapsed >= timeout_s:
+                    fire()
+                    return
+                if not idle_on:
+                    continue
+                probe = _bash_progress_probe(session_id, peek_fn)
+                if probe is None:
+                    continue  # transiently unpeekable; completion cb will finish
+                if not probe[3]:
+                    # No /proc signal: can't tell stuck from silent-working, so
+                    # stay conservative and never cut early on this platform.
+                    idle_since = now
+                    last = probe
+                    continue
+                if last is None or not last[3] or _bash_made_progress(last, probe):
+                    idle_since = now
+                last = probe
+                if elapsed >= floor and (now - idle_since) >= grace:
+                    fire()
+                    return
+        except Exception:  # a watcher crash must never orphan the deferred result
+            logger.debug("bash idle watcher error for %s", session_id, exc_info=True)
+        finally:
+            if not fired.is_set():
+                fire()
+
+    thread = threading.Thread(target=_run, name="lemoncrow-bash-idle", daemon=True)
+    thread.start()
+
+
 def _run_bash_tool(
     command: str = "",
     timeout: int | None = None,
@@ -608,34 +810,25 @@ def _run_bash_tool(
 
         def _register(cb: Callable[[], None]) -> bool:
             fired = threading.Event()
-            timer_box: list[threading.Timer] = []
 
             def _once() -> None:
                 if fired.is_set():
                     return
                 fired.set()
-                pending = timer_box[0] if timer_box else None
-                if pending is not None:
-                    pending.cancel()
                 cb()
 
             armed = register_completion(managed_id, _once)
             if not armed:
                 return False
-            # Soft-deadline safety net: register_completion's callback only
-            # fires once the watcher confirms the process has exited, which
-            # for a command a task wants left running in the background may
-            # be much later than `timeout` (bash_exec's own hard cap is the
-            # real, much larger kill deadline -- see
-            # _MANAGED_COMMAND_HARD_CAP_S). Race a timer against it so the MCP
-            # response never blocks past `timeout` regardless of what the
-            # command is doing. This never kills anything: the managed
-            # session keeps running untouched; the model gets a session_id
-            # back and can poll again, keep working, or action="kill" it.
-            timer = threading.Timer(float(timeout), _once)
-            timer.daemon = True
-            timer_box.append(timer)
-            timer.start()
+            # Deadline watcher (replaces a single Timer(timeout)): fires _once at
+            # the absolute `timeout` -- so the MCP response never blocks past it,
+            # exactly as before -- OR early once the command has gone idle (no
+            # output/CPU/IO progress) past the floor. Never kills anything: the
+            # managed session keeps running untouched; the model gets a
+            # session_id back to poll again, keep working, or action="kill" it.
+            # register_completion still wins the race on natural completion (it
+            # sets `fired`, waking the watcher so it exits without firing again).
+            _start_idle_deadline_watcher(managed_id, float(timeout), fired, _once, peek_managed_command)
             return True
 
         return _DeferredResult(collect=_collect, register=_register)
@@ -647,16 +840,40 @@ def _run_bash_tool(
     # to a session that's about to change state anyway.
     if inline_wait >= float(timeout):
         inline_wait = float(timeout) + 10.0
-    deadline = time.monotonic() + inline_wait
+    start_wait = time.monotonic()
+    deadline = start_wait + inline_wait
+    # Idle early-return for the synchronous path (CLI/tests; the MCP server takes
+    # the deferred branch above). Same rule as the deferred watcher: never before
+    # the floor, then hand back the running handle once progress has stalled for
+    # the grace window. Disabled for sub-floor waits so short commands are
+    # untouched.
+    idle_floor = min(inline_wait, _BASH_IDLE_FLOOR_S)
+    idle_on = _bash_idle_return_enabled() and inline_wait > idle_floor
+    idle_since = start_wait
+    last_probe: _BashProgress | None = None
+    next_probe_at = start_wait + _BASH_IDLE_TICK_S
     delay = 0.02
     polled: dict[str, Any] = started
     while True:
         polled = poll_managed_command(managed_id)
         if polled.get("status") != "running":
             break
-        remaining = deadline - time.monotonic()
+        now = time.monotonic()
+        remaining = deadline - now
         if remaining <= 0:
             return polled  # still running at the window edge — poll later
+        if idle_on and now >= next_probe_at:
+            next_probe_at = now + _BASH_IDLE_TICK_S
+            probe = _bash_progress_probe(managed_id, peek_managed_command)
+            if probe is not None and probe[3]:
+                if last_probe is None or not last_probe[3] or _bash_made_progress(last_probe, probe):
+                    idle_since = now
+                last_probe = probe
+                if (now - start_wait) >= idle_floor and (now - idle_since) >= _BASH_IDLE_GRACE_S:
+                    return polled  # progress stalled past the grace window
+            elif probe is not None:
+                idle_since = now  # no /proc signal: stay conservative
+                last_probe = probe
         time.sleep(min(delay, remaining))
         delay = min(delay * 2, 0.5)
 

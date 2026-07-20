@@ -74,10 +74,12 @@ install_console_scripts() {
     # can never break the very tool (and Claude session) you're using to do it,
     # and the dev checkout is never touched by the auto-updater (.dev_mode).
     # Prod (bundle.sh) installs a built wheel; dev installs a source copy.
-    # SKIP_MYPYC keeps the build fast (pro/ ships as source, not compiled).
+    # ENABLE_MYPYC=0 keeps the dev install fast and source-live: dev never builds a
+    # compiled wheel, so a half-finished edit is never baked into a .so and no C
+    # toolchain is needed here (pro/ ships as source, not compiled).
     UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" \
         UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
-        LEMONCROW_SKIP_MYPYC=1 uv tool install --force "$package_spec"
+        LEMONCROW_ENABLE_MYPYC=0 uv tool install --force "$package_spec"
 
 }
 

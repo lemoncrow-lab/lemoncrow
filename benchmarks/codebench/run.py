@@ -86,6 +86,9 @@ LEMONCROW_MCP: dict[str, dict[str, object]] = {
             "type": "stdio",
             "command": "lemoncrow",
             "args": ["mcp", "--host", "claude"],
+            # One task per container = one session: pin plain stdio (the singleton
+            # daemon adds a spawn + loopback handshake with no sharing benefit here).
+            "env": {"LEMONCROW_MCP_SINGLETON": "0"},
             "alwaysLoad": True,
         }
     }

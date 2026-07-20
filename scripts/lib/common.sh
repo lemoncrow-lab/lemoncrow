@@ -2757,10 +2757,6 @@ run_setup() {
         printf "\n"
     fi
 
-    # Open-source runtime: no account, no savings cap, and no login prompt.
-    # Local savings are tracked and shown regardless (see `lc session stats`).
-    printf "%b💰 Savings tracking:%b all local. '%s account login to opt in for online savings.\n\n" "$C_PURPLE" "$C_RESET" "$cli"
-
     local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
     code_display="${code_display/#$HOME/~}"
     printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
@@ -2779,6 +2775,9 @@ run_setup() {
     fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
 
+    # Open-source runtime: no account, no savings cap, and no login prompt.
+    # Local savings are tracked and shown regardless (see `lc session stats`).
+    printf "%b💰 Savings tracking:%b all local. '%s account login' to opt in to see savings online.\n\n" "$C_PURPLE" "$C_RESET" "$cli"
 
     return "$FINAL_EXIT_CODE"
 }

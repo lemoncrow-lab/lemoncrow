@@ -198,9 +198,10 @@ def _pid_is_running(pid: int) -> bool:
 def _probe_live_sessions(reg: dict[str, Any]) -> int | None:
     """Best-effort live-session count for a daemon via its /healthz route."""
     try:
-        import httpx
+        from lemoncrow.gateway.adapters.mcp_daemon import _HEALTHZ_PATH, _UDS_BASE_URL, daemon_client
 
-        resp = httpx.get(f"http://127.0.0.1:{reg['port']}/healthz", timeout=1.0)
+        with daemon_client(reg, timeout=1.0) as client:
+            resp = client.get(_UDS_BASE_URL + _HEALTHZ_PATH)
         if resp.status_code == 200:
             return int(resp.json().get("live_sessions", 0))
     except Exception:
@@ -403,7 +404,7 @@ def mcp_daemons(ctx: click.Context, as_json: bool) -> None:
         if isinstance(started, (int, float)):
             age = _fmt_age(float(started))
         sessions = d.get("live_sessions")
-        parts = [f"  pid {d.get('pid'):<8}", f"{ws:<40}", f"port {d.get('port')}"]
+        parts = [f"  pid {d.get('pid'):<8}", f"{ws:<40}", f"uds {Path(str(d.get('socket') or '')).name}"]
         if age:
             parts.append(f"age {age}")
         if sessions is not None:
