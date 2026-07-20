@@ -170,7 +170,7 @@ def test_prune_removes_stale_agent_state_keeps_fresh(tmp_path: Path) -> None:
         "tool_input": {"edits": [{"path": "a.py:L1-L2", "new": "x"}]},
     }
     assert _run("loop_discipline_post.py", edit, tmp_path) == ""
-    state_dirs = list((tmp_path / ".lemoncrow").glob("workspaces/*/loop_discipline"))
+    state_dirs = list((tmp_path / ".lemoncrow").glob("workspace/loop_discipline"))
     assert state_dirs, "per-agent state dir created"
     sd = state_dirs[0]
     assert (sd / "fresh.json").exists()

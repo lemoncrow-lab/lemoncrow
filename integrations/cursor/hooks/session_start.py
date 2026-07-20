@@ -5,7 +5,7 @@ Cursor never sets a session env var for MCP server subprocesses, so without
 this bridge every LemonCrow MCP tool call's savings row is diverted to the
 unattributed quarantine ledger and the session always shows Saved $0 even
 though Cost displays correctly. This hook writes the live session id into
-``workspaces/<hash>/session_state.json``, which
+``<workspace>/.lemoncrow/workspace/session_state.json``, which
 ``mcp_server._resolved_host_session()`` reads as its fallback.
 
 Payload (cursor.com/docs/hooks, sessionStart): base fields include
@@ -14,37 +14,15 @@ Payload (cursor.com/docs/hooks, sessionStart): base fields include
 the session id LemonCrow's Cursor importer keys Traces on).
 
 Self-contained on purpose: hooks run under Cursor's environment with no
-PYTHONPATH guarantee, so no lemoncrow import. ``_workspace_key`` mirrors
-``lemoncrow.core.foundation.paths.workspace_key`` byte-for-byte.
+PYTHONPATH guarantee, so no lemoncrow import.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
-from hashlib import sha256
 from pathlib import Path
-
-
-def _lemoncrow_root() -> Path:
-    root = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
-    return Path(root) if root else Path.home() / ".lemoncrow"
-
-
-def _workspace_key(path: str) -> str:
-    resolved = Path(path).expanduser().resolve()
-    home = Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = tuple(p for p in resolved.parts if p and p != "/")
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
 
 
 def main() -> int:
@@ -61,7 +39,7 @@ def main() -> int:
     workspace = workspace or os.getcwd()
 
     if session_id:
-        state_path = _lemoncrow_root() / "workspaces" / _workspace_key(workspace) / "session_state.json"
+        state_path = Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
         try:
             state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
             if not isinstance(state, dict):

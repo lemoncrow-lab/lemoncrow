@@ -80,9 +80,7 @@ def test_copilot_session_start_writes_session_state_bridge(tmp_path: Path) -> No
     )
     assert proc.returncode == 0, proc.stderr
 
-    from lemoncrow.core.foundation.paths import workspace_key
-
-    state_path = root / "workspaces" / workspace_key(ws) / "session_state.json"
+    state_path = ws.resolve() / ".lemoncrow" / "workspace" / "session_state.json"
     assert state_path.is_file()
     assert json.loads(state_path.read_text(encoding="utf-8"))["session_id"] == "cop-sess-1"
 

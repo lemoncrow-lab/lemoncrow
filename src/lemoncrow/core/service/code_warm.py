@@ -23,7 +23,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from lemoncrow.core.foundation.paths import default_store_root, workspace_key
+from lemoncrow.core.foundation.paths import default_store_root, resolve_workspace_store_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _skip_ephemeral_rewarm(workspace: Path) -> bool:
     tmp_roots = {Path(tempfile.gettempdir()).resolve(), Path("/var/tmp"), Path("/dev/shm")}
     if not any(root == workspace or root in workspace.parents for root in tmp_roots):
         return False
-    db = default_store_root() / "workspaces" / workspace_key(workspace) / "code_context.sqlite"
+    db = resolve_workspace_store_dir(workspace_root=workspace) / "code_context.sqlite"
     return db.exists()
 
 
