@@ -78,6 +78,17 @@ def _daemon_lock_path(root: Path, ws_hash: str) -> Path:
     return _daemon_dir(root) / f"{ws_hash}.lock"
 
 
+def _daemon_startup_lock_path(root: Path, ws_hash: str) -> Path:
+    """Separate lock for ``run_daemon``'s own self-check (see its call site).
+
+    Must NOT be ``_daemon_lock_path``: ``ensure_daemon`` holds that lock for its
+    entire find-or-spawn call, including the up-to-30s wait for the spawned
+    child to become healthy. If the child also locked that same file before
+    binding, it would deadlock against its own still-waiting parent.
+    """
+    return _daemon_dir(root) / f"{ws_hash}.startup.lock"
+
+
 def _daemon_log_path(root: Path, ws_hash: str) -> Path:
     return _daemon_dir(root) / f"{ws_hash}.log"
 
@@ -380,13 +391,32 @@ def run_daemon(
     sock_path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         os.chmod(sock_path.parent, 0o700)  # per-user socket dir
-    with contextlib.suppress(FileNotFoundError):
-        sock_path.unlink()
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.bind(str(sock_path))
-    with contextlib.suppress(OSError):
-        os.chmod(sock_path, 0o600)
-    token = secrets.token_urlsafe(32)
+
+    # run_daemon() is also reachable directly via the hidden ``lc mcp daemon``
+    # command (bypassing ensure_daemon's lock + health-probe entirely), and a
+    # respawn can otherwise race a predecessor that is still healthy. Re-check
+    # under a dedicated startup lock (NOT ensure_daemon's spawn lock -- see
+    # ``_daemon_startup_lock_path``), and claim the registration before
+    # releasing it, so at most one live daemon ever owns this workspace's
+    # socket regardless of how this process was launched -- instead of
+    # unconditionally stealing the socket path out from under it.
+    with _FileLock(_daemon_startup_lock_path(root, ws_hash)):
+        existing = read_daemon_registration(root, ws_hash)
+        if existing is not None and _probe_healthy(existing):
+            _log.info(
+                "MCP daemon: workspace %s already served by pid=%s; exiting instead of stealing the socket",
+                workspace,
+                existing.get("pid"),
+            )
+            return
+        with contextlib.suppress(FileNotFoundError):
+            sock_path.unlink()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(str(sock_path))
+        with contextlib.suppress(OSError):
+            os.chmod(sock_path, 0o600)
+        token = secrets.token_urlsafe(32)
+        _write_registration(root, ws_hash, socket_path=str(sock_path), token=token, workspace=workspace)
 
     activity = _ActivityTracker()
     live = _LiveSessions()
