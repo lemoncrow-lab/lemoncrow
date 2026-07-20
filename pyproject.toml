@@ -16,7 +16,7 @@ babel = { path = "vendor/babel-99.0.0-py3-none-any.whl" }
 
 [project]
 name = "lemoncrow"
-version = "0.5.0"
+version = "0.5.1"
 description = "Context and execution runtime for coding agents — code intelligence, bounded tools, durable memory, and verification."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -123,7 +123,7 @@ packages = ["src/lemoncrow"]
 "integrations" = "lemoncrow/integrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
-# hatch_build.py: compiles src/lemoncrow/ with mypyc (skipped if LEMONCROW_SKIP_MYPYC=1)
+# hatch_build.py: compiles src/lemoncrow/ with mypyc when LEMONCROW_ENABLE_MYPYC=1 (else pure-Python)
 
 [tool.ruff]
 line-length = 120
