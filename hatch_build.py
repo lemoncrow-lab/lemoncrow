@@ -16,7 +16,8 @@ What it does
 Pure-Python is the DEFAULT, officially-supported distribution. The mypyc
 compile is EXPERIMENTAL and opt-in: set LEMONCROW_ENABLE_MYPYC=1 to enable it
 (and only publish a compiled build once CI verifies it on every supported
-platform). LEMONCROW_SKIP_MYPYC=1 remains honored as an explicit force-skip.
+platform). scripts/build.sh forces it on for releases; there is no separate
+skip flag -- unset (or LEMONCROW_ENABLE_MYPYC=0) is the pure-Python build.
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ def _mypyc_importable() -> bool:
         import importlib.util
 
         return importlib.util.find_spec("mypyc") is not None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -120,6 +121,11 @@ _SKIP_PATHS = {
     "lemoncrow/gateway/adapters/mcp_server.py",
     # mypyc does not support async generators (async def with yield).
     "lemoncrow/gateway/adapters/mcp_http.py",
+    # FastAPI DI defaults (Header()/Depends()/Request) are sentinel objects that
+    # violate the compiled parameter's type annotation, so mypyc raises
+    # "str object expected; got fastapi.params.Header" the instant run_daemon
+    # defines its route handlers. Ship interpreted like the FastAPI modules above.
+    "lemoncrow/gateway/adapters/mcp_daemon.py",
 }
 
 
@@ -135,9 +141,6 @@ class CustomBuildHook(BuildHookInterface):
                 flush=True,
             )
             return
-        if os.environ.get("LEMONCROW_SKIP_MYPYC") == "1":
-            return
-
         # Editable installs (uv run / pip install -e) must never compile.
         # Shipping .so files breaks live source editing and forces a full
         # ~296-module mypyc recompile on every `uv run` sync. Only real wheel
@@ -145,13 +148,15 @@ class CustomBuildHook(BuildHookInterface):
         if version == "editable":
             return
 
-        # mypyc is shipped with mypy; skip gracefully if not installed
-        # (e.g. bare `uv build --wheel` without dev deps — use LEMONCROW_SKIP_MYPYC=1
-        # to suppress this warning).
+        # mypyc ships with mypy; if it is missing we cannot produce a compiled
+        # wheel. Fall through to pure-Python here -- the source-leak guard in
+        # finalize() then FAILS the build when compilation was required
+        # (LEMONCROW_ENABLE_MYPYC=1), so a source-shipping wheel never escapes.
         if not _mypyc_importable():
             print(
-                "[hatch-mypyc] mypyc not importable — skipping mypyc compilation."
-                " Set LEMONCROW_SKIP_MYPYC=1 if intentional.",
+                "[hatch-mypyc] mypyc not importable — cannot compile. Install the dev"
+                " deps (mypy) for a compiled wheel, or unset LEMONCROW_ENABLE_MYPYC"
+                " for a pure-Python build.",
                 flush=True,
             )
             return
@@ -191,11 +196,26 @@ class CustomBuildHook(BuildHookInterface):
         for so in module_sos:
             build_data.setdefault("force_include", {})[str(so)] = str(so.relative_to(src_dir))
 
-        # Open-source build: KEEP the .py source alongside the compiled .so so the
-        # wheel is source-readable. mypyc is an optional performance layer, never a
-        # source-stripping obfuscation step. See docs/maintenance-mode-transition.md.
+        # Compiled build: ship ONLY the .so for every module that produced one, so
+        # source never lands in the wheel (IP protection) and the wheel stays lean --
+        # the readable source lives in Git, not the package. Strip each compiled
+        # module's .py from the build tree now; finalize() restores the working-tree
+        # sources after the wheel is assembled. Modules with no .so (skip-listed
+        # FastAPI/click/pydantic modules, __main__ shims, any uncompilable pro
+        # module) necessarily still ship as .py.
         self._deleted_py: dict[pathlib.Path, str] = {}
-        print(f"[hatch-mypyc] compiled {len(module_sos)} modules; .py source retained in wheel", flush=True)
+        for rel in compilable:
+            py_path = src_dir / rel
+            try:
+                self._deleted_py[py_path] = py_path.read_text(encoding="utf-8")
+                py_path.unlink()
+            except OSError:
+                pass
+        print(
+            f"[hatch-mypyc] compiled {len(module_sos)} modules; "
+            f"stripped {len(self._deleted_py)} .py from wheel (.so only)",
+            flush=True,
+        )
 
     def finalize(self, version: str, build_data: dict[str, Any], artifact_path: str) -> None:
         repo = pathlib.Path(self.root)
@@ -216,6 +236,74 @@ class CustomBuildHook(BuildHookInterface):
             shutil.rmtree(mypy_cache, ignore_errors=True)
 
         print("[hatch-mypyc] source restored, artifacts cleaned", flush=True)
+
+        # Source-leak guard: a compiled wheel must never ship the source it just
+        # replaced, AND a build that ASKED to compile (LEMONCROW_ENABLE_MYPYC=1)
+        # must not silently fall back to a pure-Python, source-shipping wheel.
+        # Self-gating on sdists and on intentional pure-Python builds.
+        mypyc_requested = os.environ.get("LEMONCROW_ENABLE_MYPYC") == "1" and version != "editable"
+        _assert_no_source_leak(artifact_path, require_compiled=mypyc_requested)
+
+
+def _assert_no_source_leak(artifact_path: str, require_compiled: bool = False) -> None:
+    """Fail the build if the compiled wheel ships source it must not.
+
+    Two invariants for a mypyc-compiled wheel:
+      1. No module that compiled to a ``.so`` may ALSO ship its ``.py`` -- a
+         stale or failed strip would leak the very source the ``.so`` replaces.
+      2. No ``lemoncrow/pro/`` module may ship as ``.py`` at all: the pro tree is
+         the closed engine and must be 100% compiled. An uncompilable pro module
+         is a release blocker, never a silent source leak.
+
+    Uncompilable OPEN modules (pydantic/click/FastAPI/hook scripts) have no
+    ``.so`` and legitimately ship as ``.py`` -- those are allowed.
+
+    When *require_compiled* is set (the caller expected a mypyc build, i.e.
+    ``LEMONCROW_ENABLE_MYPYC=1``), a wheel with NO ``.so`` is itself a failure:
+    compilation silently fell back to a pure-Python wheel that ships all source.
+    This is the guard against an accidental uncompiled release.
+    """
+    import re
+    import zipfile
+
+    if not artifact_path.endswith(".whl"):
+        return  # sdists ship pure source by design; the guard only covers wheels.
+
+    with zipfile.ZipFile(artifact_path) as zf:
+        names = set(zf.namelist())
+
+    if not any(n.endswith(".so") for n in names):
+        if require_compiled:
+            raise RuntimeError(
+                f"[hatch-mypyc] REFUSING to ship {os.path.basename(artifact_path)}: "
+                "LEMONCROW_ENABLE_MYPYC=1 requested a compiled wheel but it contains no "
+                ".so -- mypyc did not run (not importable?), so this wheel would ship ALL "
+                "source, including the closed lemoncrow/pro engine."
+            )
+        return  # intentional pure-Python build: every .py legitimately ships.
+
+    so_stems = {re.sub(r"\.cpython-.*\.so$", "", n) for n in names if n.endswith(".so")}
+    twin_leaks = sorted(f"{stem}.py" for stem in so_stems if f"{stem}.py" in names)
+    pro_leaks = sorted(n for n in names if n.startswith("lemoncrow/pro/") and n.endswith(".py"))
+
+    problems = []
+    if twin_leaks:
+        problems.append(
+            f"{len(twin_leaks)} compiled module(s) shipped BOTH .so and .py:\n    " + "\n    ".join(twin_leaks)
+        )
+    if pro_leaks:
+        problems.append(
+            f"{len(pro_leaks)} closed-engine lemoncrow/pro source file(s) shipped as .py:\n    "
+            + "\n    ".join(pro_leaks)
+        )
+    if problems:
+        raise RuntimeError(
+            f"[hatch-mypyc] SOURCE LEAK in {os.path.basename(artifact_path)}:\n" + "\n".join(problems)
+        )
+    print(
+        "[hatch-mypyc] source-leak check PASSED: no compiled .py twins, no lemoncrow/pro/*.py",
+        flush=True,
+    )
 
 
 def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list[str]:
