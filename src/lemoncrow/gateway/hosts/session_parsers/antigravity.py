@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     record_normalized_session,
 )
 from lemoncrow.infra.storage.bundle import StoreBundle
+
+logger = logging.getLogger(__name__)
+
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _cache_path(root: Path | None = None) -> Path:
@@ -53,6 +58,21 @@ class AntigravityImporter:
         )
         if limit is not None:
             sorted_cascades = sorted_cascades[:limit]
+        if not force:
+            cutoff = datetime.now(UTC) - timedelta(days=_MAX_SESSION_AGE_DAYS)
+            before = len(sorted_cascades)
+            sorted_cascades = [
+                (cid, c)
+                for cid, c in sorted_cascades
+                if (c.get("calls", [{}])[0].get("timestamp", "") if isinstance(c, dict) and c.get("calls") else "")
+                >= cutoff.isoformat()
+            ]
+            if before != len(sorted_cascades):
+                logger.info(
+                    "antigravity: skipped %d cascades older than %d days",
+                    before - len(sorted_cascades),
+                    _MAX_SESSION_AGE_DAYS,
+                )
 
         imported: list[str] = []
         for cascade_id, cascade in sorted_cascades:
