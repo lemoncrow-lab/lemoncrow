@@ -31,10 +31,10 @@ tar -C /opt -xzf /out/lemoncrow-bundle.tar.gz
 test -x /opt/lemoncrow-venv/bin/python
 export UV_PYTHON_INSTALL_DIR=/opt/uvpy
 
-# The original bundle is pure-Python lemoncrow (no mypyc .so), so skip the mypyc
-# build hook to match it -- also avoids needing a C toolchain here, and avoids
+# The original bundle is pure-Python lemoncrow (no mypyc .so), so keep the mypyc
+# build hook off to match it -- also avoids needing a C toolchain here, and avoids
 # the hook's mypy run writing .mypy_cache into the (read-only) source.
-export LEMONCROW_SKIP_MYPYC=1
+export LEMONCROW_ENABLE_MYPYC=0
 
 # Build from a WRITABLE copy (repo is mounted read-only). Copy only what the
 # wheel build needs: packages=src/lemoncrow + force-include integrations + the

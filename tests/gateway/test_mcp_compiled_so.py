@@ -23,8 +23,8 @@ failing on the stringified one (the ``.py``-works/``.so``-fails divergence).
 
 These are slow -- the mypyc build takes minutes -- and gated behind
 ``@pytest.mark.slow`` (the whole module via ``pytestmark``).  When the host
-cannot build the wheel (no ``uv``/compiler, or ``LEMONCROW_SKIP_MYPYC`` produced a
-pure-python wheel) the tests SKIP with a clear reason rather than error.
+cannot build the wheel (no ``uv``/compiler) the tests SKIP with a clear reason
+rather than error.
 """
 
 from __future__ import annotations
@@ -145,8 +145,8 @@ def compiled_wheel(tmp_path_factory: pytest.TempPathFactory) -> _CompiledWheel:
     gate_path.write_text(gate_source, encoding="utf-8")
     out_dir = build_base / "wheel"
 
-    # Must NOT skip mypyc -- a pure-python wheel cannot exercise the .so path.
-    env = {k: v for k, v in os.environ.items() if k != "LEMONCROW_SKIP_MYPYC"}
+    # Must compile -- a pure-python wheel cannot exercise the .so path.
+    env = {**os.environ, "LEMONCROW_ENABLE_MYPYC": "1"}
     proc = subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
         cwd=str(repo_copy),
