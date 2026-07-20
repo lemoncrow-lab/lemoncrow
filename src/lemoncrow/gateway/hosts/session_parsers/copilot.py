@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -150,6 +151,7 @@ def _parse_workspace_dt(val: Any) -> datetime:
 
 _TRANSCRIPT_PATH_RE = re.compile(r"(?P<path>(?:[A-Za-z]:[\\/]|/)[^\s\"'`<>()\[\]{}]+)")
 _MAX_TRANSCRIPT_PARENT_DELTA = timedelta(hours=8)
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _iter_nested_strings(value: Any) -> Iterator[str]:
@@ -403,6 +405,19 @@ class CopilotImporter:
         all_sessions = get_newest(list(find_copilot_sessions(root)), limit)
         all_transcripts = get_newest(list(find_copilot_transcript_files(root)), limit)
         all_debug_logs = get_newest(list(find_copilot_debug_log_dirs(root)), limit)
+        if not force:
+            cutoff = time.time() - (_MAX_SESSION_AGE_DAYS * 86400)
+            before_s = len(all_sessions)
+            all_sessions = [p for p in all_sessions if p.stat().st_mtime > cutoff]
+            before_t = len(all_transcripts)
+            all_transcripts = [p for p in all_transcripts if p.stat().st_mtime > cutoff]
+            before_d = len(all_debug_logs)
+            all_debug_logs = [p for p in all_debug_logs if p.stat().st_mtime > cutoff]
+            skipped_age = (
+                (before_s - len(all_sessions)) + (before_t - len(all_transcripts)) + (before_d - len(all_debug_logs))
+            )
+            if skipped_age:
+                logger.info("copilot: skipped %d artifacts older than %d days", skipped_age, _MAX_SESSION_AGE_DAYS)
 
         total = len(all_sessions) + len(all_transcripts) + len(all_debug_logs)
         logger.info(

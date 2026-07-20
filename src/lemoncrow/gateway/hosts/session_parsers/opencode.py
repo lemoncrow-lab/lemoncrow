@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -53,6 +54,7 @@ def _sha256(text: str) -> str:
 # read/grep/glob/list/search tools -- is recorded as a plain touched path,
 # not a synthesized edit+diff (see OpenCodeImporter.import_session).
 _FILE_WRITE_TOOL_NAMES = {"edit", "write", "multiedit", "patch", "apply_patch", "create"}
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _is_file_write_tool(name: str) -> bool:
@@ -156,6 +158,16 @@ class OpenCodeImporter:
         # key so an active session isn't starved by older, never-updated ones
         # once `limit` is applied.
         all_sessions.sort(key=lambda row: row.get("time_updated") or row.get("time_created") or 0, reverse=True)
+        if not force:
+            cutoff = time.time() - (_MAX_SESSION_AGE_DAYS * 86400)
+            before = len(all_sessions)
+            all_sessions = [s for s in all_sessions if (s.get("time_updated") or s.get("time_created") or 0) > cutoff]
+            if before != len(all_sessions):
+                logger.info(
+                    "opencode: skipped %d sessions older than %d days",
+                    before - len(all_sessions),
+                    _MAX_SESSION_AGE_DAYS,
+                )
         total = len(all_sessions)
         if limit is not None:
             all_sessions = all_sessions[:limit]

@@ -213,7 +213,7 @@ def servicectl_group() -> None:
 
 @servicectl_group.command("tick")
 @click.option("--maintenance-interval-seconds", default=300, show_default=True, type=int)
-@click.option("--session-import-interval-seconds", default=60, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=1800, show_default=True, type=int)
 @click.option("--auto-update", is_flag=True, help="Apply git auto-update if available (exits 3 when applied).")
 @click.option("--auto-update-interval-seconds", default=3600, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
@@ -445,11 +445,11 @@ def servicectl_status(ctx: click.Context, as_json: bool) -> None:
 
 
 @servicectl_group.command("run", hidden=True)
-@click.option("--interval-seconds", default=60, show_default=True, type=int)
-@click.option("--maintenance-interval-seconds", default=300, show_default=True, type=int)
-@click.option("--session-import-interval-seconds", default=60, show_default=True, type=int)
+@click.option("--interval-seconds", default=300, show_default=True, type=int)
+@click.option("--maintenance-interval-seconds", default=900, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=1800, show_default=True, type=int)
 @click.option("--auto-update", is_flag=True, help="Check for git updates periodically.")
-@click.option("--auto-update-interval-seconds", default=3600, show_default=True, type=int)
+@click.option("--auto-update-interval-seconds", default=7200, show_default=True, type=int)
 @click.pass_context
 def servicectl_run(
     ctx: click.Context,

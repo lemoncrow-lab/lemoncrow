@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from lemoncrow.infra.storage.bundle import StoreBundle
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_MODELS = {"", "auto", "default", "composer-2"}
+_MAX_SESSION_AGE_DAYS = 5
 # Cursor's bubble schema only ever carries type 1 (user) and type 2
 # (assistant) in practice. Anything else is treated as neither -- it must
 # not be billed as a fabricated assistant turn (see import_all).
@@ -294,6 +295,18 @@ class CursorImporter:
 
         # Rank sessions by their newest bubble, newest first, and honor `limit`.
         newest_first = sorted(groups, key=lambda cid: composer_last_created.get(cid, ""), reverse=True)
+        if not force:
+            cutoff = datetime.now(UTC) - timedelta(days=_MAX_SESSION_AGE_DAYS)
+            before = len(newest_first)
+            newest_first = [
+                cid
+                for cid in newest_first
+                if parse_datetime(composer_last_created.get(cid, ""), default=db_mtime) >= cutoff
+            ]
+            if before != len(newest_first):
+                logger.info(
+                    "cursor: skipped %d sessions older than %d days", before - len(newest_first), _MAX_SESSION_AGE_DAYS
+                )
         selected_ids = newest_first[:limit] if limit is not None else newest_first
         for composer_id in selected_ids:
             group = groups[composer_id]

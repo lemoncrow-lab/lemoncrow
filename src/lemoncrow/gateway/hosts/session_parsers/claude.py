@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -57,6 +58,7 @@ _FILE_TOOLS = {
     "MultiEdit",
 }
 _SUBAGENT_TOOL_NAMES = {"agent", "task"}
+_MAX_SESSION_AGE_DAYS = 5
 
 
 def _utcnow() -> datetime:
@@ -227,6 +229,14 @@ class ClaudeImporter:
             return sorted_paths[:n] if n is not None else sorted_paths
 
         all_sessions = get_newest(list(find_claude_sessions(root)), limit)
+        if not force:
+            cutoff = time.time() - (_MAX_SESSION_AGE_DAYS * 86400)
+            before = len(all_sessions)
+            all_sessions = [(slug, p) for slug, p in all_sessions if p.stat().st_mtime > cutoff]
+            if before != len(all_sessions):
+                logger.info(
+                    "claude: skipped %d sessions older than %d days", before - len(all_sessions), _MAX_SESSION_AGE_DAYS
+                )
         total = len(all_sessions)
 
         logger.info(
