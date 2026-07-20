@@ -4,6 +4,14 @@
 # This is the main entrypoint for CI and local release builds.
 set -euo pipefail
 
+# Force the mypyc-compiled build. This is the release entrypoint, and a pure-Python
+# wheel would ship EVERY source file (including the closed lemoncrow/pro engine).
+# hatch_build.py compiles only when LEMONCROW_ENABLE_MYPYC=1, so hard-set it here: a
+# bare `bash scripts/build.sh` (or a CI job that forgets the prefix) can never produce
+# a source-shipping release, and there is no skip escape hatch. For a pure-Python
+# artifact, run `uv build --wheel` directly instead of this script.
+export LEMONCROW_ENABLE_MYPYC=1
+
 # 1. Clean ONLY local build/dist/bundle artifacts so the wheel and release
 #    archive are rebuilt fresh. The uv cache at ~/.cache/uv is deliberately left
 #    untouched — we want a rebuild that REUSES the cache, never a cold
@@ -31,8 +39,9 @@ if [ -d "frontend" ]; then
 fi
 
 # 3. Build mypyc-compiled wheel
-# hatch_build.py hook compiles ~440 modules with mypyc (skip with LEMONCROW_SKIP_MYPYC=1),
-# strips .py source for compiled modules, and packages a platform-specific wheel.
+# hatch_build.py compiles ~440 modules with mypyc (LEMONCROW_ENABLE_MYPYC=1, forced
+# above), strips the .py source for every compiled module, and fails the build if any
+# source (or the whole uncompiled wheel) would leak.
 # Refresh the model pricing snapshot from the litellm version pinned in uv.lock.
 # This runs before the wheel build so the wheel ships the freshest data available
 # without requiring litellm at runtime.
