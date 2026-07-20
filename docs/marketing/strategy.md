@@ -60,7 +60,7 @@ Do not claim:
 2. **37.7% fewer turns** and **23.7% less wall-clock**.
 3. Retrieval evaluation: **0.727 semantic MRR**, with every named provider scored on the same corpus.
 4. Cost: **29.5% lower** in the flagship run—supporting evidence, not the headline.
-5. Terminal-Bench: accuracy effectively flat (−0.2pp); publish it.
+5. Terminal-Bench: +1.1pp accuracy on a matched 5-rep run (80.0% vs 78.9%), 91.8% fewer fresh input tokens; publish it.
 6. Raw runs and reproduction commands linked wherever a number appears.
 
 ## 6. Homepage arc
