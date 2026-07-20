@@ -288,13 +288,11 @@ def find_session_dir(root: Path | str, session_id: str) -> Path | None:
 def resolve_session_state_path(workspace_root: Path | str | None = None) -> Path:
     """Resolve the path for session-specific state (failures, current run ID).
 
-    Stored within the global store root under a workspace-specific subfolder
-    to prevent collisions between multiple open projects.
+    Lives under the project's own runtime cache dir (see
+    :func:`resolve_workspace_store_dir`) so it travels with the project
+    instead of a global store keyed by a path hash.
     """
-    root = default_store_root()
-    ws = resolve_workspace_root(Path(workspace_root) if workspace_root else None)
-    h = workspace_key(ws)
-    return root / "workspaces" / h / "session_state.json"
+    return resolve_workspace_store_dir(workspace_root=workspace_root or None) / "session_state.json"
 
 
 def _derive_workspace_root(root: Path | str | None) -> Path | None:
@@ -360,28 +358,36 @@ _ensure_gitignore = ensure_gitignore  # compat alias for internal use
 
 
 def resolve_workspace_store_dir(root: Path | str | None = None, workspace_root: Path | str | None = None) -> Path:
-    """Return the per-project runtime subdir under the global store root.
+    """Single source of truth for the project-local runtime cache dir.
 
-    Mirrors the convention already used by ``code_context.sqlite`` and
-    ``session_state.json``: ``<store_root>/workspaces/<sha256(workspace)[:12]>``.
-    Keeps per-project runtime artifacts (blocks/rubrics mirrors, etc.) isolated so
-    one project cannot pollute another, while living in the global store rather
-    than the Git-tracked ``.lemoncrow/lessons`` (which is reserved for real knowledge).
+    Returns ``<workspace_root>/.lemoncrow/workspace/``. Per-project runtime
+    state -- the code index, embeddings, session state, blocks/rubrics
+    mirrors, and every other rebuildable per-project cache -- lives inside
+    the project itself instead of a global store keyed by a path hash.
+    Deleting the project (or its ``.lemoncrow/`` dir) cleans everything;
+    nothing orphans in the global store.
+
+    When *workspace_root* is given, it is used verbatim -- no git/marker
+    resolution, no raising -- because the caller already knows the project
+    root (an indexer's ``repo_root`` argument, an env-derived workspace
+    path, ...). Otherwise the active workspace is auto-detected via
+    :func:`resolve_workspace_root`, using *root* as a legacy hint (may raise
+    ``WorkspaceNotRegisteredError`` when cwd is outside any git repo or
+    registered workspace).
     """
-    store_root = Path(root).expanduser().resolve() if root is not None else default_store_root()
-    ws = resolve_workspace_root(workspace_root if workspace_root is not None else root)
-    digest = workspace_key(ws)
-    return store_root / "workspaces" / digest
+    ws = Path(workspace_root).expanduser().resolve() if workspace_root is not None else resolve_workspace_root(root)
+    return ws / DEFAULT_STORE_DIRNAME / "workspace"
 
 
 def resolve_store_root_for_workspace(workspace_root: Path | str | None = None) -> Path:
-    """Return the per-workspace store root, falling back to the global store.
+    """Return the per-workspace runtime cache dir, falling back to the global store.
 
     When a workspace root is known this returns
-    ``<store_root>/workspaces/<workspace_key>/`` so that sessions and raw
-    artifacts live alongside the code index for the same project.  When the
-    workspace root cannot be determined the global store root is returned so
-    callers never crash.
+    ``<workspace_root>/.lemoncrow/workspace/`` (see
+    :func:`resolve_workspace_store_dir`) so that sessions and raw artifacts
+    live alongside the code index for the same project.  When the workspace
+    root cannot be determined the global store root is returned so callers
+    never crash.
 
     Precedence for workspace discovery (when *workspace_root* is not given):
     1. ``LEMONCROW_WORKSPACE_ROOT``

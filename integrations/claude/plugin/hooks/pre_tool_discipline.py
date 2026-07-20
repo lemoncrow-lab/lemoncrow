@@ -26,29 +26,6 @@ from pathlib import Path
 from typing import Any
 
 
-def _root() -> Path:
-    raw = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
-    return Path(raw) if raw else Path.home() / ".lemoncrow"
-
-
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
-
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
 def _agent_key(payload: dict[str, Any]) -> str:
     """Per-agent state key so a read-only sub-agent never inherits another
     agent's edits.
@@ -67,8 +44,7 @@ def _agent_key(payload: dict[str, Any]) -> str:
 
 def _edited_paths(agent_key: str) -> set[str]:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    h = _workspace_key(workspace)
-    sp = _root() / "workspaces" / h / "loop_discipline" / f"{agent_key}.json"
+    sp = Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "loop_discipline" / f"{agent_key}.json"
     with contextlib.suppress(OSError, json.JSONDecodeError):
         data = json.loads(sp.read_text("utf-8"))
         if isinstance(data, dict):
@@ -200,7 +176,7 @@ def _dormant() -> bool:
             or str(Path.home() / ".lemoncrow")
         )
         return bool(cap_exhausted(root))
-    except Exception:  # noqa: BLE001 — fail-open (active)
+    except Exception:
         return False
 
 

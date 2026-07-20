@@ -108,7 +108,9 @@ def test_store_root_for_workspace_uses_git_repo(tmp_path: Path, monkeypatch: pyt
     monkeypatch.chdir(repo)
     result = resolve_store_root_for_workspace()
     assert result != default_store_root()
-    assert result.parent.name == "workspaces"
+    assert result.parent.name == DEFAULT_STORE_DIRNAME
+    assert result.name == "workspace"
+    assert result.parent.parent == repo.resolve()
 
 
 def test_store_root_for_workspace_uses_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,4 +120,6 @@ def test_store_root_for_workspace_uses_marker(tmp_path: Path, monkeypatch: pytes
     monkeypatch.chdir(project)
     result = resolve_store_root_for_workspace()
     assert result != default_store_root()
-    assert result.parent.name == "workspaces"
+    assert result.parent.name == DEFAULT_STORE_DIRNAME
+    assert result.name == "workspace"
+    assert result.parent.parent == project.resolve()

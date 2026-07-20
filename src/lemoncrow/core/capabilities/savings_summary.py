@@ -1253,10 +1253,9 @@ def _resolve_workspace_session_id(workspace: str | None, root_path: Path) -> str
         return ""
 
     try:
-        from lemoncrow.core.foundation.paths import workspace_key
+        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
-        ws_hash = workspace_key(Path(workspace).resolve())
-        state_path = root_path / "workspaces" / ws_hash / "session_state.json"
+        state_path = resolve_workspace_store_dir(workspace_root=Path(workspace)) / "session_state.json"
         if not state_path.is_file():
             return ""
         data = json.loads(state_path.read_text(encoding="utf-8"))

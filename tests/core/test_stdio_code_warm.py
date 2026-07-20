@@ -55,14 +55,10 @@ def test_warm_invoked_once_per_workspace(monkeypatch: pytest.MonkeyPatch, tmp_pa
 def test_warm_skips_ephemeral_workspace_with_existing_index(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Temp workspaces are indexed once, never re-warmed (issue: daemon
     restarts re-fired multi-hour index builds for /tmp bench clones)."""
-    from lemoncrow.core.foundation.paths import workspace_key
-
     fired = _patch_fire(monkeypatch)
-    store_root = tmp_path / "store"
-    monkeypatch.setattr(code_warm, "default_store_root", lambda: store_root)
     ws = tmp_path / "idx_ws_bench"
     ws.mkdir()
-    db_dir = store_root / "workspaces" / workspace_key(ws.resolve())
+    db_dir = ws.resolve() / ".lemoncrow" / "workspace"
     db_dir.mkdir(parents=True)
     (db_dir / "code_context.sqlite").touch()
     assert code_warm.warm_stdio_workspace(ws) is False  # already indexed: skip

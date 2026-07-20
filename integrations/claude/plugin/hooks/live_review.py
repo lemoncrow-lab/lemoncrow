@@ -17,31 +17,9 @@ import sys
 from pathlib import Path
 
 
-def _workspace_key(path: str) -> str:
-    import re
-    from hashlib import sha256
-    from pathlib import Path as _Path
-
-    resolved = _Path(path).expanduser().resolve()
-    home = _Path.home().resolve()
-    try:
-        parts = resolved.relative_to(home).parts
-    except ValueError:
-        parts = [p for p in resolved.parts if p and p != "/"]
-    sanitized = [re.sub(r"[^a-zA-Z0-9.\-_]", "-", p) for p in parts if p]
-    label = re.sub(r"-{2,}", "-", "-".join(sanitized)).strip("-")
-    if len(label) > 120:
-        label = label[:110].rstrip("-") + "--" + sha256(str(resolved).encode()).hexdigest()[:6]
-    return label or sha256(str(resolved).encode()).hexdigest()[:12]
-
-
 def _session_state_path() -> Path:
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    h = _workspace_key(workspace)
-    root = Path(
-        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
-    )
-    return root / "workspaces" / h / "session_state.json"
+    return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
 
 
 def _read_session_state() -> dict:  # type: ignore[type-arg]
@@ -87,7 +65,7 @@ def _dormant() -> bool:
         from lemoncrow.core.capabilities.plugin_runtime import cap_exhausted
 
         return bool(cap_exhausted(_lemoncrow_root()))
-    except Exception:  # noqa: BLE001 — fail-open (active)
+    except Exception:
         return False
 
 
@@ -127,7 +105,7 @@ def main() -> int:
             _spawn(session_id, "deep", edited, root)
         elif settings.live_reviewer:
             _spawn(session_id, "live", edited, root)
-    except Exception:  # noqa: BLE001 - hook must never block the turn
+    except Exception:
         return 0
     return 0
 
