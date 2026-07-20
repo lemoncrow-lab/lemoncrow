@@ -267,6 +267,37 @@ def test_daemon_idle_reaps_without_sessions(repo_and_root: tuple[Path, Path]) ->
 
 
 @pytest.mark.slow
+def test_daemon_direct_invocation_does_not_steal_running_daemon(repo_and_root: tuple[Path, Path]) -> None:
+    """The hidden ``lc mcp daemon`` command can be invoked directly, bypassing
+    ensure_daemon's lock + health-check entirely. A second direct invocation for
+    a workspace that already has a healthy daemon must exit gracefully instead
+    of unlinking + rebinding the shared socket out from under it (regression
+    test for the daemon-churn bug that produced stale-token 403s)."""
+    work, root = repo_and_root
+    reg = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)
+
+    command = [
+        sys.executable,
+        "-m",
+        "lemoncrow.gateway.cli",
+        "--root",
+        str(root),
+        "mcp",
+        "daemon",
+        "--workspace",
+        str(work),
+    ]
+    second = subprocess.run(command, capture_output=True, text=True, timeout=20)
+    assert second.returncode == 0
+
+    reg2 = md.read_daemon_registration(root, reg["ws_hash"])
+    assert reg2 is not None
+    assert reg2["pid"] == reg["pid"]
+    assert reg2["token"] == reg["token"]
+    assert len(md.list_daemons(root)) == 1
+
+
+@pytest.mark.slow
 def test_two_bridges_share_one_daemon(repo_and_root: tuple[Path, Path]) -> None:
     work, root = repo_and_root
     env = _bridge_env(work, root, CLAUDE_CODE_SESSION_ID="sess-share")
