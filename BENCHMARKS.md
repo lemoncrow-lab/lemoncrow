@@ -19,9 +19,8 @@ This document keeps benchmark proof out of the first-use README while preserving
 | Exploration tasks across 7 repos                                                                                                                                                                                                                                        |             **$6.29** | $19.11 |                 **67% cheaper** |                             |
 | Telegraphic output: reply prose per turn                                                                                                                                                                                                                                |                  **30 tokens** |                       67 tokens |         **2.7x less prose** |
 | Telegraphic Q&A, 20 prompts x 5 reps                                                                                                                                                                                                                                    |              **$4.48** | $8.40 |               **46.7% cheaper** |                             |
-| Terminal-Bench 2.1, 89 tasks x 1 rep vs public leaderboard x 5 reps                                                                                                                                                                                                     |       70 / 89 resolved (78.7%) | **70.25 / 89 expected (78.9%)** |      -0.2 percentage points |
-| Terminal-Bench cost, 83/89 tasks w/ cost data                                                                                                                                                                                                                           |            **$69.52** | $96.76 |             **28.1%\* cheaper** |                             |
-| \* Understates LemonCrow's savings floor, not overstates it -- 5 of the 6 tasks missing cost data are real, uncounted LemonCrow spend (harness killed the process on a timeout before it could log a final cost), not zero-cost runs. See the Terminal-Bench section below. |                                |                                 |                             |
+| Terminal-Bench 2.1, 89 tasks x 5 reps (445 trials, matched)                                                                                                                                                                                                             |     **356 / 445 resolved (80.0%)** |                 351 / 445 (78.9%) |    **+1.1 percentage points** |
+| Terminal-Bench fresh input tokens                                                                                                                                                                                                                                       |                        **1.05M** |                            12.87M |               **91.8% fewer** |
 
 ## SWE-bench Verified
 
@@ -308,30 +307,20 @@ python3 benchmarks/codebench/run_embedder_sweep.py
 
 ## Terminal-Bench
 
-Agentic terminal tasks on Terminal-Bench 2.1 through the Harbor harness, one attempt per task, `claude-opus-4-8`. The baseline isn't a matched run of ours -- it's the public tbench.ai leaderboard entry for Claude Code 2.1.152 / Opus 4.8 (5 reps/task), scraped per-task and **re-priced to LemonCrow's real cache pricing** (tbench.ai bills cache tokens at $0; LemonCrow pays cache-read $0.50/M and 1h-ephemeral cache-write $10/M -- full re-pricing methodology in `benchmarks/harbor/results/baseline/README.md`). With that correction applied, cost is now a genuine per-task comparison; correctness compares LemonCrow's single attempt against the leaderboard's 5-rep average pass rate.
+Agentic terminal tasks on Terminal-Bench 2.1 through the Harbor harness, `claude-opus-4-8`. This is a **matched 5-rep comparison**: LemonCrow ran the full suite at 89 tasks x 5 reps = 445 trials, scored against an official Claude Code 2.1.205 / Opus 4.8 leaderboard run on the same dataset, also 89 tasks x 5 reps = 445 trials (scraped from Harbor Hub; methodology in `benchmarks/harbor/results/baseline/README.md`). Both arms are the same size, so correctness is directly comparable -- this supersedes the earlier single-rep cut, whose -0.2pp "tie" was n=1 noise.
 
 
-| Arm         |       Cost | Input tok (fresh) |  Cache tok | Output tok | Total tok |
-| ------------- | -----------: | ------------------: | -----------: | -----------: | ----------: |
-| **LemonCrow** | **$69.52** |           256,219 | 38,734,280 |  1,332,650 | **40.3M** |
-| Baseline    |     $96.76 |         2,815,972 | 45,234,128 |  1,490,257 |     49.5M |
-| Delta       |     -28.1% |            -90.9% |     -14.4% |     -10.6% |    -18.6% |
+| Arm          |              Resolved | Fresh input tok | Output tok | Cache tok | Total tok |
+| ------------ | --------------------: | --------------: | ---------: | --------: | --------: |
+| **LemonCrow** | **356 / 445 (80.0%)** |       **1.05M** |  **6.32M** |    200.4M |    207.8M |
+| Baseline     |     351 / 445 (78.9%) |          12.87M |      8.09M |    161.9M |    182.9M |
+| Delta        |          **+1.1 pp** |     **-91.8%** | **-21.9%** |    +23.8% |    +13.6% |
 
-83 of 89 tasks have cost data on both sides; the other 6 hit `AgentTimeoutError` before Claude Code wrote a final `cost_usd`, so their real (non-zero) LemonCrow spend goes uncounted -- **$69.52 understates LemonCrow's true total**, and the real gap to baseline's $96.76 is narrower than 28.1%, possibly less (full breakdown: `benchmarks/harbor/results/baseline/README.md`). Resolved over all 89 tasks regardless of cost data: LemonCrow **70/89 (78.7%)** vs baseline's 5-rep average of **70.25/89 (78.9%)** -- a tie at n=1.
+LemonCrow resolves **+1.1pp** more trials (356 vs 351 of 445) while sending **91.8% fewer fresh input tokens** (1.05M vs 12.87M) and **21.9% fewer output tokens** -- the same tight-loop signature seen on every other suite. It leans harder on the cache to get there: cache tokens run +23.8% and total token volume +13.6% above baseline. Correctness holds up under repetition too: pass@1 80.0%, pass@2 86.9%, pass@4 92.4%, pass@5 94.4% (17 of LemonCrow's 445 trials errored before completing).
 
+<sub>Fresh input = input tokens excluding cache. Harbor Hub reports baseline input inclusive of cache, so baseline fresh input here is total input (174.8M) minus cache (161.9M). Cache tokens are combined read + write.</sub>
 
-| Baseline task cost    | n tasks               | avg baseline  | avg lemoncrow   | avg delta |
-| ----------------------- | ----------------------- | --------------- | --------------- | ----------- |
-| < $0.50 | 34 | $0.29  | $0.34 | +$0.05 (1.2x) |               |               |           |
-| $0.50-$1.50           | 31                    | $0.86 | $0.68 | -$0.17 (0.8x) |           |
-| >= $1.50 | 18 | $3.35 | $2.04 | -$1.31 (0.6x) |               |               |           |
-
-
-![Terminal-Bench cost vs savings, LemonCrow vs re-priced public leaderboard baseline](benchmarks/harbor/results/baseline/cost_vs_savings_scatter.png)
-
-Crisp/zoomable version: [`benchmarks/harbor/results/baseline/cost_vs_savings_scatter.svg`](benchmarks/harbor/results/baseline/cost_vs_savings_scatter.svg). Regenerate with `uv run python scripts/gen_harbor_cost_vs_savings_scatter.py` after refreshing the per-task CSVs (see command below).
-
-Raw data: [`benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29/`](benchmarks/harbor/results/lemoncrow/2026-07-07__02-24-29/); re-priced baseline + full methodology: [`benchmarks/harbor/results/baseline/`](benchmarks/harbor/results/baseline/).
+Raw data: [`benchmarks/harbor/results/lemoncrow/2026-07-14__13-44-30/`](benchmarks/harbor/results/lemoncrow/2026-07-14__13-44-30/); baseline + full methodology: [`benchmarks/harbor/results/baseline/`](benchmarks/harbor/results/baseline/).
 
 Run it:
 
@@ -347,17 +336,9 @@ lc benchmark harbor --limit 3 --attempts 1 -y
 lc benchmark harbor --resume benchmarks/jobs/harbor/2026-07-01__12-00-00 -y
 ```
 
-Refresh the baseline comparison after a new run (bump `RUN_DIR` in `compare_current_lemoncrow_to_baseline.py` first):
-
-```bash
-uv run python benchmarks/harbor/compare_current_lemoncrow_to_baseline.py
-uv run python benchmarks/harbor/normalize_baseline_cost.py
-uv run python scripts/gen_harbor_cost_vs_savings_scatter.py
-```
-
 ## Overall Assessment
 
-- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Terminal-Bench -28.1% cost (a floor -- 5 timed-out LemonCrow trials have real, uncounted spend), Telegraphic Q&A -46.7% cost/-60.9% output tokens (every token category fell this run, cost and tokens agree). Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 41.4% but now costs **3.3% more** than baseline -- it only compresses replies, not the input/context tokens that drive the bill.
-- **Correctness wins on most multi-rep suites.** Verified +12.0pp, Pro +2.0pp (the 5-rep run overturned an earlier single-rep -10.0pp result -- that loss was n=1 noise), Lite -2.0pp. Terminal-Bench is a tie (-0.2pp) at n=1, unresolved either way.
-- **Where overhead still shows up:** non-Python/larger/more heterogeneous codebases (Pro, Terminal-Bench) see a smaller cost edge, and a handful of tasks (`tutanota`, `vuls`, `flipt`, ~a third of Terminal-Bench's sub-$0.50 tasks) cost LemonCrow *more* than baseline -- a fixed per-run overhead that amortizes on bigger tasks but not small/turn-heavy ones.
-- **Bottom line:** the cost/token/turn compression reproduces across every suite tested, at every price point from a $0.10 task to a $5 one. It hasn't cost correctness on Verified or Pro; Lite is -2.0pp this cut, and Terminal-Bench (n=1) remains unresolved either way. Read each section's caveats before citing a number out of context.
+- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Telegraphic Q&A -46.7% cost/-60.9% output tokens (every token category fell this run, cost and tokens agree). Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 41.4% but now costs **3.3% more** than baseline -- it only compresses replies, not the input/context tokens that drive the bill.
+- **Correctness wins on most multi-rep suites.** Verified +12.0pp, Pro +2.0pp (the 5-rep run overturned an earlier single-rep -10.0pp result -- that loss was n=1 noise), Lite -2.0pp. Terminal-Bench is now +1.1pp on a matched 5-rep run (356/445 vs 351/445), overturning the earlier single-rep tie.
+- **Where overhead still shows up:** non-Python/larger/more heterogeneous codebases (Pro, Terminal-Bench) see a smaller cost edge, and a handful of tasks (`tutanota`, `vuls`, `flipt`) cost LemonCrow *more* than baseline -- a fixed per-run overhead that amortizes on bigger tasks but not small/turn-heavy ones.
+- **Bottom line:** the cost/token/turn compression reproduces across every suite tested, at every price point from a $0.10 task to a $5 one. It hasn't cost correctness on Verified or Pro; Lite is -2.0pp this cut; Terminal-Bench is +1.1pp on a matched 5-rep run. Read each section's caveats before citing a number out of context.

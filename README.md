@@ -174,7 +174,7 @@ These are fixed results from pinned benchmark runs — not a live counter. Every
 headline number links back to committed raw runs and methodology in
 [BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
 verification harness were held constant. Results are mixed by design and include
-regressions (e.g. SWE-bench Lite, Terminal-Bench below).
+a regression (SWE-bench Lite below).
 
 | Benchmark | Baseline correct | LemonCrow correct | Correct delta | Baseline cost | LemonCrow cost | Cost delta |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -183,9 +183,9 @@ regressions (e.g. SWE-bench Lite, Terminal-Bench below).
 | SWE-bench Pro, 10 tasks x 5 reps | 88.0% | **90.0%** | **+2.0 pp** | $39.01 | **$30.61** | **21.5% cheaper** |
 | Exploration tasks across 7 large repos x 5 reps | - | - | - | $19.11 | **$6.29** | **67% cheaper** |
 | Telegraphic Q&A, 20 prompts x 5 reps | - | - | - | $8.40 | **$4.48** | **46.7% cheaper** |
-| Terminal-Bench 2.1, 89 tasks vs public leaderboard\* | 78.9% expected | 78.7% | -0.2 pp | $96.76 | **$69.52**† | **28.1% cheaper**† |
+| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* | 78.9% | **80.0%** | **+1.1 pp** | — | — | — |
 
-<sub>\* LemonCrow 1 rep/task vs public leaderboard 5-rep average. † 5 timed-out tasks excluded from cost.</sub>
+<sub>\* Both arms 89 tasks x 5 reps = 445 trials on the same dataset (LemonCrow's Harbor run vs the Claude Code 2.1.205 leaderboard run), so correctness is directly comparable. LemonCrow also sends 91.8% fewer fresh input tokens (1.05M vs 12.87M); cost is not a matched comparison here — see [BENCHMARKS.md](BENCHMARKS.md#terminal-bench).</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
@@ -200,6 +200,24 @@ grep-and-read loop, so turns, wall-clock, and tool calls drop together:
 | Wall-clock | 14.3h | 10.9h | **23.7% faster** |
 | Total tool calls | 6,700 | 4,167 | **-37.8%** |
 | Output tokens | 3.04M | 2.19M | **27.9% fewer** |
+
+### Scale
+
+Indexing throughput and search quality hold up at repository sizes agents
+actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
+4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
+pairs across 14 repos:
+
+| Metric | LemonCrow | Grep-class baseline |
+| --- | ---: | ---: |
+| Linux cold index, lexical (1.24M symbols) | **179s** (~3 min) | — |
+| Linux cold index, zoekt trigram | **13.7s** | — |
+| Retrieval MRR (higher = better) | **0.727** semantic / 0.676 lexical | 0.376 (ripgrep) |
+| Query latency, p95 | 134ms lexical / 390ms semantic | **66ms** (ripgrep) |
+
+Ranked search is ~1.9x more accurate than ripgrep at a still-interactive p95;
+ripgrep wins raw latency but not what it finds. Per-repo indexing table and the
+full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
 
 Reproduce any of this from committed raw data: see [BENCHMARKS.md](BENCHMARKS.md)
 and [docs/benchmarks/results.md](docs/benchmarks/results.md).
