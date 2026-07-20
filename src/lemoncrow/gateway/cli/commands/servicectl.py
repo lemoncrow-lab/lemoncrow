@@ -238,9 +238,9 @@ def servicectl_tick(
 
 
 @servicectl_group.command("start")
-@click.option("--interval-seconds", default=60, show_default=True, type=int)
+@click.option("--interval-seconds", default=300, show_default=True, type=int)
 @click.option("--maintenance-interval-seconds", default=300, show_default=True, type=int)
-@click.option("--session-import-interval-seconds", default=60, show_default=True, type=int)
+@click.option("--session-import-interval-seconds", default=1800, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def servicectl_start(
