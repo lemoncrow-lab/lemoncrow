@@ -26,3 +26,7 @@
 *.ico binary
 *.zip binary
 *.tar.gz binary
+
+# Benchmark result logs (can exceed 10MB)
+benchmarks/harbor/results/**/*.json filter=lfs diff=lfs merge=lfs -text
+benchmarks/harbor/results/**/*.log filter=lfs diff=lfs merge=lfs -text

@@ -195,6 +195,19 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
+def _probe_live_sessions(reg: dict[str, Any]) -> int | None:
+    """Best-effort live-session count for a daemon via its /healthz route."""
+    try:
+        import httpx
+
+        resp = httpx.get(f"http://127.0.0.1:{reg['port']}/healthz", timeout=1.0)
+        if resp.status_code == 200:
+            return int(resp.json().get("live_sessions", 0))
+    except Exception:
+        return None
+    return None
+
+
 def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
     """Live LemonCrow MCP server registrations (PID-checked), oldest first.
 
@@ -245,14 +258,39 @@ def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """
     if ctx.invoked_subcommand is not None:
         return
-    # No subcommand → start the MCP server (original behaviour).
+    # No subcommand → start the MCP server.
     if root is not None:
         os.environ["LEMONCROW_ROOT"] = str(root)
     if host is not None:
         os.environ["LEMONCROW_AGENT"] = host
+    from lemoncrow.gateway.adapters.mcp_bridge import run_bridge, singleton_enabled
+
+    if singleton_enabled():
+        # Singleton mode: this process becomes a thin stdio<->HTTP proxy to the
+        # shared per-workspace daemon instead of a full heavy stdio server.
+        run_bridge(os.environ.get("LEMONCROW_ROOT"))
+        return
     from lemoncrow.gateway.adapters.mcp_server import main as _mcp_main
 
     _mcp_main()
+
+
+@mcp_group.command("daemon", hidden=True)
+@click.option("--workspace", required=True, help="Absolute workspace root this daemon serves.")
+@click.option(
+    "--idle-grace-seconds",
+    type=float,
+    default=600.0,
+    show_default=True,
+    help="Self-shutdown after this many seconds with no tool traffic (0 disables).",
+)
+@click.pass_context
+def mcp_daemon(ctx: click.Context, workspace: str, idle_grace_seconds: float) -> None:
+    """Run the per-workspace singleton MCP daemon (internal; spawned by the bridge)."""
+    root: Path = ctx.obj["root"]
+    from lemoncrow.gateway.adapters.mcp_daemon import run_daemon
+
+    run_daemon(str(Path(workspace).resolve()), root, idle_grace_seconds=idle_grace_seconds)
 
 
 @mcp_group.command("check")
@@ -295,6 +333,7 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
     click.echo("  " + "─" * 70)
     if not sessions:
         click.echo("  None running. Servers register on startup (lc mcp) and unregister on exit.")
+        click.echo("  In singleton mode (default) sessions share a daemon — see: lc mcp daemons")
         click.echo("")
         return
     home = str(Path.home())
@@ -319,6 +358,57 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
         if model:
             parts.append(model)
         click.echo(" ".join(p for p in parts if p))
+    click.echo("  Singleton daemons (shared per workspace): lc mcp daemons")
+    click.echo("")
+
+
+# ─── mcp daemons ──────────────────────────────────────────────────────────
+
+
+@mcp_group.command("daemons")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def mcp_daemons(ctx: click.Context, as_json: bool) -> None:
+    """List active per-workspace singleton MCP daemons.
+
+    In singleton mode (default) one shared daemon per workspace serves every
+    host session; each ``lc mcp`` is a thin bridge to it. Reads the daemon
+    registry (``~/.lemoncrow/mcp_daemons/``); crashed daemons are skipped.
+    """
+    root: Path = ctx.obj["root"]
+    from lemoncrow.gateway.adapters.mcp_daemon import list_daemons
+
+    daemons = list_daemons(root)
+    for d in daemons:
+        d["live_sessions"] = _probe_live_sessions(d)
+        d.pop("token", None)  # never surface the bearer token
+    if as_json:
+        _emit({"count": len(daemons), "daemons": daemons}, as_json=True)
+        return
+
+    click.echo("")
+    click.echo(f"  Active LemonCrow MCP daemons · {len(daemons)}")
+    click.echo("  " + "─" * 70)
+    if not daemons:
+        click.echo("  None running. A daemon starts on the first `lc mcp` in a workspace.")
+        click.echo("")
+        return
+    home = str(Path.home())
+    for d in daemons:
+        ws = str(d.get("workspace") or "?")
+        if ws.startswith(home):
+            ws = "~" + ws[len(home) :]
+        age = ""
+        started = d.get("started_at")
+        if isinstance(started, (int, float)):
+            age = _fmt_age(float(started))
+        sessions = d.get("live_sessions")
+        parts = [f"  pid {d.get('pid'):<8}", f"{ws:<40}", f"port {d.get('port')}"]
+        if age:
+            parts.append(f"age {age}")
+        if sessions is not None:
+            parts.append(f"sessions={sessions}")
+        click.echo(" ".join(parts))
     click.echo("")
 
 
