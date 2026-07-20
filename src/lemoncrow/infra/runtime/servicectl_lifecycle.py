@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Prune stale workspace indexes once a day so they cannot silently pile up.
 _WORKSPACE_PRUNE_INTERVAL_SECONDS = 86_400
-_WORKSPACE_PRUNE_MAX_AGE_DAYS = 30
+_WORKSPACE_PRUNE_MAX_AGE_DAYS = 10
 
 # Flush the Stop hook's locally-queued public rollup deltas into a single
 # aggregated request once a day, so the public counters endpoint sees at
