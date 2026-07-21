@@ -1,0 +1,679 @@
+
+=== Turn 1 ===
+[user] <session>
+How does OkHttp process a request through its interceptor chain?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "OkHttp interceptor chain request processing"}
+[usage] input=531 cache_read=0 cache_write=0 output=17
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does OkHttp process a request through its interceptor chain? RealCall getResponseWithInterceptorChain RealInterceptorChain proceed"}
+[usage] input=3748 cache_read=15023 cache_write=2274 output=149
+
+=== Turn 3 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. proceed (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt:311)
+   ↓ calls
+2. intercept (okhttp-testing-support/src/main/kotlin/okhttp3/UppercaseRequestInterceptor.kt:28)
+   ↓ calls
+3. proceed (okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt:87)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- request → request   [dynamic: interface → impl @okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt:155]
+
+**Interface dispatch (a named method has many implementations)**
+
+- `request` → runtime dispatch to **9** types implementing `Lockable` — the static path ends here, the target is chosen at runtime. e.g. `RealCall.request` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt:155), `RealWebSocket.request` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/ws/RealWebSocket.kt:139) +7 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does OkHttp process a request through its interceptor chain? RealCall getResponseWithInterceptorChain RealInterceptorChain proceed**
+
+Found 59 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `RealInterceptorChain` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt:53) — 8 callers in `okhttp-testing-support/src/main/kotlin/okhttp3/TestValueFactory.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/ConnectInterceptor.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealConnection.kt` +2 more; ⚠️ no covering tests found
+- `RealCall` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt:64) — 14 callers in `okhttp-testing-support/src/main/kotlin/okhttp3/TestValueFactory.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/Dispatcher.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/OkHttpClient.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/NativeImageTestsAccessors.kt` +6 more; tests: `okhttp/src/jvmTest/kotlin/okhttp3/RecordingExecutor.kt`
+- `getResponseWithInterceptorChain` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt:207) — 2 callers in `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt`; ⚠️ no covering tests found
+- `proceed` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt:87) — 52 callers in `okhttp-logging-interceptor/src/main/kotlin/okhttp3/logging/HttpLoggingInterceptor.kt`, `okhttp-testing-support/src/main/kotlin/okhttp3/UppercaseRequestInterceptor.kt`, `okhttp-testing-support/src/main/kotlin/okhttp3/UppercaseResponseInterceptor.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/CompressionInterceptor.kt` +4 more; tests: `okhttp-logging-interceptor/src/test/java/okhttp3/logging/HttpLoggingInterceptorTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CacheTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CallKotlinTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CallTest.kt` +10
+- `Interceptor` (okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt:66) — 66 callers in `okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/OkHttpClient.kt`, `okhttp-logging-interceptor/src/main/kotlin/okhttp3/logging/HttpLoggingInterceptor.kt`, `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/cache/CacheInterceptor.kt` +6 more; tests: `okhttp-logging-interceptor/src/test/java/okhttp3/logging/HttpLoggingInterceptorTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CacheTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CallKotlinTest.kt`, `okhttp/src/jvmTest/kotlin/okhttp3/CallTest.kt` +16
+
+**Relationships**
+
+**implements:**
+- RealInterceptorChain → Interceptor
+- RealCall → Call
+- RealCall → Lockable
+- FailingCall → Call
+- OkHttpClient → Call
+- CacheInterceptor → Interceptor
+- BridgeInterceptor → Interceptor
+- RetryAndFollowUpInterceptor → Interceptor
+
+**instantiates:**
+- copy → RealInterceptorChain
+- clone → RealCall
+- getResponseWithInterceptorChain → RetryAndFollowUpInterceptor
+- getResponseWithInterceptorChain → BridgeInterceptor
+- getResponseWithInterceptorChain → CacheInterceptor
+- getResponseWithInterceptorChain → RealInterceptorChain
+- Request → Builder
+
+**calls:**
+- getResponseWithInterceptorChain → proceed
+- getResponseWithInterceptorChain → isCanceled
+- getResponseWithInterceptorChain → noMoreExchanges
+- execute → getResponseWithInterceptorChain
+- run → getResponseWithInterceptorChain
+- intercept → proceed
+- setUp → proceed
+- headersPostWithHeaderOverrides → proceed
+- intercept → proceed
+- intercept → proceed
+- ... and 134 more
+
+**imports:**
+- okhttp.android.testapp → Call
+- okhttp.android.test → Call
+- okhttp.android.test.alpn → Call
+- okhttp3.modules → Call
+- okhttp3.modules → Call
+- okhttp3.modules.test → Call
+- okhttp.android.testapp → Request
+- okhttp.android.test → Request
+- okhttp.android.test → Request
+- okhttp.android.test → Request
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt`** — okhttp3(namespace), imports(imports), Interceptor(interface), invoke(function), Interceptor(calls), request(method), proceed(method)
+
+```kotlin
+13	 * See the License for the specific language governing permissions and
+14	 * limitations under the License.
+15	 */
+16	package okhttp3
+17	
+18	import java.io.IOException
+19	import java.net.Proxy
+20	import java.net.ProxySelector
+21	import java.util.concurrent.TimeUnit
+22	import javax.net.SocketFactory
+23	import javax.net.ssl.HostnameVerifier
+24	import javax.net.ssl.SSLSocketFactory
+25	import javax.net.ssl.X509TrustManager
+26	import okhttp3.internal.tls.CertificateChainCleaner
+27	
+28	/**
+29	 * Observes, modifies, and potentially short-circuits requests going out and the corresponding
+
+... (gap) ...
+
+63	 *   }
+64	 * ```
+65	 */
+66	fun interface Interceptor {
+67	  @Throws(IOException::class)
+68	  fun intercept(chain: Chain): Response
+69	
+70	  companion object {
+71	    /**
+
+... (gap) ...
+
+78	     * }
+79	     * ```
+80	     */
+81	    inline operator fun invoke(crossinline block: (chain: Chain) -> Response): Interceptor = Interceptor { block(it) }
+82	  }
+83	
+84	  interface Chain {
+85	    fun request(): Request
+86	
+87	    @Throws(IOException::class)
+88	    fun proceed(request: Request): Response
+89	
+90	    /**
+91	     * Returns the connection the request will be executed on. This is only available in the chains
+```
+
+**`okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt`** — calls(calls), copy(calls), imports(imports), okhttp3.internal.http(namespace), Call(imports), Interceptor(imports), OkHttpClient(imports), Request(imports), Response(imports), RealCall(imports), +27 more
+
+```kotlin
+13	 * See the License for the specific language governing permissions and
+14	 * limitations under the License.
+15	 */
+16	package okhttp3.internal.http
+17	
+18	import java.io.IOException
+19	import java.net.Proxy
+20	import java.net.ProxySelector
+21	import java.util.concurrent.TimeUnit
+22	import javax.net.SocketFactory
+23	import javax.net.ssl.HostnameVerifier
+24	import javax.net.ssl.SSLSocketFactory
+25	import javax.net.ssl.X509TrustManager
+26	import okhttp3.Address
+27	import okhttp3.Authenticator
+28	import okhttp3.Cache
+29	import okhttp3.Call
+30	import okhttp3.CertificatePinner
+31	import okhttp3.Connection
+32	import okhttp3.ConnectionPool
+33	import okhttp3.CookieJar
+34	import okhttp3.Dns
+35	import okhttp3.EventListener
+36	import okhttp3.HttpUrl
+37	import okhttp3.Interceptor
+38	import okhttp3.OkHttpClient
+39	import okhttp3.Request
+40	import okhttp3.Response
+41	import okhttp3.internal.checkDuration
+42	import okhttp3.internal.connection.Exchange
+43	import okhttp3.internal.connection.RealCall
+44	import okhttp3.internal.tls.CertificateChainCleaner
+45	
+46	/**
+47	 * A concrete interceptor chain that carries the entire interceptor chain: all application
+
+... (gap) ...
+
+74	  override val sslSocketFactoryOrNull: SSLSocketFactory?,
+75	  override val x509TrustManagerOrNull: X509TrustManager?,
+76	  val certificateChainCleaner: CertificateChainCleaner?,
+77	) : Interceptor.Chain {
+78	  internal constructor(
+79	    call: RealCall,
+80	    interceptors: List<Interceptor>,
+
+... (gap) ...
+
+113	  internal fun copy(
+114	    index: Int = this.index,
+115	    exchange: Exchange? = this.exchange,
+116	    request: Request = this.request,
+117	    connectTimeoutMillis: Int = this.connectTimeoutMillis,
+
+... (gap) ...
+
+304	    return copy(connectionPool = connectionPool)
+305	  }
+306	
+307	  override fun call(): Call = call
+308	
+309	  override fun request(): Request = request
+310	
+311	  @Throws(IOException::class)
+312	  override fun proceed(request: Request): Response {
+313	    check(index < interceptors.size)
+314	
+315	    calls++
+316	
+317	    if (exchange != null) {
+318	      check(exchange.finder.routePlanner.sameHostAndPort(request.url)) {
+319	        "network interceptor ${interceptors[index - 1]} must retain the same host and port"
+320	      }
+321	      check(calls == 1) {
+322	        "network interceptor ${interceptors[index - 1]} must call proceed() exactly once"
+323	      }
+324	    }
+325	
+326	    // Call the next interceptor in the chain.
+327	    val next = copy(index = index + 1, request = request)
+328	    val interceptor = interceptors[index]
+329	
+330	    @Suppress("USELESS_ELVIS")
+331	    val response =
+332	      interceptor.intercept(next) ?: throw NullPointerException(
+333	        "interceptor $interceptor returned null",
+334	      )
+335	
+336	    if (exchange != null) {
+337	      check(index + 1 >= interceptors.size || next.calls == 1) {
+338	        "network interceptor $interceptor must call proceed() exactly once"
+339	      }
+340	    }
+341	
+342	    return response
+343	  }
+```
+
+**`okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/RealCall.kt`** — calls(calls), instantiates(instantiates), tag(method), callStart(calls), noMoreExchanges(calls), callDone(calls), timeout(method), addEventListener(method), tag(calls), clone(method), +22 more
+
+```kotlin
+126	
+127	  private val tags = AtomicReference(originalRequest.tags)
+128	
+129	  override fun timeout(): Timeout = timeout
+130	
+131	  override fun addEventListener(eventListener: EventListener) {
+132	    // Atomically replace the current eventListener with a composite one.
+133	    do {
+134	      val previous = this.eventListener
+135	    } while (!eventListenerUpdater.compareAndSet(this, previous, previous + eventListener))
+136	  }
+137	
+138	  override fun <T : Any> tag(type: KClass<T>): T? = type.java.cast(tags.get()[type])
+139	
+140	  override fun <T> tag(type: Class<out T>): T? = tag(type.kotlin)
+141	
+142	  override fun <T : Any> tag(
+143	    type: KClass<T>,
+144	    computeIfAbsent: () -> T,
+145	  ): T = tags.computeIfAbsent(type, computeIfAbsent)
+146	
+147	  override fun <T : Any> tag(
+148	    type: Class<T>,
+149	    computeIfAbsent: () -> T,
+150	  ): T = tags.computeIfAbsent(type.kotlin, computeIfAbsent)
+151	
+152	  @SuppressWarnings("CloneDoesntCallSuperClone") // We are a final type & this saves clearing state.
+153	  override fun clone(): Call = RealCall(client, originalRequest, forWebSocket)
+154	
+155	  override fun request(): Request = originalRequest
+156	
+157	  /**
+158	   * Immediately closes the socket connection if it's currently held. Use this to interrupt an
+159	   * in-flight request from any thread. It's the caller's responsibility to close the request body
+160	   * and response body streams; otherwise resources may be leaked.
+161	   *
+162	   * This method is safe to be called concurrently, but provides limited guarantees. If a transport
+163	   * layer connection has been established (such as a HTTP/2 stream) that is terminated. Otherwise,
+164	   * if a socket connection is being established, that is terminated.
+165	   */
+166	  override fun cancel() {
+167	    if (canceled) return // Already canceled.
+168	
+169	    canceled = true
+170	    exchange?.cancel()
+171	    for (plan in plansToCancel) {
+172	      plan.cancel()
+173	    }
+174	
+175	    eventListener.canceled(this)
+176	  }
+177	
+178	  override fun isCanceled(): Boolean = canceled
+179	
+180	  override fun execute(): Response {
+181	    check(executed.compareAndSet(false, true)) { "Already Executed" }
+182	
+183	    timeout.enter()
+184	    callStart()
+185	    try {
+186	      client.dispatcher.executed(this)
+187	      return getResponseWithInterceptorChain()
+188	    } finally {
+189	      client.dispatcher.finished(this)
+190	    }
+191	  }
+192	
+193	  override fun enqueue(responseCallback: Callback) {
+194	    check(executed.compareAndSet(false, true)) { "Already Executed" }
+195	
+196	    callStart()
+197	    client.dispatcher.enqueue(AsyncCall(responseCallback))
+198	  }
+199	
+200	  override fun isExecuted(): Boolean = executed.get()
+201	
+202	  private fun callStart() {
+203	    this.callStackTrace = Platform.get().getStackTraceForCloseable("response.body().close()")
+204	    eventListener.callStart(this)
+205	  }
+206	
+207	  @Throws(IOException::class)
+208	  internal fun getResponseWithInterceptorChain(): Response {
+209	    // Build a full stack of interceptors.
+210	    val interceptors = mutableListOf<Interceptor>()
+211	    interceptors += client.interceptors
+212	    interceptors += RetryAndFollowUpInterceptor()
+213	    interceptors += BridgeInterceptor()
+214	    interceptors += CacheInterceptor()
+215	    interceptors += ConnectInterceptor
+216	    if (!forWebSocket) {
+217	      interceptors += client.networkInterceptors
+218	    }
+219	    interceptors += CallServerInterceptor
+220	
+221	    val chain =
+222	      RealInterceptorChain(
+223	        call = this,
+224	        interceptors = interceptors,
+225	        index = 0,
+226	        exchange = null,
+227	        request = originalRequest,
+228	      )
+229	
+230	    var calledNoMoreExchanges = false
+231	    try {
+232	      val response = chain.proceed(originalRequest)
+233	      if (isCanceled()) {
+234	        response.closeQuietly()
+235	        throw IOException("Canceled")
+236	      }
+237	      return response
+238	    } catch (e: IOException) {
+239	      calledNoMoreExchanges = true
+240	      throw noMoreExchanges(e) as Throwable
+241	    } finally {
+242	      if (!calledNoMoreExchanges) {
+243	        noMoreExchanges(null)
+244	      }
+245	    }
+246	  }
+247	
+248	  /**
+249	   * Prepare for a potential trip through all of this call's network interceptors. This prepares to
+250	   * find an exchange to carry the request.
+251	   *
+252	   * Note that an exchange will not be needed if the request is satisfied by the cache.
+253	   *
+254	   * @param newRoutePlanner true if this is not a retry and new routing can be performed.
+255	   */
+256	  fun enterNetworkInterceptorExchange(
+257	    request: Request,
+258	    newRoutePlanner: Boolean,
+259	    chain: RealInterceptorChain,
+260	  ) {
+261	    check(interceptorScopedExchange == null)
+262	
+263	    withLock {
+264	      check(!responseBodyOpen) {
+265	        "cannot make a new request because the previous response is still open: " +
+266	          "please call response.close()"
+267	      }
+268	      check(!requestBodyOpen && !socketSourceOpen && !socketSinkOpen)
+269	    }
+270	
+271	    if (newRoutePlanner) {
+272	      val routePlanner =
+273	        RealRoutePlanner(
+274	          taskRunner = client.taskRunner,
+275	          connectionPool = chain.connectionPool.delegate,
+276	          readTimeoutMillis = chain.readTimeoutMillis,
+277	          writeTimeoutMillis = chain.writeTimeoutMillis,
+278	          socketConnectTimeoutMillis = chain.connectTimeoutMillis,
+279	          socketReadTimeoutMillis = chain.readTimeoutMillis,
+280	          pingIntervalMillis = client.pingIntervalMillis,
+281	          retryOnConnectionFailure = chain.retryOnConnectionFailure,
+282	          fastFallback = client.fastFallback,
+283	          address = chain.address(request.url),
+284	          routeDatabase = client.routeDatabase,
+285	          call = this,
+286	          request = request,
+287	        )
+288	      this.exchangeFinder =
+289	        when {
+290	          client.fastFallback -> FastFallbackExchangeFinder(routePlanner, client.taskRunner)
+291	          else -> SequentialExchangeFinder(routePlanner)
+292	        }
+293	    }
+294	  }
+295	
+296	  /** Finds a new or pooled connection to carry a forthcoming request and response. */
+297	  internal fun initExchange(chain: RealInterceptorChain): Exchange {
+298	    withLock {
+299	      check(expectMoreExchanges) { "released" }
+300	      check(!responseBodyOpen && !requestBodyOpen && !socketSourceOpen && !socketSinkOpen)
+301	    }
+302	
+303	    val exchangeFinder = this.exchangeFinder!!
+304	    val connection = exchangeFinder.find()
+305	    val codec = connection.newCodec(client, chain)
+306	    val result = Exchange(this, exchangeFinder, codec)
+307	    this.interceptorScopedExchange = result
+308	    this.exchange = result
+309	    withLock {
+310	      this.requestBodyOpen = true
+311	      this.responseBodyOpen = true
+312	    }
+313	
+314	    if (canceled) throw IOException("Canceled")
+315	    return result
+316	  }
+317	
+318	  fun acquireConnectionNoEvents(connection: RealConnection) {
+319	    connection.assertLockHeld()
+320	
+321	    check(this.connection == null)
+322	    this.connection = connection
+323	    connection.calls.add(CallReference(this, callStackTrace))
+324	  }
+325	
+326	  /**
+327	   * Releases resources held with the request or response of [exchange]. This should be called when
+328	   * the request completes normally or when it fails due to an exception, in which case [e] should
+329	   * be non-null.
+330	   *
+331	   * If the exchange was canceled or timed out, this will wrap [e] in an exception that provides
+332	   * that additional context. Otherwise [e] is returned as-is.
+333	   */
+334	  internal fun messageDone(
+335	    exchange: Exchange,
+336	    requestDone: Boolean = false,
+337	    responseDone: Boolean = false,
+338	    socketSourceDone: Boolean = false,
+339	    socketSinkDone: Boolean = false,
+340	    e: IOException?,
+341	  ): IOException? {
+342	    if (exchange != this.exchange) return e // This exchange was detached violently!
+343	
+344	    var allStreamsDone = false
+345	    var callDone = false
+346	    withLock {
+347	      if (
+348	        requestDone && requestBodyOpen ||
+349	        responseDone && responseBodyOpen ||
+350	        socketSinkDone && socketSinkOpen ||
+351	        socketSourceDone && socketSourceOpen
+352	      ) {
+353	        if (requestDone) requestBodyOpen = false
+354	        if (responseDone) responseBodyOpen = false
+355	        if (socketSinkDone) socketSinkOpen = false
+356	        if (socketSourceDone) socketSourceOpen = false
+357	        allStreamsDone = !requestBodyOpen &&
+358	          !responseBodyOpen &&
+359	          !socketSinkOpen &&
+360	          !socketSourceOpen
+361	        callDone = allStreamsDone && !expectMoreExchanges
+362	      }
+363	    }
+364	
+365	    if (allStreamsDone) {
+366	      this.exchange = null
+367	      this.connection?.incrementSuccessCount()
+368	    }
+369	
+370	    if (callDone) {
+371	      return callDone(e)
+372	    }
+373	
+374	    return e
+375	  }
+376	
+377	  internal fun noMoreExchanges(e: IOException?): IOException? {
+378	    var callDone = false
+379	    withLock {
+380	      if (expectMoreExchanges) {
+381	        expectMoreExchanges = false
+382	        callDone = !requestBodyOpen && !responseBodyOpen && !socketSinkOpen && !socketSourceOpen
+383	      }
+384	    }
+385	
+386	    if (callDone) {
+387	      return callDone(e)
+388	    }
+389	
+390	    return e
+391	  }
+392	
+393	  /**
+394	   * Complete this call. This should be called once these properties are all false:
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] OkHttp turns every request into a walk down an ordered list of interceptors, each of which can inspect/modify the request, hand off to the next, and then inspect/modify the response on the way back. Here's the flow.
+
+## Entry point: building the stack
+
+When you call `execute()` (sync) or `enqueue()` (async), execution funnels into `RealCall.getResponseWithInterceptorChain()` (`RealCall.kt:207`). This assembles the full interceptor list **in order**:
+
+```kotlin
+val interceptors = mutableListOf<Interceptor>()
+interceptors += client.interceptors          // your application interceptors
+interceptors += RetryAndFollowUpInterceptor()
+interceptors += BridgeInterceptor()
+interceptors += CacheInterceptor()
+interceptors += ConnectInterceptor
+if (!forWebSocket) {
+  interceptors += client.networkInterceptors  // your network interceptors
+}
+interceptors += CallServerInterceptor
+```
+
+It then creates a `RealInterceptorChain` at `index = 0` with `exchange = null` and kicks it off with `chain.proceed(originalRequest)` (`RealCall.kt:232`).
+
+## The chain mechanism: `proceed` + `copy`
+
+The whole thing is driven by one recursive-ish pattern in `RealInterceptorChain.proceed()` (`RealInterceptorChain.kt:311`):
+
+```kotlin
+override fun proceed(request: Request): Response {
+  check(index < interceptors.size)
+  calls++
+  // ...
+  val next = copy(index = index + 1, request = request)  // chain pointing at the NEXT interceptor
+  val interceptor = interceptors[index]                  // the CURRENT interceptor
+  val response = interceptor.intercept(next) ?: throw ...
+  // ...
+  return response
+}
+```
+
+Each `proceed` call:
+1. Picks `interceptors[index]` (the current one).
+2. Builds a **copy** of itself advanced to `index + 1` (an immutable, positional cursor into the list).
+3. Calls `interceptor.intercept(next)`.
+
+An interceptor's body typically does: modify the request → call `chain.proceed(request)` (which triggers the *next* interceptor via the same mechanism) → modify the response → return it. So control flows **down** the list on the request side and **back up** on the response side. An interceptor that returns a `Response` *without* calling `proceed()` short-circuits the chain (e.g. `CacheInterceptor` serving a cached response).
+
+## The built-in interceptors (in order)
+
+- **Application interceptors** (`client.interceptors`) — yours; run first, see the original request, called once per call regardless of retries/redirects.
+- **`RetryAndFollowUpInterceptor`** — recovers from failures and follows redirects/auth challenges by re-running the downstream chain in a loop.
+- **`BridgeInterceptor`** — translates the user request to a network request (adds `Content-Length`, `Host`, `Accept-Encoding: gzip`, cookies) and un-gzips the response.
+- **`CacheInterceptor`** — serves from / writes to the HTTP cache; can short-circuit.
+- **`ConnectInterceptor`** — opens a healthy connection (an `Exchange`) to the server.
+- **Network interceptors** (`client.networkInterceptors`) — yours; run with a live connection and a non-null `exchange`, see the actual on-the-wire request, skipped for WebSockets.
+- **`CallServerInterceptor`** — the tail; writes the request and reads the response off the socket. It does **not** call `proceed`, so the chain unwinds from here.
+
+## Application vs. network interceptors
+
+The `exchange` field is what distinguishes them. For application interceptors `exchange == null`; once past `ConnectInterceptor` it's set, and `proceed()` enforces extra invariants (`RealInterceptorChain.kt:317-340`): a network interceptor must call `proceed()` **exactly once** and must keep the same host/port. Application interceptors have no such restriction — they may call `proceed()` zero times (short-circuit) or many times (retry), and they run only once even when the request is retried or redirected downstream.
+
+## Result handling
+
+Back in `getResponseWithInterceptorChain`, once `chain.proceed()` returns, it checks for cancellation and calls `noMoreExchanges()` in a `finally` to release resources (`RealCall.kt:233-245`).
+
+The key design idea: the chain is **immutable and positional** — `RealInterceptorChain` holds an index into a shared interceptor list, and `proceed` simply hands the next interceptor a `copy` of the chain pointing one step further. No mutable iterator, and each interceptor fully controls whether/when the rest of the chain runs.
+[usage] input=2 cache_read=17297 cache_write=12839 output=1630

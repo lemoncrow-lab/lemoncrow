@@ -1,2 +1,3 @@
 baseline_arm,candidate_arm,pairs,judged_pairs,quality_passed_pairs,quality_failed_pairs,unjudged_pairs,candidate_at_least_baseline_rate,avg_quality_delta,baseline_cost_usd,candidate_cost_usd,raw_saved_usd,quality_adjusted_saved_usd,raw_saved_tokens,quality_adjusted_saved_tokens,raw_cost_savings_vs_baseline_pct,quality_adjusted_cost_savings_vs_baseline_pct
+baseline,codegraph,35,0,0,0,35,,,19.1064,15.9871,3.1193,0.0,34059511,0,16.3,0.0
 baseline,lemoncrow,35,0,0,0,35,,,19.1064,6.2869,12.8196,0.0,36125199,0,67.1,0.0

@@ -1,0 +1,2375 @@
+
+=== Turn 1 ===
+[user] <session>
+How does tokio schedule and run async tasks on its runtime?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Understand Tokio async task scheduling"}
+[usage] input=529 cache_read=0 cache_write=0 output=16
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore tokio's scheduler internals using the code intelligence index.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 1}
+[usage] input=3748 cache_read=15023 cache_write=2310 output=152
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does the scheduler poll and run async tasks? multi-thread scheduler worker run_task task poll spawn"}
+[usage] input=2 cache_read=15116 cache_write=6800 output=95
+
+=== Turn 4 ===
+[user] [tool_result] **Exploration: How does the scheduler poll and run async tasks? multi-thread scheduler worker run_task task poll spawn**
+
+Found 51 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `Worker` (tokio/src/runtime/scheduler/multi_thread/worker.rs:99) — 11 callers in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `run_task` (tokio/src/runtime/scheduler/multi_thread/worker.rs:630) — 1 caller in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `run_task` (tokio/src/runtime/scheduler/current_thread/mod.rs:371) — 1 caller in `tokio/src/runtime/scheduler/current_thread/mod.rs`; ⚠️ no covering tests found
+- `run` (tokio/src/runtime/scheduler/multi_thread/worker.rs:508) — 2 callers in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `tasks` (tokio/src/runtime/dump.rs:296) — 3 callers; tests: `examples/dump.rs`, `tokio/tests/dump.rs`
+
+**Relationships**
+
+**instantiates:**
+- create → Worker
+- create → Handle
+- create → Shared
+- run → Context
+- new → Tasks
+- new → RawTask
+- from_raw → RawTask
+- schedule → Notified
+- poll → Notified
+- from_raw → Notified
+- ... and 2 more
+
+**references:**
+- run → Worker
+- next_task → Worker
+- steal_work → Worker
+- transition_to_searching → Worker
+- transition_from_searching → Worker
+- transition_to_parked → Worker
+- transition_from_parked → Worker
+- maintenance → Worker
+- pre_shutdown → Worker
+- tune_global_queue_interval → Worker
+- ... and 76 more
+
+**calls:**
+- next_task → inject
+- maintenance → inject
+- create → clone
+- create → unpark
+- create → from_config
+- create → new
+- create → new
+- create → tuned_global_queue_interval
+- create → from_seed
+- create → next_seed
+- ... and 197 more
+
+**implements:**
+- RawTask → Copy
+- Runtime → Schedule
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`tokio/src/runtime/scheduler/multi_thread/worker.rs`** — calls(calls), Worker(references), Worker(struct), transition_to_parked(method), transition_from_parked(method), maintenance(method), inject(calls), pre_shutdown(method), tune_global_queue_interval(method), tuned_global_queue_interval(calls), +5 more
+
+```rust
+96	use crate::runtime::scheduler::util;
+97	
+98	/// A scheduler worker
+99	pub(super) struct Worker {
+100	    /// Reference to scheduler's handle
+101	    handle: Arc<Handle>,
+102	
+103	    /// Index holding this worker's remote state
+104	    index: usize,
+105	
+106	    /// Used to hand-off a worker's core to another thread.
+107	    core: AtomicCell<Core>,
+108	}
+109	
+110	/// Core data
+111	struct Core {
+
+... (gap) ...
+
+1201	    /// Prepares the worker state for parking.
+1202	    ///
+1203	    /// Returns true if the transition happened, false if there is work to do first.
+1204	    fn transition_to_parked(&mut self, worker: &Worker) -> bool {
+1205	        // Workers should not park if they have work to do
+1206	        if self.has_tasks() || self.is_traced {
+1207	            return false;
+1208	        }
+1209	
+1210	        // When the final worker transitions **out** of searching to parked, it
+1211	        // must check all the queues one last time in case work materialized
+1212	        // between the last work scan and transitioning out of searching.
+1213	        let is_last_searcher = worker.handle.shared.idle.transition_worker_to_parked(
+1214	            &worker.handle.shared,
+1215	            worker.index,
+1216	            self.is_searching,
+1217	        );
+1218	
+1219	        // The worker is no longer searching. Setting this is the local cache
+1220	        // only.
+1221	        self.is_searching = false;
+1222	
+1223	        if is_last_searcher {
+1224	            worker.handle.notify_if_work_pending();
+1225	        }
+1226	
+1227	        true
+1228	    }
+1229	
+1230	    /// Returns `true` if the transition happened.
+1231	    fn transition_from_parked(&mut self, worker: &Worker) -> bool {
+1232	        // If a task is in the lifo slot/run queue, then we must unpark regardless of
+1233	        // being notified
+1234	        if self.has_tasks() {
+1235	            // When a worker wakes, it should only transition to the "searching"
+1236	            // state when the wake originates from another worker *or* a new task
+1237	            // is pushed. We do *not* want the worker to transition to "searching"
+1238	            // when it wakes when the I/O driver receives new events.
+1239	            self.is_searching = !worker
+1240	                .handle
+1241	                .shared
+1242	                .idle
+1243	                .unpark_worker_by_id(&worker.handle.shared, worker.index);
+1244	            return true;
+1245	        }
+1246	
+1247	        if worker
+1248	            .handle
+1249	            .shared
+1250	            .idle
+1251	            .is_parked(&worker.handle.shared, worker.index)
+1252	        {
+1253	            return false;
+1254	        }
+1255	
+1256	        // When unparked, the worker is in the searching state.
+1257	        self.is_searching = true;
+1258	        true
+1259	    }
+1260	
+1261	    /// Runs maintenance work such as checking the pool's state.
+1262	    fn maintenance(&mut self, worker: &Worker) {
+1263	        self.stats
+1264	            .submit(&worker.handle.shared.worker_metrics[worker.index]);
+1265	
+1266	        if !self.is_shutdown {
+1267	            // Check if the scheduler has been shutdown
+1268	            let synced = worker.handle.shared.synced.lock();
+1269	            self.is_shutdown = worker.inject().is_closed(&synced.inject);
+1270	        }
+1271	
+1272	        if !self.is_traced {
+1273	            // Check if the worker should be tracing.
+1274	            self.is_traced = worker.handle.shared.trace_status.trace_requested();
+1275	        }
+1276	    }
+1277	
+1278	    /// Signals all tasks to shut down, and waits for them to complete. Must run
+1279	    /// before we enter the single-threaded phase of shutdown processing.
+1280	    fn pre_shutdown(&mut self, worker: &Worker) {
+1281	        // Start from a random inner list
+1282	        let start = self
+1283	            .rand
+1284	            .fastrand_n(worker.handle.shared.owned.get_shard_size() as u32);
+1285	        // Signal to all tasks to shut down.
+1286	        worker
+1287	            .handle
+1288	            .shared
+1289	            .owned
+1290	            .close_and_shutdown_all(start as usize);
+1291	
+1292	        self.stats
+1293	            .submit(&worker.handle.shared.worker_metrics[worker.index]);
+1294	    }
+1295	
+1296	    /// Shuts down the core.
+1297	    fn shutdown(&mut self, handle: &Handle) {
+
+... (gap) ...
+
+1304	        park.shutdown(&handle.driver);
+1305	    }
+1306	
+1307	    fn tune_global_queue_interval(&mut self, worker: &Worker) {
+1308	        let next = self
+1309	            .stats
+1310	            .tuned_global_queue_interval(&worker.handle.shared.config);
+1311	
+1312	        // Smooth out jitter
+1313	        if u32::abs_diff(self.global_queue_interval, next) > 2 {
+1314	            self.global_queue_interval = next;
+1315	        }
+1316	    }
+1317	}
+1318	
+1319	impl Worker {
+1320	    /// Returns a reference to the scheduler's injection queue.
+1321	    fn inject(&self) -> &inject::Shared<Arc<Handle>> {
+1322	        &self.handle.shared.inject
+1323	    }
+1324	}
+1325	
+1326	impl Handle {
+
+... (gap) ...
+
+1438	    /// Notify a parked worker.
+1439	    ///
+1440	    /// Returns `true` if a worker was notified, `false` otherwise.
+1441	    fn notify_parked_local(&self) -> bool {
+1442	        super::counters::inc_num_inc_notify_local();
+1443	
+1444	        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
+1445	            super::counters::inc_num_unparks_local();
+1446	            self.shared.remotes[index].unpark.unpark(&self.driver);
+1447	            true
+1448	        } else {
+1449	            false
+1450	        }
+1451	    }
+1452	
+1453	    fn notify_parked_remote(&self) {
+1454	        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
+```
+
+**`tokio/src/task/local.rs`** — calls(calls), Output(references), tick(method), budget(calls), run(calls), spawn(method), JoinHandle(references), references(references), poll(method), Context(references), +1 more
+
+```rust
+753	
+754	    /// Ticks the scheduler, returning whether the local future needs to be
+755	    /// notified again.
+756	    fn tick(&self) -> bool {
+757	        for _ in 0..MAX_TASKS_PER_TICK {
+758	            // Make sure we didn't hit an unhandled panic
+759	            assert!(!self.context.unhandled_panic.get(), "a spawned task panicked and the LocalSet is configured to shutdown on unhandled panic");
+760	
+761	            match self.next_task() {
+762	                // Run the task
+763	                //
+764	                // Safety: As spawned tasks are `!Send`, `run_unchecked` must be
+765	                // used. We are responsible for maintaining the invariant that
+766	                // `run_unchecked` is only called on threads that spawned the
+767	                // task initially. Because `LocalSet` itself is `!Send`, and
+768	                // `spawn_local` spawns into the `LocalSet` on the current
+769	                // thread, the invariant is maintained.
+770	                Some(task) => crate::task::coop::budget(|| task.run()),
+771	                // We have fully drained the queue of notified tasks, so the
+772	                // local future doesn't need to be notified again — it can wait
+773	                // until something else wakes a task in the local set.
+774	                None => return false,
+775	            }
+776	        }
+777	
+778	        true
+779	    }
+780	
+781	    fn next_task(&self) -> Option<task::LocalNotified<Arc<Shared>>> {
+782	        let tick = self.tick.get();
+
+... (gap) ...
+
+1025	
+1026	impl Context {
+1027	    #[track_caller]
+1028	    fn spawn<F>(&self, future: F, meta: SpawnMeta<'_>) -> JoinHandle<F::Output>
+1029	    where
+1030	        F: Future + 'static,
+1031	        F::Output: 'static,
+1032	    {
+1033	        let id = crate::runtime::task::Id::next();
+1034	        let future = crate::util::trace::task(future, "local", meta, id.as_u64());
+1035	
+1036	        // Safety: called from the thread that owns the `LocalSet`
+1037	        let (handle, notified) = {
+1038	            self.shared.local_state.assert_called_from_owner_thread();
+1039	            self.shared.local_state.owned.bind(
+1040	                future,
+1041	                self.shared.clone(),
+1042	                id,
+1043	                SpawnLocation::capture(),
+1044	            )
+1045	        };
+1046	
+1047	        if let Some(notified) = notified {
+1048	            self.shared.schedule(notified);
+1049	        }
+1050	
+1051	        handle
+1052	    }
+1053	}
+1054	
+1055	// === impl LocalFuture ===
+1056	
+1057	impl<T: Future> Future for RunUntil<'_, T> {
+1058	    type Output = T::Output;
+1059	
+1060	    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+1061	        let me = self.project();
+1062	
+1063	        me.local_set.with(|| {
+1064	            me.local_set
+1065	                .context
+1066	                .shared
+1067	                .waker
+1068	                .register_by_ref(cx.waker());
+1069	
+1070	            let _no_blocking = crate::runtime::context::disallow_block_in_place();
+1071	            let f = me.future;
+1072	
+1073	            if let Poll::Ready(output) = f.poll(cx) {
+1074	                return Poll::Ready(output);
+1075	            }
+1076	
+1077	            if me.local_set.tick() {
+1078	                // If `tick` returns `true`, we need to notify the local future again:
+1079	                // there are still tasks remaining in the run queue.
+1080	                cx.waker().wake_by_ref();
+1081	            }
+1082	
+1083	            Poll::Pending
+1084	        })
+1085	    }
+1086	}
+1087	
+1088	impl Shared {
+```
+
+**`tokio/src/runtime/blocking/pool.rs`** — calls(calls), run(method), run(calls), f(calls), Task(struct)
+
+```rust
+121	    worker_thread_index: usize,
+122	}
+123	
+124	pub(crate) struct Task {
+125	    task: task::UnownedTask<BlockingSchedule>,
+126	    mandatory: Mandatory,
+127	}
+128	
+129	#[derive(PartialEq, Eq)]
+130	pub(crate) enum Mandatory {
+
+... (gap) ...
+
+157	        Task { task, mandatory }
+158	    }
+159	
+160	    fn run(self) {
+161	        self.task.run();
+162	    }
+163	
+164	    fn shutdown_or_run_if_mandatory(self) {
+165	        match self.mandatory {
+
+... (gap) ...
+
+500	}
+501	
+502	impl Inner {
+503	    fn run(&self, worker_thread_id: usize) {
+504	        if let Some(f) = &self.after_start {
+505	            f();
+506	        }
+507	
+508	        let mut shared = self.shared.lock();
+509	        let mut join_on_thread = None;
+510	        // is this thread currently counted in `num_idle_threads`?
+511	        let mut is_counted_idle;
+512	
+513	        'main: loop {
+514	            // BUSY
+515	            while let Some(task) = shared.queue.pop_front() {
+516	                self.metrics.dec_queue_depth();
+517	                drop(shared);
+518	                task.run();
+519	
+520	                shared = self.shared.lock();
+521	            }
+522	
+523	            // IDLE
+524	            self.metrics.inc_num_idle_threads();
+525	            // mark this thread as currently counted in `num_idle_threads`.
+526	            is_counted_idle = true;
+527	
+528	            while !shared.shutdown {
+529	                let lock_result = self.condvar.wait_timeout(shared, self.keep_alive).unwrap();
+530	
+531	                shared = lock_result.0;
+532	                let timeout_result = lock_result.1;
+533	
+534	                if shared.num_notify != 0 {
+535	                    // We have received a legitimate wakeup,
+536	                    // acknowledge it by decrementing the counter
+537	                    // and transition to the BUSY state.
+538	                    shared.num_notify -= 1;
+539	                    // since this is a legitimate wakeup,
+540	                    // the `Spawner::spawn_task` has already decremented `num_idle_threads`.
+541	                    is_counted_idle = false;
+542	                    break;
+543	                }
+544	
+545	                // Even if the condvar "timed out", if the pool is entering the
+546	                // shutdown phase, we want to perform the cleanup logic.
+547	                if !shared.shutdown && timeout_result.timed_out() {
+548	                    // We'll join the prior timed-out thread's JoinHandle after dropping the lock.
+549	                    // This isn't done when shutting down, because the thread calling shutdown will
+550	                    // handle joining everything.
+551	                    let my_handle = shared.worker_threads.remove(&worker_thread_id);
+552	                    join_on_thread = std::mem::replace(&mut shared.last_exiting_thread, my_handle);
+553	
+554	                    break 'main;
+555	                }
+556	
+557	                // Spurious wakeup detected, go back to sleep.
+558	            }
+559	
+560	            if shared.shutdown {
+561	                // Drain the queue
+562	                while let Some(task) = shared.queue.pop_front() {
+563	                    self.metrics.dec_queue_depth();
+564	                    drop(shared);
+565	
+566	                    task.shutdown_or_run_if_mandatory();
+567	
+568	                    shared = self.shared.lock();
+569	                }
+570	
+571	                break;
+572	            }
+573	        }
+574	
+575	        // Thread exit
+576	        self.metrics.dec_num_threads();
+577	
+578	        // Is this thread currently counted in `num_idle_threads`?
+579	        if is_counted_idle {
+580	            // `num_idle_threads` should now be tracked exactly, panic
+581	            // with a descriptive message if it is not the
+582	            // case.
+583	            let prev_idle = self.metrics.dec_num_idle_threads();
+584	            assert_ne!(
+585	                prev_idle, 0,
+586	                "`num_idle_threads` underflowed on thread exit"
+587	            );
+588	        }
+589	
+590	        if shared.shutdown && self.metrics.num_threads() == 0 {
+591	            self.condvar.notify_one();
+592	        }
+593	
+594	        drop(shared);
+595	
+596	        if let Some(f) = &self.before_stop {
+597	            f();
+598	        }
+599	
+600	        if let Some(handle) = join_on_thread {
+601	            let _ = handle.join();
+602	        }
+603	    }
+604	}
+605	
+606	impl fmt::Debug for Spawner {
+```
+
+**`tokio/src/runtime/scheduler/current_thread/mod.rs`** — calls(calls), Core(references), enter(calls), Handle(references), take(calls), f(calls), park_internal(calls), borrow_mut(calls), Handle(struct), Core(struct), +17 more
+
+```rust
+33	}
+34	
+35	/// Handle to the current thread scheduler
+36	pub(crate) struct Handle {
+37	    /// The name of the runtime
+38	    name: Option<String>,
+39	
+40	    /// Scheduler state shared across threads
+41	    shared: Shared,
+42	
+43	    /// Resource driver handles
+44	    pub(crate) driver: driver::Handle,
+45	
+46	    /// Blocking pool spawner
+47	    pub(crate) blocking_spawner: blocking::Spawner,
+48	
+49	    /// Current random number generator seed
+50	    pub(crate) seed_generator: RngSeedGenerator,
+51	
+52	    /// User-supplied hooks to invoke for things
+53	    pub(crate) task_hooks: TaskHooks,
+54	
+55	    /// If this is a `LocalRuntime`, flags the owning thread ID.
+56	    pub(crate) local_tid: Option<ThreadId>,
+57	}
+58	
+59	/// Data required for executing the scheduler. The struct is passed around to
+60	/// a function that will perform the scheduling work and acts as a capability token.
+61	struct Core {
+62	    /// Scheduler run queue
+63	    tasks: VecDeque<Notified>,
+64	
+65	    /// Current tick
+66	    tick: u32,
+67	
+68	    /// Runtime driver
+69	    ///
+70	    /// The driver is removed before starting to park the thread
+71	    driver: Option<Driver>,
+72	
+73	    /// Metrics batch
+74	    metrics: MetricsBatch,
+75	
+76	    /// How often to check the global queue
+77	    global_queue_interval: u32,
+78	
+79	    /// True if a task panicked without being handled and the runtime is
+80	    /// configured to shutdown on unhandled panic.
+81	    unhandled_panic: bool,
+82	}
+83	
+84	/// Scheduler state shared between threads.
+85	struct Shared {
+
+... (gap) ...
+
+105	/// Thread-local context.
+106	///
+107	/// pub(crate) to store in `runtime::context`.
+108	pub(crate) struct Context {
+109	    /// Scheduler handle
+110	    handle: Arc<Handle>,
+111	
+112	    /// Scheduler core, enabling the holder of `Context` to execute the
+113	    /// scheduler.
+114	    core: RefCell<Option<Box<Core>>>,
+115	
+116	    /// Deferred tasks, usually ones that called `task::yield_now()`.
+117	    pub(crate) defer: Defer,
+118	}
+119	
+120	type Notified = task::Notified<Arc<Handle>>;
+121	
+
+... (gap) ...
+
+368	impl Context {
+369	    /// Execute the closure with the given scheduler core stored in the
+370	    /// thread-local context.
+371	    fn run_task<R>(&self, mut core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+372	        core.metrics.start_poll();
+373	        let mut ret = self.enter(core, || crate::task::coop::budget(f));
+374	        ret.0.metrics.end_poll();
+375	        ret
+376	    }
+377	
+378	    /// Blocks the current thread until an event is received by the driver,
+379	    /// including I/O events, timer events, ...
+380	    fn park(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+381	        let mut driver = core.driver.take().expect("driver missing");
+382	
+383	        if let Some(f) = &handle.shared.config.before_park {
+384	            let (c, ()) = self.enter(core, || f());
+385	            core = c;
+386	        }
+387	
+388	        // If `before_park` spawns a task (or otherwise schedules work for us), then we should not
+389	        // park the thread.
+390	        if !self.has_pending_work(&core) {
+391	            // Park until the thread is signaled
+392	            core.metrics.about_to_park();
+393	            core.submit_metrics(handle);
+394	
+395	            core = self.park_internal(core, handle, &mut driver, None);
+396	
+397	            core.metrics.unparked();
+398	            core.submit_metrics(handle);
+399	        }
+400	
+401	        if let Some(f) = &handle.shared.config.after_unpark {
+402	            let (c, ()) = self.enter(core, || f());
+403	            core = c;
+404	        }
+405	
+406	        core.driver = Some(driver);
+407	        core
+408	    }
+409	
+410	    /// Checks the driver for new events without blocking the thread.
+411	    fn park_yield(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+412	        let mut driver = core.driver.take().expect("driver missing");
+413	
+414	        core.submit_metrics(handle);
+415	
+416	        core = self.park_internal(core, handle, &mut driver, Some(Duration::from_millis(0)));
+417	
+418	        core.driver = Some(driver);
+419	        core
+420	    }
+421	
+422	    fn has_pending_work(&self, core: &Core) -> bool {
+423	        !core.tasks.is_empty() || !self.defer.is_empty() || self.handle.shared.woken.load(Acquire)
+424	    }
+425	
+426	    fn park_internal(
+427	        &self,
+428	        core: Box<Core>,
+429	        handle: &Handle,
+430	        driver: &mut Driver,
+431	        duration: Option<Duration>,
+432	    ) -> Box<Core> {
+433	        let (core, ()) = self.enter(core, || {
+434	            match duration {
+435	                Some(dur) => driver.park_timeout(&handle.driver, dur),
+436	                None => driver.park(&handle.driver),
+437	            }
+438	            self.defer.wake();
+439	        });
+440	
+441	        core
+442	    }
+443	
+444	    fn enter<R>(&self, core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+445	        // Store the scheduler core in the thread-local context
+446	        //
+447	        // A drop-guard is employed at a higher level.
+448	        *self.core.borrow_mut() = Some(core);
+449	
+450	        // Execute the closure while tracking the execution budget
+451	        let ret = f();
+452	
+453	        // Take the scheduler core back
+454	        let core = self.core.borrow_mut().take().expect("core missing");
+455	        (core, ret)
+456	    }
+457	
+458	    pub(crate) fn defer(&self, waker: &Waker) {
+459	        self.defer.defer(waker);
+460	    }
+461	}
+462	
+463	// ===== impl Handle =====
+
+... (gap) ...
+
+731	    }
+732	}
+733	
+734	impl Wake for Handle {
+735	    fn wake(arc_self: Arc<Self>) {
+736	        Wake::wake_by_ref(&arc_self);
+737	    }
+738	
+739	    /// Wake by reference
+740	    fn wake_by_ref(arc_self: &Arc<Self>) {
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me pull the core run loop and task-stealing/scheduling logic on the multi-thread scheduler.[tool_use: mcp__codegraph__codegraph_explore] {"query": "multi_thread worker run loop next_task steal_work run_task schedule_task push_back lifo_slot Handle::schedule"}
+[usage] input=2 cache_read=21916 cache_write=9082 output=192
+
+=== Turn 5 ===
+[user] [tool_result] **Exploration: multi_thread worker run loop next_task steal_work run_task schedule_task push_back lifo_slot Handle::schedule**
+
+Found 65 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `run_task` (tokio/src/runtime/scheduler/multi_thread/worker.rs:630) — 1 caller in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `next_task` (tokio/src/runtime/scheduler/multi_thread/worker.rs:1062) — 1 caller in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `schedule_task` (tokio/src/runtime/scheduler/multi_thread/worker.rs:1327) — 3 callers in `tokio/src/runtime/scheduler/multi_thread/handle.rs`, `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `push_back` (tokio-util/src/task/join_queue.rs:146) — 16 callers in `tokio-test/src/io.rs`, `tokio-test/src/stream_mock.rs`, `tokio-util/src/task/join_queue.rs`, `tokio/src/task/local.rs`; tests: `tokio-util/tests/framed_write.rs`
+- `next_task` (tokio/src/task/local.rs:781) — 1 caller in `tokio/src/task/local.rs`; ⚠️ no covering tests found
+
+**Relationships**
+
+**calls:**
+- run_task → task_meta
+- run_task → assert_owner
+- run_task → transition_from_searching
+- run_task → notify_parked_local
+- run_task → assert_lifo_enabled_is_correct
+- run_task → start_poll
+- run_task → borrow_mut
+- run_task → poll_start_callback
+- run_task → run
+- run_task → poll_stop_callback
+- ... and 198 more
+
+**references:**
+- run_task → Notified
+- run_task → Core
+- next_task → Worker
+- next_task → Notified
+- schedule_task → Notified
+- with_current → Context
+- ptr_eq → Handle
+- as_mut → Synced
+- push_back → JoinHandle
+- push_back → T
+- ... and 86 more
+
+**instantiates:**
+- create → Worker
+- create → Handle
+- create → Shared
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`tokio/src/runtime/scheduler/multi_thread/worker.rs`** — calls(calls), Notified(references), Handle(references), lock(calls), push_back_or_overflow(calls), unpark(calls), f(calls), tune_global_queue_interval(method), Worker(references), tuned_global_queue_interval(calls), +28 more
+
+```rust
+1304	        park.shutdown(&handle.driver);
+1305	    }
+1306	
+1307	    fn tune_global_queue_interval(&mut self, worker: &Worker) {
+1308	        let next = self
+1309	            .stats
+1310	            .tuned_global_queue_interval(&worker.handle.shared.config);
+1311	
+1312	        // Smooth out jitter
+1313	        if u32::abs_diff(self.global_queue_interval, next) > 2 {
+1314	            self.global_queue_interval = next;
+1315	        }
+1316	    }
+1317	}
+1318	
+1319	impl Worker {
+1320	    /// Returns a reference to the scheduler's injection queue.
+1321	    fn inject(&self) -> &inject::Shared<Arc<Handle>> {
+1322	        &self.handle.shared.inject
+1323	    }
+1324	}
+1325	
+1326	impl Handle {
+1327	    pub(super) fn schedule_task(&self, task: Notified, is_yield: bool) {
+1328	        with_current(|maybe_cx| {
+1329	            if let Some(cx) = maybe_cx {
+1330	                // Make sure the task is part of the **current** scheduler.
+1331	                if self.ptr_eq(&cx.worker.handle) {
+1332	                    // And the current thread still holds a core
+1333	                    if let Some(core) = cx.core.borrow_mut().as_mut() {
+1334	                        self.schedule_local(core, task, is_yield);
+1335	                        return;
+1336	                    }
+1337	                }
+1338	            }
+1339	
+1340	            // Otherwise, use the inject queue.
+1341	            self.push_remote_task(task);
+1342	            self.notify_parked_remote();
+1343	        });
+1344	    }
+1345	
+1346	    // Separated case to reduce LLVM codegen in `Handle::bind_new_task`.
+1347	    pub(super) fn schedule_option_task_without_yield(&self, task: Option<Notified>) {
+1348	        if let Some(task) = task {
+1349	            self.schedule_task(task, false);
+1350	        }
+1351	    }
+1352	
+1353	    fn schedule_local(&self, core: &mut Core, task: Notified, is_yield: bool) {
+1354	        core.stats.inc_local_schedule_count();
+1355	
+1356	        // Spawning from the worker thread. If scheduling a "yield" then the
+1357	        // task must always be pushed to the back of the queue, enabling other
+1358	        // tasks to be executed. If **not** a yield, then there is more
+1359	        // flexibility and the task may go to the front of the queue.
+1360	        let should_notify = if is_yield || !core.lifo_enabled {
+1361	            core.run_queue
+1362	                .push_back_or_overflow(task, self, &mut core.stats);
+1363	            true
+1364	        } else {
+1365	            // Push to the LIFO slot
+1366	            let prev = core.lifo_slot.take();
+1367	            let ret = prev.is_some();
+1368	
+1369	            if let Some(prev) = prev {
+1370	                core.run_queue
+1371	                    .push_back_or_overflow(prev, self, &mut core.stats);
+1372	            }
+1373	
+1374	            core.lifo_slot = Some(task);
+1375	
+1376	            ret
+1377	        };
+1378	
+1379	        // Only notify if not currently parked. If `park` is `None`, then the
+1380	        // scheduling is from a resource driver. As notifications often come in
+1381	        // batches, the notification is delayed until the park is complete.
+1382	        if should_notify && core.park.is_some() {
+1383	            self.notify_parked_local();
+1384	        }
+1385	    }
+1386	
+1387	    fn next_remote_task(&self) -> Option<Notified> {
+1388	        if self.shared.inject.is_empty() {
+1389	            return None;
+1390	        }
+1391	
+1392	        let mut synced = self.shared.synced.lock();
+1393	        // safety: passing in correct `idle::Synced`
+1394	        unsafe { self.shared.inject.pop(&mut synced.inject) }
+1395	    }
+1396	
+1397	    fn push_remote_task(&self, task: Notified) {
+1398	        self.shared.scheduler_metrics.inc_remote_schedule_count();
+1399	
+1400	        let mut synced = self.shared.synced.lock();
+1401	        // safety: passing in correct `idle::Synced`
+1402	        unsafe {
+1403	            self.shared.inject.push(&mut synced.inject, task);
+1404	        }
+1405	    }
+1406	
+1407	    #[cfg(all(tokio_unstable, feature = "time"))]
+1408	    pub(crate) fn push_remote_timer(&self, hdl: time_alt::EntryHandle) {
+
+... (gap) ...
+
+1438	    /// Notify a parked worker.
+1439	    ///
+1440	    /// Returns `true` if a worker was notified, `false` otherwise.
+1441	    fn notify_parked_local(&self) -> bool {
+1442	        super::counters::inc_num_inc_notify_local();
+1443	
+1444	        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
+1445	            super::counters::inc_num_unparks_local();
+1446	            self.shared.remotes[index].unpark.unpark(&self.driver);
+1447	            true
+1448	        } else {
+1449	            false
+1450	        }
+1451	    }
+1452	
+1453	    fn notify_parked_remote(&self) {
+1454	        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
+1455	            self.shared.remotes[index].unpark.unpark(&self.driver);
+1456	        }
+1457	    }
+1458	
+1459	    pub(super) fn notify_all(&self) {
+1460	        for remote in &self.shared.remotes[..] {
+
+... (gap) ...
+
+1512	        }
+1513	    }
+1514	
+1515	    fn ptr_eq(&self, other: &Handle) -> bool {
+1516	        std::ptr::eq(self, other)
+1517	    }
+1518	}
+1519	
+1520	impl Overflow<Arc<Handle>> for Handle {
+
+... (gap) ...
+
+1537	}
+1538	
+1539	impl<'a> AsMut<inject::Synced> for InjectGuard<'a> {
+1540	    fn as_mut(&mut self) -> &mut inject::Synced {
+1541	        &mut self.lock.inject
+1542	    }
+1543	}
+1544	
+1545	impl<'a> Lock<inject::Synced> for &'a Handle {
+1546	    type Handle = InjectGuard<'a>;
+1547	
+1548	    fn lock(self) -> Self::Handle {
+1549	        InjectGuard {
+1550	            lock: self.shared.synced.lock(),
+1551	        }
+1552	    }
+1553	}
+1554	
+1555	#[cfg(all(tokio_unstable, feature = "time"))]
+1556	/// Returned by [`Context::maintain_local_timers_before_parking`].
+1557	struct MaintainLocalTimer {
+1558	    park_duration: Option<Duration>,
+1559	    auto_advance_duration: Option<Duration>,
+1560	}
+1561	
+1562	#[track_caller]
+1563	fn with_current<R>(f: impl FnOnce(Option<&Context>) -> R) -> R {
+1564	    use scheduler::Context::MultiThread;
+1565	
+1566	    context::with_scheduler(|ctx| match ctx {
+1567	        Some(MultiThread(ctx)) => f(Some(ctx)),
+1568	        _ => f(None),
+1569	    })
+1570	}
+1571	
+```
+
+**`tokio/src/runtime/scheduler/current_thread/mod.rs`** — calls(calls), Core(references), Handle(references), enter(calls), take(calls), f(calls), park_internal(calls), borrow_mut(calls), Core(struct), Context(struct), +15 more
+
+```rust
+58	
+59	/// Data required for executing the scheduler. The struct is passed around to
+60	/// a function that will perform the scheduling work and acts as a capability token.
+61	struct Core {
+62	    /// Scheduler run queue
+63	    tasks: VecDeque<Notified>,
+64	
+65	    /// Current tick
+66	    tick: u32,
+67	
+68	    /// Runtime driver
+69	    ///
+70	    /// The driver is removed before starting to park the thread
+71	    driver: Option<Driver>,
+72	
+73	    /// Metrics batch
+74	    metrics: MetricsBatch,
+75	
+76	    /// How often to check the global queue
+77	    global_queue_interval: u32,
+78	
+79	    /// True if a task panicked without being handled and the runtime is
+80	    /// configured to shutdown on unhandled panic.
+81	    unhandled_panic: bool,
+82	}
+83	
+84	/// Scheduler state shared between threads.
+85	struct Shared {
+
+... (gap) ...
+
+105	/// Thread-local context.
+106	///
+107	/// pub(crate) to store in `runtime::context`.
+108	pub(crate) struct Context {
+109	    /// Scheduler handle
+110	    handle: Arc<Handle>,
+111	
+112	    /// Scheduler core, enabling the holder of `Context` to execute the
+113	    /// scheduler.
+114	    core: RefCell<Option<Box<Core>>>,
+115	
+116	    /// Deferred tasks, usually ones that called `task::yield_now()`.
+117	    pub(crate) defer: Defer,
+118	}
+119	
+120	type Notified = task::Notified<Arc<Handle>>;
+121	
+
+... (gap) ...
+
+321	        self.tick = self.tick.wrapping_add(1);
+322	    }
+323	
+324	    fn next_task(&mut self, handle: &Handle) -> Option<Notified> {
+325	        if self.tick % self.global_queue_interval == 0 {
+326	            handle
+327	                .next_remote_task()
+328	                .or_else(|| self.next_local_task(handle))
+329	        } else {
+330	            self.next_local_task(handle)
+331	                .or_else(|| handle.next_remote_task())
+332	        }
+333	    }
+334	
+335	    fn next_local_task(&mut self, handle: &Handle) -> Option<Notified> {
+336	        let ret = self.tasks.pop_front();
+
+... (gap) ...
+
+368	impl Context {
+369	    /// Execute the closure with the given scheduler core stored in the
+370	    /// thread-local context.
+371	    fn run_task<R>(&self, mut core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+372	        core.metrics.start_poll();
+373	        let mut ret = self.enter(core, || crate::task::coop::budget(f));
+374	        ret.0.metrics.end_poll();
+375	        ret
+376	    }
+377	
+378	    /// Blocks the current thread until an event is received by the driver,
+379	    /// including I/O events, timer events, ...
+380	    fn park(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+381	        let mut driver = core.driver.take().expect("driver missing");
+382	
+383	        if let Some(f) = &handle.shared.config.before_park {
+384	            let (c, ()) = self.enter(core, || f());
+385	            core = c;
+386	        }
+387	
+388	        // If `before_park` spawns a task (or otherwise schedules work for us), then we should not
+389	        // park the thread.
+390	        if !self.has_pending_work(&core) {
+391	            // Park until the thread is signaled
+392	            core.metrics.about_to_park();
+393	            core.submit_metrics(handle);
+394	
+395	            core = self.park_internal(core, handle, &mut driver, None);
+396	
+397	            core.metrics.unparked();
+398	            core.submit_metrics(handle);
+399	        }
+400	
+401	        if let Some(f) = &handle.shared.config.after_unpark {
+402	            let (c, ()) = self.enter(core, || f());
+403	            core = c;
+404	        }
+405	
+406	        core.driver = Some(driver);
+407	        core
+408	    }
+409	
+410	    /// Checks the driver for new events without blocking the thread.
+411	    fn park_yield(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+412	        let mut driver = core.driver.take().expect("driver missing");
+413	
+414	        core.submit_metrics(handle);
+415	
+416	        core = self.park_internal(core, handle, &mut driver, Some(Duration::from_millis(0)));
+417	
+418	        core.driver = Some(driver);
+419	        core
+420	    }
+421	
+422	    fn has_pending_work(&self, core: &Core) -> bool {
+423	        !core.tasks.is_empty() || !self.defer.is_empty() || self.handle.shared.woken.load(Acquire)
+424	    }
+425	
+426	    fn park_internal(
+427	        &self,
+428	        core: Box<Core>,
+429	        handle: &Handle,
+430	        driver: &mut Driver,
+431	        duration: Option<Duration>,
+432	    ) -> Box<Core> {
+433	        let (core, ()) = self.enter(core, || {
+434	            match duration {
+435	                Some(dur) => driver.park_timeout(&handle.driver, dur),
+436	                None => driver.park(&handle.driver),
+437	            }
+438	            self.defer.wake();
+439	        });
+440	
+441	        core
+442	    }
+443	
+444	    fn enter<R>(&self, core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+445	        // Store the scheduler core in the thread-local context
+446	        //
+447	        // A drop-guard is employed at a higher level.
+448	        *self.core.borrow_mut() = Some(core);
+449	
+450	        // Execute the closure while tracking the execution budget
+451	        let ret = f();
+452	
+453	        // Take the scheduler core back
+454	        let core = self.core.borrow_mut().take().expect("core missing");
+455	        (core, ret)
+456	    }
+457	
+458	    pub(crate) fn defer(&self, waker: &Waker) {
+459	        self.defer.defer(waker);
+460	    }
+461	}
+462	
+463	// ===== impl Handle =====
+```
+
+**`tokio/src/runtime/scheduler/multi_thread/queue.rs`** — calls(calls), unpack(calls), len(calls), Notified(references), T(references), Local(struct), len(method), remaining_slots(method), max_capacity(method), push_back(method), +4 more
+
+```rust
+26	}
+27	
+28	/// Producer handle. May only be used from a single thread.
+29	pub(crate) struct Local<T: 'static> {
+30	    inner: Arc<Inner<T>>,
+31	}
+32	
+33	/// Consumer handle. May be used from many threads.
+34	pub(crate) struct Steal<T: 'static>(Arc<Inner<T>>);
+
+... (gap) ...
+
+102	
+103	impl<T> Local<T> {
+104	    /// Returns the number of entries in the queue
+105	    pub(crate) fn len(&self) -> usize {
+106	        let (_, head) = unpack(self.inner.head.load(Acquire));
+107	        // safety: this is the **only** thread that updates this cell.
+108	        let tail = unsafe { self.inner.tail.unsync_load() };
+109	        len(head, tail)
+110	    }
+111	
+112	    /// How many tasks can be pushed into the queue
+113	    pub(crate) fn remaining_slots(&self) -> usize {
+114	        let (steal, _) = unpack(self.inner.head.load(Acquire));
+115	        // safety: this is the **only** thread that updates this cell.
+116	        let tail = unsafe { self.inner.tail.unsync_load() };
+117	
+118	        LOCAL_QUEUE_CAPACITY - len(steal, tail)
+119	    }
+120	
+121	    pub(crate) fn max_capacity(&self) -> usize {
+122	        LOCAL_QUEUE_CAPACITY
+123	    }
+124	
+125	    /// Returns false if there are any entries in the queue
+126	    ///
+
+... (gap) ...
+
+136	    /// # Panics
+137	    ///
+138	    /// The method panics if there is not enough capacity to fit in the queue.
+139	    pub(crate) fn push_back(&mut self, tasks: impl ExactSizeIterator<Item = task::Notified<T>>) {
+140	        let len = tasks.len();
+141	        assert!(len <= LOCAL_QUEUE_CAPACITY);
+142	
+143	        if len == 0 {
+144	            // Nothing to do
+145	            return;
+146	        }
+147	
+148	        let head = self.inner.head.load(Acquire);
+149	        let (steal, _) = unpack(head);
+150	
+151	        // safety: this is the **only** thread that updates this cell.
+152	        let mut tail = unsafe { self.inner.tail.unsync_load() };
+153	
+154	        if tail.wrapping_sub(steal) <= (LOCAL_QUEUE_CAPACITY - len) as UnsignedShort {
+155	            // Yes, this if condition is structured a bit weird (first block
+156	            // does nothing, second returns an error). It is this way to match
+157	            // `push_back_or_overflow`.
+158	        } else {
+159	            panic!()
+160	        }
+161	
+162	        for task in tasks {
+163	            let idx = tail as usize & MASK;
+164	
+165	            self.inner.buffer[idx].with_mut(|ptr| {
+166	                // Write the task to the slot
+167	                //
+168	                // Safety: There is only one producer and the above `if`
+169	                // condition ensures we don't touch a cell if there is a
+170	                // value, thus no consumer.
+171	                unsafe {
+172	                    ptr::write((*ptr).as_mut_ptr(), task);
+173	                }
+174	            });
+175	
+176	            tail = tail.wrapping_add(1);
+177	        }
+178	
+179	        self.inner.tail.store(tail, Release);
+180	    }
+181	
+182	    /// Pushes a task to the back of the local queue, if there is not enough
+183	    /// capacity in the queue, this triggers the overflow operation.
+184	    ///
+185	    /// When the queue overflows, half of the current contents of the queue is
+186	    /// moved to the given Injection queue. This frees up capacity for more
+187	    /// tasks to be pushed into the local queue.
+188	    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(
+189	        &mut self,
+190	        mut task: task::Notified<T>,
+191	        overflow: &O,
+192	        stats: &mut Stats,
+193	    ) {
+194	        let tail = loop {
+195	            let head = self.inner.head.load(Acquire);
+196	            let (steal, real) = unpack(head);
+197	
+198	            // safety: this is the **only** thread that updates this cell.
+199	            let tail = unsafe { self.inner.tail.unsync_load() };
+200	
+201	            if tail.wrapping_sub(steal) < LOCAL_QUEUE_CAPACITY as UnsignedShort {
+202	                // There is capacity for the task
+203	                break tail;
+204	            } else if steal != real {
+205	                // Concurrently stealing, this will free up capacity, so only
+206	                // push the task onto the inject queue
+207	                overflow.push(task);
+208	                return;
+209	            } else {
+210	                // Push the current task and half of the queue into the
+211	                // inject queue.
+212	                match self.push_overflow(task, real, tail, overflow, stats) {
+213	                    Ok(_) => return,
+214	                    // Lost the race, try again
+215	                    Err(v) => {
+216	                        task = v;
+217	                    }
+218	                }
+219	            }
+220	        };
+221	
+222	        self.push_back_finish(task, tail);
+223	    }
+224	
+225	    // Second half of `push_back`
+226	    fn push_back_finish(&self, task: task::Notified<T>, tail: UnsignedShort) {
+
+... (gap) ...
+
+584	
+585	/// Split the head value into the real head and the index a stealer is working
+586	/// on.
+587	fn unpack(n: UnsignedLong) -> (UnsignedShort, UnsignedShort) {
+588	    let real = n & UnsignedShort::MAX as UnsignedLong;
+589	    let steal = n >> (mem::size_of::<UnsignedShort>() * 8);
+590	
+591	    (steal as UnsignedShort, real as UnsignedShort)
+592	}
+593	
+594	/// Join the two head values
+595	fn pack(steal: UnsignedShort, real: UnsignedShort) -> UnsignedLong {
+```
+
+**`tokio/src/runtime/time_alt/cancellation_queue/tests.rs`** — multi_thread(function)
+
+```rust
+1	use super::*;
+2	
+3	#[cfg(loom)]
+4	const NUM_ITEMS: usize = 16;
+5	
+6	#[cfg(not(loom))]
+7	const NUM_ITEMS: usize = 64;
+8	
+9	fn new_handle() -> EntryHandle {
+10	    EntryHandle::new(0)
+11	}
+12	
+13	fn model<F: Fn() + Send + Sync + 'static>(f: F) {
+14	    #[cfg(loom)]
+15	    loom::model(f);
+16	
+17	    #[cfg(not(loom))]
+18	    f();
+19	}
+20	
+21	#[test]
+22	fn single_thread() {
+23	    model(|| {
+24	        for i in 0..NUM_ITEMS {
+25	            let (tx, mut rx) = new();
+26	
+27	            for _ in 0..i {
+28	                unsafe { tx.send(new_handle()) };
+29	            }
+30	
+31	            assert_eq!(rx.recv_all().count(), i);
+32	        }
+33	    });
+34	}
+35	
+36	#[test]
+37	#[cfg(not(target_os = "wasi"))] // No thread on wasi.
+38	fn multi_thread() {
+39	    use crate::loom::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+40	    use crate::loom::sync::Arc;
+41	    use crate::loom::thread;
+42	
+43	    #[cfg(loom)]
+44	    const NUM_THREADS: usize = 3;
+45	    #[cfg(not(loom))]
+46	    const NUM_THREADS: usize = 8;
+47	
+48	    model(|| {
+49	        let (tx, mut rx) = new();
+50	        let mut jhs = Vec::new();
+51	        let sent = Arc::new(AtomicUsize::new(0));
+52	
+53	        for _ in 0..NUM_THREADS {
+54	            let tx = tx.clone();
+55	            let sent = sent.clone();
+56	            jhs.push(thread::spawn(move || {
+57	                for _ in 0..NUM_ITEMS {
+58	                    unsafe { tx.send(new_handle()) };
+59	                    sent.fetch_add(1, SeqCst);
+60	                }
+61	            }));
+62	        }
+63	
+64	        let mut count = 0;
+65	        loop {
+66	            count += rx.recv_all().count();
+67	            if sent.fetch_add(0, SeqCst) == NUM_ITEMS * NUM_THREADS {
+68	                jhs.into_iter().for_each(|jh| {
+69	                    jh.join().unwrap();
+70	                });
+71	                count += rx.recv_all().count();
+72	                break;
+73	            }
+74	            thread::yield_now();
+75	        }
+76	
+77	        assert_eq!(count, NUM_ITEMS * NUM_THREADS);
+78	    })
+79	}
+80	
+81	#[test]
+82	fn drop_iter_should_not_leak_memory() {
+83	    model(|| {
+84	        let (tx, mut rx) = new();
+85	
+86	        let hdls = (0..NUM_ITEMS).map(|_| new_handle()).collect::<Vec<_>>();
+87	        for hdl in hdls.iter() {
+88	            unsafe { tx.send(hdl.clone()) };
+89	        }
+90	
+91	        drop(rx.recv_all());
+92	
+93	        assert!(hdls.into_iter().all(|hdl| hdl.inner_strong_count() == 1));
+94	    });
+95	}
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me pull the actual multi-thread worker run loop and the task harness poll.[tool_use: mcp__codegraph__codegraph_explore] {"query": "multi_thread worker.rs run function line 508 run_task 630 next_task 1062 steal_work Core::run loop; Harness poll RawTask::poll task harness"}
+[usage] input=2 cache_read=30998 cache_write=9745 output=219
+
+=== Turn 6 ===
+[user] [tool_result] **Exploration: multi_thread worker.rs run function line 508 run_task 630 next_task 1062 steal_work Core::run loop; Harness poll RawTask::poll task harness**
+
+Found 72 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `run_task` (tokio/src/runtime/scheduler/multi_thread/worker.rs:630) — 1 caller in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `Worker` (tokio/src/runtime/scheduler/multi_thread/worker.rs:99) — 11 callers in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `steal_work` (tokio/src/runtime/scheduler/multi_thread/worker.rs:1141) — 1 caller in `tokio/src/runtime/scheduler/multi_thread/worker.rs`; ⚠️ no covering tests found
+- `Harness` (tokio/src/runtime/task/harness.rs:17) — 2 callers in `tokio/src/runtime/task/mod.rs`, `tokio/src/runtime/task/harness.rs`; ⚠️ no covering tests found
+- `run_task` (tokio/src/runtime/scheduler/current_thread/mod.rs:371) — 1 caller in `tokio/src/runtime/scheduler/current_thread/mod.rs`; ⚠️ no covering tests found
+
+**Relationships**
+
+**calls:**
+- run_task → task_meta
+- run_task → assert_owner
+- run_task → transition_from_searching
+- run_task → notify_parked_local
+- run_task → assert_lifo_enabled_is_correct
+- run_task → start_poll
+- run_task → borrow_mut
+- run_task → poll_start_callback
+- run_task → run
+- run_task → poll_stop_callback
+- ... and 216 more
+
+**references:**
+- run_task → MAX_LIFO_POLLS_PER_TICK
+- run_task → Notified
+- run_task → Core
+- run_task → RunResult
+- run → Worker
+- next_task → Worker
+- steal_work → Worker
+- transition_to_searching → Worker
+- transition_from_searching → Worker
+- transition_to_parked → Worker
+- ... and 89 more
+
+**instantiates:**
+- create → Worker
+- create → Handle
+- create → Shared
+- from_raw → Harness
+- run → Context
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`tokio/src/runtime/scheduler/multi_thread/worker.rs`** — calls(calls), Worker(references), inject(calls), Notified(references), next_local_task(calls), len(calls), has_tasks(calls), next_remote_task(calls), lock(calls), take(calls), +28 more
+
+```rust
+1054	
+1055	impl Core {
+1056	    /// Increment the tick
+1057	    fn tick(&mut self) {
+1058	        self.tick = self.tick.wrapping_add(1);
+1059	    }
+1060	
+1061	    /// Return the next notified task available to this worker.
+1062	    fn next_task(&mut self, worker: &Worker) -> Option<Notified> {
+1063	        if self.tick % self.global_queue_interval == 0 {
+1064	            // Update the global queue interval, if needed
+1065	            self.tune_global_queue_interval(worker);
+1066	
+1067	            worker
+1068	                .handle
+1069	                .next_remote_task()
+1070	                .or_else(|| self.next_local_task())
+1071	        } else {
+1072	            let maybe_task = self.next_local_task();
+1073	
+1074	            if maybe_task.is_some() {
+1075	                return maybe_task;
+1076	            }
+1077	
+1078	            if worker.inject().is_empty() {
+1079	                return None;
+1080	            }
+1081	
+1082	            let cap = usize::min(
+1083	                // Other threads can only **remove** tasks from the current
+1084	                // worker's `run_queue`. So, we can be confident that by the
+1085	                // time we call `run_queue.push_back` below, there will be *at
+1086	                // least* `cap` available slots in the queue.
+1087	                //
+1088	                // Note that even though `next_local_task()` just returned
+1089	                // `None`, this may be different from `max_capacity()` if
+1090	                // another worker is currently stealing tasks from us.
+1091	                self.run_queue.remaining_slots(),
+1092	                // We want to make sure that all of the tasks we take end up in
+1093	                // the first half of the local queue. This ensures that the
+1094	                // tasks do not get pushed to the inject queue again if overflow
+1095	                // occurs, as overflow only affects tasks in the second half of
+1096	                // the local queue.
+1097	                //
+1098	                // Note that even if there are concurrent stealers, we do not
+1099	                // need to consider the value of `remaining_slots()` because a
+1100	                // future call to `push_overflow()` can only succeed once that
+1101	                // concurrent stealer has finished stealing, so at that point
+1102	                // the tasks we are adding now will be in the first half.
+1103	                self.run_queue.max_capacity() / 2,
+1104	            );
+1105	
+1106	            // The worker is currently idle, pull a batch of work from the
+1107	            // injection queue. We don't want to pull *all* the work so other
+1108	            // workers can also get some.
+1109	            let n = usize::min(
+1110	                worker.inject().len() / worker.handle.shared.remotes.len() + 1,
+1111	                cap,
+1112	            );
+1113	
+1114	            // Take at least one task since the first task is returned directly
+1115	            // and not pushed onto the local queue.
+1116	            let n = usize::max(1, n);
+1117	
+1118	            let mut synced = worker.handle.shared.synced.lock();
+1119	            // safety: passing in the correct `inject::Synced`.
+1120	            let mut tasks = unsafe { worker.inject().pop_n(&mut synced.inject, n) };
+1121	
+1122	            // Pop the first task to return immediately
+1123	            let ret = tasks.next();
+1124	
+1125	            // Push the rest of the on the run queue
+1126	            self.run_queue.push_back(tasks);
+1127	
+1128	            ret
+1129	        }
+1130	    }
+1131	
+1132	    fn next_local_task(&mut self) -> Option<Notified> {
+1133	        self.lifo_slot.take().or_else(|| self.run_queue.pop())
+1134	    }
+1135	
+1136	    /// Function responsible for stealing tasks from another worker
+1137	    ///
+1138	    /// Note: Only if less than half the workers are searching for tasks to steal
+1139	    /// a new worker will actually try to steal. The idea is to make sure not all
+1140	    /// workers will be trying to steal at the same time.
+1141	    fn steal_work(&mut self, worker: &Worker) -> Option<Notified> {
+1142	        if !self.transition_to_searching(worker) {
+1143	            return None;
+1144	        }
+1145	
+1146	        let num = worker.handle.shared.remotes.len();
+1147	        // Start from a random worker
+1148	        let start = self.rand.fastrand_n(num as u32) as usize;
+1149	
+1150	        for i in 0..num {
+1151	            let i = (start + i) % num;
+1152	
+1153	            // Don't steal from ourself! We know we don't have work.
+1154	            if i == worker.index {
+1155	                continue;
+1156	            }
+1157	
+1158	            let target = &worker.handle.shared.remotes[i];
+1159	            if let Some(task) = target
+1160	                .steal
+1161	                .steal_into(&mut self.run_queue, &mut self.stats)
+1162	            {
+1163	                return Some(task);
+1164	            }
+1165	        }
+1166	
+1167	        // Fallback on checking the global queue
+1168	        worker.handle.next_remote_task()
+1169	    }
+1170	
+1171	    fn transition_to_searching(&mut self, worker: &Worker) -> bool {
+1172	        if !self.is_searching {
+1173	            self.is_searching = worker.handle.shared.idle.transition_worker_to_searching();
+1174	        }
+1175	
+1176	        self.is_searching
+1177	    }
+1178	
+1179	    fn transition_from_searching(&mut self, worker: &Worker) -> bool {
+1180	        if !self.is_searching {
+1181	            return false;
+1182	        }
+1183	
+1184	        self.is_searching = false;
+1185	        worker.handle.transition_worker_from_searching()
+1186	    }
+1187	
+1188	    fn has_tasks(&self) -> bool {
+1189	        self.lifo_slot.is_some() || self.run_queue.has_tasks()
+1190	    }
+1191	
+1192	    fn should_notify_others(&self) -> bool {
+1193	        // If there are tasks available to steal, but this worker is not
+1194	        // looking for tasks to steal, notify another worker.
+1195	        if self.is_searching {
+1196	            return false;
+1197	        }
+1198	        self.lifo_slot.is_some() as usize + self.run_queue.len() > 1
+1199	    }
+1200	
+1201	    /// Prepares the worker state for parking.
+1202	    ///
+1203	    /// Returns true if the transition happened, false if there is work to do first.
+1204	    fn transition_to_parked(&mut self, worker: &Worker) -> bool {
+1205	        // Workers should not park if they have work to do
+1206	        if self.has_tasks() || self.is_traced {
+1207	            return false;
+1208	        }
+1209	
+1210	        // When the final worker transitions **out** of searching to parked, it
+1211	        // must check all the queues one last time in case work materialized
+1212	        // between the last work scan and transitioning out of searching.
+1213	        let is_last_searcher = worker.handle.shared.idle.transition_worker_to_parked(
+1214	            &worker.handle.shared,
+1215	            worker.index,
+1216	            self.is_searching,
+1217	        );
+1218	
+1219	        // The worker is no longer searching. Setting this is the local cache
+1220	        // only.
+1221	        self.is_searching = false;
+1222	
+1223	        if is_last_searcher {
+1224	            worker.handle.notify_if_work_pending();
+1225	        }
+1226	
+1227	        true
+1228	    }
+1229	
+1230	    /// Returns `true` if the transition happened.
+1231	    fn transition_from_parked(&mut self, worker: &Worker) -> bool {
+1232	        // If a task is in the lifo slot/run queue, then we must unpark regardless of
+1233	        // being notified
+1234	        if self.has_tasks() {
+1235	            // When a worker wakes, it should only transition to the "searching"
+1236	            // state when the wake originates from another worker *or* a new task
+1237	            // is pushed. We do *not* want the worker to transition to "searching"
+1238	            // when it wakes when the I/O driver receives new events.
+1239	            self.is_searching = !worker
+1240	                .handle
+1241	                .shared
+1242	                .idle
+1243	                .unpark_worker_by_id(&worker.handle.shared, worker.index);
+1244	            return true;
+1245	        }
+1246	
+1247	        if worker
+1248	            .handle
+1249	            .shared
+1250	            .idle
+1251	            .is_parked(&worker.handle.shared, worker.index)
+1252	        {
+1253	            return false;
+1254	        }
+1255	
+1256	        // When unparked, the worker is in the searching state.
+1257	        self.is_searching = true;
+1258	        true
+1259	    }
+1260	
+1261	    /// Runs maintenance work such as checking the pool's state.
+1262	    fn maintenance(&mut self, worker: &Worker) {
+1263	        self.stats
+1264	            .submit(&worker.handle.shared.worker_metrics[worker.index]);
+1265	
+1266	        if !self.is_shutdown {
+1267	            // Check if the scheduler has been shutdown
+1268	            let synced = worker.handle.shared.synced.lock();
+1269	            self.is_shutdown = worker.inject().is_closed(&synced.inject);
+1270	        }
+1271	
+1272	        if !self.is_traced {
+1273	            // Check if the worker should be tracing.
+1274	            self.is_traced = worker.handle.shared.trace_status.trace_requested();
+1275	        }
+1276	    }
+1277	
+1278	    /// Signals all tasks to shut down, and waits for them to complete. Must run
+1279	    /// before we enter the single-threaded phase of shutdown processing.
+1280	    fn pre_shutdown(&mut self, worker: &Worker) {
+1281	        // Start from a random inner list
+1282	        let start = self
+1283	            .rand
+1284	            .fastrand_n(worker.handle.shared.owned.get_shard_size() as u32);
+1285	        // Signal to all tasks to shut down.
+1286	        worker
+1287	            .handle
+1288	            .shared
+1289	            .owned
+1290	            .close_and_shutdown_all(start as usize);
+1291	
+1292	        self.stats
+1293	            .submit(&worker.handle.shared.worker_metrics[worker.index]);
+1294	    }
+1295	
+1296	    /// Shuts down the core.
+1297	    fn shutdown(&mut self, handle: &Handle) {
+1298	        // Take the core
+1299	        let mut park = self.park.take().expect("park missing");
+1300	
+1301	        // Drain the queue
+1302	        while self.next_local_task().is_some() {}
+1303	
+1304	        park.shutdown(&handle.driver);
+1305	    }
+1306	
+1307	    fn tune_global_queue_interval(&mut self, worker: &Worker) {
+1308	        let next = self
+1309	            .stats
+1310	            .tuned_global_queue_interval(&worker.handle.shared.config);
+1311	
+1312	        // Smooth out jitter
+1313	        if u32::abs_diff(self.global_queue_interval, next) > 2 {
+1314	            self.global_queue_interval = next;
+1315	        }
+1316	    }
+1317	}
+1318	
+1319	impl Worker {
+1320	    /// Returns a reference to the scheduler's injection queue.
+1321	    fn inject(&self) -> &inject::Shared<Arc<Handle>> {
+1322	        &self.handle.shared.inject
+1323	    }
+1324	}
+1325	
+1326	impl Handle {
+```
+
+**`tokio/src/runtime/scheduler/current_thread/mod.rs`** — calls(calls), Core(references), Handle(references), enter(calls), take(calls), f(calls), park_internal(calls), borrow_mut(calls), Core(struct), Context(struct), +17 more
+
+```rust
+58	
+59	/// Data required for executing the scheduler. The struct is passed around to
+60	/// a function that will perform the scheduling work and acts as a capability token.
+61	struct Core {
+62	    /// Scheduler run queue
+63	    tasks: VecDeque<Notified>,
+64	
+65	    /// Current tick
+66	    tick: u32,
+67	
+68	    /// Runtime driver
+69	    ///
+70	    /// The driver is removed before starting to park the thread
+71	    driver: Option<Driver>,
+72	
+73	    /// Metrics batch
+74	    metrics: MetricsBatch,
+75	
+76	    /// How often to check the global queue
+77	    global_queue_interval: u32,
+78	
+79	    /// True if a task panicked without being handled and the runtime is
+80	    /// configured to shutdown on unhandled panic.
+81	    unhandled_panic: bool,
+82	}
+83	
+84	/// Scheduler state shared between threads.
+85	struct Shared {
+
+... (gap) ...
+
+105	/// Thread-local context.
+106	///
+107	/// pub(crate) to store in `runtime::context`.
+108	pub(crate) struct Context {
+109	    /// Scheduler handle
+110	    handle: Arc<Handle>,
+111	
+112	    /// Scheduler core, enabling the holder of `Context` to execute the
+113	    /// scheduler.
+114	    core: RefCell<Option<Box<Core>>>,
+115	
+116	    /// Deferred tasks, usually ones that called `task::yield_now()`.
+117	    pub(crate) defer: Defer,
+118	}
+119	
+120	type Notified = task::Notified<Arc<Handle>>;
+121	
+
+... (gap) ...
+
+321	        self.tick = self.tick.wrapping_add(1);
+322	    }
+323	
+324	    fn next_task(&mut self, handle: &Handle) -> Option<Notified> {
+325	        if self.tick % self.global_queue_interval == 0 {
+326	            handle
+327	                .next_remote_task()
+328	                .or_else(|| self.next_local_task(handle))
+329	        } else {
+330	            self.next_local_task(handle)
+331	                .or_else(|| handle.next_remote_task())
+332	        }
+333	    }
+334	
+335	    fn next_local_task(&mut self, handle: &Handle) -> Option<Notified> {
+336	        let ret = self.tasks.pop_front();
+
+... (gap) ...
+
+368	impl Context {
+369	    /// Execute the closure with the given scheduler core stored in the
+370	    /// thread-local context.
+371	    fn run_task<R>(&self, mut core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+372	        core.metrics.start_poll();
+373	        let mut ret = self.enter(core, || crate::task::coop::budget(f));
+374	        ret.0.metrics.end_poll();
+375	        ret
+376	    }
+377	
+378	    /// Blocks the current thread until an event is received by the driver,
+379	    /// including I/O events, timer events, ...
+380	    fn park(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+381	        let mut driver = core.driver.take().expect("driver missing");
+382	
+383	        if let Some(f) = &handle.shared.config.before_park {
+384	            let (c, ()) = self.enter(core, || f());
+385	            core = c;
+386	        }
+387	
+388	        // If `before_park` spawns a task (or otherwise schedules work for us), then we should not
+389	        // park the thread.
+390	        if !self.has_pending_work(&core) {
+391	            // Park until the thread is signaled
+392	            core.metrics.about_to_park();
+393	            core.submit_metrics(handle);
+394	
+395	            core = self.park_internal(core, handle, &mut driver, None);
+396	
+397	            core.metrics.unparked();
+398	            core.submit_metrics(handle);
+399	        }
+400	
+401	        if let Some(f) = &handle.shared.config.after_unpark {
+402	            let (c, ()) = self.enter(core, || f());
+403	            core = c;
+404	        }
+405	
+406	        core.driver = Some(driver);
+407	        core
+408	    }
+409	
+410	    /// Checks the driver for new events without blocking the thread.
+411	    fn park_yield(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+412	        let mut driver = core.driver.take().expect("driver missing");
+413	
+414	        core.submit_metrics(handle);
+415	
+416	        core = self.park_internal(core, handle, &mut driver, Some(Duration::from_millis(0)));
+417	
+418	        core.driver = Some(driver);
+419	        core
+420	    }
+421	
+422	    fn has_pending_work(&self, core: &Core) -> bool {
+423	        !core.tasks.is_empty() || !self.defer.is_empty() || self.handle.shared.woken.load(Acquire)
+424	    }
+425	
+426	    fn park_internal(
+427	        &self,
+428	        core: Box<Core>,
+429	        handle: &Handle,
+430	        driver: &mut Driver,
+431	        duration: Option<Duration>,
+432	    ) -> Box<Core> {
+433	        let (core, ()) = self.enter(core, || {
+434	            match duration {
+435	                Some(dur) => driver.park_timeout(&handle.driver, dur),
+436	                None => driver.park(&handle.driver),
+437	            }
+438	            self.defer.wake();
+439	        });
+440	
+441	        core
+442	    }
+443	
+444	    fn enter<R>(&self, core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
+445	        // Store the scheduler core in the thread-local context
+446	        //
+447	        // A drop-guard is employed at a higher level.
+448	        *self.core.borrow_mut() = Some(core);
+449	
+450	        // Execute the closure while tracking the execution budget
+451	        let ret = f();
+452	
+453	        // Take the scheduler core back
+454	        let core = self.core.borrow_mut().take().expect("core missing");
+455	        (core, ret)
+456	    }
+457	
+458	    pub(crate) fn defer(&self, waker: &Waker) {
+459	        self.defer.defer(waker);
+460	    }
+461	}
+462	
+463	// ===== impl Handle =====
+
+... (gap) ...
+
+732	}
+733	
+734	impl Wake for Handle {
+735	    fn wake(arc_self: Arc<Self>) {
+736	        Wake::wake_by_ref(&arc_self);
+737	    }
+738	
+739	    /// Wake by reference
+740	    fn wake_by_ref(arc_self: &Arc<Self>) {
+```
+
+**`tokio/src/runtime/task/harness.rs`** — imports(imports), calls(calls), Header(references), T(references), references(references), header(calls), Core(references), dealloc(calls), Core(imports), Header(imports), +25 more
+
+```rust
+1	use crate::future::Future;
+2	use crate::runtime::task::core::{Cell, Core, Header, Trailer};
+3	use crate::runtime::task::state::{Snapshot, State};
+4	use crate::runtime::task::waker::waker_ref;
+5	use crate::runtime::task::{Id, JoinError, Notified, RawTask, Schedule, Task};
+6	
+7	#[cfg(tokio_unstable)]
+8	use crate::runtime::TaskMeta;
+9	use std::any::Any;
+10	use std::mem;
+11	use std::mem::ManuallyDrop;
+12	use std::panic;
+13	use std::ptr::NonNull;
+14	use std::task::{Context, Poll, Waker};
+15	
+16	/// Typed raw task handle.
+17	pub(super) struct Harness<T: Future, S: 'static> {
+18	    cell: NonNull<Cell<T, S>>,
+19	}
+20	
+21	impl<T, S> Harness<T, S>
+22	where
+23	    T: Future,
+24	    S: 'static,
+25	{
+26	    pub(super) unsafe fn from_raw(ptr: NonNull<Header>) -> Harness<T, S> {
+27	        Harness {
+28	            cell: ptr.cast::<Cell<T, S>>(),
+29	        }
+30	    }
+31	
+32	    fn header_ptr(&self) -> NonNull<Header> {
+33	        self.cell.cast()
+34	    }
+35	
+36	    fn header(&self) -> &Header {
+37	        unsafe { &*self.header_ptr().as_ptr() }
+38	    }
+39	
+40	    fn state(&self) -> &State {
+41	        &self.header().state
+42	    }
+43	
+44	    fn trailer(&self) -> &Trailer {
+45	        unsafe { &self.cell.as_ref().trailer }
+46	    }
+47	
+48	    fn core(&self) -> &Core<T, S> {
+49	        unsafe { &self.cell.as_ref().core }
+50	    }
+51	}
+52	
+53	/// Task operations that can be implemented without being generic over the
+
+... (gap) ...
+
+130	    /// Try to set the waker notified when the task is complete. Returns true if
+131	    /// the task has already completed. If this call returns false, then the
+132	    /// waker will not be notified.
+133	    pub(super) fn try_set_join_waker(&self, waker: &Waker) -> bool {
+134	        can_read_output(self.header(), self.trailer(), waker)
+135	    }
+136	}
+137	
+138	impl<T, S> Harness<T, S>
+139	where
+140	    T: Future,
+141	    S: Schedule,
+142	{
+143	    pub(super) fn drop_reference(self) {
+144	        if self.state().ref_dec() {
+145	            self.dealloc();
+146	        }
+147	    }
+148	
+149	    /// Polls the inner future. A ref-count is consumed.
+150	    ///
+151	    /// All necessary state checks and transitions are performed.
+152	    /// Panics raised while polling the future are handled.
+153	    pub(super) fn poll(self) {
+154	        // We pass our ref-count to `poll_inner`.
+155	        match self.poll_inner() {
+156	            PollFuture::Notified => {
+157	                // The `poll_inner` call has given us two ref-counts back.
+158	                // We give one of them to a new task and call `yield_now`.
+159	                self.core()
+160	                    .scheduler
+161	                    .yield_now(Notified(self.get_new_task()));
+162	
+163	                // The remaining ref-count is now dropped. We kept the extra
+164	                // ref-count until now to ensure that even if the `yield_now`
+165	                // call drops the provided task, the task isn't deallocated
+166	                // before after `yield_now` returns.
+167	                self.drop_reference();
+168	            }
+169	            PollFuture::Complete => {
+170	                self.complete();
+171	            }
+172	            PollFuture::Dealloc => {
+173	                self.dealloc();
+174	            }
+175	            PollFuture::Done => (),
+176	        }
+177	    }
+178	
+179	    /// Polls the task and cancel it if necessary. This takes ownership of a
+180	    /// ref-count.
+
+... (gap) ...
+
+497	}
+498	
+499	/// Cancels the task and store the appropriate error in the stage field.
+500	fn cancel_task<T: Future, S: Schedule>(core: &Core<T, S>) {
+501	    // Drop the future from a panic guard.
+502	    let res = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+503	        core.drop_future_or_output();
+504	    }));
+505	
+506	    core.store_output(Err(panic_result_to_join_error(core.task_id, res)));
+507	}
+508	
+509	fn panic_result_to_join_error(
+510	    task_id: Id,
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me grab the actual `run` loop and `run_task` bodies (lines 508–700) which weren't yet shown.[tool_use: Read] {"file_path": "/tmp/codebench_workspaces/exploration_2026_06_29-99ab4af2c9f9/cg_tokio_codegraph_rep0/tokio/src/runtime/scheduler/multi_thread/worker.rs", "offset": 508, "limit": 210}
+[usage] input=2 cache_read=40743 cache_write=9516 output=276
+
+=== Turn 7 ===
+[user] [tool_result] 508	fn run(worker: Arc<Worker>) {
+509	    #[allow(dead_code)]
+510	    struct AbortOnPanic;
+511	
+512	    impl Drop for AbortOnPanic {
+513	        fn drop(&mut self) {
+514	            if std::thread::panicking() {
+515	                eprintln!("worker thread panicking; aborting process");
+516	                std::process::abort();
+517	            }
+518	        }
+519	    }
+520	
+521	    // Catching panics on worker threads in tests is quite tricky. Instead, when
+522	    // debug assertions are enabled, we just abort the process.
+523	    #[cfg(debug_assertions)]
+524	    let _abort_on_panic = AbortOnPanic;
+525	
+526	    // Acquire a core. If this fails, then another thread is running this
+527	    // worker and there is nothing further to do.
+528	    let core = match worker.core.take() {
+529	        Some(core) => core,
+530	        None => return,
+531	    };
+532	
+533	    worker.handle.shared.worker_metrics[worker.index].set_thread_id(thread::current().id());
+534	
+535	    let handle = scheduler::Handle::MultiThread(worker.handle.clone());
+536	
+537	    crate::runtime::context::enter_runtime(&handle, true, |_| {
+538	        // Set the worker context.
+539	        let cx = scheduler::Context::MultiThread(Context {
+540	            worker,
+541	            core: RefCell::new(None),
+542	            defer: Defer::new(),
+543	        });
+544	
+545	        context::set_scheduler(&cx, || {
+546	            let cx = cx.expect_multi_thread();
+547	
+548	            // This should always be an error. It only returns a `Result` to support
+549	            // using `?` to short circuit.
+550	            assert!(cx.run(core).is_err());
+551	
+552	            // Check if there are any deferred tasks to notify. This can happen when
+553	            // the worker core is lost due to `block_in_place()` being called from
+554	            // within the task.
+555	            cx.defer.wake();
+556	        });
+557	    });
+558	}
+559	
+560	impl Context {
+561	    fn run(&self, mut core: Box<Core>) -> RunResult {
+562	        // Reset `lifo_enabled` here in case the core was previously stolen from
+563	        // a task that had the LIFO slot disabled.
+564	        self.reset_lifo_enabled(&mut core);
+565	
+566	        // Start as "processing" tasks as polling tasks from the local queue
+567	        // will be one of the first things we do.
+568	        core.stats.start_processing_scheduled_tasks();
+569	
+570	        while !core.is_shutdown {
+571	            self.assert_lifo_enabled_is_correct(&core);
+572	
+573	            if core.is_traced {
+574	                core = self.worker.handle.trace_core(core);
+575	            }
+576	
+577	            // Increment the tick
+578	            core.tick();
+579	
+580	            // Run maintenance, if needed
+581	            core = self.maintenance(core);
+582	
+583	            // First, check work available to the current worker.
+584	            if let Some(task) = core.next_task(&self.worker) {
+585	                core = self.run_task(task, core)?;
+586	                continue;
+587	            }
+588	
+589	            // We consumed all work in the queues and will start searching for work.
+590	            core.stats.end_processing_scheduled_tasks();
+591	
+592	            // There is no more **local** work to process, try to steal work
+593	            // from other workers.
+594	            if let Some(task) = core.steal_work(&self.worker) {
+595	                // Found work, switch back to processing
+596	                core.stats.start_processing_scheduled_tasks();
+597	                core = self.run_task(task, core)?;
+598	            } else {
+599	                // Wait for work
+600	                core = if !self.defer.is_empty() {
+601	                    self.park_yield(core)
+602	                } else {
+603	                    self.park(core)
+604	                };
+605	                core.stats.start_processing_scheduled_tasks();
+606	            }
+607	        }
+608	
+609	        #[cfg(all(tokio_unstable, feature = "time"))]
+610	        {
+611	            match self.worker.handle.timer_flavor {
+612	                TimerFlavor::Traditional => {}
+613	                TimerFlavor::Alternative => {
+614	                    util::time_alt::shutdown_local_timers(
+615	                        &mut core.time_context.wheel,
+616	                        &mut core.time_context.canc_rx,
+617	                        self.worker.handle.take_remote_timers(),
+618	                        &self.worker.handle.driver,
+619	                    );
+620	                }
+621	            }
+622	        }
+623	
+624	        core.pre_shutdown(&self.worker);
+625	        // Signal shutdown
+626	        self.worker.handle.shutdown_core(core);
+627	        Err(())
+628	    }
+629	
+630	    fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
+631	        #[cfg(tokio_unstable)]
+632	        let task_meta = task.task_meta();
+633	
+634	        let task = self.worker.handle.shared.owned.assert_owner(task);
+635	
+636	        // Make sure the worker is not in the **searching** state. This enables
+637	        // another idle worker to try to steal work.
+638	        let notified_parked_worker = core.transition_from_searching(&self.worker);
+639	
+640	        // If the setting to wake eagerly when releasing the I/O driver is
+641	        // enabled, and this worker had the driver, wake a parked worker to come
+642	        // grab it from us.
+643	        //
+644	        // Note that this is only done when we are *actually* about to poll a
+645	        // task, rather than whenever the worker has unparked. When the worker
+646	        // has been unparked, it may not actually have any tasks to poll, and if
+647	        // it's still holding the I/O driver, it should just go back to polling
+648	        // the driver again, rather than trying to wake someone else spuriously.
+649	        //
+650	        // Note that this explicitly checks `cfg!(tokio_unstable)` in addition,
+651	        // as that should result in this whole expression being eliminated at
+652	        // compile-time when unstable features are disabled.
+653	        if cfg!(tokio_unstable)
+654	            && core.enable_eager_driver_handoff
+655	            && core.had_driver == park::HadDriver::Yes
+656	            && !notified_parked_worker
+657	        // don't do it a second time
+658	        {
+659	            core.had_driver = park::HadDriver::No;
+660	            self.worker.handle.notify_parked_local();
+661	        }
+662	
+663	        self.assert_lifo_enabled_is_correct(&core);
+664	
+665	        // Measure the poll start time. Note that we may end up polling other
+666	        // tasks under this measurement. In this case, the tasks came from the
+667	        // LIFO slot and are considered part of the current task for scheduling
+668	        // purposes. These tasks inherent the "parent"'s limits.
+669	        core.stats.start_poll();
+670	
+671	        // Make the core available to the runtime context
+672	        *self.core.borrow_mut() = Some(core);
+673	
+674	        // Run the task
+675	        coop::budget(|| {
+676	            // Unlike the poll time above, poll start callback is attached to the task id,
+677	            // so it is tightly associated with the actual poll invocation.
+678	            #[cfg(tokio_unstable)]
+679	            self.worker
+680	                .handle
+681	                .task_hooks
+682	                .poll_start_callback(&task_meta);
+683	
+684	            task.run();
+685	
+686	            #[cfg(tokio_unstable)]
+687	            self.worker.handle.task_hooks.poll_stop_callback(&task_meta);
+688	
+689	            let mut lifo_polls = 0;
+690	
+691	            // As long as there is budget remaining and a task exists in the
+692	            // `lifo_slot`, then keep running.
+693	            loop {
+694	                // Check if we still have the core. If not, the core was stolen
+695	                // by another worker.
+696	                let mut core = match self.core.borrow_mut().take() {
+697	                    Some(core) => core,
+698	                    None => {
+699	                        // In this case, we cannot call `reset_lifo_enabled()`
+700	                        // because the core was stolen. The stealer will handle
+701	                        // that at the top of `Context::run`
+702	                        return Err(());
+703	                    }
+704	                };
+705	
+706	                // Check for a task in the LIFO slot
+707	                let task = match core.lifo_slot.take() {
+708	                    Some(task) => task,
+709	                    None => {
+710	                        self.reset_lifo_enabled(&mut core);
+711	                        core.stats.end_poll();
+712	                        return Ok(core);
+713	                    }
+714	                };
+715	
+716	                if !coop::has_budget_remaining() {
+717	                    core.stats.end_poll();
+[assistant] I now have the full picture. Here's how tokio schedules and runs async tasks.
+
+## The big picture
+
+Tokio has two schedulers behind one API: the **multi-thread** scheduler (the default `#[tokio::main]` runtime) and the **current-thread** scheduler. Both share the same task machinery (`task::Notified`, the `Harness`, the injection queue) but differ in how many worker loops run and where the run queue lives. Everything centers on one idea: a **task is a heap allocation that can be cheaply scheduled by pushing a handle onto a queue**, and workers loop popping handles and polling them.
+
+## The multi-thread scheduler
+
+### Worker threads and the run loop
+
+Each worker thread runs `run()` (`multi_thread/worker.rs:508`), which acquires an exclusive **`Core`** (`worker.core.take()` — line 528; if another thread already holds it, this thread just returns). The `Core` is the "capability token" that grants the right to schedule: it owns the local run queue, the LIFO slot, stats, and the park handle. It's stored in a thread-local `Context` so that code polling inside a task can reach back into the scheduler.
+
+The heart is `Context::run` (`worker.rs:561`), a loop that runs until shutdown:
+
+```rust
+while !core.is_shutdown {
+    core.tick();
+    core = self.maintenance(core);
+    if let Some(task) = core.next_task(&self.worker) {   // 1. local/global work
+        core = self.run_task(task, core)?;
+        continue;
+    }
+    if let Some(task) = core.steal_work(&self.worker) {  // 2. steal from peers
+        core = self.run_task(task, core)?;
+    } else {
+        core = self.park(core);                          // 3. sleep
+    }
+}
+```
+
+### Where a worker looks for work (in priority order)
+
+**1. `next_task` (`worker.rs:1062`)** — the local sources:
+- The **LIFO slot** first, then the local run queue (`next_local_task`, line 1132). The LIFO slot is a single-task fast path (explained below).
+- Periodically — every `global_queue_interval` ticks — it checks the **global injection queue** *first* instead, so global work can't be starved by a hot local queue. When it does pull from the inject queue while idle, it grabs a *batch* (`inject().len() / num_workers + 1`, capped at half the local queue capacity, lines 1109–1126): returns one task directly and pushes the rest onto its local queue.
+
+**2. `steal_work` (`worker.rs:1141`)** — work-stealing. If local + global are empty, the worker transitions to the "searching" state and tries to steal. It starts at a **random** peer and scans round-robin, calling `steal_into` to move roughly half of a victim's queue into its own. As a fallback it checks the global queue again. Only a limited number of workers search at once (`transition_to_searching`) so they don't thundering-herd.
+
+**3. `park` (`current_thread/mod.rs:380`-style, and multi-thread equivalent)** — if nothing is found, the worker parks on the I/O/timer driver. Before actually sleeping it re-checks for pending work; the last searching worker double-checks all queues (`transition_to_parked`, line 1204) to close the race where work appears just as everyone goes to sleep.
+
+### How a task actually runs
+
+`run_task` (`worker.rs:630`) is where a `Notified` handle becomes a poll:
+
+1. `assert_owner` confirms the task belongs to this scheduler.
+2. `transition_from_searching` — the worker leaves the searching state and, if it was the last searcher, **notifies another parked worker** so stealing can continue in parallel with this poll.
+3. It puts the `Core` back into the thread-local context (so nested scheduling works), then calls `coop::budget(|| task.run())` — `task.run()` drives the actual `Future::poll` through the `Harness`.
+4. **The LIFO optimization** (lines 689–717): after polling, it checks the LIFO slot again and keeps polling those tasks in a tight loop *without going back through the queue*, up to `MAX_LIFO_POLLS_PER_TICK` and while coop budget remains. This is the message-passing fast path: when task A does `tx.send()` and wakes task B, B lands in the LIFO slot and runs immediately on the same worker with warm cache, instead of round-tripping through the queue.
+
+Note the poll can lose the core mid-loop (`self.core.borrow_mut().take()` returns `None` at line 696) — that happens when the task called `block_in_place`, handing the core to another thread. The loop then returns `Err(())`, unwinding back to `run()`.
+
+## How a task gets scheduled (the wake path)
+
+When a future is spawned or a waker fires, the scheduler's `schedule_task` (`worker.rs:1327`) decides where the `Notified` handle goes:
+
+- **If called from a worker thread of this same runtime that still holds a core** → `schedule_local` (line 1353): a non-yield wake goes to the **LIFO slot** (bumping any prior occupant to the run queue); a yield (`yield_now`) or LIFO-disabled goes to the **back of the local run queue** via `push_back_or_overflow`. If the local queue is full, overflow moves half its contents to the global inject queue (`queue.rs:188`).
+- **Otherwise** (scheduling from a non-worker thread, another runtime, or a resource driver) → `push_remote_task` pushes onto the **global injection queue** under a lock (`worker.rs:1397`), then `notify_parked_remote` unparks a sleeping worker to come pick it up.
+
+This dual path is why waking a task from inside the runtime is nearly lock-free (local queue / LIFO slot), while waking from outside pays a lock on the shared inject queue.
+
+## The task harness — what `task.run()` does
+
+`task.run()` ends up in `Harness::poll` (`task/harness.rs:153`). The harness wraps the future in a state machine (`State`/`Snapshot`) that tracks ref-counts and the RUNNING/NOTIFIED/COMPLETE bits. `poll_inner` builds a `Waker` pointing back at this task (so waking = re-scheduling via `Schedule::schedule`), polls the future, and dispatches on the result:
+
+- **`Complete`** → store the output, wake the `JoinHandle`'s waker, drop the future.
+- **`Notified`** → the task woke *itself* during its own poll; it's handed to `yield_now` to be re-scheduled fairly rather than looping hot.
+- **`Dealloc` / `Done`** → ref-count bookkeeping.
+
+The `Waker` is the entire bridge between "the outside world is ready" (an I/O readiness event, a timer firing, a channel send) and "put this task back on a run queue" — waking simply calls back into `schedule_task`.
+
+## The current-thread scheduler (contrast)
+
+`current_thread/mod.rs` is the same shape collapsed to one thread: the `Core` holds a simple `VecDeque<Notified>` run queue (line 63), `next_task` alternates local vs. global by tick (line 324), and `run_task` (line 371) polls under a coop budget just like the multi-thread one — but there's no stealing, no LIFO slot, and no worker-to-worker notification. When idle it parks the single thread directly on the driver (`park`, line 380).
+
+## Cross-cutting mechanisms
+
+- **Cooperative scheduling (`coop::budget`)** wraps every poll. Each task gets a budget of "readiness" operations; tokio's own resources decrement it and return `Pending` once exhausted, forcing long-running tasks to yield so they can't starve peers — this is what makes a single busy task not hog a worker.
+- **`block_in_place`** lets a task give up its core (handing it to another thread to keep the runtime live) while it blocks — that's the `None` branch in `run_task`.
+- **`spawn_blocking`** is separate entirely: a dedicated thread pool (`blocking/pool.rs:503`) with its own condvar-driven BUSY/IDLE loop, for work that would otherwise block a worker.
+
+**In one sentence:** spawning/waking pushes a task handle onto a queue (LIFO slot → local queue → global inject, in decreasing locality); each worker loops popping the most-local task, polls it through the harness under a coop budget, prefers just-woken tasks via the LIFO slot, steals from peers when idle, and parks on the I/O driver when there's nothing left to do.
+[usage] input=2 cache_read=50259 cache_write=3323 output=2903

@@ -1,0 +1,1713 @@
+
+=== Turn 1 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore the codebase's rendering and update architecture using codegraph.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 1}
+[usage] input=3748 cache_read=15023 cache_write=2935 output=168
+
+=== Turn 2 ===
+[user] <session>
+How does Excalidraw render and update canvas elements?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Excalidraw canvas rendering and updates"}
+[usage] input=529 cache_read=0 cache_write=0 output=17
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does Excalidraw render and update canvas elements? renderScene renderStaticScene mutateElement scene update flow"}
+[usage] input=2 cache_read=15116 cache_write=7441 output=97
+
+=== Turn 4 ===
+[user] [tool_result] **Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- ExcalidrawWrapper → Excalidraw   [dynamic: renders <Excalidraw>]
+- Page → Excalidraw   [dynamic: renders <Excalidraw>]
+- assertExcalidrawWithSidebar → Excalidraw   [dynamic: renders <Excalidraw>]
+- ToggleTheme → Excalidraw   [dynamic: renders <Excalidraw>]
+- getLatestValue → Excalidraw   [dynamic: renders <Excalidraw>]
+- setupImageTest → Excalidraw   [dynamic: renders <Excalidraw>]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does Excalidraw render and update canvas elements? renderScene renderStaticScene mutateElement scene update flow**
+
+Found 55 symbols across 2 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `renderStaticScene` (packages/excalidraw/renderer/staticScene.ts:491) — 4 callers in `packages/excalidraw/components/canvases/StaticCanvas.tsx`, `packages/excalidraw/scene/export.ts`; ⚠️ no covering tests found
+- `mutateElement` (packages/excalidraw/components/App.tsx:4644) — 23 callers in `packages/excalidraw/actions/actionBoundText.tsx`, `packages/excalidraw/actions/actionDeleteSelected.tsx`, `packages/excalidraw/actions/actionFinalize.tsx`, `packages/excalidraw/actions/actionProperties.tsx` +12 more; tests: `packages/element/tests/elbowArrow.test.tsx`, `packages/element/tests/linearElementEditor.test.tsx`, `packages/excalidraw/actions/actionDeleteSelected.test.tsx`, `packages/excalidraw/components/Stats/stats.test.tsx` +2
+- `Scene` (packages/element/src/Scene.ts:108) — 109 callers in `packages/element/src/align.ts`, `packages/element/src/arrows/focus.ts`, `packages/element/src/binding.ts`, `packages/element/src/delta.ts` +26 more; tests: `packages/element/tests/elbowArrow.test.tsx`
+
+**Relationships**
+
+**calls:**
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → _renderStaticScene
+- StaticCanvas → renderStaticScene
+- exportToCanvas → renderStaticScene
+- destroy → renderStaticSceneThrottled
+- _renderStaticScene → getBoundTextElement
+- _renderStaticScene → createPlaceholderEmbeddableLabel
+- _renderStaticScene → getNormalizedCanvasDimensions
+- _renderStaticScene → getTargetFrame
+- _renderStaticScene → isTextElement
+- ... and 173 more
+
+**references:**
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → StaticSceneRenderConfig
+- _renderStaticScene → StaticSceneRenderConfig
+- createExcalidrawAPI → mutateElement
+- textWysiwyg → App
+- GetRenderableElementsOpts → AppState
+- GetRenderableElementsOpts → NonDeletedExcalidrawElement
+- AppState → LinearElementEditor
+- AppState → Spreadsheet
+- AppState → SearchMatch
+- ... and 82 more
+
+**instantiates:**
+- redrawElements → Scene
+- convertToExcalidrawElements → Scene
+- constructor → AnimatedTrail
+- updateCollabTrails → AnimatedTrail
+
+**implements:**
+- AnimatedTrail → Trail
+
+**extends:**
+- EraserTrail → AnimatedTrail
+- LassoTrail → AnimatedTrail
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`packages/excalidraw/components/App.tsx`** — references(references), calls(calls), instantiates(instantiates), Scene(references), AppState(references), scene(property), createExcalidrawAPI(method), mutateElement(references), constructor(method), t(calls), +6 more
+
+```tsx
+536	ExcalidrawElementsContext.displayName = "ExcalidrawElementsContext";
+537	
+538	const ExcalidrawAppStateContext = React.createContext<AppState>({
+539	  ...getDefaultAppState(),
+540	  width: 0,
+541	  height: 0,
+542	  offsetLeft: 0,
+
+... (gap) ...
+
+632	
+633	  private excalidrawContainerRef = React.createRef<HTMLDivElement>();
+634	
+635	  public scene: Scene;
+636	  public fonts: Fonts;
+637	  public renderer: Renderer;
+638	  public visibleElements: readonly NonDeletedExcalidrawElement[];
+
+... (gap) ...
+
+742	
+743	  api: ExcalidrawImperativeAPI;
+744	
+745	  private createExcalidrawAPI(): ExcalidrawImperativeAPI {
+746	    const api: ExcalidrawImperativeAPI = {
+747	      isDestroyed: false,
+748	      updateScene: this.updateScene,
+749	      applyDeltas: this.applyDeltas,
+750	      mutateElement: this.mutateElement,
+751	      updateLibrary: this.library.updateLibrary,
+752	      addFiles: this.addFiles,
+753	      resetScene: this.resetScene,
+754	      getSceneElementsIncludingDeleted: this.getSceneElementsIncludingDeleted,
+755	      getSceneElementsMapIncludingDeleted:
+756	        this.getSceneElementsMapIncludingDeleted,
+757	      history: {
+758	        clear: this.resetHistory,
+759	      },
+760	      scrollToContent: this.scrollToContent,
+761	      getSceneElements: this.getSceneElements,
+762	      getAppState: () => this.state,
+763	      getFiles: () => this.files,
+764	      getName: this.getName,
+765	      registerAction: (action: Action) => {
+766	        this.actionManager.registerAction(action);
+767	      },
+768	      refresh: this.refresh,
+769	      setToast: this.setToast,
+770	      id: this.id,
+771	      setActiveTool: this.setActiveTool,
+772	      setCursor: this.setCursor,
+773	      resetCursor: this.resetCursor,
+774	      getEditorInterface: () => this.editorInterface,
+775	      updateFrameRendering: this.updateFrameRendering,
+776	      toggleSidebar: this.toggleSidebar,
+777	      onChange: (cb) => this.onChangeEmitter.on(cb),
+778	      onIncrement: (cb) => this.store.onStoreIncrementEmitter.on(cb),
+779	      onPointerDown: (cb) => this.onPointerDownEmitter.on(cb),
+780	      onPointerUp: (cb) => this.onPointerUpEmitter.on(cb),
+781	      onScrollChange: (cb) => this.onScrollChangeEmitter.on(cb),
+782	      onUserFollow: (cb) => this.onUserFollowEmitter.on(cb),
+783	      onStateChange: this.onStateChange,
+784	      onEvent: this.onEvent,
+785	    };
+786	    return api;
+787	  }
+788	
+789	  constructor(props: AppProps) {
+790	    super(props);
+791	    const defaultAppState = getDefaultAppState();
+792	    const {
+793	      viewModeEnabled = false,
+794	      zenModeEnabled = false,
+795	      gridModeEnabled = false,
+796	      objectsSnapModeEnabled = false,
+797	      theme = defaultAppState.theme,
+798	      name = `${t("labels.untitled")}-${getDateTime()}`,
+799	    } = props;
+800	
+801	    this.state = {
+802	      ...defaultAppState,
+803	      theme,
+804	      exportWithDarkMode: theme === THEME.DARK,
+805	      isLoading: true,
+806	      ...this.getCanvasOffsets(),
+807	      viewModeEnabled,
+808	      zenModeEnabled,
+809	      objectsSnapModeEnabled,
+810	      gridModeEnabled: gridModeEnabled ?? defaultAppState.gridModeEnabled,
+811	      name,
+812	      width: window.innerWidth,
+813	      height: window.innerHeight,
+814	    };
+815	
+816	    this.refreshEditorInterface();
+817	    this.stylesPanelMode = deriveStylesPanelMode(this.editorInterface);
+818	
+819	    this.id = nanoid();
+820	    this.library = new Library(this);
+821	    this.actionManager = new ActionManager(
+822	      this.syncActionResult,
+823	      () => this.state,
+824	      () => this.scene.getElementsIncludingDeleted(),
+825	      this,
+826	    );
+827	    this.scene = new Scene();
+828	
+829	    this.canvas = document.createElement("canvas");
+830	    this.rc = rough.canvas(this.canvas);
+831	    this.renderer = new Renderer(this.scene);
+832	    this.visibleElements = [];
+833	
+834	    this.store = new Store(this);
+835	    this.history = new History(this.store);
+836	
+837	    this.excalidrawContainerValue = {
+838	      container: this.excalidrawContainerRef.current,
+839	      id: this.id,
+840	    };
+841	
+842	    this.fonts = new Fonts(this.scene);
+843	    this.history = new History(this.store);
+844	
+845	    this.actionManager.registerAll(actions);
+846	    this.actionManager.registerAction(createUndoAction(this.history));
+847	    this.actionManager.registerAction(createRedoAction(this.history));
+848	
+849	    // in case internal editor APIs call this early, otherwise we need
+850	    // to construct this in componentDidMount because componentWillUnmount
+851	    // will invalidate it (so in StrictMode, doing this in constructor alone
+852	    // would be a problem)
+853	    this.api = this.createExcalidrawAPI();
+854	  }
+855	
+856	  updateEditorAtom = <Value, Args extends unknown[], Result>(
+857	    atom: WritableAtom<Value, Args, Result>,
+
+... (gap) ...
+
+4641	    );
+4642	  };
+4643	
+4644	  public mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
+4645	    element: TElement,
+4646	    updates: ElementUpdate<TElement>,
+4647	    informMutation = true,
+4648	  ) => {
+4649	    return this.scene.mutateElement(element, updates, {
+4650	      informMutation,
+4651	      isDragging: false,
+4652	    });
+4653	  };
+4654	
+4655	  private triggerRender = (
+4656	    /** force always re-renders canvas even if no change */
+
+... (gap) ...
+
+12987	// TEST HOOKS
+12988	// -----------------------------------------------------------------------------
+12989	declare global {
+12990	  interface Window {
+12991	    h: {
+12992	      scene: Scene;
+12993	      elements: readonly ExcalidrawElement[];
+12994	      state: AppState;
+12995	      setState: React.Component<any, AppState>["setState"];
+12996	      watchState: (prev: any, next: any) => void | undefined;
+12997	      app: InstanceType<typeof App>;
+12998	      history: History;
+12999	      store: Store;
+13000	    };
+13001	  }
+13002	}
+13003	
+13004	export const createTestHook = () => {
+
+... (gap) ...
+
+13027	  }
+13028	};
+13029	
+13030	createTestHook();
+13031	export default App;
+13032	
+```
+
+**`packages/element/src/Scene.ts`** — calls(calls), references(references), has(calls), replaceAllElements(calls), getNonDeletedElements(calls), triggerUpdate(calls), getNonDeletedElementsMap(calls), mapElements(method), replaceAllElements(method), ExcalidrawFrameLikeElement(references), +12 more
+
+```typescript
+251	   *
+252	   * @returns whether a change was made
+253	   */
+254	  mapElements(
+255	    iteratee: (element: ExcalidrawElement) => ExcalidrawElement,
+256	  ): boolean {
+257	    let didChange = false;
+258	    const newElements = this.elements.map((element) => {
+259	      const nextElement = iteratee(element);
+260	      if (nextElement !== element) {
+261	        didChange = true;
+262	      }
+263	      return nextElement;
+264	    });
+265	    if (didChange) {
+266	      this.replaceAllElements(newElements);
+267	    }
+268	    return didChange;
+269	  }
+270	
+271	  replaceAllElements(
+272	    nextElements: ElementsMapOrArray,
+273	    options?: {
+274	      skipValidation?: true;
+275	    },
+276	  ) {
+277	    // we do trust the insertion order on the map, though maybe we shouldn't and should prefer order defined by fractional indices
+278	    const _nextElements = toArray(nextElements);
+279	    const nextFrameLikes: ExcalidrawFrameLikeElement[] = [];
+280	
+281	    if (!options?.skipValidation) {
+282	      validateIndicesThrottled(_nextElements);
+283	    }
+284	
+285	    this.elements = syncInvalidIndices(_nextElements);
+286	    this.elementsMap.clear();
+287	    this.elements.forEach((element) => {
+288	      if (isFrameLikeElement(element)) {
+289	        nextFrameLikes.push(element);
+290	      }
+291	      this.elementsMap.set(element.id, element);
+292	    });
+293	    const nonDeletedElements = getNonDeletedElements(this.elements);
+294	    this.nonDeletedElements = nonDeletedElements.elements;
+295	    this.nonDeletedElementsMap = nonDeletedElements.elementsMap;
+296	
+297	    this.frames = nextFrameLikes;
+298	    this.nonDeletedFramesLikes = getNonDeletedElements(this.frames).elements;
+299	
+300	    this.triggerUpdate();
+301	  }
+302	
+303	  triggerUpdate() {
+304	    this.sceneNonce = randomInteger();
+305	
+306	    for (const callback of Array.from(this.callbacks)) {
+307	      callback();
+308	    }
+309	  }
+310	
+311	  onUpdate(cb: SceneStateCallback): SceneStateCallbackRemover {
+312	    if (this.callbacks.has(cb)) {
+313	      throw new Error();
+314	    }
+315	
+316	    this.callbacks.add(cb);
+317	
+318	    return () => {
+319	      if (!this.callbacks.has(cb)) {
+320	        throw new Error();
+321	      }
+322	      this.callbacks.delete(cb);
+323	    };
+324	  }
+325	
+326	  destroy() {
+327	    this.elements = [];
+328	    this.nonDeletedElements = [];
+329	    this.nonDeletedFramesLikes = [];
+330	    this.frames = [];
+331	    this.elementsMap.clear();
+332	    this.selectedElementsCache.selectedElementIds = null;
+333	    this.selectedElementsCache.elements = null;
+334	    this.selectedElementsCache.cache.clear();
+335	
+336	    // done not for memory leaks, but to guard against possible late fires
+337	    // (I guess?)
+338	    this.callbacks.clear();
+339	  }
+340	
+341	  /** low-level - generally use app.insertNewElements() */
+342	  insertElementsAtIndex(
+343	    elements: ExcalidrawElement[],
+344	    /** null indicates end of the array */
+345	    index: number | null,
+346	  ) {
+347	    if (!elements.length) {
+348	      return;
+349	    }
+350	
+351	    if (index === null) {
+352	      index = this.elements.length;
+353	    }
+354	
+355	    if (!Number.isFinite(index) || index < 0) {
+356	      throw new Error(
+357	        "insertElementAtIndex can only be called with index >= 0",
+358	      );
+359	    }
+360	
+361	    const nextElements = [
+362	      ...this.elements.slice(0, index),
+363	      ...elements,
+364	      ...this.elements.slice(index),
+365	    ];
+366	
+367	    syncMovedIndices(nextElements, arrayToMap(elements));
+368	
+369	    this.replaceAllElements(nextElements);
+370	  }
+371	
+372	  /** low-level - generally use app.insertNewElement() */
+373	  insertElement = (element: ExcalidrawElement) => {
+374	    this.insertElementsAtIndex([element], null);
+375	  };
+376	
+377	  getElementIndex(elementId: string) {
+378	    return this.elements.findIndex((element) => element.id === elementId);
+379	  }
+380	
+381	  getContainerElement = (
+382	    element:
+383	      | (ExcalidrawElement & {
+384	          containerId: ExcalidrawElement["id"] | null;
+385	        })
+386	      | null,
+387	  ) => {
+388	    if (!element) {
+389	      return null;
+390	    }
+391	    if (element.containerId) {
+392	      return this.getElement(element.containerId) || null;
+393	    }
+394	    return null;
+395	  };
+396	
+397	  getElementsFromId = (id: string): ExcalidrawElement[] => {
+398	    const elementsMap = this.getNonDeletedElementsMap();
+399	    // first check if the id is an element
+400	    const el = elementsMap.get(id);
+401	    if (el) {
+402	      return [el];
+403	    }
+404	
+405	    // then, check if the id is a group
+406	    return getElementsInGroup(elementsMap, id);
+407	  };
+408	
+409	  // Mutate an element with passed updates and trigger the component to update. Make sure you
+410	  // are calling it either from a React event handler or within unstable_batchedUpdates().
+411	  mutateElement<TElement extends Mutable<ExcalidrawElement>>(
+412	    element: TElement,
+413	    updates: ElementUpdate<TElement>,
+414	    options: {
+415	      informMutation: boolean;
+416	      isDragging: boolean;
+417	      isBindingEnabled?: boolean;
+418	      isMidpointSnappingEnabled?: boolean;
+419	    } = {
+420	      informMutation: true,
+421	      isDragging: false,
+422	    },
+423	  ) {
+424	    const elementsMap = this.getNonDeletedElementsMap();
+425	
+426	    const { version: prevVersion } = element;
+427	    const { version: nextVersion } = mutateElement(
+428	      element,
+429	      elementsMap,
+430	      updates,
+431	      options,
+432	    );
+433	
+434	    if (
+435	      // skip if the element is not in the scene (i.e. selection)
+436	      this.elementsMap.has(element.id) &&
+437	      // skip if the element's version hasn't changed, as mutateElement returned the same element
+438	      prevVersion !== nextVersion &&
+439	      options.informMutation
+440	    ) {
+441	      this.triggerUpdate();
+442	    }
+443	
+444	    return element;
+445	  }
+446	}
+447	
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me get the renderer pipeline and the canvas components that trigger renders.[tool_use: mcp__codegraph__codegraph_explore] {"query": "Renderer class getRenderableElements renderInteractiveScene renderStaticScene StaticCanvas InteractiveCanvas triggerRender throttle"}
+[usage] input=2 cache_read=22557 cache_write=6948 output=220
+
+=== Turn 5 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. triggerRender (packages/excalidraw/components/App.tsx:4655)
+   ↓ dynamic: React re-render via setState @packages/excalidraw/components/App.tsx:2091
+2. render (packages/excalidraw/components/App.tsx:2091)
+   ↓ dynamic: renders <StaticCanvas>
+3. StaticCanvas (packages/excalidraw/components/canvases/StaticCanvas.tsx:33)
+   ↓ calls
+4. renderStaticScene (packages/excalidraw/renderer/staticScene.ts:491)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- render → InteractiveCanvas   [dynamic: renders <InteractiveCanvas>]
+- triggerUpdate → triggerRender   [dynamic: callback via `onUpdate` @packages/excalidraw/components/App.tsx:3147]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: Renderer class getRenderableElements renderInteractiveScene renderStaticScene StaticCanvas InteractiveCanvas triggerRender throttle**
+
+Found 45 symbols across 2 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `StaticCanvas` (packages/excalidraw/components/canvases/StaticCanvas.tsx:33) — 3 callers in `packages/excalidraw/components/App.tsx`, `packages/excalidraw/components/canvases/StaticCanvas.tsx`; ⚠️ no covering tests found
+- `renderStaticScene` (packages/excalidraw/renderer/staticScene.ts:491) — 4 callers in `packages/excalidraw/components/canvases/StaticCanvas.tsx`, `packages/excalidraw/scene/export.ts`; ⚠️ no covering tests found
+- `triggerRender` (packages/excalidraw/components/App.tsx:4655) — 8 callers in `packages/excalidraw/components/App.tsx`, `packages/element/src/Scene.ts`; ⚠️ no covering tests found
+- `Renderer` (packages/excalidraw/scene/Renderer.ts:40) — 4 callers in `packages/excalidraw/components/App.tsx`; ⚠️ no covering tests found
+- `getRenderableElements` (packages/excalidraw/scene/Renderer.ts:208) — 2 callers in `packages/excalidraw/components/App.tsx`; tests: `packages/element/tests/frame.test.tsx`
+
+**Relationships**
+
+**calls:**
+- StaticCanvas → isRenderThrottlingEnabled
+- StaticCanvas → renderStaticScene
+- render → StaticCanvas
+- NewElementCanvas → isRenderThrottlingEnabled
+- scheduleNextFrame → isRenderThrottlingEnabled
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → _renderStaticScene
+- exportToCanvas → renderStaticScene
+- render → ContextMenu
+- render → editorJotaiStore
+- ... and 231 more
+
+**references:**
+- StaticCanvas → StaticCanvasProps
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → StaticSceneRenderConfig
+- _renderStaticScene → StaticSceneRenderConfig
+- componentDidMount → triggerRender
+- getRenderableElementsMap → AppState
+- getRenderableElementsMap → NonDeletedExcalidrawElement
+- constructor → Scene
+- sortSelectedElementsIntoHighlightedFrame → ExcalidrawFrameLikeElement
+- sortSelectedElementsIntoHighlightedFrame → NonDeleted
+- ... and 96 more
+
+**instantiates:**
+- constructor → Renderer
+- componentWillUnmount → Renderer
+- redrawElements → Scene
+- convertToExcalidrawElements → Scene
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`packages/excalidraw/components/App.tsx`** — calls(calls), Scene(references), render(calls), getNonDeletedElementsMap(calls), t(calls), triggerRender(calls), AppState(references), references(references), scene(property), renderer(property), +32 more
+
+```tsx
+536	ExcalidrawElementsContext.displayName = "ExcalidrawElementsContext";
+537	
+538	const ExcalidrawAppStateContext = React.createContext<AppState>({
+539	  ...getDefaultAppState(),
+540	  width: 0,
+541	  height: 0,
+542	  offsetLeft: 0,
+
+... (gap) ...
+
+632	
+633	  private excalidrawContainerRef = React.createRef<HTMLDivElement>();
+634	
+635	  public scene: Scene;
+636	  public fonts: Fonts;
+637	  public renderer: Renderer;
+638	  public visibleElements: readonly NonDeletedExcalidrawElement[];
+639	  private resizeObserver: ResizeObserver | undefined;
+640	  public library: AppClassProperties["library"];
+
+... (gap) ...
+
+1921	  private renderFrameNames = () => {
+1922	    if (!this.state.frameRendering.enabled || !this.state.frameRendering.name) {
+1923	      if (this.state.editingFrame) {
+1924	        this.resetEditingFrame(null);
+1925	      }
+
+... (gap) ...
+
+2063	            textOverflow: "ellipsis",
+2064	            cursor: CURSOR_TYPE.MOVE,
+2065	            pointerEvents: this.state.viewModeEnabled
+2066	              ? POINTER_EVENTS.disabled
+2067	              : POINTER_EVENTS.enabled,
+2068	          }}
+2069	          onPointerDown={(event) => this.handleCanvasPointerDown(event)}
+2070	          onWheel={(event) => this.handleWheel(event)}
+2071	          onContextMenu={this.handleCanvasContextMenu}
+2072	          onDoubleClick={() => {
+2073	            this.setState({
+2074	              editingFrame: f.id,
+2075	            });
+2076	          }}
+2077	        >
+2078	          {frameNameJSX}
+2079	        </div>
+2080	      );
+2081	    });
+2082	  };
+2083	
+2084	  private toggleOverscrollBehavior(event: React.PointerEvent) {
+2085	    // when pointer inside editor, disable overscroll behavior to prevent
+2086	    // panning to trigger history back/forward on MacOS Chrome
+2087	    document.documentElement.style.overscrollBehaviorX =
+2088	      event.type === "pointerenter" ? "none" : "auto";
+2089	  }
+2090	
+2091	  public render() {
+2092	    const selectedElements = this.scene.getSelectedElements(this.state);
+2093	    const { renderTopRightUI, renderTopLeftUI, renderCustomStats } = this.props;
+2094	
+2095	    const {
+2096	      elementsMap,
+2097	      visibleElements,
+2098	      canvasNonce,
+2099	      /**
+2100	       * element to draw on the <NewElementCanvas> for optimization purposes.
+2101	       * Can be null even if this.state.newElement defined
+2102	       * (e.g. when its zIndex isn't on top) */
+2103	      newElementCanvasElement,
+2104	    } = this.renderer.getRenderableElements({
+2105	      zoom: this.state.zoom,
+2106	      offsetLeft: this.state.offsetLeft,
+2107	      offsetTop: this.state.offsetTop,
+2108	      scrollX: this.state.scrollX,
+2109	      scrollY: this.state.scrollY,
+2110	      height: this.state.height,
+2111	      width: this.state.width,
+2112	      editingTextElement: this.state.editingTextElement,
+2113	      newElement: this.state.newElement,
+2114	      selectedElements,
+2115	      selectedElementsAreBeingDragged:
+2116	        this.state.selectedElementsAreBeingDragged,
+2117	      frameToHighlight: this.state.frameToHighlight,
+2118	    });
+2119	    this.visibleElements = visibleElements;
+
+... (gap) ...
+
+2503	    MagicGenerationData
+2504	  >();
+2505	
+2506	  private updateMagicGeneration = ({
+2507	    frameElement,
+2508	    data,
+2509	  }: {
+2510	    frameElement: ExcalidrawIframeElement;
+2511	    data: MagicGenerationData;
+2512	  }) => {
+2513	    if (data.status === "pending") {
+2514	      // We don't wanna persist pending state to storage. It should be in-app
+2515	      // state only.
+2516	      // Thus reset so that we prefer local cache (if there was some
+2517	      // generationData set previously)
+2518	      this.scene.mutateElement(
+2519	        frameElement,
+2520	        {
+2521	          customData: { generationData: undefined },
+2522	        },
+2523	        { informMutation: false, isDragging: false },
+2524	      );
+2525	    } else {
+2526	      this.scene.mutateElement(
+2527	        frameElement,
+2528	        {
+2529	          customData: { generationData: data },
+2530	        },
+2531	        { informMutation: false, isDragging: false },
+2532	      );
+2533	    }
+2534	    this.magicGenerations.set(frameElement.id, data);
+2535	    this.triggerRender();
+2536	  };
+2537	
+2538	  public plugins: {
+2539	    diagramToCode?: {
+
+... (gap) ...
+
+4652	    });
+4653	  };
+4654	
+4655	  private triggerRender = (
+4656	    /** force always re-renders canvas even if no change */
+4657	    force?: boolean,
+4658	  ) => {
+4659	    if (force === true) {
+4660	      this.scene.triggerUpdate();
+4661	    } else {
+4662	      this.setState({});
+4663	    }
+4664	  };
+4665	
+4666	  /**
+4667	   * @returns whether the menu was toggled on or off
+
+... (gap) ...
+
+4698	    return !!nextName;
+4699	  };
+4700	
+4701	  private updateCurrentCursorPosition = withBatchedUpdates(
+4702	    (event: MouseEvent) => {
+4703	      this.lastViewportPosition.x = event.clientX;
+4704	      this.lastViewportPosition.y = event.clientY;
+4705	    },
+4706	  );
+4707	
+4708	  public getEditorUIOffsets = (): Offsets => {
+4709	    const toolbarBottom =
+
+... (gap) ...
+
+7496	    }
+7497	  };
+7498	
+7499	  private handleEraser = (
+7500	    event: PointerEvent,
+7501	    scenePointer: { x: number; y: number },
+7502	  ) => {
+7503	    const elementsToErase = this.eraserTrail.addPointToPath(
+7504	      scenePointer.x,
+7505	      scenePointer.y,
+7506	      event.altKey,
+7507	    );
+7508	
+7509	    this.elementsPendingErasure = new Set(elementsToErase);
+7510	    this.triggerRender();
+7511	  };
+7512	
+7513	  // set touch moving for mobile context menu
+7514	  private handleTouchMove = (event: React.TouchEvent<HTMLCanvasElement>) => {
+
+... (gap) ...
+
+12987	// TEST HOOKS
+12988	// -----------------------------------------------------------------------------
+12989	declare global {
+12990	  interface Window {
+12991	    h: {
+12992	      scene: Scene;
+12993	      elements: readonly ExcalidrawElement[];
+12994	      state: AppState;
+12995	      setState: React.Component<any, AppState>["setState"];
+12996	      watchState: (prev: any, next: any) => void | undefined;
+12997	      app: InstanceType<typeof App>;
+12998	      history: History;
+12999	      store: Store;
+13000	    };
+13001	  }
+13002	}
+13003	
+13004	export const createTestHook = () => {
+
+... (gap) ...
+
+13027	  }
+13028	};
+13029	
+13030	createTestHook();
+13031	export default App;
+13032	
+```
+
+**`packages/excalidraw/scene/Renderer.ts`** — Renderer(class), getRenderableElements(method), destroy(method), getRenderableElementsMap(method), constructor(method), _getRenderableElements(method), sortSelectedElementsIntoHighlightedFrame(method), getVisibleCanvasElements(method), Renderer.ts(file), scene(property)
+
+```typescript
+1	import {
+2	  getCommonFrameId,
+3	  getFrameChildrenInsertionIndex,
+4	  isElementInViewport,
+5	} from "@excalidraw/element";
+6	
+7	import { arrayToMap, memoize, toBrandedType } from "@excalidraw/common";
+8	
+9	import type {
+10	  ExcalidrawElement,
+11	  ExcalidrawFrameLikeElement,
+12	  NonDeleted,
+13	  NonDeletedElementsMap,
+14	  NonDeletedExcalidrawElement,
+15	} from "@excalidraw/element/types";
+16	
+17	import type { Scene } from "@excalidraw/element";
+18	
+19	import { renderStaticSceneThrottled } from "../renderer/staticScene";
+20	
+21	import type { RenderableElementsMap } from "./types";
+22	
+23	import type { AppState } from "../types";
+24	
+25	type GetRenderableElementsOpts = {
+26	  zoom: AppState["zoom"];
+27	  offsetLeft: AppState["offsetLeft"];
+28	  offsetTop: AppState["offsetTop"];
+29	  scrollX: AppState["scrollX"];
+30	  scrollY: AppState["scrollY"];
+31	  height: AppState["height"];
+32	  width: AppState["width"];
+33	  editingTextElement: AppState["editingTextElement"];
+34	  newElement: AppState["newElement"];
+35	  selectedElements: readonly NonDeletedExcalidrawElement[];
+36	  selectedElementsAreBeingDragged: AppState["selectedElementsAreBeingDragged"];
+37	  frameToHighlight: AppState["frameToHighlight"];
+38	};
+39	
+40	export class Renderer {
+41	  private scene: Scene;
+42	
+43	  constructor(scene: Scene) {
+44	    this.scene = scene;
+45	  }
+46	
+47	  private getVisibleCanvasElements({
+48	    elementsMap,
+49	    zoom,
+50	    offsetLeft,
+51	    offsetTop,
+52	    scrollX,
+53	    scrollY,
+54	    height,
+55	    width,
+56	  }: {
+57	    elementsMap: NonDeletedElementsMap;
+58	    zoom: AppState["zoom"];
+59	    offsetLeft: AppState["offsetLeft"];
+60	    offsetTop: AppState["offsetTop"];
+61	    scrollX: AppState["scrollX"];
+62	    scrollY: AppState["scrollY"];
+63	    height: AppState["height"];
+64	    width: AppState["width"];
+65	  }): readonly NonDeletedExcalidrawElement[] {
+66	    const visibleElements: NonDeletedExcalidrawElement[] = [];
+67	    for (const element of elementsMap.values()) {
+68	      if (
+69	        isElementInViewport(
+70	          element,
+71	          width,
+72	          height,
+73	          {
+74	            zoom,
+75	            offsetLeft,
+76	            offsetTop,
+77	            scrollX,
+78	            scrollY,
+79	          },
+80	          elementsMap,
+81	        )
+82	      ) {
+83	        visibleElements.push(element);
+84	      }
+85	    }
+86	    return visibleElements;
+87	  }
+88	
+89	  private getRenderableElementsMap({
+90	    elements,
+91	    editingTextElement,
+92	    newElement,
+93	  }: {
+94	    elements: readonly NonDeletedExcalidrawElement[];
+95	    editingTextElement: AppState["editingTextElement"];
+96	    newElement: AppState["newElement"];
+97	  }) {
+98	    const elementsMap = toBrandedType<RenderableElementsMap>(new Map());
+99	    const newElementCanvasElement = newElement?.frameId ? null : newElement;
+100	
+101	    for (const element of elements) {
+102	      if (newElementCanvasElement?.id === element.id) {
+103	        continue;
+104	      }
+105	
+106	      // we don't want to render text element that's being currently edited
+107	      // (it's rendered on remote only)
+108	      if (
+109	        !editingTextElement ||
+110	        editingTextElement.type !== "text" ||
+111	        element.id !== editingTextElement.id
+112	      ) {
+113	        elementsMap.set(element.id, element);
+114	      }
+115	    }
+116	    return { elementsMap, newElementCanvasElement };
+117	  }
+118	
+119	  private sortSelectedElementsIntoHighlightedFrame<
+120	    T extends ExcalidrawElement,
+121	  >({
+122	    visibleElements,
+123	    selectedElements,
+124	    frameToHighlight,
+125	  }: {
+126	    selectedElements: readonly NonDeletedExcalidrawElement[];
+127	    visibleElements: readonly T[];
+128	    frameToHighlight: NonDeleted<ExcalidrawFrameLikeElement>;
+129	  }): readonly T[] {
+130	    if (!selectedElements.length) {
+131	      return visibleElements;
+132	    }
+133	
+134	    // we assume all selected elements are eligible frame children if
+135	    // frameToHighlight is defined
+136	    const selectedElementsMap = arrayToMap(selectedElements);
+137	
+138	    // thus, all deselected elements are the ones we won't reorder
+139	    const deselectedElements = visibleElements.filter(
+140	      (element) => !selectedElementsMap.has(element.id),
+141	    );
+142	
+143	    const insertionIndex = getFrameChildrenInsertionIndex(
+144	      deselectedElements,
+145	      frameToHighlight.id,
+146	    );
+147	
+148	    if (insertionIndex === null) {
+149	      return visibleElements;
+150	    }
+151	
+152	    return [
+153	      ...deselectedElements.slice(0, insertionIndex),
+154	      ...selectedElements,
+155	      ...deselectedElements.slice(insertionIndex),
+156	    ] as readonly T[];
+157	  }
+158	
+159	  private _getRenderableElements = memoize(
+160	    ({
+161	      canvasNonce,
+162	      zoom,
+163	      offsetLeft,
+164	      offsetTop,
+165	      scrollX,
+166	      scrollY,
+167	      height,
+168	      width,
+169	      editingTextElement,
+170	      newElement,
+171	    }: Omit<
+172	      GetRenderableElementsOpts,
+173	      | "selectedElements"
+174	      | "selectedElementsAreBeingDragged"
+175	      | "frameToHighlight"
+176	    > & {
+177	      canvasNonce: string;
+178	    }) => {
+179	      const elements = this.scene.getNonDeletedElements();
+180	
+181	      const { elementsMap, newElementCanvasElement } =
+182	        this.getRenderableElementsMap({
+183	          elements,
+184	          editingTextElement,
+185	          newElement,
+186	        });
+187	
+188	      const visibleElements = this.getVisibleCanvasElements({
+189	        elementsMap,
+190	        zoom,
+191	        offsetLeft,
+192	        offsetTop,
+193	        scrollX,
+194	        scrollY,
+195	        height,
+196	        width,
+197	      });
+198	
+199	      return {
+200	        elementsMap,
+201	        visibleElements,
+202	        newElementCanvasElement,
+203	        canvasNonce,
+204	      };
+205	    },
+206	  );
+207	
+208	  public getRenderableElements = (opts: GetRenderableElementsOpts) => {
+209	    const { newElement } = opts;
+210	    const canvasNonce = `${this.scene.getSceneNonce()}${
+211	      newElement?.frameId ? `:${newElement.versionNonce}` : ""
+212	    }`;
+213	
+214	    const ret = this._getRenderableElements({
+215	      canvasNonce,
+216	
+217	      // don't spread `opts` because we don't want to memoize on some props
+218	
+219	      zoom: opts.zoom,
+220	      offsetLeft: opts.offsetLeft,
+221	      offsetTop: opts.offsetTop,
+222	      scrollX: opts.scrollX,
+223	      scrollY: opts.scrollY,
+224	      height: opts.height,
+225	      width: opts.width,
+226	      editingTextElement: opts.editingTextElement,
+227	      newElement: opts.newElement,
+228	    });
+229	
+230	    // if we're dragging elements over a frame, reorder the selected elements
+231	    // inside the frame during render (we don't set the `element.frameId` until
+232	    // pointerup else we'd have to painstainly restore the orig index if user
+233	    // didn't end up adding elements to the frame)
+234	    if (
+235	      opts.frameToHighlight &&
+236	      opts.selectedElementsAreBeingDragged &&
+237	      // if all dragged elements are already in the frame, don't reorder
+238	      getCommonFrameId(opts.selectedElements) !== opts.frameToHighlight.id
+239	    ) {
+240	      const reorderedVisibleElements =
+241	        this.sortSelectedElementsIntoHighlightedFrame({
+242	          visibleElements: ret.visibleElements,
+243	          selectedElements: opts.selectedElements,
+244	          frameToHighlight: opts.frameToHighlight,
+245	        });
+246	
+247	      return {
+248	        ...ret,
+249	        visibleElements: reorderedVisibleElements,
+250	      };
+251	    }
+252	
+253	    return ret;
+254	  };
+255	
+256	  // NOTE Doesn't destroy everything (scene, rc, etc.) because it may not be
+257	  // safe to break TS contract here (for upstream cases)
+258	  public destroy() {
+259	    renderStaticSceneThrottled.cancel();
+260	    this._getRenderableElements.clear();
+261	  }
+262	}
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me look at the canvas components and the actual drawing functions to complete the picture.[tool_use: mcp__codegraph__codegraph_explore] {"query": "StaticCanvas component useEffect renderStaticScene _renderStaticScene renderElement InteractiveCanvas renderInteractiveScene renderElementToSvg drawing", "maxFiles": 4}
+[usage] input=2 cache_read=29505 cache_write=8142 output=239
+
+=== Turn 6 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. componentDidMount (packages/excalidraw/components/App.tsx:3095)
+   ↓ dynamic: React re-render via setState @packages/excalidraw/components/App.tsx:2091
+2. render (packages/excalidraw/components/App.tsx:2091)
+   ↓ dynamic: renders <StaticCanvas>
+3. StaticCanvas (packages/excalidraw/components/canvases/StaticCanvas.tsx:33)
+   ↓ calls
+4. renderStaticScene (packages/excalidraw/renderer/staticScene.ts:491)
+   ↓ calls
+5. _renderStaticScene (packages/excalidraw/renderer/staticScene.ts:229)
+   ↓ calls
+6. renderElement (packages/element/src/renderElement.ts:780)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- componentDidMount → BraveMeasureTextError   [dynamic: renders <BraveMeasureTextError>]
+- render → InteractiveCanvas   [dynamic: renders <InteractiveCanvas>]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: StaticCanvas component useEffect renderStaticScene _renderStaticScene renderElement InteractiveCanvas renderInteractiveScene renderElementToSvg drawing**
+
+Found 16 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `StaticCanvas` (packages/excalidraw/components/canvases/StaticCanvas.tsx:33) — 3 callers in `packages/excalidraw/components/App.tsx`, `packages/excalidraw/components/canvases/StaticCanvas.tsx`; ⚠️ no covering tests found
+- `renderElement` (packages/element/src/renderElement.ts:780) — 4 callers in `packages/excalidraw/renderer/renderNewElementScene.ts`, `packages/excalidraw/renderer/staticScene.ts`; ⚠️ no covering tests found
+- `renderElementToSvg` (packages/excalidraw/renderer/staticSvgScene.ts:87) — 1 caller in `packages/excalidraw/renderer/staticSvgScene.ts`; ⚠️ no covering tests found
+- `InteractiveCanvas` (packages/excalidraw/components/canvases/InteractiveCanvas.tsx:86) — 7 callers in `packages/excalidraw/components/App.tsx`, `packages/excalidraw/components/canvases/InteractiveCanvas.tsx`; tests: `packages/element/tests/linearElementEditor.test.tsx`, `packages/excalidraw/tests/move.test.tsx`, `packages/excalidraw/tests/multiPointCreate.test.tsx`, `packages/excalidraw/tests/selection.test.tsx`
+- `renderStaticScene` (packages/excalidraw/renderer/staticScene.ts:491) — 4 callers in `packages/excalidraw/components/canvases/StaticCanvas.tsx`, `packages/excalidraw/scene/export.ts`; ⚠️ no covering tests found
+
+**Relationships**
+
+**calls:**
+- StaticCanvas → isRenderThrottlingEnabled
+- StaticCanvas → renderStaticScene
+- render → StaticCanvas
+- NewElementCanvas → isRenderThrottlingEnabled
+- scheduleNextFrame → isRenderThrottlingEnabled
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → _renderStaticScene
+- exportToCanvas → renderStaticScene
+- render → ContextMenu
+- render → editorJotaiStore
+- ... and 215 more
+
+**references:**
+- StaticCanvas → StaticCanvasProps
+- renderStaticScene → renderStaticSceneThrottled
+- renderStaticScene → StaticSceneRenderConfig
+- renderElement → CanvasRenderingContext2D
+- InteractiveCanvas → INTERACTIVE_SCENE_ANIMATION_KEY
+- InteractiveCanvas → InteractiveCanvasRenderConfig
+- InteractiveCanvas → InteractiveCanvasProps
+- sceneCoordsToViewportCoords → Zoom
+- _renderStaticScene → StaticSceneRenderConfig
+- StaticCanvasProps → StaticCanvasAppState
+- ... and 158 more
+
+**instantiates:**
+- redrawElements → Scene
+- convertToExcalidrawElements → Scene
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`packages/excalidraw/renderer/staticScene.ts`** — imports(imports), renderElement(calls), calls(calls), CanvasRenderingContext2D(references), isIframeLikeElement(calls), applyDarkModeFilter(calls), StaticCanvasRenderConfig(references), StaticCanvasAppState(references), StaticSceneRenderConfig(references), has(calls), +46 more
+
+```typescript
+2	  applyDarkModeFilter,
+3	  FRAME_STYLE,
+4	  THEME,
+5	  throttleRAF,
+6	} from "@excalidraw/common";
+
+... (gap) ...
+
+308	          isTextElement(element) &&
+309	          element.containerId &&
+310	          elementsMap.has(element.containerId)
+311	        ) {
+312	          // will be rendered with the container
+313	          return;
+314	        }
+315	
+316	        context.save();
+317	
+318	        if (
+319	          frameId &&
+320	          appState.frameRendering.enabled &&
+321	          appState.frameRendering.clip
+322	        ) {
+323	          const frame = getTargetFrame(element, elementsMap, appState);
+324	          if (
+325	            frame &&
+326	            shouldApplyFrameClip(
+327	              element,
+328	              frame,
+329	              appState,
+330	              elementsMap,
+331	              inFrameGroupsMap,
+332	            )
+333	          ) {
+334	            frameClip(frame, context, renderConfig, appState);
+335	          }
+336	          renderElement(
+337	            element,
+338	            elementsMap,
+339	            allElementsMap,
+340	            rc,
+341	            context,
+342	            renderConfig,
+343	            appState,
+344	          );
+345	        } else {
+346	          renderElement(
+347	            element,
+348	            elementsMap,
+349	            allElementsMap,
+350	            rc,
+351	            context,
+352	            renderConfig,
+353	            appState,
+354	          );
+355	        }
+356	
+357	        const boundTextElement = getBoundTextElement(element, elementsMap);
+358	        if (boundTextElement) {
+359	          renderElement(
+360	            boundTextElement,
+361	            elementsMap,
+362	            allElementsMap,
+363	            rc,
+364	            context,
+```
+
+**`packages/excalidraw/components/canvases/StaticCanvas.tsx`** — StaticCanvas(function), StaticCanvasProps(type_alias), areEqual(function), getRelevantAppStateProps(function), StaticCanvas.tsx(file)
+
+```tsx
+1	import React, { useEffect, useRef } from "react";
+2	
+3	import { isShallowEqual } from "@excalidraw/common";
+4	
+5	import type {
+6	  NonDeletedExcalidrawElement,
+7	  NonDeletedSceneElementsMap,
+8	} from "@excalidraw/element/types";
+9	
+10	import { isRenderThrottlingEnabled } from "../../reactUtils";
+11	import { renderStaticScene } from "../../renderer/staticScene";
+12	
+13	import type {
+14	  RenderableElementsMap,
+15	  StaticCanvasRenderConfig,
+16	} from "../../scene/types";
+17	import type { AppState, StaticCanvasAppState } from "../../types";
+18	import type { RoughCanvas } from "roughjs/bin/canvas";
+19	
+20	type StaticCanvasProps = {
+21	  canvas: HTMLCanvasElement;
+22	  rc: RoughCanvas;
+23	  elementsMap: RenderableElementsMap;
+24	  allElementsMap: NonDeletedSceneElementsMap;
+25	  visibleElements: readonly NonDeletedExcalidrawElement[];
+26	  canvasNonce: string;
+27	  selectionNonce: number | undefined;
+28	  scale: number;
+29	  appState: StaticCanvasAppState;
+30	  renderConfig: StaticCanvasRenderConfig;
+31	};
+32	
+33	const StaticCanvas = (props: StaticCanvasProps) => {
+34	  const wrapperRef = useRef<HTMLDivElement>(null);
+35	  const isComponentMounted = useRef(false);
+36	
+37	  useEffect(() => {
+38	    props.canvas.style.width = `${props.appState.width}px`;
+39	    props.canvas.style.height = `${props.appState.height}px`;
+40	    props.canvas.width = props.appState.width * props.scale;
+41	    props.canvas.height = props.appState.height * props.scale;
+42	  }, [props.appState.height, props.appState.width, props.canvas, props.scale]);
+43	
+44	  useEffect(() => {
+45	    const wrapper = wrapperRef.current;
+46	    if (!wrapper) {
+47	      return;
+48	    }
+49	
+50	    const canvas = props.canvas;
+51	
+52	    if (!isComponentMounted.current) {
+53	      isComponentMounted.current = true;
+54	
+55	      wrapper.replaceChildren(canvas);
+56	      canvas.classList.add("excalidraw__canvas", "static");
+57	    }
+58	
+59	    renderStaticScene(
+60	      {
+61	        canvas,
+62	        rc: props.rc,
+63	        scale: props.scale,
+64	        elementsMap: props.elementsMap,
+65	        allElementsMap: props.allElementsMap,
+66	        visibleElements: props.visibleElements,
+67	        appState: props.appState,
+68	        renderConfig: props.renderConfig,
+69	      },
+70	      isRenderThrottlingEnabled(),
+71	    );
+72	  });
+73	
+74	  return <div className="excalidraw__canvas-wrapper" ref={wrapperRef} />;
+75	};
+76	
+77	const getRelevantAppStateProps = (appState: AppState): StaticCanvasAppState => {
+78	  const relevantAppStateProps = {
+79	    zoom: appState.zoom,
+80	    scrollX: appState.scrollX,
+81	    scrollY: appState.scrollY,
+82	    width: appState.width,
+83	    height: appState.height,
+84	    viewModeEnabled: appState.viewModeEnabled,
+85	    openDialog: appState.openDialog,
+86	    hoveredElementIds: appState.hoveredElementIds,
+87	    offsetLeft: appState.offsetLeft,
+88	    offsetTop: appState.offsetTop,
+89	    theme: appState.theme,
+90	    shouldCacheIgnoreZoom: appState.shouldCacheIgnoreZoom,
+91	    viewBackgroundColor: appState.viewBackgroundColor,
+92	    exportScale: appState.exportScale,
+93	    selectedElementsAreBeingDragged: appState.selectedElementsAreBeingDragged,
+94	    gridSize: appState.gridSize,
+95	    gridStep: appState.gridStep,
+96	    frameRendering: appState.frameRendering,
+97	    selectedElementIds: appState.selectedElementIds,
+98	    frameToHighlight: appState.frameToHighlight,
+99	    editingGroupId: appState.editingGroupId,
+100	    currentHoveredFontFamily: appState.currentHoveredFontFamily,
+101	    croppingElementId: appState.croppingElementId,
+102	    suggestedBinding: appState.suggestedBinding,
+103	  };
+104	
+105	  return relevantAppStateProps;
+106	};
+107	
+108	const areEqual = (
+109	  prevProps: StaticCanvasProps,
+110	  nextProps: StaticCanvasProps,
+111	) => {
+112	  if (
+113	    prevProps.canvasNonce !== nextProps.canvasNonce ||
+114	    prevProps.scale !== nextProps.scale ||
+115	    // we need to memoize on elementsMap because they may have renewed
+116	    // even if canvasNonce didn't change (e.g. we filter elements out based
+117	    // on appState)
+118	    prevProps.elementsMap !== nextProps.elementsMap ||
+119	    prevProps.visibleElements !== nextProps.visibleElements
+120	  ) {
+121	    return false;
+122	  }
+123	
+124	  return (
+125	    isShallowEqual(
+126	      // asserting AppState because we're being passed the whole AppState
+127	      // but resolve to only the StaticCanvas-relevant props
+128	      getRelevantAppStateProps(prevProps.appState as AppState),
+129	      getRelevantAppStateProps(nextProps.appState as AppState),
+130	    ) && isShallowEqual(prevProps.renderConfig, nextProps.renderConfig)
+131	  );
+132	};
+133	
+134	export default React.memo(StaticCanvas, areEqual);
+```
+
+**`packages/excalidraw/components/canvases/InteractiveCanvas.tsx`** — imports(imports), InteractiveCanvasRenderConfig(references), NonDeletedExcalidrawElement(references), references(references), sceneCoordsToViewportCoords(imports), InteractiveCanvasRenderConfig(imports), RenderableElementsMap(imports), NonDeletedExcalidrawElement(imports), NonDeletedSceneElementsMap(imports), t(imports), +17 more
+
+```tsx
+1	import React, { useEffect, useRef } from "react";
+2	
+3	import {
+4	  CURSOR_TYPE,
+5	  isShallowEqual,
+6	  sceneCoordsToViewportCoords,
+7	  type EditorInterface,
+8	} from "@excalidraw/common";
+9	
+10	import type {
+11	  InteractiveCanvasRenderConfig,
+12	  InteractiveSceneRenderAnimationState,
+13	  InteractiveSceneRenderConfig,
+14	  RenderableElementsMap,
+15	  RenderInteractiveSceneCallback,
+16	} from "@excalidraw/excalidraw/scene/types";
+17	
+18	import type {
+19	  NonDeletedExcalidrawElement,
+20	  NonDeletedSceneElementsMap,
+21	} from "@excalidraw/element/types";
+22	
+23	import { t } from "../../i18n";
+24	import { renderInteractiveScene } from "../../renderer/interactiveScene";
+25	
+26	import { AnimationController } from "../../renderer/animation";
+27	
+28	import type {
+29	  AppClassProperties,
+30	  AppState,
+31	  InteractiveCanvasAppState,
+32	} from "../../types";
+33	import type { DOMAttributes } from "react";
+34	
+35	type InteractiveCanvasProps = {
+36	  containerRef: React.RefObject<HTMLDivElement | null>;
+37	  canvas: HTMLCanvasElement | null;
+38	  elementsMap: RenderableElementsMap;
+39	  visibleElements: readonly NonDeletedExcalidrawElement[];
+40	  selectedElements: readonly NonDeletedExcalidrawElement[];
+41	  allElementsMap: NonDeletedSceneElementsMap;
+42	  canvasNonce: string;
+43	  selectionNonce: number | undefined;
+44	  scale: number;
+45	  appState: InteractiveCanvasAppState;
+46	  renderScrollbars: boolean;
+47	  editorInterface: EditorInterface;
+48	  app: AppClassProperties;
+49	  renderInteractiveSceneCallback: (
+50	    data: RenderInteractiveSceneCallback,
+51	  ) => void;
+52	  handleCanvasRef: (canvas: HTMLCanvasElement | null) => void;
+53	  onContextMenu: Exclude<
+54	    DOMAttributes<HTMLCanvasElement | HTMLDivElement>["onContextMenu"],
+55	    undefined
+56	  >;
+57	  onClick: Exclude<DOMAttributes<HTMLCanvasElement>["onClick"], undefined>;
+58	  onPointerMove: Exclude<
+59	    DOMAttributes<HTMLCanvasElement>["onPointerMove"],
+60	    undefined
+61	  >;
+62	  onPointerUp: Exclude<
+63	    DOMAttributes<HTMLCanvasElement>["onPointerUp"],
+64	    undefined
+65	  >;
+66	  onPointerCancel: Exclude<
+67	    DOMAttributes<HTMLCanvasElement>["onPointerCancel"],
+68	    undefined
+69	  >;
+70	  onTouchMove: Exclude<
+71	    DOMAttributes<HTMLCanvasElement>["onTouchMove"],
+72	    undefined
+73	  >;
+74	  onPointerDown: Exclude<
+75	    DOMAttributes<HTMLCanvasElement>["onPointerDown"],
+76	    undefined
+77	  >;
+78	  onDoubleClick: Exclude<
+79	    DOMAttributes<HTMLCanvasElement>["onDoubleClick"],
+80	    undefined
+81	  >;
+82	};
+83	
+84	export const INTERACTIVE_SCENE_ANIMATION_KEY = "animateInteractiveScene";
+85	
+86	const InteractiveCanvas = (props: InteractiveCanvasProps) => {
+87	  const isComponentMounted = useRef(false);
+88	  const rendererParams = useRef(null as InteractiveSceneRenderConfig | null);
+89	
+90	  useEffect(() => {
+91	    if (!isComponentMounted.current) {
+92	      isComponentMounted.current = true;
+93	      return;
+94	    }
+95	
+96	    const remotePointerButton: InteractiveCanvasRenderConfig["remotePointerButton"] =
+97	      new Map();
+98	    const remotePointerViewportCoords: InteractiveCanvasRenderConfig["remotePointerViewportCoords"] =
+99	      new Map();
+100	    const remoteSelectedElementIds: InteractiveCanvasRenderConfig["remoteSelectedElementIds"] =
+101	      new Map();
+102	    const remotePointerUsernames: InteractiveCanvasRenderConfig["remotePointerUsernames"] =
+103	      new Map();
+104	    const remotePointerUserStates: InteractiveCanvasRenderConfig["remotePointerUserStates"] =
+105	      new Map();
+106	
+107	    props.appState.collaborators.forEach((user, socketId) => {
+108	      if (user.selectedElementIds) {
+109	        for (const id of Object.keys(user.selectedElementIds)) {
+110	          if (!remoteSelectedElementIds.has(id)) {
+111	            remoteSelectedElementIds.set(id, []);
+112	          }
+113	          remoteSelectedElementIds.get(id)!.push(socketId);
+114	        }
+115	      }
+116	      if (!user.pointer || user.pointer.renderCursor === false) {
+117	        return;
+118	      }
+119	      if (user.username) {
+120	        remotePointerUsernames.set(socketId, user.username);
+121	      }
+122	      if (user.userState) {
+123	        remotePointerUserStates.set(socketId, user.userState);
+124	      }
+125	      remotePointerViewportCoords.set(
+126	        socketId,
+127	        sceneCoordsToViewportCoords(
+128	          {
+129	            sceneX: user.pointer.x,
+130	            sceneY: user.pointer.y,
+131	          },
+132	          props.appState,
+133	        ),
+134	      );
+135	      remotePointerButton.set(socketId, user.button);
+136	    });
+137	
+138	    const selectionColor =
+139	      (props.containerRef?.current &&
+140	        getComputedStyle(props.containerRef.current).getPropertyValue(
+141	          "--color-selection",
+142	        )) ||
+143	      "#6965db";
+144	
+145	    rendererParams.current = {
+146	      app: props.app,
+147	      canvas: props.canvas,
+148	      elementsMap: props.elementsMap,
+149	      visibleElements: props.visibleElements,
+150	      selectedElements: props.selectedElements,
+151	      allElementsMap: props.allElementsMap,
+152	      scale: window.devicePixelRatio,
+153	      appState: props.appState,
+154	      renderConfig: {
+155	        remotePointerViewportCoords,
+156	        remotePointerButton,
+157	        remoteSelectedElementIds,
+158	        remotePointerUsernames,
+159	        remotePointerUserStates,
+160	        selectionColor,
+161	        renderScrollbars: props.renderScrollbars,
+162	        // NOTE not memoized on so we don't rerender on cursor move
+163	        lastViewportPosition: props.app.lastViewportPosition,
+164	      },
+165	      editorInterface: props.editorInterface,
+166	      callback: props.renderInteractiveSceneCallback,
+167	      animationState: {
+168	        bindingHighlight: undefined,
+169	      },
+170	      deltaTime: 0,
+171	    };
+172	
+173	    if (!AnimationController.running(INTERACTIVE_SCENE_ANIMATION_KEY)) {
+174	      AnimationController.start<InteractiveSceneRenderAnimationState>(
+175	        INTERACTIVE_SCENE_ANIMATION_KEY,
+176	        ({ deltaTime, state }) => {
+177	          const nextAnimationState = renderInteractiveScene({
+178	            ...rendererParams.current!,
+179	            deltaTime,
+180	            animationState: state,
+181	          }).animationState;
+182	
+183	          if (nextAnimationState) {
+184	            for (const key in nextAnimationState) {
+185	              if (
+186	                nextAnimationState[
+187	                  key as keyof InteractiveSceneRenderAnimationState
+188	                ] !== undefined
+189	              ) {
+190	                return nextAnimationState;
+191	              }
+192	            }
+193	          }
+194	
+195	          return undefined;
+196	        },
+197	      );
+198	    }
+199	  });
+200	
+201	  return (
+202	    <canvas
+203	      className="excalidraw__canvas interactive"
+204	      style={{
+205	        width: props.appState.width,
+206	        height: props.appState.height,
+207	        cursor:
+208	          props.appState.viewModeEnabled &&
+209	          props.appState.activeTool.type !== "laser"
+210	            ? CURSOR_TYPE.GRAB
+211	            : CURSOR_TYPE.AUTO,
+212	      }}
+213	      width={props.appState.width * props.scale}
+214	      height={props.appState.height * props.scale}
+215	      ref={props.handleCanvasRef}
+216	      onContextMenu={props.onContextMenu}
+217	      onClick={props.onClick}
+218	      onPointerMove={props.onPointerMove}
+219	      onPointerUp={props.onPointerUp}
+220	      onPointerCancel={props.onPointerCancel}
+221	      onTouchMove={props.onTouchMove}
+222	      onPointerDown={props.onPointerDown}
+223	      onDoubleClick={
+224	        props.appState.viewModeEnabled ? undefined : props.onDoubleClick
+225	      }
+226	    >
+227	      {t("labels.drawingCanvas")}
+228	    </canvas>
+229	  );
+230	};
+231	
+232	const getRelevantAppStateProps = (
+233	  appState: AppState,
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] I now have the full picture. Here's how Excalidraw renders and updates canvas elements.
+
+## The multi-canvas architecture
+
+Excalidraw doesn't use one `<canvas>` — it layers several, each with its own render path and cache-invalidation strategy. Two matter most:
+
+- **`StaticCanvas`** (`components/canvases/StaticCanvas.tsx`) — the shapes themselves. Expensive to draw, changes rarely.
+- **`InteractiveCanvas`** (`components/canvases/InteractiveCanvas.tsx`) — selection boxes, handles, remote collaborator cursors, snap lines. Changes constantly.
+
+Splitting them means moving your mouse over a selection doesn't force every shape to redraw. There's also a `NewElementCanvas` for the element currently being drawn.
+
+## The single source of truth: `Scene`
+
+`Scene` (`packages/element/src/Scene.ts`) owns the element arrays and derived maps (`elementsMap`, `nonDeletedElements`, etc.). The `App` component instantiates it once in its constructor (`App.tsx:827`) along with a `Renderer` and the React `Store`/`History`.
+
+Every mutation funnels through `Scene`, and the key invalidation primitive is `triggerUpdate()` (`Scene.ts:303`):
+
+```ts
+triggerUpdate() {
+  this.sceneNonce = randomInteger();   // <-- bumps the nonce
+  for (const callback of this.callbacks) callback();
+}
+```
+
+The bumped `sceneNonce` is what lets downstream memoization know "something changed," and the callbacks (registered via `onUpdate`) are wired to `App.triggerRender`.
+
+## The update flow (element → screen)
+
+1. **Mutation.** Code calls `app.mutateElement(el, updates)` (`App.tsx:4644`), which delegates to `scene.mutateElement` (`Scene.ts:411`). That applies the update, and only if the element is in the scene, its `version` actually changed, and `informMutation` is set, does it call `triggerUpdate()`. Bulk changes go through `replaceAllElements` (`Scene.ts:271`), which rebuilds the maps and also calls `triggerUpdate()`.
+
+2. **Scene → React.** `triggerUpdate` fires the `onUpdate` callback, wired to `triggerRender` (`App.tsx:4655`), which calls `this.setState({})` — a no-op state change purely to force a React re-render. (`triggerRender(true)` forces a scene update even without a state change.)
+
+3. **Compute what's renderable.** In `App.render()` (`App.tsx:2091`), `this.renderer.getRenderableElements(...)` runs. The `Renderer` (`scene/Renderer.ts`):
+   - Builds a `canvasNonce` from the scene nonce (`Renderer.ts:210`).
+   - `_getRenderableElements` is **`memoize`d** — if the nonce and viewport params are unchanged, it returns the cached result, so no recomputation happens.
+   - It filters out the currently-edited text element, computes `visibleElements` via `isElementInViewport` (viewport culling — off-screen shapes aren't drawn), and reorders elements when dragging into a frame.
+
+4. **React reconciliation gate.** `StaticCanvas` is wrapped in `React.memo` with a custom `areEqual` (`StaticCanvas.tsx:108`). It bails out of re-rendering unless `canvasNonce`, `scale`, `elementsMap`/`visibleElements` identity, or a shortlist of relevant appState props changed. This is the second layer of "don't redraw if nothing visible changed."
+
+5. **Draw to canvas.** When `StaticCanvas` does render, its `useEffect` calls `renderStaticScene(...)` (`renderer/staticScene.ts:491`), passing `isRenderThrottlingEnabled()`. That dispatches to either `renderStaticSceneThrottled` (a `throttleRAF`-wrapped version, capping to animation frames) or `_renderStaticScene` directly. `_renderStaticScene` clears the canvas, applies frame clipping, and loops over `visibleElements` calling `renderElement` (`packages/element/src/renderElement.ts:780`) for each shape and any bound text.
+
+6. **Interactive layer, separately.** `InteractiveCanvas`'s effect builds collaborator/selection render config and drives `renderInteractiveScene` through an `AnimationController` RAF loop (`InteractiveCanvas.tsx:173`) — independent of the static shapes.
+
+## The mental model
+
+```
+mutateElement / replaceAllElements
+        │
+   Scene.triggerUpdate()  ── bumps sceneNonce, fires callbacks
+        │
+   App.triggerRender()  ── setState({})
+        │
+   App.render() ── Renderer.getRenderableElements()  [memoized on nonce + viewport cull]
+        │
+   <StaticCanvas> React.memo(areEqual)  [skip if nonce/props unchanged]
+        │
+   renderStaticScene() ── throttleRAF ── loop renderElement() → <canvas>
+```
+
+The recurring theme is **layered invalidation**: a nonce bump, a memoized renderable-elements computation, viewport culling, a `React.memo` gate, and RAF throttling — so a change to one element does the minimum work needed to get pixels on screen, and the separate interactive canvas keeps cursor/selection updates from touching the shape rendering at all.
+
+Want me to go deeper on any layer — e.g. how individual shapes are cached/drawn in `renderElement`, or the `throttleRAF` mechanics?
+[usage] input=2 cache_read=37647 cache_write=8693 output=1992

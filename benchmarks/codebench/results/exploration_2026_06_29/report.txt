@@ -1,56 +1,76 @@
 
 === CodeBench head-to-head ===
-metric                      baseline       lemoncrow
-cost_usd                     19.1064        6.2869
-  - input        : $       0.8566              
-  - output       : $       5.0538              
-  - cache_read   : $       5.7828              
-  - cache_write  : $       7.4131              
-  - input        :               $       1.0298
-  - output       :               $       1.7223
-  - cache_read   :               $       1.3767
-  - cache_write  :               $       1.4586
-duration_ms                1,347,619     1,340,607
-num_turns                      1,237           112
-input_tokens                 286,191       205,967
-cache_read_tokens         35,862,919     2,753,393
-cache_write_tokens         2,811,356       233,381
-thinking_tokens                    0             0
-output_tokens                426,367        68,893
-saved_usd                     0.0000       12.8196
-saved_tokens                       0    36,125,199
+metric                      baseline     lemoncrow     codegraph
+cost_usd                     19.1064        6.2869       15.9871
+  - input        : $       0.8566                            
+  - output       : $       5.0538                            
+  - cache_read   : $       5.7828                            
+  - cache_write  : $       7.4131                            
+  - input        :               $       1.0298              
+  - output       :               $       1.7223              
+  - cache_read   :               $       1.3767              
+  - cache_write  :               $       1.4586              
+  - input        :                             $       0.7107
+  - output       :                             $       2.4658
+  - cache_read   :                             $       1.9953
+  - cache_write  :                             $       6.7596
+duration_ms                1,347,619     1,340,607     1,653,761
+num_turns                      1,237           112           197
+input_tokens                 286,191       205,967       156,116
+cache_read_tokens         35,862,919     2,753,393     3,990,630
+cache_write_tokens         2,811,356       233,381     1,081,533
+thinking_tokens                    0             0             0
+output_tokens                426,367        68,893        99,043
+saved_usd                     0.0000       12.8196        3.1193
+saved_tokens                       0    36,125,199    34,059,511
 
 lemoncrow cost saving : +67.1%  (Eval target ~47-50%)
 lemoncrow time saving : +0.5%  (Eval target ~40%)
+codegraph cost saving : +16.3%  (Eval target ~47-50%)
+codegraph time saving : -22.7%  (Eval target ~40%)
 
 === Per-task medians (clean runs) ===
 
 | Task | Arm | Cost | Tokens | Time | Tool calls | Reps |
 | --- | --- | --- | --- | --- | --- | --- |
-| cg_vscode | lemoncrow | 73.7% cheaper | 96.9% fewer | 6.3% slower | 96.8% fewer | 5 |
-| cg_excalidraw | lemoncrow | 12.1% cheaper | 78% fewer | 430.3% slower | 76.2% fewer | 5 |
-| cg_django | lemoncrow | 82.8% cheaper | 97.4% fewer | even | 100% fewer | 5 |
-| cg_tokio | lemoncrow | 88.6% cheaper | 98.2% fewer | 58.6% faster | 100% fewer | 5 |
-| cg_okhttp | lemoncrow | 83.2% cheaper | 91% fewer | 96.9% slower | 100% fewer | 5 |
-| cg_gin | lemoncrow | 72.8% cheaper | 78.2% fewer | 51.3% faster | 100% fewer | 5 |
-| cg_alamofire | lemoncrow | 84.1% cheaper | 97.8% fewer | 25.4% faster | 98.1% fewer | 5 |
+| cg_vscode | lemoncrow | 73.7% cheaper | 96.9% fewer | 6.3% slower | 94.3% fewer | 5 |
+| cg_vscode | codegraph | 6% pricier | 88.5% fewer | 134.3% slower | 88.6% fewer | 5 |
+| cg_excalidraw | lemoncrow | 12.1% cheaper | 78% fewer | 430.3% slower | 79.2% fewer | 5 |
+| cg_excalidraw | codegraph | 34.6% cheaper | 92.7% fewer | 80.7% slower | 94.4% fewer | 5 |
+| cg_django | lemoncrow | 82.8% cheaper | 97.4% fewer | even | 97.4% fewer | 5 |
+| cg_django | codegraph | 19.1% pricier | 81.9% fewer | 77.2% slower | 89.5% fewer | 5 |
+| cg_tokio | lemoncrow | 88.6% cheaper | 98.2% fewer | 58.6% faster | 96.6% fewer | 5 |
+| cg_tokio | codegraph | 22.4% pricier | 79.9% fewer | 14.6% slower | 79.3% fewer | 5 |
+| cg_okhttp | lemoncrow | 83.2% cheaper | 91% fewer | 96.9% slower | 92.9% fewer | 5 |
+| cg_okhttp | codegraph | 20.4% cheaper | 69.9% fewer | 206.8% slower | 85.7% fewer | 5 |
+| cg_gin | lemoncrow | 72.8% cheaper | 78.2% fewer | 51.3% faster | 80% fewer | 5 |
+| cg_gin | codegraph | 26.3% pricier | 28.2% fewer | 27.7% faster | 60% fewer | 5 |
+| cg_alamofire | lemoncrow | 84.1% cheaper | 97.8% fewer | 25.4% faster | 96.1% fewer | 5 |
+| cg_alamofire | codegraph | 46% cheaper | 91.3% fewer | 38.2% slower | 90.2% fewer | 5 |
 
 | Task | Arm | cost_usd | tokens | time_s | tool_calls | reps |
 | --- | --- | --- | --- | --- | --- | --- |
-| cg_vscode | baseline | 0.5073 | 1,487,415 | 21.9 | 31 | 5 |
-| cg_vscode | lemoncrow | 0.1335 | 45,811 | 23.2 | 1 | 5 |
-| cg_excalidraw | baseline | 0.7508 | 2,203,916 | 25.3 | 80 | 5 |
-| cg_excalidraw | lemoncrow | 0.6601 | 485,001 | 134.3 | 19 | 5 |
-| cg_django | baseline | 0.4219 | 895,750 | 26.2 | 34 | 5 |
-| cg_django | lemoncrow | 0.0725 | 23,444 | 26.4 | 0 | 5 |
-| cg_tokio | baseline | 0.5659 | 1,262,239 | 57.6 | 37 | 5 |
-| cg_tokio | lemoncrow | 0.0646 | 23,104 | 23.8 | 0 | 5 |
+| cg_vscode | baseline | 0.5073 | 1,487,415 | 21.9 | 35 | 5 |
+| cg_vscode | lemoncrow | 0.1335 | 45,811 | 23.2 | 2 | 5 |
+| cg_vscode | codegraph | 0.5378 | 170,996 | 51.2 | 4 | 5 |
+| cg_excalidraw | baseline | 0.7508 | 2,203,916 | 25.3 | 72 | 5 |
+| cg_excalidraw | lemoncrow | 0.6601 | 485,001 | 134.3 | 15 | 5 |
+| cg_excalidraw | codegraph | 0.4908 | 161,025 | 45.8 | 4 | 5 |
+| cg_django | baseline | 0.4219 | 895,750 | 26.2 | 38 | 5 |
+| cg_django | lemoncrow | 0.0725 | 23,444 | 26.4 | 1 | 5 |
+| cg_django | codegraph | 0.5024 | 162,405 | 46.5 | 4 | 5 |
+| cg_tokio | baseline | 0.5659 | 1,262,239 | 57.6 | 29 | 5 |
+| cg_tokio | lemoncrow | 0.0646 | 23,104 | 23.8 | 1 | 5 |
+| cg_tokio | codegraph | 0.6928 | 253,580 | 66.0 | 6 | 5 |
 | cg_okhttp | baseline | 0.3455 | 253,590 | 9.5 | 14 | 5 |
-| cg_okhttp | lemoncrow | 0.0579 | 22,832 | 18.7 | 0 | 5 |
+| cg_okhttp | lemoncrow | 0.0579 | 22,832 | 18.7 | 1 | 5 |
+| cg_okhttp | codegraph | 0.2751 | 76,323 | 29.2 | 2 | 5 |
 | cg_gin | baseline | 0.2008 | 103,804 | 37.3 | 5 | 5 |
-| cg_gin | lemoncrow | 0.0547 | 22,600 | 18.2 | 0 | 5 |
-| cg_alamofire | baseline | 0.9011 | 2,120,545 | 39.6 | 54 | 5 |
-| cg_alamofire | lemoncrow | 0.1434 | 46,342 | 29.6 | 1 | 5 |
+| cg_gin | lemoncrow | 0.0547 | 22,600 | 18.2 | 1 | 5 |
+| cg_gin | codegraph | 0.2536 | 74,534 | 27.0 | 2 | 5 |
+| cg_alamofire | baseline | 0.9011 | 2,120,545 | 39.6 | 51 | 5 |
+| cg_alamofire | lemoncrow | 0.1434 | 46,342 | 29.6 | 2 | 5 |
+| cg_alamofire | codegraph | 0.4865 | 185,258 | 54.8 | 5 | 5 |
 
 === Per-rep spread (min / median / max -- noise check) ===
 
@@ -58,18 +78,25 @@ lemoncrow time saving : +0.5%  (Eval target ~40%)
 | --- | --- | --- | --- | --- | --- |
 | cg_vscode | baseline | 0.4452 / 0.5073 / 0.9095 | 1,124,575 / 1,487,415 / 1,777,876 | ? / ? / ? / ? / ? | 5 |
 | cg_vscode | lemoncrow | 0.1312 / 0.1335 / 0.1673 | 45,785 / 45,811 / 71,205 | ? / ? / ? / ? / ? | 5 |
+| cg_vscode | codegraph | 0.4126 / 0.5378 / 0.6469 | 119,385 / 170,996 / 253,160 | ? / ? / ? / ? / ? | 5 |
 | cg_excalidraw | baseline | 0.4990 / 0.7508 / 0.7949 | 1,527,826 / 2,203,916 / 2,366,320 | ? / ? / ? / ? / ? | 5 |
 | cg_excalidraw | lemoncrow | 0.5436 / 0.6601 / 1.0537 | 336,117 / 485,001 / 531,877 | ? / ? / ? / ? / ? | 5 |
+| cg_excalidraw | codegraph | 0.4706 / 0.4908 / 0.5146 | 159,413 / 161,025 / 167,989 | ? / ? / ? / ? / ? | 5 |
 | cg_django | baseline | 0.3543 / 0.4219 / 0.5866 | 536,896 / 895,750 / 1,216,605 | ? / ? / ? / ? / ? | 5 |
 | cg_django | lemoncrow | 0.0644 / 0.0725 / 0.0899 | 23,128 / 23,444 / 23,533 | ? / ? / ? / ? / ? | 5 |
+| cg_django | codegraph | 0.3886 / 0.5024 / 0.5221 | 113,762 / 162,405 / 167,412 | ? / ? / ? / ? / ? | 5 |
 | cg_tokio | baseline | 0.2483 / 0.5659 / 0.9173 | 124,977 / 1,262,239 / 2,190,852 | ? / ? / ? / ? / ? | 5 |
 | cg_tokio | lemoncrow | 0.0605 / 0.0646 / 0.0885 | 22,978 / 23,104 / 23,282 | ? / ? / ? / ? / ? | 5 |
+| cg_tokio | codegraph | 0.6101 / 0.6928 / 0.7522 | 222,971 / 253,580 / 284,775 | ? / ? / ? / ? / ? | 5 |
 | cg_okhttp | baseline | 0.1891 / 0.3455 / 0.3693 | 96,803 / 253,590 / 303,247 | ? / ? / ? / ? / ? | 5 |
 | cg_okhttp | lemoncrow | 0.0547 / 0.0579 / 0.0603 | 22,359 / 22,832 / 22,954 | ? / ? / ? / ? / ? | 5 |
+| cg_okhttp | codegraph | 0.2311 / 0.2751 / 0.2906 | 53,510 / 76,323 / 77,796 | ? / ? / ? / ? / ? | 5 |
 | cg_gin | baseline | 0.1616 / 0.2008 / 0.3029 | 62,569 / 103,804 / 139,642 | ? / ? / ? / ? / ? | 5 |
 | cg_gin | lemoncrow | 0.0531 / 0.0547 / 0.0676 | 22,503 / 22,600 / 23,081 | ? / ? / ? / ? / ? | 5 |
+| cg_gin | codegraph | 0.2184 / 0.2536 / 0.3408 | 52,404 / 74,534 / 108,699 | ? / ? / ? / ? / ? | 5 |
 | cg_alamofire | baseline | 0.7021 / 0.9011 / 1.2333 | 1,652,776 / 2,120,545 / 2,571,229 | ? / ? / ? / ? / ? | 5 |
 | cg_alamofire | lemoncrow | 0.1376 / 0.1434 / 0.1662 | 46,049 / 46,342 / 47,732 | ? / ? / ? / ? / ? | 5 |
+| cg_alamofire | codegraph | 0.4005 / 0.4865 / 0.6255 | 144,239 / 185,258 / 216,329 | ? / ? / ? / ? / ? | 5 |
 
 === Per-task correctness and cost ===
 
@@ -77,19 +104,33 @@ lemoncrow time saving : +0.5%  (Eval target ~40%)
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | cg_vscode | lemoncrow | 0/0 | unjudged | unjudged | $0.7153 | 76.7% cheaper | unjudged |
 | cg_vscode | baseline | 0/0 | unjudged | baseline | $3.0763 | baseline | unjudged |
+| cg_vscode | codegraph | 0/0 | unjudged | unjudged | $2.5644 | 16.6% cheaper | unjudged |
+| cg_vscode | baseline | 0/0 | unjudged | baseline | $3.0763 | baseline | unjudged |
 | cg_excalidraw | lemoncrow | 0/0 | unjudged | unjudged | $3.5406 | even | unjudged |
+| cg_excalidraw | baseline | 0/0 | unjudged | baseline | $3.5147 | baseline | unjudged |
+| cg_excalidraw | codegraph | 0/0 | unjudged | unjudged | $2.4736 | 29.6% cheaper | unjudged |
 | cg_excalidraw | baseline | 0/0 | unjudged | baseline | $3.5147 | baseline | unjudged |
 | cg_django | lemoncrow | 0/0 | unjudged | unjudged | $0.3728 | 83.9% cheaper | unjudged |
 | cg_django | baseline | 0/0 | unjudged | baseline | $2.3149 | baseline | unjudged |
+| cg_django | codegraph | 0/0 | unjudged | unjudged | $2.3206 | even | unjudged |
+| cg_django | baseline | 0/0 | unjudged | baseline | $2.3149 | baseline | unjudged |
 | cg_tokio | lemoncrow | 0/0 | unjudged | unjudged | $0.3435 | 87.2% cheaper | unjudged |
+| cg_tokio | baseline | 0/0 | unjudged | baseline | $2.6881 | baseline | unjudged |
+| cg_tokio | codegraph | 0/0 | unjudged | unjudged | $3.4430 | 28.1% pricier | unjudged |
 | cg_tokio | baseline | 0/0 | unjudged | baseline | $2.6881 | baseline | unjudged |
 | cg_okhttp | lemoncrow | 0/0 | unjudged | unjudged | $0.2891 | 81.9% cheaper | unjudged |
 | cg_okhttp | baseline | 0/0 | unjudged | baseline | $1.5977 | baseline | unjudged |
+| cg_okhttp | codegraph | 0/0 | unjudged | unjudged | $1.3484 | 15.6% cheaper | unjudged |
+| cg_okhttp | baseline | 0/0 | unjudged | baseline | $1.5977 | baseline | unjudged |
 | cg_gin | lemoncrow | 0/0 | unjudged | unjudged | $0.2903 | 73.3% cheaper | unjudged |
+| cg_gin | baseline | 0/0 | unjudged | baseline | $1.0860 | baseline | unjudged |
+| cg_gin | codegraph | 0/0 | unjudged | unjudged | $1.3563 | 24.9% pricier | unjudged |
 | cg_gin | baseline | 0/0 | unjudged | baseline | $1.0860 | baseline | unjudged |
 | cg_alamofire | lemoncrow | 0/0 | unjudged | unjudged | $0.7353 | 84.8% cheaper | unjudged |
 | cg_alamofire | baseline | 0/0 | unjudged | baseline | $4.8286 | baseline | unjudged |
-Runs ok     : baseline 35/35  lemoncrow 35/35
-Valid       : baseline 35/35  lemoncrow 35/35
+| cg_alamofire | codegraph | 0/0 | unjudged | unjudged | $2.4810 | 48.6% cheaper | unjudged |
+| cg_alamofire | baseline | 0/0 | unjudged | baseline | $4.8286 | baseline | unjudged |
+Runs ok     : baseline 35/35  lemoncrow 35/35  codegraph 35/35
+Valid       : baseline 35/35  lemoncrow 35/35  codegraph 35/35
 Quality     : unjudged; headline savings are exploratory until pairwise_quality.csv passes.
 Chart data  : summary.csv, task_metrics.csv, model_audit.csv, task_correctness.csv, pairwise_quality.csv, quality_adjusted_summary.csv

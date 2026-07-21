@@ -1,0 +1,568 @@
+
+=== Turn 1 ===
+[user] <session>
+How does gin route requests through its middleware chain?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Understand Gin middleware request routing"}
+[usage] input=526 cache_read=0 cache_write=0 output=15
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore gin's routing and middleware chain using the code graph.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 1}
+[usage] input=3748 cache_read=15023 cache_write=2312 output=138
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does gin route requests through the middleware chain? engine ServeHTTP handleHTTPRequest Context Next handlers chain"}
+[usage] input=2 cache_read=15116 cache_write=6788 output=101
+
+=== Turn 4 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. ServeHTTP (gin.go:662)
+   ↓ calls
+2. handleHTTPRequest (gin.go:690)
+   ↓ calls
+3. Next (context.go:188)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- Next → Recovery   [dynamic: gin middleware chain @benchmarks_test.go:22]
+- Next → Logger   [dynamic: gin middleware chain @gin.go:239]
+- Next → handlerTest1   [dynamic: gin middleware chain @gin_test.go:614]
+- Next → handlerTest2   [dynamic: gin middleware chain @gin_test.go:618]
+- Next → ErrorLogger   [dynamic: gin middleware chain @logger_test.go:378]
+
+**Dynamic boundaries (the static path ends at runtime dispatch)**
+
+- `Next` (context.go:192) — computed member call: `c.handlers[c.index](c)`
+
+> These sites choose their call target at runtime (registry / bus / reflection) — the site shown IS where the flow continues. To follow it, run codegraph_explore or codegraph_node on a candidate; source for the sites above is included below.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does gin route requests through the middleware chain? engine ServeHTTP handleHTTPRequest Context Next handlers chain**
+
+Found 83 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `ServeHTTP` (gin.go:662) — 17 callers in `context.go`; tests: `benchmarks_test.go`, `ginS/gins_test.go`
+- `Handler` (gin.go:243) — 5 callers in `gin.go`; ⚠️ no covering tests found
+- `Handler` (context.go:167) — 3 callers in `utils.go`; tests: `context_test.go`, `routes_test.go`
+- `HandlersChain` (gin.go:57) — 20 callers in `debug.go`, `gin.go`, `routergroup.go`, `tree.go`; tests: `context_test.go`, `debug_test.go`, `gin_test.go`, `routergroup_test.go` +2
+- `HandlerFunc` (gin.go:51) — 48 callers in `auth.go`, `context.go`, `gin.go`, `ginS/gins.go` +4 more; ⚠️ no covering tests found
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`gin.go`** — calls(calls), Context(references), Handler(calls), Get(calls), reset(calls), +19 more
+
+```go
+627	// RunQUIC attaches the router to a http.Server and starts listening and serving QUIC requests.
+628	// It is a shortcut for http3.ListenAndServeQUIC(addr, certFile, keyFile, router)
+629	// Note: this method will block the calling goroutine indefinitely unless an error happens.
+630	func (engine *Engine) RunQUIC(addr, certFile, keyFile string) (err error) {
+631		debugPrint("Listening and serving QUIC on %s\n", addr)
+632		defer func() { debugPrintError(err) }()
+633	
+634		if engine.isUnsafeTrustedProxies() {
+635			debugPrint("[WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.\n" +
+636				"Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.")
+637		}
+638	
+639		err = http3.ListenAndServeQUIC(addr, certFile, keyFile, engine.Handler())
+640		return
+641	}
+642	
+643	// RunListener attaches the router to a http.Server and starts listening and serving HTTP requests
+644	// through the specified net.Listener
+645	func (engine *Engine) RunListener(listener net.Listener) (err error) {
+646		debugPrint("Listening and serving HTTP on listener what's bind with address@%s", listener.Addr())
+647		defer func() { debugPrintError(err) }()
+648	
+649		if engine.isUnsafeTrustedProxies() {
+650			debugPrint("[WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.\n" +
+651				"Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.")
+652		}
+653	
+654		server := &http.Server{ // #nosec G112
+655			Handler: engine.Handler(),
+656		}
+657		err = server.Serve(listener)
+658		return
+659	}
+660	
+661	// ServeHTTP conforms to the http.Handler interface.
+662	func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+663		engine.routeTreesUpdated.Do(func() {
+664			engine.updateRouteTrees()
+665		})
+666	
+667		c := engine.pool.Get().(*Context)
+668		c.writermem.reset(w)
+669		c.Request = req
+670		c.reset()
+671	
+672		engine.handleHTTPRequest(c)
+673	
+674		engine.pool.Put(c)
+675	}
+676	
+677	// HandleContext re-enters a context that has been rewritten.
+678	// This can be done by setting c.Request.URL.Path to your new target.
+679	// Disclaimer: You can loop yourself to deal with this, use wisely.
+680	func (engine *Engine) HandleContext(c *Context) {
+681		oldIndexValue := c.index
+682		oldHandlers := c.handlers
+683		c.reset()
+684		engine.handleHTTPRequest(c)
+685	
+686		c.index = oldIndexValue
+687		c.handlers = oldHandlers
+688	}
+689	
+690	func (engine *Engine) handleHTTPRequest(c *Context) {
+691		httpMethod := c.Request.Method
+692		rPath := c.Request.URL.Path
+693		unescape := false
+694	
+695		if engine.UseEscapedPath {
+696			rPath = c.Request.URL.EscapedPath()
+697			unescape = engine.UnescapePathValues
+698		} else if engine.UseRawPath && len(c.Request.URL.RawPath) > 0 {
+699			rPath = c.Request.URL.RawPath
+700			unescape = engine.UnescapePathValues
+701		}
+702	
+703		if engine.RemoveExtraSlash {
+704			rPath = cleanPath(rPath)
+705		}
+706	
+707		// Find root of the tree for the given HTTP method
+708		t := engine.trees
+709		for i, tl := 0, len(t); i < tl; i++ {
+710			if t[i].method != httpMethod {
+711				continue
+712			}
+713			root := t[i].root
+714			// Find route in tree
+715			value := root.getValue(rPath, c.params, c.skippedNodes, unescape)
+716			if value.params != nil {
+717				c.Params = *value.params
+718			}
+719			if value.handlers != nil {
+720				c.handlers = value.handlers
+721				c.fullPath = value.fullPath
+722				c.Next()
+723				c.writermem.WriteHeaderNow()
+724				return
+725			}
+726			if httpMethod != http.MethodConnect && rPath != "/" {
+727				if value.tsr && engine.RedirectTrailingSlash {
+728					redirectTrailingSlash(c)
+729					return
+730				}
+731				if engine.RedirectFixedPath && redirectFixedPath(c, root, engine.RedirectFixedPath) {
+732					return
+733				}
+734			}
+735			break
+736		}
+737	
+738		if engine.HandleMethodNotAllowed && len(t) > 0 {
+739			// According to RFC 7231 section 6.5.5, MUST generate an Allow header field in response
+740			// containing a list of the target resource's currently supported methods.
+741			allowed := make([]string, 0, len(t)-1)
+742			for _, tree := range engine.trees {
+743				if tree.method == httpMethod {
+744					continue
+745				}
+746				if value := tree.root.getValue(rPath, nil, c.skippedNodes, unescape); value.handlers != nil {
+747					allowed = append(allowed, tree.method)
+748				}
+749			}
+750			if len(allowed) > 0 {
+751				c.handlers = engine.allNoMethod
+752				c.writermem.Header().Set("Allow", strings.Join(allowed, ", "))
+753				serveError(c, http.StatusMethodNotAllowed, default405Body)
+754				return
+755			}
+756		}
+757	
+758		c.handlers = engine.allNoRoute
+759		serveError(c, http.StatusNotFound, default404Body)
+760	}
+761	
+762	var mimePlain = []string{MIMEPlain}
+763	
+764	func serveError(c *Context, code int, defaultMessage []byte) {
+765		c.writermem.status = code
+766		c.Next()
+767		if c.writermem.Written() {
+768			return
+769		}
+770		if c.writermem.Status() == code {
+771			c.writermem.Header()["Content-Type"] = mimePlain
+772			_, err := c.Writer.Write(defaultMessage)
+773			if err != nil {
+774				debugPrint("cannot write message to writer during serve error: %v", err)
+775			}
+776			return
+777		}
+778		c.writermem.WriteHeaderNow()
+779	}
+780	
+781	func redirectTrailingSlash(c *Context) {
+782		req := c.Request
+783		p := req.URL.Path
+784		if prefix := path.Clean(c.Request.Header.Get("X-Forwarded-Prefix")); prefix != "." {
+785			prefix = sanitizePathChars(prefix)
+786			prefix = removeRepeatedChar(prefix, '/')
+787	
+788			p = prefix + "/" + req.URL.Path
+789		}
+790		req.URL.Path = p + "/"
+791		if length := len(p); length > 1 && p[length-1] == '/' {
+792			req.URL.Path = p[:length-1]
+793		}
+794		redirectRequest(c)
+795	}
+796	
+797	// sanitizePathChars removes unsafe characters from path strings,
+798	// keeping only ASCII letters, ASCII numbers, forward slashes, and hyphens.
+```
+
+**`context.go`** — calls(calls), Abort(calls), references(references), FullPath(method), Next(method), +16 more
+
+```go
+174	//	router.GET("/user/:id", func(c *gin.Context) {
+175	//	    c.FullPath() == "/user/:id" // true
+176	//	})
+177	func (c *Context) FullPath() string {
+178		return c.fullPath
+179	}
+180	
+181	/************************************/
+182	/*********** FLOW CONTROL ***********/
+
+... (gap) ...
+
+185	// Next should be used only inside middleware.
+186	// It executes the pending handlers in the chain inside the calling handler.
+187	// See example in GitHub.
+188	func (c *Context) Next() {
+189		c.index++
+190		for c.index < safeInt8(len(c.handlers)) {
+191			if c.handlers[c.index] != nil {
+192				c.handlers[c.index](c)
+193			}
+194			c.index++
+195		}
+196	}
+197	
+198	// IsAborted returns true if the current context was aborted.
+199	func (c *Context) IsAborted() bool {
+200		return c.index >= abortIndex
+201	}
+202	
+203	// Abort prevents pending handlers from being called. Note that this will not stop the current handler.
+204	// Let's say you have an authorization middleware that validates that the current request is authorized.
+205	// If the authorization fails (ex: the password does not match), call Abort to ensure the remaining handlers
+206	// for this request are not called.
+207	func (c *Context) Abort() {
+208		c.index = abortIndex
+209	}
+210	
+211	// AbortWithStatus calls `Abort()` and writes the headers with the specified status code.
+212	// For example, a failed attempt to authenticate a request could use: context.AbortWithStatus(401).
+213	func (c *Context) AbortWithStatus(code int) {
+214		c.Status(code)
+215		c.Writer.WriteHeaderNow()
+216		c.Abort()
+217	}
+218	
+219	// AbortWithStatusPureJSON calls `Abort()` and then `PureJSON` internally.
+220	// This method stops the chain, writes the status code and return a JSON body without escaping.
+221	// It also sets the Content-Type as "application/json".
+222	func (c *Context) AbortWithStatusPureJSON(code int, jsonObj any) {
+223		c.Abort()
+224		c.PureJSON(code, jsonObj)
+225	}
+226	
+227	// AbortWithStatusJSON calls `Abort()` and then `JSON` internally.
+228	// This method stops the chain, writes the status code and return a JSON body.
+229	// It also sets the Content-Type as "application/json".
+230	func (c *Context) AbortWithStatusJSON(code int, jsonObj any) {
+231		c.Abort()
+232		c.JSON(code, jsonObj)
+233	}
+234	
+235	// AbortWithError calls `AbortWithStatus()` and `Error()` internally.
+236	// This method stops the chain, writes the status code and pushes the specified error to `c.Errors`.
+237	// See Context.Error() for more details.
+238	func (c *Context) AbortWithError(code int, err error) *Error {
+239		c.AbortWithStatus(code)
+240		return c.Error(err)
+241	}
+242	
+243	/************************************/
+244	/********* ERROR MANAGEMENT *********/
+
+... (gap) ...
+
+308	}
+309	
+310	// GetString returns the value associated with the key as a string.
+311	func (c *Context) GetString(key any) string {
+312		return getTyped[string](c, key)
+313	}
+314	
+315	// GetBool returns the value associated with the key as a boolean.
+316	func (c *Context) GetBool(key any) bool {
+317		return getTyped[bool](c, key)
+318	}
+319	
+320	// GetInt returns the value associated with the key as an integer.
+321	func (c *Context) GetInt(key any) int {
+
+... (gap) ...
+
+1315	}
+1316	
+1317	// FileFromFS writes the specified file from http.FileSystem into the body stream in an efficient way.
+1318	func (c *Context) FileFromFS(filepath string, fs http.FileSystem) {
+1319		defer func(old string) {
+1320			c.Request.URL.Path = old
+1321		}(c.Request.URL.Path)
+1322	
+1323		c.Request.URL.Path = filepath
+1324	
+1325		http.FileServer(fs).ServeHTTP(c.Writer, c.Request)
+1326	}
+1327	
+1328	var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+1329	
+```
+
+**`routergroup.go`** — HandlerFunc(references), IRoutes(references), returnObj(calls), combineHandlers(calls), calculateAbsolutePath(calls), +13 more
+
+```go
+30	}
+31	
+32	// IRoutes defines all router handle interface.
+33	type IRoutes interface {
+34		Use(...HandlerFunc) IRoutes
+35	
+36		Handle(string, string, ...HandlerFunc) IRoutes
+37		Any(string, ...HandlerFunc) IRoutes
+38		GET(string, ...HandlerFunc) IRoutes
+39		POST(string, ...HandlerFunc) IRoutes
+40		DELETE(string, ...HandlerFunc) IRoutes
+41		PATCH(string, ...HandlerFunc) IRoutes
+42		PUT(string, ...HandlerFunc) IRoutes
+43		OPTIONS(string, ...HandlerFunc) IRoutes
+44		HEAD(string, ...HandlerFunc) IRoutes
+45		Match([]string, string, ...HandlerFunc) IRoutes
+46	
+47		StaticFile(string, string) IRoutes
+48		StaticFileFS(string, string, http.FileSystem) IRoutes
+49		Static(string, string) IRoutes
+50		StaticFS(string, http.FileSystem) IRoutes
+51	}
+52	
+53	// RouterGroup is used internally to configure router, a RouterGroup is associated with
+54	// a prefix and an array of handlers (middleware).
+55	type RouterGroup struct {
+56		Handlers HandlersChain
+57		basePath string
+58		engine   *Engine
+59		root     bool
+60	}
+61	
+62	var _ IRouter = (*RouterGroup)(nil)
+63	
+64	// Use adds middleware to the group, see example code in GitHub.
+65	func (group *RouterGroup) Use(middleware ...HandlerFunc) IRoutes {
+66		group.Handlers = append(group.Handlers, middleware...)
+67		return group.returnObj()
+68	}
+69	
+70	// Group creates a new router group. You should add all the routes that have common middlewares or the same path prefix.
+71	// For example, all the routes that use a common middleware for authorization could be grouped.
+72	func (group *RouterGroup) Group(relativePath string, handlers ...HandlerFunc) *RouterGroup {
+73		return &RouterGroup{
+74			Handlers: group.combineHandlers(handlers),
+75			basePath: group.calculateAbsolutePath(relativePath),
+76			engine:   group.engine,
+77		}
+78	}
+79	
+80	// BasePath returns the base path of router group.
+81	// For example, if v := router.Group("/rest/n/v1/api"), v.BasePath() is "/rest/n/v1/api".
+82	func (group *RouterGroup) BasePath() string {
+83		return group.basePath
+84	}
+85	
+86	func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) IRoutes {
+87		absolutePath := group.calculateAbsolutePath(relativePath)
+88		handlers = group.combineHandlers(handlers)
+89		group.engine.addRoute(httpMethod, absolutePath, handlers)
+90		return group.returnObj()
+91	}
+92	
+93	// Handle registers a new request handle and middleware with the given path and method.
+94	// The last handler should be the real handler, the other ones should be middleware that can and should be shared among different routes.
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Gin routes a request through its middleware chain in two phases: **building** the chain at registration time, and **executing** it per request. Here's the full picture.
+
+## 1. Building the chain (registration time)
+
+Middleware and route handlers are stored together in a single flat slice — `HandlersChain` (a `[]HandlerFunc`).
+
+- **`RouterGroup.Use()`** (`routergroup.go:65`) just appends middleware to the group's `Handlers` slice.
+- When you register a route (e.g. `GET`), the group's `handle()` (`routergroup.go:86`) calls `combineHandlers()` to concatenate the group's middleware with the route's final handler(s), then stores that combined chain in the route tree via `engine.addRoute()`.
+
+So by request time, each route in the tree already holds one merged slice: `[middleware..., finalHandler]`.
+
+## 2. Executing the chain (request time)
+
+**`Engine.ServeHTTP`** (`gin.go:662`) is the `http.Handler` entry point:
+1. Grabs a pooled `*Context`, resets it, attaches the request.
+2. Calls **`handleHTTPRequest`** (`gin.go:690`).
+
+**`handleHTTPRequest`** does the routing:
+1. Picks the tree for the HTTP method (`engine.trees`).
+2. Looks up the path with `root.getValue(rPath, ...)` (radix-tree match).
+3. On a hit, copies the matched chain onto the context: `c.handlers = value.handlers`, sets `c.fullPath`, then calls **`c.Next()`** — this kicks off execution.
+4. On a miss, it points `c.handlers` at `engine.allNoRoute` (or `allNoMethod` for 405) and runs those instead.
+
+## 3. The chain driver: `Context.Next()`
+
+This is the heart of it (`context.go:188`):
+
+```go
+func (c *Context) Next() {
+	c.index++
+	for c.index < safeInt8(len(c.handlers)) {
+		if c.handlers[c.index] != nil {
+			c.handlers[c.index](c)
+		}
+		c.index++
+	}
+}
+```
+
+`c.index` is a cursor into the handler slice (starts at -1). Each call advances the index and invokes handlers in order. The key design: **a middleware that itself calls `c.Next()` re-enters this loop**, running the *rest* of the chain nested inside its own call. Control returns to the middleware after downstream handlers finish — this is what enables "before/after" logic (e.g. Logger timing a request, Recovery deferring a panic handler around `Next()`).
+
+A middleware that does *not* call `c.Next()` still works: when it returns, the outer loop advances to the next handler anyway. So `Next()` is only needed when you want to wrap post-processing around downstream handlers.
+
+## 4. Aborting
+
+- **`Abort()`** (`context.go:207`) sets `c.index = abortIndex` (a large constant), so the `for` loop condition fails and no further handlers run. The *current* handler still finishes.
+- Variants like `AbortWithStatusJSON` write a response and abort in one call.
+
+## Summary of the flow
+
+```
+ServeHTTP → handleHTTPRequest → tree lookup → c.handlers = matched chain
+         → c.Next() → [mw1 → (Next) → mw2 → (Next) → finalHandler]
+```
+
+The chain is a flat slice built by `combineHandlers` at registration; `Next()` walks it via an index cursor, and nesting happens naturally because middleware call `Next()` recursively. Abort short-circuits by jumping the cursor past the end.
+[usage] input=2 cache_read=21904 cache_write=6607 output=1258

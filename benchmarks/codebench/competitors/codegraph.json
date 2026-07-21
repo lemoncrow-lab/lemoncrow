@@ -1,0 +1,6 @@
+{
+  "name": "codegraph",
+  "repo": "https://github.com/colbymchenry/codegraph",
+  "install": ["npm i -g @colbymchenry/codegraph"],
+  "mcp": { "command": "codegraph", "args": ["serve", "--mcp"] }
+}
