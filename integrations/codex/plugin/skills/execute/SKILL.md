@@ -1,6 +1,6 @@
 ---
 name: execute
-description: Isolated execution mode.
+description: Isolated plan execution mode.
 ---
 
 > **Active** — do not call `Skill("lemoncrow:execute")` again.

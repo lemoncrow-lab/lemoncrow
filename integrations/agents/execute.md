@@ -1,6 +1,6 @@
 ---
 mode: execute
-skill_description: Isolated execution mode.
+skill_description: Isolated plan execution mode.
 agent_description: Focused isolated code executor.
 ---
 

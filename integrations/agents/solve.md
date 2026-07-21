@@ -1,6 +1,6 @@
 ---
 mode: solve
-skill_description: Autonomous solve mode.
+skill_description: Autonomous focused hard problem solver mode.
 agent_description: Autonomous verified task solver.
 ---
 # Solve mode
