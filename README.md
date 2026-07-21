@@ -8,7 +8,7 @@
 
 ### Keep your coding agent sharp on real codebases
 
-fresh context retrieval for orchestration and workflows
+**Context optimization, done right.**
 
 LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
 
@@ -30,15 +30,26 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 
 ---
 
+## Why I built this
+
+I kept burning my weekly credits before the week was out. Every
+"token-saving" tool I tried claimed wins but none measured what I actually
+paid — real dollars, end to end, on real tasks. Token counts aren't a bill.
+
+So I built LemonCrow: a runtime that lives *inside* your existing agent
+host, changes nothing about your workflow, and squeezes out the maximum
+saving it can. Every number below is an absolute-dollar measurement
+([BENCHMARKS.md](BENCHMARKS.md)) — not a token-count hand-wave.
+
 ## Project status
 
-LemonCrow is an experimental open-source local runtime for improving the
+LemonCrow is an actively built, open-source local runtime for improving the
 repository context available to coding agents.
 
 LemonCrow's core runtime is fully open source, account-free, and capable of
 operating offline. All LemonCrow-hosted communication is optional and disabled
-by default. The entire runtime, including propritory the retrieval/ranking engine
-(`lemoncrow.pro` planned to be), is open source under Apache-2.0.
+by default. The entire runtime, including the proprietary retrieval/ranking
+engine (`lemoncrow.pro`), is open source under Apache-2.0.
 
 ## Quick start
 
@@ -248,15 +259,6 @@ The uninstaller stops background services, removes user-level systemd/launchd
 units, removes LemonCrow-owned host-integration entries (without touching
 unrelated agent-host configuration), reverts LemonCrow's PATH changes, and prints
 exactly what was removed and preserved. Preview with `--dry-run`.
-
-## Maintenance expectations
-
-- Support is best-effort; there is no SLA or guaranteed response time.
-- Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
-  and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-- Security reports: see [SECURITY.md](SECURITY.md).
-- There is no guaranteed roadmap; direction follows demonstrated usage and
-  contributions.
 
 ---
 
