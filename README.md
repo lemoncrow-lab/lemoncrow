@@ -8,7 +8,7 @@
 
 ### Keep your coding agent sharp on real codebases
 
-**Context optimization, done right.**
+**Context engineering, done right.**
 
 LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
 
@@ -112,8 +112,8 @@ capability grant (subagent name `lemoncrow:<mode>`):
 
 ### Skills
 
-Packaged in [integrations/skills/](integrations/skills/): `lc`, `benchmark`,
-`orchestrate`, `swarm`, `perf-review`, `ux-review`, `recall`.
+Optional Packaged in [integrations/skills/](integrations/skills/): `/lemoncrow`, `/benchmark`,
+`/orchestrate`, `/swarm`, `/perf-review`, `/ux-review`, `/recall`.
 
 ### Inspect your own sessions
 
@@ -139,28 +139,20 @@ Both are local and read-only — no model re-run, nothing transmitted.
 
 - **Runs locally.** After install, all core functionality works offline and
   contacts **no** LemonCrow-controlled server.
-- **Telemetry is OFF by default** and strictly opt-in. Enable with
-  `lc telemetry remote on`, disable with `lc telemetry remote off`, inspect with
-  `lc telemetry show`. A global `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`
+- **Telemetry is OFF by default** and strictly opt-in. A global `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`
   environment kill switch is honored.
-- When telemetry is disabled, **no** identifier, repository path, source code, or
+- **No** identifier, repository path, source code, or
   symbol name leaves your machine. There is no crash reporting.
 - The only network calls the runtime makes are ones you initiate (`lc update`,
-  which checks GitHub Releases) or ones your own model-provider configuration
-  makes with your API key. Startup auto-update is opt-in
-  (`LEMONCROW_AUTO_UPDATE=1`).
-- Git commit co-author attribution (`Co-Authored-By: lemoncrow`) is **off by
-  default**; opt in at install with `LEMONCROW_ATTRIBUTION=1`. It is removed by
-  `scripts/uninstall.sh`.
+  which checks GitHub Releases).
 - Full detail: [docs/privacy.md](docs/privacy.md).
 
 ## Supported environments
 
-- **Operating systems:** Linux and macOS (primary); Windows is partially
-  supported.
+- **Operating systems:** Linux and macOS (primary); Windows is partially, never tested.
 - **Runtime:** Python 3.12–3.13, managed with [`uv`](https://docs.astral.sh/uv/).
-- **Agent hosts:** Claude Code, Codex, Copilot, Copilot CLI, and opencode today;
-  Cursor, Hermes, and Antigravity are in progress. Any MCP-compatible agent can
+- **Agent hosts:** Claude Code, Codex and opencode today;
+  Copilot, Cursor, Hermes, and Antigravity are in progress. Any MCP-compatible agent can
   connect to the same tools.
 - **Build requirements:** `uv`, a C toolchain (only if you opt into the `mypyc`
   performance build; a pure-Python build works without it), and `git`.
