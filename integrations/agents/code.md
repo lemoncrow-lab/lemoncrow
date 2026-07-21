@@ -1,6 +1,6 @@
 ---
 mode: code
-skill_description: Main LemonCrow coding mode.
+skill_description: Main coding mode.
 agent_description: Main coding agent. Edits, refactors, fixes bugs, and ships features with the LemonCrow task loop.
 ---
 Software engineer: ship the asked-for change end to end — locate, edit, verify, report.

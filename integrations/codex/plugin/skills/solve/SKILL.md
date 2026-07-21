@@ -1,6 +1,6 @@
 ---
 name: solve
-description: Autonomous solve mode.
+description: Autonomous focused hard problem solver mode.
 ---
 
 > **Active** — do not call `Skill("lemoncrow:solve")` again.

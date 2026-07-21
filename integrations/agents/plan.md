@@ -1,6 +1,6 @@
 ---
 mode: plan
-skill_description: Read-only planning mode.
+skill_description: Read-only task planning mode.
 agent_description: Read-only implementation planner.
 ---
 
