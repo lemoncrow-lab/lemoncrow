@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Read-only explore mode.
+description: Read-only codebase explorer mode.
 ---
 
 > **Active** — do not call `Skill("lemoncrow:explore")` again.
