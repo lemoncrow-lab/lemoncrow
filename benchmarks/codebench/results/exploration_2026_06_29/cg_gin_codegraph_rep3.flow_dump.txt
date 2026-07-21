@@ -1,0 +1,1058 @@
+
+=== Turn 1 ===
+[user] <session>
+How does gin route requests through its middleware chain?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Understand Gin middleware chain routing"}
+[usage] input=526 cache_read=0 cache_write=0 output=15
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does gin route requests through the middleware chain? HandlersChain, Context.Next, engine ServeHTTP, handleHTTPRequest"}
+[usage] input=3748 cache_read=15023 cache_write=2312 output=141
+
+=== Turn 3 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. ServeHTTP (gin.go:662)
+   ↓ calls
+2. handleHTTPRequest (gin.go:690)
+   ↓ calls
+3. Next (context.go:188)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- Next → Recovery   [dynamic: gin middleware chain @benchmarks_test.go:22]
+- Next → Logger   [dynamic: gin middleware chain @gin.go:239]
+- Next → handlerTest1   [dynamic: gin middleware chain @gin_test.go:614]
+- Next → handlerTest2   [dynamic: gin middleware chain @gin_test.go:618]
+- Next → ErrorLogger   [dynamic: gin middleware chain @logger_test.go:378]
+
+**Dynamic boundaries (the static path ends at runtime dispatch)**
+
+- `Next` (context.go:192) — computed member call: `c.handlers[c.index](c)`
+
+> These sites choose their call target at runtime (registry / bus / reflection) — the site shown IS where the flow continues. To follow it, run codegraph_explore or codegraph_node on a candidate; source for the sites above is included below.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does gin route requests through the middleware chain? HandlersChain, Context.Next, engine ServeHTTP, handleHTTPRequest**
+
+Found 81 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `ServeHTTP` (gin.go:662) — 17 callers in `context.go`; tests: `benchmarks_test.go`, `ginS/gins_test.go`
+- `HandlersChain` (gin.go:57) — 20 callers in `debug.go`, `gin.go`, `routergroup.go`, `tree.go`; tests: `context_test.go`, `debug_test.go`, `gin_test.go`, `routergroup_test.go` +2
+- `Handler` (gin.go:243) — 5 callers in `gin.go`; ⚠️ no covering tests found
+- `Handler` (context.go:167) — 3 callers in `utils.go`; tests: `context_test.go`, `routes_test.go`
+- `handleHTTPRequest` (gin.go:690) — 2 callers in `gin.go`; ⚠️ no covering tests found
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`gin.go`** — calls(calls), Context(references), Handler(calls), Get(calls), reset(calls), +19 more
+
+```go
+627	// RunQUIC attaches the router to a http.Server and starts listening and serving QUIC requests.
+628	// It is a shortcut for http3.ListenAndServeQUIC(addr, certFile, keyFile, router)
+629	// Note: this method will block the calling goroutine indefinitely unless an error happens.
+630	func (engine *Engine) RunQUIC(addr, certFile, keyFile string) (err error) {
+631		debugPrint("Listening and serving QUIC on %s\n", addr)
+632		defer func() { debugPrintError(err) }()
+633	
+634		if engine.isUnsafeTrustedProxies() {
+635			debugPrint("[WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.\n" +
+636				"Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.")
+637		}
+638	
+639		err = http3.ListenAndServeQUIC(addr, certFile, keyFile, engine.Handler())
+640		return
+641	}
+642	
+643	// RunListener attaches the router to a http.Server and starts listening and serving HTTP requests
+644	// through the specified net.Listener
+645	func (engine *Engine) RunListener(listener net.Listener) (err error) {
+646		debugPrint("Listening and serving HTTP on listener what's bind with address@%s", listener.Addr())
+647		defer func() { debugPrintError(err) }()
+648	
+649		if engine.isUnsafeTrustedProxies() {
+650			debugPrint("[WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.\n" +
+651				"Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.")
+652		}
+653	
+654		server := &http.Server{ // #nosec G112
+655			Handler: engine.Handler(),
+656		}
+657		err = server.Serve(listener)
+658		return
+659	}
+660	
+661	// ServeHTTP conforms to the http.Handler interface.
+662	func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+663		engine.routeTreesUpdated.Do(func() {
+664			engine.updateRouteTrees()
+665		})
+666	
+667		c := engine.pool.Get().(*Context)
+668		c.writermem.reset(w)
+669		c.Request = req
+670		c.reset()
+671	
+672		engine.handleHTTPRequest(c)
+673	
+674		engine.pool.Put(c)
+675	}
+676	
+677	// HandleContext re-enters a context that has been rewritten.
+678	// This can be done by setting c.Request.URL.Path to your new target.
+679	// Disclaimer: You can loop yourself to deal with this, use wisely.
+680	func (engine *Engine) HandleContext(c *Context) {
+681		oldIndexValue := c.index
+682		oldHandlers := c.handlers
+683		c.reset()
+684		engine.handleHTTPRequest(c)
+685	
+686		c.index = oldIndexValue
+687		c.handlers = oldHandlers
+688	}
+689	
+690	func (engine *Engine) handleHTTPRequest(c *Context) {
+691		httpMethod := c.Request.Method
+692		rPath := c.Request.URL.Path
+693		unescape := false
+694	
+695		if engine.UseEscapedPath {
+696			rPath = c.Request.URL.EscapedPath()
+697			unescape = engine.UnescapePathValues
+698		} else if engine.UseRawPath && len(c.Request.URL.RawPath) > 0 {
+699			rPath = c.Request.URL.RawPath
+700			unescape = engine.UnescapePathValues
+701		}
+702	
+703		if engine.RemoveExtraSlash {
+704			rPath = cleanPath(rPath)
+705		}
+706	
+707		// Find root of the tree for the given HTTP method
+708		t := engine.trees
+709		for i, tl := 0, len(t); i < tl; i++ {
+710			if t[i].method != httpMethod {
+711				continue
+712			}
+713			root := t[i].root
+714			// Find route in tree
+715			value := root.getValue(rPath, c.params, c.skippedNodes, unescape)
+716			if value.params != nil {
+717				c.Params = *value.params
+718			}
+719			if value.handlers != nil {
+720				c.handlers = value.handlers
+721				c.fullPath = value.fullPath
+722				c.Next()
+723				c.writermem.WriteHeaderNow()
+724				return
+725			}
+726			if httpMethod != http.MethodConnect && rPath != "/" {
+727				if value.tsr && engine.RedirectTrailingSlash {
+728					redirectTrailingSlash(c)
+729					return
+730				}
+731				if engine.RedirectFixedPath && redirectFixedPath(c, root, engine.RedirectFixedPath) {
+732					return
+733				}
+734			}
+735			break
+736		}
+737	
+738		if engine.HandleMethodNotAllowed && len(t) > 0 {
+739			// According to RFC 7231 section 6.5.5, MUST generate an Allow header field in response
+740			// containing a list of the target resource's currently supported methods.
+741			allowed := make([]string, 0, len(t)-1)
+742			for _, tree := range engine.trees {
+743				if tree.method == httpMethod {
+744					continue
+745				}
+746				if value := tree.root.getValue(rPath, nil, c.skippedNodes, unescape); value.handlers != nil {
+747					allowed = append(allowed, tree.method)
+748				}
+749			}
+750			if len(allowed) > 0 {
+751				c.handlers = engine.allNoMethod
+752				c.writermem.Header().Set("Allow", strings.Join(allowed, ", "))
+753				serveError(c, http.StatusMethodNotAllowed, default405Body)
+754				return
+755			}
+756		}
+757	
+758		c.handlers = engine.allNoRoute
+759		serveError(c, http.StatusNotFound, default404Body)
+760	}
+761	
+762	var mimePlain = []string{MIMEPlain}
+763	
+764	func serveError(c *Context, code int, defaultMessage []byte) {
+765		c.writermem.status = code
+766		c.Next()
+767		if c.writermem.Written() {
+768			return
+769		}
+770		if c.writermem.Status() == code {
+771			c.writermem.Header()["Content-Type"] = mimePlain
+772			_, err := c.Writer.Write(defaultMessage)
+773			if err != nil {
+774				debugPrint("cannot write message to writer during serve error: %v", err)
+775			}
+776			return
+777		}
+778		c.writermem.WriteHeaderNow()
+779	}
+780	
+781	func redirectTrailingSlash(c *Context) {
+782		req := c.Request
+783		p := req.URL.Path
+784		if prefix := path.Clean(c.Request.Header.Get("X-Forwarded-Prefix")); prefix != "." {
+785			prefix = sanitizePathChars(prefix)
+786			prefix = removeRepeatedChar(prefix, '/')
+787	
+788			p = prefix + "/" + req.URL.Path
+789		}
+790		req.URL.Path = p + "/"
+791		if length := len(p); length > 1 && p[length-1] == '/' {
+792			req.URL.Path = p[:length-1]
+793		}
+794		redirectRequest(c)
+795	}
+796	
+797	// sanitizePathChars removes unsafe characters from path strings,
+798	// keeping only ASCII letters, ASCII numbers, forward slashes, and hyphens.
+```
+
+**`context.go`** — calls(calls), Abort(calls), references(references), FullPath(method), Next(method), +13 more
+
+```go
+174	//	router.GET("/user/:id", func(c *gin.Context) {
+175	//	    c.FullPath() == "/user/:id" // true
+176	//	})
+177	func (c *Context) FullPath() string {
+178		return c.fullPath
+179	}
+180	
+181	/************************************/
+182	/*********** FLOW CONTROL ***********/
+
+... (gap) ...
+
+185	// Next should be used only inside middleware.
+186	// It executes the pending handlers in the chain inside the calling handler.
+187	// See example in GitHub.
+188	func (c *Context) Next() {
+189		c.index++
+190		for c.index < safeInt8(len(c.handlers)) {
+191			if c.handlers[c.index] != nil {
+192				c.handlers[c.index](c)
+193			}
+194			c.index++
+195		}
+196	}
+197	
+198	// IsAborted returns true if the current context was aborted.
+199	func (c *Context) IsAborted() bool {
+200		return c.index >= abortIndex
+201	}
+202	
+203	// Abort prevents pending handlers from being called. Note that this will not stop the current handler.
+204	// Let's say you have an authorization middleware that validates that the current request is authorized.
+205	// If the authorization fails (ex: the password does not match), call Abort to ensure the remaining handlers
+206	// for this request are not called.
+207	func (c *Context) Abort() {
+208		c.index = abortIndex
+209	}
+210	
+211	// AbortWithStatus calls `Abort()` and writes the headers with the specified status code.
+212	// For example, a failed attempt to authenticate a request could use: context.AbortWithStatus(401).
+213	func (c *Context) AbortWithStatus(code int) {
+214		c.Status(code)
+215		c.Writer.WriteHeaderNow()
+216		c.Abort()
+217	}
+218	
+219	// AbortWithStatusPureJSON calls `Abort()` and then `PureJSON` internally.
+220	// This method stops the chain, writes the status code and return a JSON body without escaping.
+221	// It also sets the Content-Type as "application/json".
+222	func (c *Context) AbortWithStatusPureJSON(code int, jsonObj any) {
+223		c.Abort()
+224		c.PureJSON(code, jsonObj)
+225	}
+226	
+227	// AbortWithStatusJSON calls `Abort()` and then `JSON` internally.
+228	// This method stops the chain, writes the status code and return a JSON body.
+229	// It also sets the Content-Type as "application/json".
+230	func (c *Context) AbortWithStatusJSON(code int, jsonObj any) {
+231		c.Abort()
+232		c.JSON(code, jsonObj)
+233	}
+234	
+235	// AbortWithError calls `AbortWithStatus()` and `Error()` internally.
+236	// This method stops the chain, writes the status code and pushes the specified error to `c.Errors`.
+237	// See Context.Error() for more details.
+238	func (c *Context) AbortWithError(code int, err error) *Error {
+239		c.AbortWithStatus(code)
+240		return c.Error(err)
+241	}
+242	
+243	/************************************/
+244	/********* ERROR MANAGEMENT *********/
+
+... (gap) ...
+
+308	}
+309	
+310	// GetString returns the value associated with the key as a string.
+311	func (c *Context) GetString(key any) string {
+312		return getTyped[string](c, key)
+313	}
+314	
+315	// GetBool returns the value associated with the key as a boolean.
+316	func (c *Context) GetBool(key any) bool {
+317		return getTyped[bool](c, key)
+318	}
+319	
+320	// GetInt returns the value associated with the key as an integer.
+321	func (c *Context) GetInt(key any) int {
+
+... (gap) ...
+
+1315	}
+1316	
+1317	// FileFromFS writes the specified file from http.FileSystem into the body stream in an efficient way.
+1318	func (c *Context) FileFromFS(filepath string, fs http.FileSystem) {
+1319		defer func(old string) {
+1320			c.Request.URL.Path = old
+1321		}(c.Request.URL.Path)
+1322	
+1323		c.Request.URL.Path = filepath
+1324	
+1325		http.FileServer(fs).ServeHTTP(c.Writer, c.Request)
+1326	}
+1327	
+1328	var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+1329	
+```
+
+**`ginS/gins.go`** — Handle(function), engine(variable), LoadHTMLGlob(function), LoadHTMLFiles(function), LoadHTMLFS(function), +16 more
+
+```go
+1	// Copyright 2014 Manu Martinez-Almeida. All rights reserved.
+2	// Use of this source code is governed by a MIT style
+3	// license that can be found in the LICENSE file.
+4	
+5	package ginS
+6	
+7	import (
+8		"html/template"
+9		"net/http"
+10		"sync"
+11	
+12		"github.com/gin-gonic/gin"
+13	)
+14	
+15	var engine = sync.OnceValue(func() *gin.Engine {
+16		return gin.Default()
+17	})
+18	
+19	// LoadHTMLGlob is a wrapper for Engine.LoadHTMLGlob.
+20	func LoadHTMLGlob(pattern string) {
+21		engine().LoadHTMLGlob(pattern)
+22	}
+23	
+24	// LoadHTMLFiles is a wrapper for Engine.LoadHTMLFiles.
+25	func LoadHTMLFiles(files ...string) {
+26		engine().LoadHTMLFiles(files...)
+27	}
+28	
+29	// LoadHTMLFS is a wrapper for Engine.LoadHTMLFS.
+30	func LoadHTMLFS(fs http.FileSystem, patterns ...string) {
+31		engine().LoadHTMLFS(fs, patterns...)
+32	}
+33	
+34	// SetHTMLTemplate is a wrapper for Engine.SetHTMLTemplate.
+35	func SetHTMLTemplate(templ *template.Template) {
+36		engine().SetHTMLTemplate(templ)
+37	}
+38	
+39	// NoRoute adds handlers for NoRoute. It returns a 404 code by default.
+40	func NoRoute(handlers ...gin.HandlerFunc) {
+41		engine().NoRoute(handlers...)
+42	}
+43	
+44	// NoMethod is a wrapper for Engine.NoMethod.
+45	func NoMethod(handlers ...gin.HandlerFunc) {
+46		engine().NoMethod(handlers...)
+47	}
+48	
+49	// Group creates a new router group. You should add all the routes that have common middlewares or the same path prefix.
+50	// For example, all the routes that use a common middleware for authorization could be grouped.
+51	func Group(relativePath string, handlers ...gin.HandlerFunc) *gin.RouterGroup {
+52		return engine().Group(relativePath, handlers...)
+53	}
+54	
+55	// Handle is a wrapper for Engine.Handle.
+56	func Handle(httpMethod, relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+57		return engine().Handle(httpMethod, relativePath, handlers...)
+58	}
+59	
+60	// POST is a shortcut for router.Handle("POST", path, handle)
+61	func POST(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+62		return engine().POST(relativePath, handlers...)
+63	}
+64	
+65	// GET is a shortcut for router.Handle("GET", path, handle)
+66	func GET(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+67		return engine().GET(relativePath, handlers...)
+68	}
+69	
+70	// DELETE is a shortcut for router.Handle("DELETE", path, handle)
+71	func DELETE(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+72		return engine().DELETE(relativePath, handlers...)
+73	}
+74	
+75	// PATCH is a shortcut for router.Handle("PATCH", path, handle)
+76	func PATCH(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+77		return engine().PATCH(relativePath, handlers...)
+78	}
+79	
+80	// PUT is a shortcut for router.Handle("PUT", path, handle)
+81	func PUT(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+82		return engine().PUT(relativePath, handlers...)
+83	}
+84	
+85	// OPTIONS is a shortcut for router.Handle("OPTIONS", path, handle)
+86	func OPTIONS(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+87		return engine().OPTIONS(relativePath, handlers...)
+88	}
+89	
+90	// HEAD is a shortcut for router.Handle("HEAD", path, handle)
+91	func HEAD(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+92		return engine().HEAD(relativePath, handlers...)
+93	}
+94	
+95	// Any is a wrapper for Engine.Any.
+96	func Any(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+97		return engine().Any(relativePath, handlers...)
+98	}
+99	
+100	// StaticFile is a wrapper for Engine.StaticFile.
+101	func StaticFile(relativePath, filepath string) gin.IRoutes {
+102		return engine().StaticFile(relativePath, filepath)
+103	}
+104	
+105	// Static serves files from the given file system root.
+106	// Internally a http.FileServer is used, therefore http.NotFound is used instead
+107	// of the Router's NotFound handler.
+108	// To use the operating system's file system implementation,
+109	// use :
+110	//
+111	//	router.Static("/static", "/var/www")
+112	func Static(relativePath, root string) gin.IRoutes {
+113		return engine().Static(relativePath, root)
+114	}
+115	
+116	// StaticFS is a wrapper for Engine.StaticFS.
+117	func StaticFS(relativePath string, fs http.FileSystem) gin.IRoutes {
+118		return engine().StaticFS(relativePath, fs)
+119	}
+120	
+121	// Use attaches a global middleware to the router. i.e. the middlewares attached through Use() will be
+122	// included in the handlers chain for every single request. Even 404, 405, static files...
+123	// For example, this is the right place for a logger or error management middleware.
+124	func Use(middlewares ...gin.HandlerFunc) gin.IRoutes {
+125		return engine().Use(middlewares...)
+126	}
+127	
+128	// Routes returns a slice of registered routes.
+129	func Routes() gin.RoutesInfo {
+130		return engine().Routes()
+131	}
+132	
+133	// Run attaches to a http.Server and starts listening and serving HTTP requests.
+134	// It is a shortcut for http.ListenAndServe(addr, router)
+135	// Note: this method will block the calling goroutine indefinitely unless an error happens.
+136	func Run(addr ...string) (err error) {
+137		return engine().Run(addr...)
+138	}
+139	
+140	// RunTLS attaches to a http.Server and starts listening and serving HTTPS requests.
+141	// It is a shortcut for http.ListenAndServeTLS(addr, certFile, keyFile, router)
+142	// Note: this method will block the calling goroutine indefinitely unless an error happens.
+143	func RunTLS(addr, certFile, keyFile string) (err error) {
+144		return engine().RunTLS(addr, certFile, keyFile)
+145	}
+146	
+147	// RunUnix attaches to a http.Server and starts listening and serving HTTP requests
+148	// through the specified unix socket (i.e. a file)
+149	// Note: this method will block the calling goroutine indefinitely unless an error happens.
+150	func RunUnix(file string) (err error) {
+151		return engine().RunUnix(file)
+152	}
+153	
+154	// RunFd attaches the router to a http.Server and starts listening and serving HTTP requests
+155	// through the specified file descriptor.
+156	// Note: the method will block the calling goroutine indefinitely unless an error happens.
+157	func RunFd(fd int) (err error) {
+158		return engine().RunFd(fd)
+159	}
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me pull in how the chain is *built* so the picture is complete.[tool_use: mcp__codegraph__codegraph_explore] {"query": "How is the HandlersChain built for a route? RouterGroup.Use, combineHandlers, handle, addRoute, HandlerFunc"}
+[usage] input=2 cache_read=17335 cache_write=11996 output=168
+
+=== Turn 4 ===
+[user] [tool_result] **Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- Use → Use   [dynamic: interface → impl @routergroup.go:65]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How is the HandlersChain built for a route? RouterGroup.Use, combineHandlers, handle, addRoute, HandlerFunc**
+
+Found 74 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `addRoute` (gin.go:364) — 1 caller in `routergroup.go`; ⚠️ no covering tests found
+- `addRoute` (tree.go:135) — 20 callers; tests: `tree_test.go`
+- `HandlersChain` (gin.go:57) — 20 callers in `debug.go`, `gin.go`, `routergroup.go`, `tree.go`; tests: `context_test.go`, `debug_test.go`, `gin_test.go`, `routergroup_test.go` +2
+- `HandlerFunc` (gin.go:51) — 48 callers in `auth.go`, `context.go`, `gin.go`, `ginS/gins.go` +4 more; ⚠️ no covering tests found
+- `combineHandlers` (routergroup.go:241) — 6 callers in `gin.go`, `routergroup.go`; tests: `routergroup_test.go`
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`routergroup.go`** — calls(calls), IRoutes(references), HandlerFunc(references), returnObj(calls), calculateAbsolutePath(calls), +52 more
+
+```go
+24	)
+25	
+26	// IRouter defines all router handle interface includes single and group router.
+27	type IRouter interface {
+28		IRoutes
+29		Group(string, ...HandlerFunc) *RouterGroup
+30	}
+31	
+32	// IRoutes defines all router handle interface.
+33	type IRoutes interface {
+34		Use(...HandlerFunc) IRoutes
+35	
+36		Handle(string, string, ...HandlerFunc) IRoutes
+37		Any(string, ...HandlerFunc) IRoutes
+38		GET(string, ...HandlerFunc) IRoutes
+39		POST(string, ...HandlerFunc) IRoutes
+40		DELETE(string, ...HandlerFunc) IRoutes
+41		PATCH(string, ...HandlerFunc) IRoutes
+42		PUT(string, ...HandlerFunc) IRoutes
+43		OPTIONS(string, ...HandlerFunc) IRoutes
+44		HEAD(string, ...HandlerFunc) IRoutes
+45		Match([]string, string, ...HandlerFunc) IRoutes
+46	
+47		StaticFile(string, string) IRoutes
+48		StaticFileFS(string, string, http.FileSystem) IRoutes
+49		Static(string, string) IRoutes
+50		StaticFS(string, http.FileSystem) IRoutes
+51	}
+52	
+53	// RouterGroup is used internally to configure router, a RouterGroup is associated with
+54	// a prefix and an array of handlers (middleware).
+55	type RouterGroup struct {
+56		Handlers HandlersChain
+57		basePath string
+58		engine   *Engine
+59		root     bool
+60	}
+61	
+62	var _ IRouter = (*RouterGroup)(nil)
+63	
+64	// Use adds middleware to the group, see example code in GitHub.
+65	func (group *RouterGroup) Use(middleware ...HandlerFunc) IRoutes {
+66		group.Handlers = append(group.Handlers, middleware...)
+67		return group.returnObj()
+68	}
+69	
+70	// Group creates a new router group. You should add all the routes that have common middlewares or the same path prefix.
+71	// For example, all the routes that use a common middleware for authorization could be grouped.
+72	func (group *RouterGroup) Group(relativePath string, handlers ...HandlerFunc) *RouterGroup {
+73		return &RouterGroup{
+74			Handlers: group.combineHandlers(handlers),
+75			basePath: group.calculateAbsolutePath(relativePath),
+76			engine:   group.engine,
+77		}
+78	}
+79	
+80	// BasePath returns the base path of router group.
+81	// For example, if v := router.Group("/rest/n/v1/api"), v.BasePath() is "/rest/n/v1/api".
+82	func (group *RouterGroup) BasePath() string {
+83		return group.basePath
+84	}
+85	
+86	func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) IRoutes {
+87		absolutePath := group.calculateAbsolutePath(relativePath)
+88		handlers = group.combineHandlers(handlers)
+89		group.engine.addRoute(httpMethod, absolutePath, handlers)
+90		return group.returnObj()
+91	}
+92	
+93	// Handle registers a new request handle and middleware with the given path and method.
+94	// The last handler should be the real handler, the other ones should be middleware that can and should be shared among different routes.
+
+... (gap) ...
+
+194	// use :
+195	//
+196	//	router.Static("/static", "/var/www")
+197	func (group *RouterGroup) Static(relativePath, root string) IRoutes {
+198		return group.StaticFS(relativePath, Dir(root, false))
+199	}
+200	
+201	// StaticFS works just like `Static()` but a custom `http.FileSystem` can be used instead.
+202	// Gin by default uses: gin.Dir()
+203	func (group *RouterGroup) StaticFS(relativePath string, fs http.FileSystem) IRoutes {
+204		if strings.Contains(relativePath, ":") || strings.Contains(relativePath, "*") {
+205			panic("URL parameters can not be used when serving a static folder")
+206		}
+207		handler := group.createStaticHandler(relativePath, fs)
+208		urlPattern := path.Join(relativePath, "/*filepath")
+209	
+210		// Register GET and HEAD handlers
+211		group.GET(urlPattern, handler)
+212		group.HEAD(urlPattern, handler)
+213		return group.returnObj()
+214	}
+215	
+216	func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
+217		absolutePath := group.calculateAbsolutePath(relativePath)
+218		fileServer := http.StripPrefix(absolutePath, http.FileServer(fs))
+219	
+220		return func(c *Context) {
+221			if _, noListing := fs.(*OnlyFilesFS); noListing {
+222				c.Writer.WriteHeader(http.StatusNotFound)
+223			}
+224	
+225			file := c.Param("filepath")
+226			// Check if file exists and/or if we have permission to access it
+227			f, err := fs.Open(file)
+228			if err != nil {
+229				c.Writer.WriteHeader(http.StatusNotFound)
+230				c.handlers = group.engine.noRoute
+231				// Reset index
+232				c.index = -1
+233				return
+234			}
+235			f.Close()
+236	
+237			fileServer.ServeHTTP(c.Writer, c.Request)
+238		}
+239	}
+240	
+241	func (group *RouterGroup) combineHandlers(handlers HandlersChain) HandlersChain {
+242		finalSize := len(group.Handlers) + len(handlers)
+243		assert1(finalSize < int(abortIndex), "too many handlers")
+244		mergedHandlers := make(HandlersChain, finalSize)
+245		copy(mergedHandlers, group.Handlers)
+246		copy(mergedHandlers[len(group.Handlers):], handlers)
+247		return mergedHandlers
+248	}
+249	
+250	func (group *RouterGroup) calculateAbsolutePath(relativePath string) string {
+251		return joinPaths(group.basePath, relativePath)
+252	}
+253	
+254	func (group *RouterGroup) returnObj() IRoutes {
+255		if group.root {
+256			return group.engine
+257		}
+258		return group
+259	}
+260	
+```
+
+**`tree.go`** — insertChild(calls), node(instantiates), BytesToString(calls), incrementChildPrio(calls), catchAll(constant), +6 more
+
+```go
+93		static nodeType = iota
+94		root
+95		param
+96		catchAll
+97	)
+98	
+99	type node struct {
+100		path      string
+101		indices   string
+102		wildChild bool
+103		nType     nodeType
+104		priority  uint32
+105		children  []*node // child nodes, at most 1 :param style node at the end of the array
+106		handlers  HandlersChain
+107		fullPath  string
+108	}
+109	
+110	// Increments priority of the given child and reorders if necessary
+111	func (n *node) incrementChildPrio(pos int) int {
+112		cs := n.children
+113		cs[pos].priority++
+114		prio := cs[pos].priority
+115	
+116		// Adjust position (move to front)
+117		newPos := pos
+118		for ; newPos > 0 && cs[newPos-1].priority < prio; newPos-- {
+119			// Swap node positions
+120			cs[newPos-1], cs[newPos] = cs[newPos], cs[newPos-1]
+121		}
+122	
+123		// Build new index char string
+124		if newPos != pos {
+125			n.indices = n.indices[:newPos] + // Unchanged prefix, might be empty
+126				n.indices[pos:pos+1] + // The index char we move
+127				n.indices[newPos:pos] + n.indices[pos+1:] // Rest without char at 'pos'
+128		}
+129	
+130		return newPos
+131	}
+132	
+133	// addRoute adds a node with the given handle to the path.
+134	// Not concurrency-safe!
+135	func (n *node) addRoute(path string, handlers HandlersChain) {
+136		fullPath := path
+137		n.priority++
+138	
+139		// Empty tree
+140		if len(n.path) == 0 && len(n.children) == 0 {
+141			n.insertChild(path, fullPath, handlers)
+142			n.nType = root
+143			return
+144		}
+145	
+146		parentFullPathIndex := 0
+147	
+148	walk:
+149		for {
+150			// Find the longest common prefix.
+151			// This also implies that the common prefix contains no ':' or '*'
+152			// since the existing key can't contain those chars.
+153			i := longestCommonPrefix(path, n.path)
+154	
+155			// Split edge
+156			if i < len(n.path) {
+157				child := node{
+158					path:      n.path[i:],
+159					wildChild: n.wildChild,
+160					nType:     static,
+161					indices:   n.indices,
+162					children:  n.children,
+163					handlers:  n.handlers,
+164					priority:  n.priority - 1,
+165					fullPath:  n.fullPath,
+166				}
+167	
+168				n.children = []*node{&child}
+169				// []byte for proper unicode char conversion, see #65
+170				n.indices = bytesconv.BytesToString([]byte{n.path[i]})
+171				n.path = path[:i]
+172				n.handlers = nil
+173				n.wildChild = false
+174				n.fullPath = fullPath[:parentFullPathIndex+i]
+175			}
+176	
+177			// Make new node a child of this node
+178			if i < len(path) {
+179				path = path[i:]
+180				c := path[0]
+181	
+182				// '/' after param
+183				if n.nType == param && c == '/' && len(n.children) == 1 {
+184					parentFullPathIndex += len(n.path)
+185					n = n.children[0]
+186					n.priority++
+187					continue walk
+188				}
+189	
+190				// Check if a child with the next path byte exists
+191				for i, max_ := 0, len(n.indices); i < max_; i++ {
+192					if c == n.indices[i] {
+193						parentFullPathIndex += len(n.path)
+194						i = n.incrementChildPrio(i)
+195						n = n.children[i]
+196						continue walk
+197					}
+198				}
+199	
+200				// Otherwise insert it
+201				if c != ':' && c != '*' && n.nType != catchAll {
+202					// []byte for proper unicode char conversion, see #65
+203					n.indices += bytesconv.BytesToString([]byte{c})
+204					child := &node{
+205						fullPath: fullPath,
+206					}
+207					n.addChild(child)
+208					n.incrementChildPrio(len(n.indices) - 1)
+209					n = child
+210				} else if n.wildChild {
+211					// inserting a wildcard node, need to check if it conflicts with the existing wildcard
+212					n = n.children[len(n.children)-1]
+213					n.priority++
+214	
+215					// Check if the wildcard matches
+216					if len(path) >= len(n.path) && n.path == path[:len(n.path)] &&
+217						// Adding a child to a catchAll is not possible
+218						n.nType != catchAll &&
+219						// Check for longer wildcard, e.g. :name and :names
+220						(len(n.path) >= len(path) || path[len(n.path)] == '/') {
+221						continue walk
+222					}
+223	
+224					// Wildcard conflict
+225					pathSeg := path
+226					if n.nType != catchAll {
+227						pathSeg, _, _ = strings.Cut(pathSeg, "/")
+228					}
+229					prefix := fullPath[:strings.Index(fullPath, pathSeg)] + n.path
+230					panic("'" + pathSeg +
+231						"' in new path '" + fullPath +
+232						"' conflicts with existing wildcard '" + n.path +
+233						"' in existing prefix '" + prefix +
+234						"'")
+235				}
+236	
+237				n.insertChild(path, fullPath, handlers)
+238				return
+239			}
+240	
+241			// Otherwise add handle to current node
+242			if n.handlers != nil {
+243				panic("handlers are already registered for path '" + fullPath + "'")
+244			}
+245			n.handlers = handlers
+246			n.fullPath = fullPath
+247			return
+248		}
+249	}
+250	
+251	// Search for a wildcard segment and check the name for invalid characters.
+252	// Returns -1 as index, if no wildcard was found.
+```
+
+**`gin.go`** — HandlerFunc(type_alias), HandlersChain(type_alias), Last(method), HandlerFunc(references), iterate(function), +6 more
+
+```go
+48	}
+49	
+50	// HandlerFunc defines the handler used by gin middleware as return value.
+51	type HandlerFunc func(*Context)
+52	
+53	// OptionFunc defines the function to change the default configuration
+54	type OptionFunc func(*Engine)
+55	
+56	// HandlersChain defines a HandlerFunc slice.
+57	type HandlersChain []HandlerFunc
+58	
+59	// Last returns the last handler in the chain. i.e. the last handler is the main one.
+60	func (c HandlersChain) Last() HandlerFunc {
+61		if length := len(c); length > 0 {
+62			return c[length-1]
+63		}
+64		return nil
+65	}
+66	
+67	// RouteInfo represents a request route's specification which contains method and path and its handler.
+68	type RouteInfo struct {
+
+... (gap) ...
+
+394		return routes
+395	}
+396	
+397	func iterate(path, method string, routes RoutesInfo, root *node) RoutesInfo {
+398		path += root.path
+399		if len(root.handlers) > 0 {
+400			handlerFunc := root.handlers.Last()
+401			routes = append(routes, RouteInfo{
+402				Method:      method,
+403				Path:        path,
+404				Handler:     nameOfFunction(handlerFunc),
+405				HandlerFunc: handlerFunc,
+406			})
+407		}
+408		for _, child := range root.children {
+409			routes = iterate(path, method, routes, child)
+410		}
+411		return routes
+412	}
+413	
+414	func (engine *Engine) prepareTrustedCIDRs() ([]*net.IPNet, error) {
+415		if engine.trustedProxies == nil {
+```
+
+
+> Some file sections were trimmed for size. For a specific symbol you still need, run another `codegraph_explore` (or `codegraph_node`) with its exact name — line-numbered source, cheaper and more complete than Read.
+[assistant] Gin's middleware chain is a single flat slice of functions that gets built at route-registration time and walked with an index cursor at request time. Here's the full path.
+
+## 1. Building the chain (registration time)
+
+Middleware and handlers are all the same type — `HandlerFunc func(*Context)` — and a route's chain is just `HandlersChain []HandlerFunc` (`gin.go:51,57`). There's no separate "middleware" concept at runtime.
+
+- **`Use()`** appends middleware to a router group's own `Handlers` slice (`routergroup.go:65`).
+- When you register a route (`GET`, `POST`, …), it flows into `handle()` (`routergroup.go:86`), which calls **`combineHandlers()`** (`routergroup.go:241`). That allocates one merged slice = *group's middleware first, then the route's own handlers*:
+  ```go
+  mergedHandlers := make(HandlersChain, len(group.Handlers)+len(handlers))
+  copy(mergedHandlers, group.Handlers)          // middleware
+  copy(mergedHandlers[len(group.Handlers):], handlers)  // route handler(s)
+  ```
+- The combined chain is stored in the **radix tree** via `engine.addRoute` → `node.addRoute` (`tree.go:135`), one tree per HTTP method, keyed by path. The chain lives on `node.handlers` (`tree.go:106`).
+
+So by the time a request arrives, each route already has a pre-computed, flat array like `[Logger, Recovery, AuthMiddleware, ..., YourHandler]`.
+
+## 2. Dispatching a request (request time)
+
+`Engine.ServeHTTP` (`gin.go:662`) is the `http.Handler` entry point:
+
+1. Grabs a `Context` from a `sync.Pool`, resets it with the new request/writer.
+2. Calls **`handleHTTPRequest(c)`** (`gin.go:690`).
+
+`handleHTTPRequest` does the routing:
+- Picks the tree matching `c.Request.Method` (`gin.go:708-713`).
+- Looks up the path with `root.getValue(...)` (`gin.go:715`), which returns the matched node's `handlers` and any path params.
+- On a hit, it copies the chain onto the context and starts walking it (`gin.go:719-724`):
+  ```go
+  c.handlers = value.handlers
+  c.fullPath = value.fullPath
+  c.Next()
+  ```
+- On a miss it assigns `engine.allNoRoute` / `allNoMethod` chains and calls `serveError` (which also calls `c.Next()`), so even 404/405 run through a handler chain.
+
+## 3. Walking the chain — `Context.Next()`
+
+The chain is driven by an index cursor on the context (`context.go:188`):
+
+```go
+func (c *Context) Next() {
+    c.index++
+    for c.index < safeInt8(len(c.handlers)) {
+        if c.handlers[c.index] != nil {
+            c.handlers[c.index](c)
+        }
+        c.index++
+    }
+}
+```
+
+Key mechanics:
+
+- **`index` starts at -1** (set in `reset()`); the first `Next()` bumps it to 0 and runs handler 0.
+- **Middleware controls the flow by calling `c.Next()` itself.** When a middleware calls `Next()`, it recurses *deeper* into the chain — everything after it runs, then control returns to the line after the middleware's `Next()` call. This is what enables "before/after" logic (e.g. Logger records start time, calls `Next()`, then logs latency after downstream handlers finish). A middleware that never calls `Next()` still works, because the `for` loop in the *outer* `Next()` frame keeps advancing the index — the chain runs linearly.
+- **`Abort()`** (`context.go:207`) sets `index = abortIndex` (a large sentinel value, 63), so the `for c.index < len(c.handlers)` guard fails and no further handlers run. The *current* handler keeps executing. `combineHandlers` even asserts the chain size stays below `abortIndex` (`routergroup.go:243`) so this sentinel can never collide with a real index.
+
+After `Next()` returns, `handleHTTPRequest` calls `c.writermem.WriteHeaderNow()` to flush and returns the context to the pool.
+
+## Summary
+
+| Phase | What happens | Where |
+|---|---|---|
+| Register | Group middleware + route handlers merged into one flat `HandlersChain`, stored in per-method radix tree | `combineHandlers` `routergroup.go:241`, `addRoute` `tree.go:135` |
+| Match | Method tree lookup by path returns the node's chain + params | `handleHTTPRequest` `gin.go:690` |
+| Execute | Chain copied to context, walked via an index cursor; middleware call `Next()` to nest, `Abort()` to stop | `Context.Next` `context.go:188` |
+
+The elegant part: there's no separate middleware stack or wrapping — middleware and final handler are indistinguishable functions in one slice, and cooperative `Next()`/index bookkeeping is the entire execution engine.
+[usage] input=2 cache_read=29331 cache_write=5884 output=1750

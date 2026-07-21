@@ -1,0 +1,1780 @@
+
+=== Turn 1 ===
+[user] <session>
+How does the extension host communicate with the main process?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Extension host and main process communication"}
+[usage] input=527 cache_read=0 cache_write=0 output=14
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore the codebase to answer this. Let me query the code graph.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 3}
+[usage] input=3748 cache_read=15023 cache_write=2325 output=162
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "extension host communication with main process RPC protocol IPC"}
+[usage] input=2 cache_read=15116 cache_write=6825 output=76
+
+=== Turn 4 ===
+[user] [tool_result] **Exploration: extension host communication with main process RPC protocol IPC**
+
+Found 17 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `Host` (extensions/copilot/src/extension/typescriptContext/serverPlugin/src/common/host.ts:11) — 12 callers in `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/common/contextProvider.ts`, `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/common/types.ts`, `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/node/create.ts`, `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/node/host.ts`; tests: `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/node/test/languageServices.ts`, `extensions/copilot/src/extension/typescriptContext/serverPlugin/src/node/test/testing.ts`
+- `ExtensionHostMain` (src/vs/workbench/api/common/extensionHostMain.ts:161) — 4 callers in `src/vs/workbench/api/node/extensionHostProcess.ts`, `src/vs/workbench/api/worker/extensionHostWorker.ts`; ⚠️ no covering tests found
+- `ProtocolMainService` (src/vs/platform/protocol/electron-main/protocolMainService.ts:22) — 2 callers in `src/vs/code/electron-main/main.ts`; ⚠️ no covering tests found
+- `ProcessMainService` (src/vs/platform/process/electron-main/processMainService.ts:15) — 2 callers in `src/vs/code/electron-main/app.ts`; ⚠️ no covering tests found
+- `IMainProcessService` (src/vs/platform/ipc/common/mainProcessService.ts:12) — 60 callers in `src/vs/code/electron-utility/sharedProcess/contrib/storageDataCleaner.ts`, `src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts`, `src/vs/platform/browserView/node/browserViewGroupRemoteService.ts`, `src/vs/platform/browserView/node/playwrightChannel.ts` +25 more; tests: `src/vs/code/test/electron-utility/sharedProcess/contrib/storageDataCleaner.test.ts`
+
+**Relationships**
+
+**extends:**
+- ProtocolMainService → Disposable
+- RPCProtocol → Disposable
+- RemoteExtensionHost → Disposable
+- LanguageServerSession → ComputeContextSession
+- LanguageServicesSession → ComputeContextSession
+- ElectronIPCMainProcessService → Disposable
+
+**implements:**
+- Disposable → IDisposable
+- ProtocolMainService → IProtocolMainService
+- ProcessMainService → IProcessService
+- RPCProtocol → IRPCProtocol
+- RemoteExtensionHost → IExtensionHost
+- NodeHost → Host
+- MainProcessService → IMainProcessService
+- ElectronIPCMainProcessService → IMainProcessService
+
+**references:**
+- Host → Hash
+- constructor → Host
+- KeyComputationContext → Host
+- constructor → Host
+- constructor → Host
+- constructor → Host
+- Hash → Hash
+- createKey → Hash
+- createHash → Hash
+- constructor → NodeHost
+- createVersionedKey → KeyComputationContext
+- constructor → languageServiceHost
+- constructor → Session
+- constructor → IMessagePassingProtocol
+- constructor → IExtensionHostInitData
+- ... and 112 more
+
+**instantiates:**
+- create → NodeHost
+- create → NodeHost
+- constructor → LRUCache
+- constructor → NullLogger
+- startExtensionHostProcess → ExtensionHostMain
+- create → ExtensionHostMain
+- constructor → RPCProtocol
+- constructor → ServiceCollection
+- constructor → ExtHostRpcService
+- constructor → URITransformerService
+- constructor → InstantiationService
+- createServices → ProtocolMainService
+- initChannels → ProcessMainService
+
+**calls:**
+- constructor → constructor
+- constructor → constructor
+- constructor → constructor
+- constructor → makeAbsolute
+- constructor → getProgram
+- constructor → _transform
+- constructor → getSingletonServiceDescriptors
+- constructor → set
+- constructor → invokeFunction
+- constructor → get
+- constructor → mark
+- constructor → info
+- constructor → trace
+- constructor → initialize
+- constructor → addValidFileRoot
+- ... and 149 more
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`extensions/copilot/script/setup/getEnv.mts`** — main(function)
+
+```typescript
+1	/*---------------------------------------------------------------------------------------------
+2	 *  Copyright (c) Microsoft Corporation. All rights reserved.
+3	 *  Licensed under the MIT License. See License.txt in the project root for license information.
+4	 *--------------------------------------------------------------------------------------------*/
+5	
+6	import { AzureCliCredential, ChainedTokenCredential, DeviceCodeCredential, InteractiveBrowserCredential, ManagedIdentityCredential, TokenCredential } from '@azure/identity';
+7	import { SecretClient } from '@azure/keyvault-secrets';
+8	import * as fs from 'fs';
+9	import * as process from 'process';
+10	
+11	const useColors = (process.stdout.isTTY && typeof process.stdout.hasColors === 'function' && process.stdout.hasColors());
+12	function red(s: string) { return useColors ? `\x1b[31m${s}\x1b[0m` : s; }
+13	
+14	async function setupSecretClient(vaultUri: string) {
+15		const credentialOptions: TokenCredential[] = [];
+16	
+17		// Only add managed identity credential if the client ID is provided
+18		if (process.env.AZURE_CLIENT_ID) {
+19			credentialOptions.push(new ManagedIdentityCredential({ clientId: process.env.AZURE_CLIENT_ID }));
+20		}
+21	
+22		// Always add the Azure CLI as an option
+23		credentialOptions.push(new AzureCliCredential({ tenantId: '72f988bf-86f1-41af-91ab-2d7cd011db47' }));
+24	
+25		// Check if terminal is interactive, non-interactive environments can't use
+26		// InteractiveBrowserCredential and don't necessarily have access to a keychain
+27		// For SSH sessions into Azure VMs, keychain is not available, requires managed identity
+28		if (process.stdin.isTTY && !process.env.AZURE_CLIENT_ID && !process.env.CODESPACES) {
+29			credentialOptions.push(new InteractiveBrowserCredential({ tenantId: '72f988bf-86f1-41af-91ab-2d7cd011db47' }));
+30		}
+31	
+32		// Use DeviceCodeCredential in Codespaces
+33		if (process.env.CODESPACES) {
+34			const deviceCodeCredential = new DeviceCodeCredential({
+35				tenantId: '72f988bf-86f1-41af-91ab-2d7cd011db47',
+36				userPromptCallback: (info) => {
+37					console.log('To authenticate, visit:', info.verificationUri);
+38					console.log('Enter the code:', info.userCode);
+39				}
+40			});
+41			credentialOptions.push(deviceCodeCredential);
+42		}
+43	
+44		const credential = new ChainedTokenCredential(...credentialOptions);
+45		return new SecretClient(vaultUri, credential);
+46	}
+47	
+48	async function fetchSecret(secretClient: SecretClient, secretName: string): Promise<string | undefined> {
+49		const secret = await secretClient.getSecret(secretName);
+50		return secret.value;
+51	}
+52	
+53	async function fetchSecrets(): Promise<{ [key: string]: string | undefined }> {
+54		const keyVaultClient = await setupSecretClient('https://copilot-automation.vault.azure.net/');
+55	
+56		const secrets: { [key: string]: string | undefined } = {};
+57		secrets['HMAC_SECRET'] = await fetchSecret(keyVaultClient, 'hmac-secret');
+58	
+59		if (!process.stdin.isTTY) { // only in automation
+60			secrets['GITHUB_OAUTH_TOKEN'] = await fetchSecret(keyVaultClient, 'capi-oauth');
+61			secrets['VSCODE_COPILOT_CHAT_TOKEN'] = await fetchSecret(keyVaultClient, 'copilot-token');
+62			secrets['BLACKBIRD_EMBEDDINGS_KEY'] = await fetchSecret(keyVaultClient, 'vsc-aoai-key');
+63			secrets['BLACKBIRD_REDIS_CACHE_KEY'] = await fetchSecret(keyVaultClient, 'blackbird-redis-cache-key');
+64	
+65			try {
+66				secrets['ANTHROPIC_API_KEY'] = await fetchSecret(keyVaultClient, 'anthropic-key');
+67				secrets['DEEPSEEK_API_KEY'] = await fetchSecret(keyVaultClient, 'deepseek-key');
+68			} catch (error) {
+69				console.log(red(`Failed to fetch optional evaluation tokens. Skipping...`));
+70			}
+71		}
+72	
+73		return secrets;
+74	}
+75	
+76	async function main() {
+77		const env = Object.entries(await fetchSecrets());
+78	
+79		const raw = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : '';
+80		const result = raw.split('\n')
+81			.filter(line => !env.some(([key]) => line.startsWith(`${key}=`)))
+82			.concat(env.map(([key, value]) => `${key}=${value}`))
+83			.filter(line => line.trim() !== '') // Remove empty lines
+84			.join('\n');
+85	
+86		fs.writeFileSync('.env', result);
+87		console.log('Wrote secrets to .env');
+88		process.exit(0);
+89	}
+90	
+91	main().catch(error => {
+92		const msg = `Error when setting up .env file:\n${error}`;
+93		console.log(msg);
+94		console.error(red(msg));
+95		process.exit(1);
+96	});
+```
+
+**`cli/src/tunnels/socket_signal.rs`** — calls(calls), process(method), references(references), process(calls)
+
+```rust
+282			}
+283		}
+284	
+285		pub fn process(&mut self, contents: &[u8], finish: bool) -> std::io::Result<&[u8]> {
+286			let mut out_offset = 0;
+287			let mut in_offset = 0;
+288			loop {
+289				let in_before = self.flate.total_in();
+290				let out_before = self.flate.total_out();
+291	
+292				match self.flate.process(
+293					&contents[in_offset..],
+294					&mut self.output[out_offset..],
+295					finish,
+296				) {
+297					Ok(flate2::Status::Ok | flate2::Status::BufError) => {
+298						let processed_len = in_offset + (self.flate.total_in() - in_before) as usize;
+299						let output_len = out_offset + (self.flate.total_out() - out_before) as usize;
+300						if processed_len < contents.len() || output_len == self.output.len() {
+301							// If we filled the output buffer but there's more data to compress,
+302							// or the output got filled after processing all input, extend
+303							// the output buffer and keep compressing.
+304							out_offset = output_len;
+305							in_offset = processed_len;
+306							if output_len == self.output.len() {
+307								self.output.resize(self.output.len() * 2, 0);
+308							}
+309							continue;
+310						}
+311	
+312						return Ok(&self.output[..output_len]);
+313					}
+314					Ok(flate2::Status::StreamEnd) => {
+315						return Err(std::io::Error::new(
+316							std::io::ErrorKind::UnexpectedEof,
+317							"unexpected stream end",
+318						))
+319					}
+320					Err(e) => return Err(e),
+321				}
+322			}
+323		}
+324	}
+325	
+326	#[cfg(test)]
+```
+
+**`src/vs/base/parts/ipc/electron-main/ipcMain.ts`** — ValidatedIpcMain(class), on(method), once(method), handle(method), removeHandler(method), removeListener(method), validateEvent(method), ipcMain.ts(file)
+
+```typescript
+1	/*---------------------------------------------------------------------------------------------
+2	 *  Copyright (c) Microsoft Corporation. All rights reserved.
+3	 *  Licensed under the MIT License. See License.txt in the project root for license information.
+4	 *--------------------------------------------------------------------------------------------*/
+5	
+6	import electron from 'electron';
+7	import { onUnexpectedError } from '../../../common/errors.js';
+8	import { Event } from '../../../common/event.js';
+9	import { VSCODE_AUTHORITY } from '../../../common/network.js';
+10	
+11	type ipcMainListener = (event: electron.IpcMainEvent, ...args: any[]) => void;
+12	
+13	class ValidatedIpcMain implements Event.NodeEventEmitter {
+14	
+15		// We need to keep a map of original listener to the wrapped variant in order
+16		// to properly implement `removeListener`. We use a `WeakMap` because we do
+17		// not want to prevent the `key` of the map to get garbage collected.
+18		private readonly mapListenerToWrapper = new WeakMap<ipcMainListener, ipcMainListener>();
+19	
+20		/**
+21		 * Listens to `channel`, when a new message arrives `listener` would be called with
+22		 * `listener(event, args...)`.
+23		 */
+24		on(channel: string, listener: ipcMainListener): this {
+25	
+26			// Remember the wrapped listener so that later we can
+27			// properly implement `removeListener`.
+28			const wrappedListener = (event: electron.IpcMainEvent, ...args: unknown[]) => {
+29				if (this.validateEvent(channel, event)) {
+30					listener(event, ...args);
+31				}
+32			};
+33	
+34			this.mapListenerToWrapper.set(listener, wrappedListener);
+35	
+36			electron.ipcMain.on(channel, wrappedListener);
+37	
+38			return this;
+39		}
+40	
+41		/**
+42		 * Adds a one time `listener` function for the event. This `listener` is invoked
+43		 * only the next time a message is sent to `channel`, after which it is removed.
+44		 */
+45		once(channel: string, listener: ipcMainListener): this {
+46			electron.ipcMain.once(channel, (event: electron.IpcMainEvent, ...args: unknown[]) => {
+47				if (this.validateEvent(channel, event)) {
+48					listener(event, ...args);
+49				}
+50			});
+51	
+52			return this;
+53		}
+54	
+55		/**
+56		 * Adds a handler for an `invoke`able IPC. This handler will be called whenever a
+57		 * renderer calls `ipcRenderer.invoke(channel, ...args)`.
+58		 *
+59		 * If `listener` returns a Promise, the eventual result of the promise will be
+60		 * returned as a reply to the remote caller. Otherwise, the return value of the
+61		 * listener will be used as the value of the reply.
+62		 *
+63		 * The `event` that is passed as the first argument to the handler is the same as
+64		 * that passed to a regular event listener. It includes information about which
+65		 * WebContents is the source of the invoke request.
+66		 *
+67		 * Errors thrown through `handle` in the main process are not transparent as they
+68		 * are serialized and only the `message` property from the original error is
+69		 * provided to the renderer process. Please refer to #24427 for details.
+70		 */
+71		handle(channel: string, listener: (event: electron.IpcMainInvokeEvent, ...args: any[]) => Promise<unknown>): this {
+72			electron.ipcMain.handle(channel, (event: electron.IpcMainInvokeEvent, ...args: unknown[]) => {
+73				if (this.validateEvent(channel, event)) {
+74					return listener(event, ...args);
+75				}
+76	
+77				return Promise.reject(`Invalid channel '${channel}' or sender for ipcMain.handle() usage.`);
+78			});
+79	
+80			return this;
+81		}
+82	
+83		/**
+84		 * Removes any handler for `channel`, if present.
+85		 */
+86		removeHandler(channel: string): this {
+87			electron.ipcMain.removeHandler(channel);
+88	
+89			return this;
+90		}
+91	
+92		/**
+93		 * Removes the specified `listener` from the listener array for the specified
+94		 * `channel`.
+95		 */
+96		removeListener(channel: string, listener: ipcMainListener): this {
+97			const wrappedListener = this.mapListenerToWrapper.get(listener);
+98			if (wrappedListener) {
+99				electron.ipcMain.removeListener(channel, wrappedListener);
+100				this.mapListenerToWrapper.delete(listener);
+101			}
+102	
+103			return this;
+104		}
+105	
+106		private validateEvent(channel: string, event: electron.IpcMainEvent | electron.IpcMainInvokeEvent): boolean {
+107			if (!channel?.startsWith('vscode:')) {
+108				onUnexpectedError(`Refused to handle ipcMain event for channel '${channel}' because the channel is unknown.`);
+109				return false; // unexpected channel
+110			}
+111	
+112			const sender = event.senderFrame;
+113	
+114			const url = sender?.url;
+115			// `url` can be `undefined` when running tests from playwright https://github.com/microsoft/vscode/issues/147301
+116			// and `url` can be `about:blank` when reloading the window
+117			// from performance tab of devtools https://github.com/electron/electron/issues/39427.
+118			// It is fine to skip the checks in these cases.
+119			if (!url || url === 'about:blank') {
+120				return true;
+121			}
+122	
+123			let host = 'unknown';
+124			try {
+125				host = new URL(url).host;
+126			} catch (error) {
+127				onUnexpectedError(`Refused to handle ipcMain event for channel '${channel}' because of a malformed URL '${url}'.`);
+128				return false; // unexpected URL
+129			}
+130	
+131			if (process.env.VSCODE_DEV) {
+132				if (url === process.env.DEV_WINDOW_SRC && (host === 'localhost' || host.startsWith('localhost:'))) {
+133					return true; // development support where the window is served from localhost
+134				}
+135			}
+136	
+137			if (host !== VSCODE_AUTHORITY) {
+138				onUnexpectedError(`Refused to handle ipcMain event for channel '${channel}' because of a bad origin of '${host}'.`);
+139				return false; // unexpected sender
+140			}
+141	
+142			if (sender?.parent !== null) {
+143				onUnexpectedError(`Refused to handle ipcMain event for channel '${channel}' because sender of origin '${host}' is not a main frame.`);
+144				return false; // unexpected frame
+145			}
+146	
+147			return true;
+148		}
+149	}
+150	
+151	/**
+152	 * A drop-in replacement of `ipcMain` that validates the sender of a message
+153	 * according to https://github.com/electron/electron/blob/main/docs/tutorial/security.md
+154	 *
+155	 * @deprecated direct use of Electron IPC is not encouraged. We have utilities in place
+156	 * to create services on top of IPC, see `ProxyChannel` for more information.
+157	 */
+158	export const validatedIpcMain = new ValidatedIpcMain();
+```
+
+**`src/vs/workbench/api/common/extensionHostMain.ts`** — imports(imports), calls(calls), transformIncomingURIs(calls), set(calls), invokeFunction(calls), RPCProtocol(references), IExtensionHostInitData(references), references(references), get(calls), info(calls), IURITransformer(imports), IMessagePassingProtocol(imports), IExtensionHostInitData(imports), RPCProtocol(imports), ILogService(imports), +28 more
+
+```typescript
+3	 *  Licensed under the MIT License. See License.txt in the project root for license information.
+4	 *--------------------------------------------------------------------------------------------*/
+5	
+6	import * as errors from '../../../base/common/errors.js';
+7	import * as performance from '../../../base/common/performance.js';
+8	import { URI } from '../../../base/common/uri.js';
+9	import { IURITransformer } from '../../../base/common/uriIpc.js';
+10	import { IMessagePassingProtocol } from '../../../base/parts/ipc/common/ipc.js';
+11	import { MainContext, MainThreadConsoleShape } from './extHost.protocol.js';
+12	import { IExtensionHostInitData } from '../../services/extensions/common/extensionHostProtocol.js';
+13	import { RPCProtocol } from '../../services/extensions/common/rpcProtocol.js';
+14	import { ExtensionError, ExtensionIdentifier, IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
+15	import { ILogService } from '../../../platform/log/common/log.js';
+16	import { getSingletonServiceDescriptors } from '../../../platform/instantiation/common/extensions.js';
+17	import { ServiceCollection } from '../../../platform/instantiation/common/serviceCollection.js';
+18	import { IExtHostInitDataService } from './extHostInitDataService.js';
+19	import { InstantiationService } from '../../../platform/instantiation/common/instantiationService.js';
+20	import { IInstantiationService, ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
+21	import { IExtHostRpcService, ExtHostRpcService } from './extHostRpcService.js';
+22	import { IURITransformerService, URITransformerService } from './extHostUriTransformerService.js';
+23	import { IExtHostExtensionService, IHostUtils } from './extHostExtensionService.js';
+24	import { IExtHostTelemetry } from './extHostTelemetry.js';
+25	import { Mutable } from '../../../base/common/types.js';
+26	import { IExtHostApiDeprecationService } from './extHostApiDeprecationService.js';
+27	
+28	export interface IExitFn {
+29		(code?: number): any;
+
+... (gap) ...
+
+158		}
+159	}
+160	
+161	export class ExtensionHostMain {
+162	
+163		private readonly _hostUtils: IHostUtils;
+164		private readonly _rpcProtocol: RPCProtocol;
+165		private readonly _extensionService: IExtHostExtensionService;
+166		private readonly _logService: ILogService;
+167	
+168		constructor(
+169			protocol: IMessagePassingProtocol,
+170			initData: IExtensionHostInitData,
+171			hostUtils: IHostUtils,
+172			uriTransformer: IURITransformer | null,
+173			messagePorts?: ReadonlyMap<string, MessagePort>
+174		) {
+175			this._hostUtils = hostUtils;
+176			this._rpcProtocol = new RPCProtocol(protocol, null, uriTransformer);
+177	
+178			// ensure URIs are transformed and revived
+179			initData = ExtensionHostMain._transform(initData, this._rpcProtocol);
+180	
+181			// bootstrap services
+182			const services = new ServiceCollection(...getSingletonServiceDescriptors());
+183			services.set(IExtHostInitDataService, { _serviceBrand: undefined, ...initData, messagePorts });
+184			services.set(IExtHostRpcService, new ExtHostRpcService(this._rpcProtocol));
+185			services.set(IURITransformerService, new URITransformerService(uriTransformer));
+186			services.set(IHostUtils, hostUtils);
+187	
+188			const instaService: IInstantiationService = new InstantiationService(services, true);
+189	
+190			instaService.invokeFunction(ErrorHandler.installEarlyHandler);
+191	
+192			// ugly self - inject
+193			this._logService = instaService.invokeFunction(accessor => accessor.get(ILogService));
+194	
+195			performance.mark(`code/extHost/didCreateServices`);
+196			if (this._hostUtils.pid) {
+197				this._logService.info(`Extension host with pid ${this._hostUtils.pid} started`);
+198			} else {
+199				this._logService.info(`Extension host started`);
+200			}
+201			this._logService.trace('initData', initData);
+202	
+203			// ugly self - inject
+204			// must call initialize *after* creating the extension service
+205			// because `initialize` itself creates instances that depend on it
+206			this._extensionService = instaService.invokeFunction(accessor => accessor.get(IExtHostExtensionService));
+207			this._extensionService.initialize();
+208	
+209			// install error handler that is extension-aware
+210			instaService.invokeFunction(ErrorHandler.installFullHandler);
+211		}
+212	
+213		async asBrowserUri(uri: URI): Promise<URI> {
+214			const mainThreadExtensionsProxy = this._rpcProtocol.getProxy(MainContext.MainThreadExtensionService);
+215			return URI.revive(await mainThreadExtensionsProxy.$asBrowserUri(uri));
+216		}
+217	
+218		terminate(reason: string): void {
+219			this._extensionService.terminate(reason);
+220		}
+221	
+222		private static _transform(initData: IExtensionHostInitData, rpcProtocol: RPCProtocol): IExtensionHostInitData {
+223			initData.extensions.allExtensions.forEach((ext) => {
+224				(<Mutable<IExtensionDescription>>ext).extensionLocation = URI.revive(rpcProtocol.transformIncomingURIs(ext.extensionLocation));
+225			});
+226			initData.environment.appRoot = URI.revive(rpcProtocol.transformIncomingURIs(initData.environment.appRoot));
+227			const extDevLocs = initData.environment.extensionDevelopmentLocationURI;
+228			if (extDevLocs) {
+229				initData.environment.extensionDevelopmentLocationURI = extDevLocs.map(url => URI.revive(rpcProtocol.transformIncomingURIs(url)));
+230			}
+231			initData.environment.extensionTestsLocationURI = URI.revive(rpcProtocol.transformIncomingURIs(initData.environment.extensionTestsLocationURI));
+232			initData.environment.globalStorageHome = URI.revive(rpcProtocol.transformIncomingURIs(initData.environment.globalStorageHome));
+233			initData.environment.workspaceStorageHome = URI.revive(rpcProtocol.transformIncomingURIs(initData.environment.workspaceStorageHome));
+234			initData.nlsBaseUrl = URI.revive(rpcProtocol.transformIncomingURIs(initData.nlsBaseUrl));
+235			initData.logsLocation = URI.revive(rpcProtocol.transformIncomingURIs(initData.logsLocation));
+236			initData.workspace = rpcProtocol.transformIncomingURIs(initData.workspace);
+237			return initData;
+238		}
+239	}
+240	
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me dig into the core RPC protocol and how the extension host process is wired up.[tool_use: mcp__codegraph__codegraph_explore] {"query": "RPCProtocol getProxy _invokeHandler serialize IMessagePassingProtocol rpcProtocol.ts"}
+[usage] input=2 cache_read=21941 cache_write=9798 output=220
+
+=== Turn 5 ===
+[user] [tool_result] **Interface dispatch (a named method has many implementations)**
+
+- `serialize` → runtime dispatch to **793** types implementing `Disposable` — the static path ends here, the target is chosen at runtime. e.g. `BrowserHistoryEntriesStore.serialize` (src/vs/platform/browserView/common/browserHistory.ts:163), `BrowserFaviconsStore.serialize` (src/vs/platform/browserView/common/browserHistory.ts:257), `PromptInputModel.serialize` (src/vs/platform/terminal/common/capabilities/commandDetection/promptInputModel.ts:187), `CommandDetectionCapability.serialize` (src/vs/platform/terminal/common/capabilities/commandDetectionCapability.ts:453) +789 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: RPCProtocol getProxy _invokeHandler serialize IMessagePassingProtocol rpcProtocol.ts**
+
+Found 23 symbols across 2 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `RPCProtocol` (src/vs/workbench/services/extensions/common/rpcProtocol.ts:117) — 8 callers in `src/vs/workbench/api/common/extensionHostMain.ts`, `src/vs/workbench/services/extensions/common/extensionHostManager.ts`; tests: `src/vs/workbench/services/extensions/test/common/rpcProtocol.test.ts`
+- `getProxy` (src/vs/workbench/services/extensions/common/rpcProtocol.ts:243) — 1 caller in `src/vs/workbench/services/extensions/common/extensionHostManager.ts`; ⚠️ no covering tests found
+- `getProxy` (src/vs/editor/standalone/browser/standaloneWebWorker.ts:93) — 1 caller in `src/vs/editor/standalone/browser/standaloneWebWorker.ts`; ⚠️ no covering tests found
+- `JsonRpcSerializer` (cli/src/json_rpc.rs:22) — 8 callers in `cli/src/tunnels/singleton_client.rs`, `cli/src/tunnels/singleton_server.rs`, `cli/src/json_rpc.rs`; ⚠️ no covering tests found
+- `MsgPackSerializer` (cli/src/msgpack_rpc.rs:25) — 5 callers in `cli/src/tunnels/control_server.rs`, `cli/src/msgpack_rpc.rs`; ⚠️ no covering tests found
+
+**Relationships**
+
+**extends:**
+- RPCProtocol → Disposable
+- Serialization → Send
+- Serialization → Sync
+- MonacoWebWorkerImpl → EditorWorkerClient
+
+**implements:**
+- RPCProtocol → IRPCProtocol
+- JsonRpcSerializer → Serialization
+- MsgPackSerializer → Serialization
+
+**instantiates:**
+- constructor → RPCProtocol
+- _createExtensionHostCustomers → RPCProtocol
+- createWebWorker → MonacoWebWorkerImpl
+- new_json_rpc → JsonRpcSerializer
+- make_singleton_server → JsonRpcSerializer
+- replay_and_subscribe → JsonRpcSerializer
+- write_log → JsonRpcSerializer
+- deserialize → InvalidRpcDataError
+- new_msgpack_rpc → MsgPackSerializer
+- make_socket_rpc → MsgPackSerializer
+- deserialize → InvalidRpcDataError
+
+**calls:**
+- getProxy → _createProxy
+- _createExtensionHostCustomers → getProxy
+- withSyncedResources → getProxy
+- withSyncedResources → then
+- withSyncedResources → workerWithSyncedResources
+- constructor → then
+- constructor → _getProxy
+- constructor → constructor
+- fhr → reject
+- fhr → resolve
+- fhr → apply
+- fhr → fhr
+- serialize → push
+- serialize_notify → serialize
+- serialize → serialize
+- ... and 115 more
+
+**references:**
+- getProxy → ProxyIdentifier
+- getProxy → Proxied
+- withSyncedResources → URI
+- constructor → IModelService
+- constructor → IWebWorkerService
+- constructor → IInternalWebWorkerOptions
+- new_json_rpc → JsonRpcSerializer
+- start_json_rpc → JsonRpcSerializer
+- serve_singleton_rpc → JsonRpcSerializer
+- deserialize → result
+- new_json_rpc → RpcBuilder
+- new_msgpack_rpc → MsgPackSerializer
+- make_socket_rpc → MsgPackSerializer
+- handle_socket_read → MsgPackSerializer
+- do_challenge_response_flow → MsgPackSerializer
+- ... and 64 more
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/vs/workbench/services/extensions/common/rpcProtocol.ts`** — calls(calls), references(references), instantiates(instantiates), transformIncomingURIs(calls), _receiveReply(calls), ProxyIdentifier(references), resolve(calls), _setResponsiveState(calls), _receiveRequest(calls), _receiveReplyErr(calls), _invokeHandler(calls), reject(calls), RPCProtocol(class), Disposable(extends), IRPCProtocol(implements), +32 more
+
+```typescript
+114	const _RPCProtocolSymbol = Symbol.for('rpcProtocol');
+115	const _RPCProxySymbol = Symbol.for('rpcProxy');
+116	
+117	export class RPCProtocol extends Disposable implements IRPCProtocol {
+118	
+119		[_RPCProtocolSymbol] = true;
+120	
+121		private static readonly UNRESPONSIVE_TIME = 3 * 1000; // 3s
+122	
+123		private readonly _onDidChangeResponsiveState: Emitter<ResponsiveState> = this._register(new Emitter<ResponsiveState>());
+124		public readonly onDidChangeResponsiveState: Event<ResponsiveState> = this._onDidChangeResponsiveState.event;
+125	
+126		private readonly _protocol: IMessagePassingProtocol;
+127		private readonly _logger: IRPCProtocolLogger | null;
+128		private readonly _uriTransformer: IURITransformer | null;
+129		private readonly _uriReplacer: JSONStringifyReplacer | null;
+130		private _isDisposed: boolean;
+131		private readonly _locals: any[];
+132		private readonly _proxies: any[];
+133		private _lastMessageId: number;
+134		private readonly _cancelInvokedHandlers: { [req: string]: () => void };
+135		private readonly _pendingRPCReplies: { [msgId: string]: PendingRPCReply };
+136		private _responsiveState: ResponsiveState;
+137		private _unacknowledgedCount: number;
+138		private _unresponsiveTime: number;
+139		private _asyncCheckUresponsive: RunOnceScheduler;
+140	
+141		constructor(protocol: IMessagePassingProtocol, logger: IRPCProtocolLogger | null = null, transformer: IURITransformer | null = null) {
+142			super();
+143			this._protocol = protocol;
+144			this._logger = logger;
+145			this._uriTransformer = transformer;
+146			this._uriReplacer = createURIReplacer(this._uriTransformer);
+147			this._isDisposed = false;
+148			this._locals = [];
+149			this._proxies = [];
+150			for (let i = 0, len = ProxyIdentifier.count; i < len; i++) {
+151				this._locals[i] = null;
+152				this._proxies[i] = null;
+153			}
+154			this._lastMessageId = 0;
+155			this._cancelInvokedHandlers = Object.create(null);
+156			this._pendingRPCReplies = {};
+157			this._responsiveState = ResponsiveState.Responsive;
+158			this._unacknowledgedCount = 0;
+159			this._unresponsiveTime = 0;
+160			this._asyncCheckUresponsive = this._register(new RunOnceScheduler(() => this._checkUnresponsive(), 1000));
+161			this._register(this._protocol.onMessage((msg) => this._receiveOneMessage(msg)));
+162		}
+163	
+164		public override dispose(): void {
+165			this._isDisposed = true;
+166	
+167			// Release all outstanding promises with a canceled error
+168			Object.keys(this._pendingRPCReplies).forEach((msgId) => {
+169				const pending = this._pendingRPCReplies[msgId];
+170				delete this._pendingRPCReplies[msgId];
+171				pending.resolveErr(errors.canceled());
+172			});
+173	
+174			super.dispose();
+175		}
+176	
+177		public drain(): Promise<void> {
+178			if (typeof this._protocol.drain === 'function') {
+179				return this._protocol.drain();
+180			}
+181			return Promise.resolve();
+182		}
+183	
+184		private _onWillSendRequest(req: number): void {
+185			if (this._unacknowledgedCount === 0) {
+186				// Since this is the first request we are sending in a while,
+187				// mark this moment as the start for the countdown to unresponsive time
+188				this._unresponsiveTime = Date.now() + RPCProtocol.UNRESPONSIVE_TIME;
+189			}
+190			this._unacknowledgedCount++;
+191			if (!this._asyncCheckUresponsive.isScheduled()) {
+192				this._asyncCheckUresponsive.schedule();
+193			}
+194		}
+195	
+196		private _onDidReceiveAcknowledge(req: number): void {
+197			// The next possible unresponsive time is now + delta.
+198			this._unresponsiveTime = Date.now() + RPCProtocol.UNRESPONSIVE_TIME;
+199			this._unacknowledgedCount--;
+200			if (this._unacknowledgedCount === 0) {
+201				// No more need to check for unresponsive
+202				this._asyncCheckUresponsive.cancel();
+203			}
+204			// The ext host is responsive!
+205			this._setResponsiveState(ResponsiveState.Responsive);
+206		}
+207	
+208		private _checkUnresponsive(): void {
+209			if (this._unacknowledgedCount === 0) {
+210				// Not waiting for anything => cannot say if it is responsive or not
+211				return;
+212			}
+213	
+214			if (Date.now() > this._unresponsiveTime) {
+215				// Unresponsive!!
+216				this._setResponsiveState(ResponsiveState.Unresponsive);
+217			} else {
+218				// Not (yet) unresponsive, be sure to check again soon
+219				this._asyncCheckUresponsive.schedule();
+220			}
+221		}
+222	
+223		private _setResponsiveState(newResponsiveState: ResponsiveState): void {
+224			if (this._responsiveState === newResponsiveState) {
+225				// no change
+226				return;
+227			}
+228			this._responsiveState = newResponsiveState;
+229			this._onDidChangeResponsiveState.fire(this._responsiveState);
+230		}
+231	
+232		public get responsiveState(): ResponsiveState {
+233			return this._responsiveState;
+234		}
+235	
+236		public transformIncomingURIs<T>(obj: T): T {
+237			if (!this._uriTransformer) {
+238				return obj;
+239			}
+240			return transformIncomingURIs(obj, this._uriTransformer);
+241		}
+242	
+243		public getProxy<T>(identifier: ProxyIdentifier<T>): Proxied<T> {
+244			const { nid: rpcId, sid } = identifier;
+245			if (!this._proxies[rpcId]) {
+246				this._proxies[rpcId] = this._createProxy(rpcId, sid);
+247			}
+248			return this._proxies[rpcId];
+249		}
+250	
+251		private _createProxy<T>(rpcId: number, debugName: string): T {
+252			const handler = {
+253				get: (target: any, name: PropertyKey) => {
+254					if (typeof name === 'string' && !target[name] && name.charCodeAt(0) === CharCode.DollarSign) {
+255						target[name] = (...myArgs: any[]) => {
+256							return this._remoteCall(rpcId, name, myArgs);
+257						};
+258					}
+259					if (name === _RPCProxySymbol) {
+260						return debugName;
+261					}
+262					return target[name];
+263				}
+264			};
+265			return new Proxy(Object.create(null), handler);
+266		}
+267	
+268		public set<T, R extends T>(identifier: ProxyIdentifier<T>, value: R): R {
+269			this._locals[identifier.nid] = value;
+270			return value;
+271		}
+272	
+273		public assertRegistered(identifiers: ProxyIdentifier<any>[]): void {
+274			for (let i = 0, len = identifiers.length; i < len; i++) {
+275				const identifier = identifiers[i];
+276				if (!this._locals[identifier.nid]) {
+277					throw new Error(`Missing proxy instance ${identifier.sid}`);
+278				}
+279			}
+280		}
+281	
+282		private _receiveOneMessage(rawmsg: VSBuffer): void {
+283			if (this._isDisposed) {
+284				return;
+285			}
+286	
+287			const msgLength = rawmsg.byteLength;
+288			const buff = MessageBuffer.read(rawmsg, 0);
+289			const messageType = <MessageType>buff.readUInt8();
+290			const req = buff.readUInt32();
+291	
+292			switch (messageType) {
+293				case MessageType.RequestJSONArgs:
+294				case MessageType.RequestJSONArgsWithCancellation: {
+295					let { rpcId, method, args } = MessageIO.deserializeRequestJSONArgs(buff);
+296					if (this._uriTransformer) {
+297						args = transformIncomingURIs(args, this._uriTransformer);
+298					}
+299					this._receiveRequest(msgLength, req, rpcId, method, args, (messageType === MessageType.RequestJSONArgsWithCancellation));
+300					break;
+301				}
+302				case MessageType.RequestMixedArgs:
+303				case MessageType.RequestMixedArgsWithCancellation: {
+304					let { rpcId, method, args } = MessageIO.deserializeRequestMixedArgs(buff);
+305					if (this._uriTransformer) {
+306						args = transformIncomingURIs(args, this._uriTransformer);
+307					}
+308					this._receiveRequest(msgLength, req, rpcId, method, args, (messageType === MessageType.RequestMixedArgsWithCancellation));
+309					break;
+310				}
+311				case MessageType.Acknowledged: {
+312					this._logger?.logIncoming(msgLength, req, RequestInitiator.LocalSide, `ack`);
+313					this._onDidReceiveAcknowledge(req);
+314					break;
+315				}
+316				case MessageType.Cancel: {
+317					this._receiveCancel(msgLength, req);
+318					break;
+319				}
+320				case MessageType.ReplyOKEmpty: {
+321					this._receiveReply(msgLength, req, undefined);
+322					break;
+323				}
+324				case MessageType.ReplyOKJSON: {
+325					let value = MessageIO.deserializeReplyOKJSON(buff);
+326					if (this._uriTransformer) {
+327						value = transformIncomingURIs(value, this._uriTransformer);
+328					}
+329					this._receiveReply(msgLength, req, value);
+330					break;
+331				}
+332				case MessageType.ReplyOKJSONWithBuffers: {
+333					const value = MessageIO.deserializeReplyOKJSONWithBuffers(buff, this._uriTransformer);
+334					this._receiveReply(msgLength, req, value);
+335					break;
+336				}
+337				case MessageType.ReplyOKVSBuffer: {
+338					const value = MessageIO.deserializeReplyOKVSBuffer(buff);
+339					this._receiveReply(msgLength, req, value);
+340					break;
+341				}
+342				case MessageType.ReplyErrError: {
+343					let err = MessageIO.deserializeReplyErrError(buff);
+344					if (this._uriTransformer) {
+345						err = transformIncomingURIs(err, this._uriTransformer);
+346					}
+347					this._receiveReplyErr(msgLength, req, err);
+348					break;
+349				}
+350				case MessageType.ReplyErrEmpty: {
+351					this._receiveReplyErr(msgLength, req, undefined);
+352					break;
+353				}
+354				default:
+355					console.error(`received unexpected message`);
+356					console.error(rawmsg);
+357			}
+358		}
+359	
+360		private _receiveRequest(msgLength: number, req: number, rpcId: number, method: string, args: any[], usesCancellationToken: boolean): void {
+361			this._logger?.logIncoming(msgLength, req, RequestInitiator.OtherSide, `receiveRequest ${getStringIdentifierForProxy(rpcId)}.${method}(`, args);
+362			const callId = String(req);
+363	
+364			let promise: Promise<any>;
+365			let cancel: () => void;
+366			if (usesCancellationToken) {
+367				const cancellationTokenSource = new CancellationTokenSource();
+368				args.push(cancellationTokenSource.token);
+369				promise = this._invokeHandler(rpcId, method, args);
+370				cancel = () => cancellationTokenSource.cancel();
+371			} else {
+372				// cannot be cancelled
+373				promise = this._invokeHandler(rpcId, method, args);
+374				cancel = noop;
+375			}
+376	
+377			this._cancelInvokedHandlers[callId] = cancel;
+378	
+379			// Acknowledge the request
+380			const msg = MessageIO.serializeAcknowledged(req);
+381			this._logger?.logOutgoing(msg.byteLength, req, RequestInitiator.OtherSide, `ack`);
+382			this._protocol.send(msg);
+383	
+384			promise.then((r) => {
+385				delete this._cancelInvokedHandlers[callId];
+386				const msg = MessageIO.serializeReplyOK(req, r, this._uriReplacer);
+387				this._logger?.logOutgoing(msg.byteLength, req, RequestInitiator.OtherSide, `reply:`, r);
+388				this._protocol.send(msg);
+389			}, (err) => {
+390				delete this._cancelInvokedHandlers[callId];
+391				const msg = MessageIO.serializeReplyErr(req, err);
+392				this._logger?.logOutgoing(msg.byteLength, req, RequestInitiator.OtherSide, `replyErr:`, err);
+393				this._protocol.send(msg);
+394			});
+395		}
+396	
+397		private _receiveCancel(msgLength: number, req: number): void {
+398			this._logger?.logIncoming(msgLength, req, RequestInitiator.OtherSide, `receiveCancel`);
+399			const callId = String(req);
+400			this._cancelInvokedHandlers[callId]?.();
+401		}
+402	
+403		private _receiveReply(msgLength: number, req: number, value: any): void {
+404			this._logger?.logIncoming(msgLength, req, RequestInitiator.LocalSide, `receiveReply:`, value);
+405			const callId = String(req);
+406			if (!this._pendingRPCReplies.hasOwnProperty(callId)) {
+407				return;
+408			}
+409	
+410			const pendingReply = this._pendingRPCReplies[callId];
+411			delete this._pendingRPCReplies[callId];
+412	
+413			pendingReply.resolveOk(value);
+414		}
+415	
+416		private _receiveReplyErr(msgLength: number, req: number, value: any): void {
+417			this._logger?.logIncoming(msgLength, req, RequestInitiator.LocalSide, `receiveReplyErr:`, value);
+418	
+419			const callId = String(req);
+420			if (!this._pendingRPCReplies.hasOwnProperty(callId)) {
+421				return;
+422			}
+423	
+424			const pendingReply = this._pendingRPCReplies[callId];
+425			delete this._pendingRPCReplies[callId];
+426	
+427			let err: any = undefined;
+428			if (value) {
+429				if (value.$isError) {
+430					err = new Error();
+431					err.name = value.name;
+432					err.message = value.message;
+433					err.stack = value.stack;
+434				} else {
+435					err = value;
+436				}
+437			}
+438			pendingReply.resolveErr(err);
+439		}
+440	
+441		private _invokeHandler(rpcId: number, methodName: string, args: any[]): Promise<any> {
+442			try {
+443				return Promise.resolve(this._doInvokeHandler(rpcId, methodName, args));
+444			} catch (err) {
+445				return Promise.reject(err);
+446			}
+447		}
+448	
+449		private _doInvokeHandler(rpcId: number, methodName: string, args: any[]): any {
+450			const actor = this._locals[rpcId];
+451			if (!actor) {
+452				throw new Error('Unknown actor ' + getStringIdentifierForProxy(rpcId));
+453			}
+454			const method = actor[methodName];
+455			if (typeof method !== 'function') {
+456				throw new Error('Unknown method ' + methodName + ' on actor ' + getStringIdentifierForProxy(rpcId));
+457			}
+458			return method.apply(actor, args);
+459		}
+460	
+461		private _remoteCall(rpcId: number, methodName: string, args: any[]): Promise<any> {
+462			if (this._isDisposed) {
+463				return new CanceledLazyPromise();
+464			}
+465			let cancellationToken: CancellationToken | null = null;
+466			if (args.length > 0 && CancellationToken.isCancellationToken(args[args.length - 1])) {
+467				cancellationToken = args.pop();
+468			}
+469	
+470			if (cancellationToken && cancellationToken.isCancellationRequested) {
+471				// No need to do anything...
+472				return Promise.reject<any>(errors.canceled());
+473			}
+474	
+475			const serializedRequestArguments = MessageIO.serializeRequestArguments(args, this._uriReplacer);
+476	
+477			const req = ++this._lastMessageId;
+478			const callId = String(req);
+479			const result = new LazyPromise();
+480	
+481			const disposable = new DisposableStore();
+482			if (cancellationToken) {
+483				disposable.add(cancellationToken.onCancellationRequested(() => {
+484					const msg = MessageIO.serializeCancel(req);
+485					this._logger?.logOutgoing(msg.byteLength, req, RequestInitiator.LocalSide, `cancel`);
+486					this._protocol.send(msg);
+487				}));
+488			}
+489	
+490			this._pendingRPCReplies[callId] = new PendingRPCReply(result, disposable);
+491			this._onWillSendRequest(req);
+492			const msg = MessageIO.serializeRequest(req, rpcId, methodName, serializedRequestArguments, !!cancellationToken);
+493			this._logger?.logOutgoing(msg.byteLength, req, RequestInitiator.LocalSide, `request: ${getStringIdentifierForProxy(rpcId)}.${methodName}(`, args);
+494			this._protocol.send(msg);
+495			return result;
+496		}
+497	}
+498	
+499	class PendingRPCReply {
+500		constructor(
+```
+
+**`src/vs/base/parts/ipc/common/ipc.ts`** — calls(calls), serialize(function), references(references), serialize(calls)
+
+```typescript
+265		Uint: createOneByteBuffer(DataType.Int),
+266	};
+267	
+268	export function serialize(writer: IWriter, data: any): void {
+269		if (typeof data === 'undefined') {
+270			writer.write(BufferPresets.Undefined);
+271		} else if (typeof data === 'string') {
+272			const buffer = VSBuffer.fromString(data);
+273			writer.write(BufferPresets.String);
+274			writeInt32VQL(writer, buffer.byteLength);
+275			writer.write(buffer);
+276		} else if (VSBuffer.isNativeBuffer(data)) {
+277			const buffer = VSBuffer.wrap(data);
+278			writer.write(BufferPresets.Buffer);
+279			writeInt32VQL(writer, buffer.byteLength);
+280			writer.write(buffer);
+281		} else if (data instanceof VSBuffer) {
+282			writer.write(BufferPresets.VSBuffer);
+283			writeInt32VQL(writer, data.byteLength);
+284			writer.write(data);
+285		} else if (Array.isArray(data)) {
+286			writer.write(BufferPresets.Array);
+287			writeInt32VQL(writer, data.length);
+288	
+289			for (const el of data) {
+290				serialize(writer, el);
+291			}
+292		} else if (typeof data === 'number' && (data | 0) === data) {
+293			// write a vql if it's a number that we can do bitwise operations on
+294			writer.write(BufferPresets.Uint);
+295			writeInt32VQL(writer, data);
+296		} else {
+297			const buffer = VSBuffer.fromString(JSON.stringify(data));
+298			writer.write(BufferPresets.Object);
+299			writeInt32VQL(writer, buffer.byteLength);
+300			writer.write(buffer);
+301		}
+302	}
+303	
+304	export function deserialize(reader: IReader): any {
+305		const type = reader.read(1).readUInt8(0);
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] One more query to pin down the actual transport (pipe/socket/MessagePort) that carries these messages.[tool_use: mcp__codegraph__codegraph_explore] {"query": "extensionHostProcess.ts connect createMessageOfType PersistentProtocol named pipe socket _createExtHostProtocol"}
+[usage] input=2 cache_read=31739 cache_write=9361 output=293
+
+=== Turn 6 ===
+[user] [tool_result] **Interface dispatch (a named method has many implementations)**
+
+- `connect` → runtime dispatch to **1371** types implementing `Disposable` — the static path ends here, the target is chosen at runtime. e.g. `SharedProcessService.connect` (src/vs/workbench/services/sharedProcess/electron-browser/sharedProcessService.ts:33), `IndexedDBStorageDatabase.connect` (src/vs/workbench/services/storage/browser/storageService.ts:388), `AhpTerminalCommandSource.connect` (src/vs/workbench/contrib/terminal/browser/ahpTerminalCommandSource.ts:189), `VoiceSessionController.connect` (src/vs/workbench/contrib/chat/browser/voiceClient/voiceSessionController.ts:412) +1367 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: extensionHostProcess.ts connect createMessageOfType PersistentProtocol named pipe socket _createExtHostProtocol**
+
+Found 12 symbols across 8 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `ConnectionAPI` (extensions/copilot/src/extension/completions-core/vscode-node/lib/src/snippy/connectionState.ts:11) — 2 callers in `extensions/copilot/src/extension/completions-core/vscode-node/lib/src/snippy/connectionState.ts`; ⚠️ no covering tests found
+- `ConnectionState` (extensions/copilot/src/extension/completions-core/vscode-node/lib/src/snippy/connectionState.ts:25) — 1 caller in `extensions/copilot/src/extension/completions-core/vscode-node/lib/src/snippy/connectionState.ts`; ⚠️ no covering tests found
+- `DebugAdapterNamedPipeServer` (src/vs/workbench/api/common/extHostTypes.ts:2059) — 3 callers in `src/vs/workbench/api/common/extHostDebugService.ts`, `src/vs/workbench/api/node/extHostDebugService.ts`; ⚠️ no covering tests found
+- `NamingConvention` (extensions/copilot/src/extension/renameSuggestions/common/namingConvention.ts:6) — 7 callers in `extensions/copilot/src/extension/renameSuggestions/node/renameSuggestionsProvider.ts`, `extensions/copilot/src/extension/renameSuggestions/common/namingConvention.ts`; tests: `extensions/copilot/src/extension/renameSuggestions/test/common/namingConvention.spec.ts`, `extensions/copilot/test/simulation/renameSuggestionsProvider.stest.ts`
+- `IExtHostSocketMessage` (src/vs/workbench/services/extensions/common/extensionHostProtocol.ts:111) — 3 callers in `src/vs/server/node/extensionHostConnection.ts`, `src/vs/workbench/api/node/extensionHostProcess.ts`; ⚠️ no covering tests found
+
+**Relationships**
+
+**extends:**
+- ManagedSocket → Disposable
+- MainThreadManagedSocket → ManagedSocket
+- ExtHostManagedSocket → ManagedSocket
+- MainThreadAiEmbeddingVector → Disposable
+- MainThreadAiRelatedInformation → Disposable
+- MainThreadAiSettingsSearch → Disposable
+- MainThreadAuthenticationProvider → Disposable
+- MainThreadAuthentication → Disposable
+- MainThreadBrowsers → Disposable
+- MainThreadChatAgents2 → Disposable
+- MainThreadChatCodemapper → Disposable
+- MainThreadChatContext → Disposable
+- MainThreadChatDebug → Disposable
+- VerboseHover → Hover
+
+**implements:**
+- ExtHostManagedSockets → IExtHostManagedSockets
+
+**references:**
+- ConnectionAPI → ServicesAccessor
+- stateAPI → ConnectionAPI
+- registerConnectionState → ConnectionAPI
+- state → ConnectionState
+- state → MaxAttempts
+- MaxAttempts → BaseRetryTime
+- MaxAttempts → MaxRetryTime
+- registerConnectionState → MaxAttempts
+- attemptToPing → MaxAttempts
+- succeedOrRetry → MaxAttempts
+- convertPipeServerToDto → DebugAdapterNamedPipeServer
+- guessNamingConvention → NamingConvention
+- enforceNamingConvention → NamingConvention
+- chunkUpIdentByConvention → NamingConvention
+- preprocessSymbolNames → NamingConvention
+- ... and 51 more
+
+**calls:**
+- start → listen
+- start → listen
+- start → listen
+- start → listen
+- startServer → listen
+- createServerInstance → listen
+- start → listen
+- startServer → listen
+- startServer → listen
+- addManagedConnection → isConnected
+- es5ClassCompat → assign
+- guessNamingConvention → test
+- enforceNamingConvention → guessNamingConvention
+- preprocessSymbolNames → guessNamingConvention
+- enforceNamingConvention → chunkUpIdentByConvention
+- ... and 82 more
+
+**decorates:**
+- DebugAdapterNamedPipeServer → es5ClassCompat
+- Disposable → es5ClassCompat
+- Hover → es5ClassCompat
+- VerboseHover → es5ClassCompat
+- DocumentHighlight → es5ClassCompat
+- MultiDocumentHighlight → es5ClassCompat
+- DocumentSymbol → es5ClassCompat
+- CodeAction → es5ClassCompat
+- SelectionRange → es5ClassCompat
+- CodeLens → es5ClassCompat
+- ParameterInformation → es5ClassCompat
+- SignatureInformation → es5ClassCompat
+- SignatureHelp → es5ClassCompat
+- InlayHintLabelPart → es5ClassCompat
+- InlayHint → es5ClassCompat
+- ... and 6 more
+
+**instantiates:**
+- constructor → ConnectionData
+- acceptReconnection → ConnectionData
+- alloc → VSBuffer
+- $openRemoteSocket → ManagedSocket
+- from → Disposable
+- setFactory → ManagedSocketFactory
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/vs/workbench/services/extensions/common/extensionHostProtocol.ts`** — IExtHostSocketMessage(interface), createMessageOfType(function)
+
+```typescript
+1	/*---------------------------------------------------------------------------------------------
+2	 *  Copyright (c) Microsoft Corporation. All rights reserved.
+3	 *  Licensed under the MIT License. See License.txt in the project root for license information.
+4	 *--------------------------------------------------------------------------------------------*/
+5	
+6	import { VSBuffer } from '../../../../base/common/buffer.js';
+7	import { URI, UriComponents, UriDto } from '../../../../base/common/uri.js';
+8	import { ExtensionIdentifier, IExtensionDescription } from '../../../../platform/extensions/common/extensions.js';
+9	import { ILoggerResource, LogLevel } from '../../../../platform/log/common/log.js';
+10	import { IRemoteConnectionData } from '../../../../platform/remote/common/remoteAuthorityResolver.js';
+11	
+12	export interface IExtensionDescriptionSnapshot {
+13		readonly versionId: number;
+14		readonly allExtensions: IExtensionDescription[];
+15		readonly activationEvents: { [extensionId: string]: string[] };
+16		readonly myExtensions: ExtensionIdentifier[];
+17	}
+18	
+19	export interface IExtensionDescriptionDelta {
+20		readonly versionId: number;
+21		readonly toRemove: ExtensionIdentifier[];
+22		readonly toAdd: IExtensionDescription[];
+23		readonly addActivationEvents: { [extensionId: string]: string[] };
+24		readonly myToRemove: ExtensionIdentifier[];
+25		readonly myToAdd: ExtensionIdentifier[];
+26	}
+27	
+28	export interface IExtensionHostInitData {
+29		version: string;
+30		quality: string | undefined;
+31		commit?: string;
+32		date?: string;
+33		/**
+34		 * When set to `0`, no polling for the parent process still running will happen.
+35		 */
+36		parentPid: number | 0;
+37		environment: IEnvironment;
+38		workspace?: IStaticWorkspaceData | null;
+39		extensions: IExtensionDescriptionSnapshot;
+40		nlsBaseUrl?: URI;
+41		telemetryInfo: {
+42			readonly sessionId: string;
+43			readonly machineId: string;
+44			readonly sqmId: string;
+45			readonly devDeviceId: string;
+46			readonly firstSessionDate: string;
+47			readonly msftInternal?: boolean;
+48		};
+49		remoteExtensionTips?: { readonly [remoteName: string]: unknown };
+50		virtualWorkspaceExtensionTips?: { readonly [remoteName: string]: unknown };
+51		logLevel: LogLevel;
+52		loggers: UriDto<ILoggerResource>[];
+53		logsLocation: URI;
+54		autoStart: boolean;
+55		remote: { isRemote: boolean; authority: string | undefined; connectionData: IRemoteConnectionData | null };
+56		consoleForward: { includeStack: boolean; logNative: boolean };
+57		uiKind: UIKind;
+58		messagePorts?: ReadonlyMap<string, MessagePortLike>;
+59		handle?: string;
+60	}
+61	
+62	export interface IEnvironment {
+63		isExtensionDevelopmentDebug: boolean;
+64		appName: string;
+65		appHost: string;
+66		appRoot?: URI;
+67		appLanguage: string;
+68		isExtensionTelemetryLoggingOnly: boolean;
+69		appUriScheme: string;
+70		isPortable?: boolean;
+71		extensionDevelopmentLocationURI?: URI[];
+72		extensionTestsLocationURI?: URI;
+73		globalStorageHome: URI;
+74		workspaceStorageHome: URI;
+75		useHostProxy?: boolean;
+76		skipWorkspaceStorageLock?: boolean;
+77		extensionLogLevel?: [string, LogLevel][];
+78		isSessionsWindow?: boolean;
+79	}
+80	
+81	export interface IStaticWorkspaceData {
+82		id: string;
+83		name: string;
+84		transient?: boolean;
+85		configuration?: UriComponents | null;
+86		isUntitled?: boolean | null;
+87	}
+88	
+89	export interface MessagePortLike {
+90		postMessage(message: unknown, transfer?: Transferable[]): void;
+91		addEventListener(type: 'message', listener: (e: MessageEvent<unknown>) => unknown): void;
+92		removeEventListener(type: 'message', listener: (e: MessageEvent<unknown>) => unknown): void;
+93		start(): void;
+94	}
+95	
+96	export enum UIKind {
+97		Desktop = 1,
+98		Web = 2
+99	}
+100	
+101	export const enum ExtensionHostExitCode {
+102		// nodejs uses codes 1-13 and exit codes >128 are signal exits
+103		VersionMismatch = 55,
+104		UnexpectedError = 81,
+105	}
+106	
+107	export interface IExtHostReadyMessage {
+108		type: 'VSCODE_EXTHOST_IPC_READY';
+109	}
+110	
+111	export interface IExtHostSocketMessage {
+112		type: 'VSCODE_EXTHOST_IPC_SOCKET';
+113		initialDataChunk: string;
+114		skipWebSocketFrames: boolean;
+115		permessageDeflate: boolean;
+116		inflateBytes: string;
+117	}
+118	
+119	export interface IExtHostReduceGraceTimeMessage {
+120		type: 'VSCODE_EXTHOST_IPC_REDUCE_GRACE_TIME';
+121	}
+122	
+123	export const enum MessageType {
+124		Initialized,
+125		Ready,
+126		Terminate
+127	}
+128	
+129	export function createMessageOfType(type: MessageType): VSBuffer {
+130		const result = VSBuffer.alloc(1);
+131	
+132		switch (type) {
+133			case MessageType.Initialized: result.writeUInt8(1, 0); break;
+134			case MessageType.Ready: result.writeUInt8(2, 0); break;
+135			case MessageType.Terminate: result.writeUInt8(3, 0); break;
+136		}
+137	
+138		return result;
+139	}
+140	
+141	export function isMessageOfType(message: VSBuffer, type: MessageType): boolean {
+142		if (message.byteLength !== 1) {
+143			return false;
+144		}
+145	
+146		switch (message.readUInt8(0)) {
+147			case 1: return type === MessageType.Initialized;
+148			case 2: return type === MessageType.Ready;
+149			case 3: return type === MessageType.Terminate;
+150			default: return false;
+151		}
+152	}
+153	
+154	export const enum NativeLogMarkers {
+155		Start = 'START_NATIVE_LOG',
+156		End = 'END_NATIVE_LOG',
+157	}
+```
+
+**`src/vs/workbench/api/node/extensionHostProcess.ts`** — calls(calls), instantiates(instantiates), references(references), PersistentProtocol(instantiates), _createExtHostProtocol(function), IMessagePassingProtocol(references), PersistentProtocol(references)
+
+```typescript
+177		return result;
+178	}
+179	
+180	function _createExtHostProtocol(): Promise<IMessagePassingProtocol> {
+181		const extHostConnection = readExtHostConnection(process.env);
+182	
+183		if (extHostConnection.type === ExtHostConnectionType.MessagePort) {
+184	
+185			return new Promise<IMessagePassingProtocol>((resolve, reject) => {
+186	
+187				const withPorts = (ports: MessagePortMain[]) => {
+188					const port = ports[0];
+189					const onMessage = new BufferedEmitter<VSBuffer>();
+190					port.on('message', (e) => onMessage.fire(VSBuffer.wrap(e.data as Uint8Array)));
+191					port.on('close', () => {
+192						onTerminate('renderer closed the MessagePort');
+193					});
+194					port.start();
+195	
+196					resolve({
+197						onMessage: onMessage.event,
+198						send: message => port.postMessage(message.buffer)
+199					});
+200				};
+201	
+202				(process as unknown as { parentPort: { on: (event: 'message', listener: (messageEvent: UtilityMessageEvent) => void) => void } }).parentPort.on('message', (e: UtilityMessageEvent) => withPorts(e.ports));
+203			});
+204	
+205		} else if (extHostConnection.type === ExtHostConnectionType.Socket) {
+206	
+207			return new Promise<PersistentProtocol>((resolve, reject) => {
+208	
+209				let protocol: PersistentProtocol | null = null;
+210	
+211				const timer = setTimeout(() => {
+212					onTerminate('VSCODE_EXTHOST_IPC_SOCKET timeout');
+213				}, 60000);
+214	
+215				const reconnectionGraceTime = readReconnectionValue('VSCODE_RECONNECTION_GRACE_TIME', ProtocolConstants.ReconnectionGraceTime);
+216				const reconnectionShortGraceTime = reconnectionGraceTime > 0 ? Math.min(ProtocolConstants.ReconnectionShortGraceTime, reconnectionGraceTime) : 0;
+217				const disconnectRunner1 = new ProcessTimeRunOnceScheduler(() => onTerminate('renderer disconnected for too long (1)'), reconnectionGraceTime);
+218				const disconnectRunner2 = new ProcessTimeRunOnceScheduler(() => onTerminate('renderer disconnected for too long (2)'), reconnectionShortGraceTime);
+219	
+220				process.on('message', (msg: IExtHostSocketMessage | IExtHostReduceGraceTimeMessage, handle: net.Socket) => {
+221					if (msg && msg.type === 'VSCODE_EXTHOST_IPC_SOCKET') {
+222						// Disable Nagle's algorithm. We also do this on the server process,
+223						// but nodejs doesn't document if this option is transferred with the socket
+224						handle.setNoDelay(true);
+225	
+226						const initialDataChunk = VSBuffer.wrap(Buffer.from(msg.initialDataChunk, 'base64'));
+227						let socket: NodeSocket | WebSocketNodeSocket;
+228						if (msg.skipWebSocketFrames) {
+229							socket = new NodeSocket(handle, 'extHost-socket');
+230						} else {
+231							const inflateBytes = VSBuffer.wrap(Buffer.from(msg.inflateBytes, 'base64'));
+232							socket = new WebSocketNodeSocket(new NodeSocket(handle, 'extHost-socket'), msg.permessageDeflate, inflateBytes, false);
+233						}
+234						if (protocol) {
+235							// reconnection case
+236							disconnectRunner1.cancel();
+237							disconnectRunner2.cancel();
+238							protocol.beginAcceptReconnection(socket, initialDataChunk);
+239							protocol.endAcceptReconnection();
+240							protocol.sendResume();
+241						} else {
+242							clearTimeout(timer);
+243							protocol = new PersistentProtocol({ socket, initialChunk: initialDataChunk });
+244							protocol.sendResume();
+245							Event.once(protocol.onDidDispose)(() => onTerminate('renderer disconnected'));
+246							resolve(protocol);
+247	
+248							// Wait for rich client to reconnect
+249							protocol.onSocketClose(() => {
+250								// The socket has closed, let's give the renderer a certain amount of time to reconnect
+251								disconnectRunner1.schedule();
+252							});
+253						}
+254					}
+255					if (msg && msg.type === 'VSCODE_EXTHOST_IPC_REDUCE_GRACE_TIME') {
+256						if (disconnectRunner2.isScheduled()) {
+257							// we are disconnected and already running the short reconnection timer
+258							return;
+259						}
+260						if (disconnectRunner1.isScheduled()) {
+261							// we are disconnected and running the long reconnection timer
+262							disconnectRunner2.schedule();
+263						}
+264					}
+265				});
+266	
+267				// Now that we have managed to install a message listener, ask the other side to send us the socket
+268				const req: IExtHostReadyMessage = { type: 'VSCODE_EXTHOST_IPC_READY' };
+269				process.send?.(req);
+270			});
+271	
+272		} else {
+273	
+274			const pipeName = extHostConnection.pipeName;
+275	
+276			return new Promise<PersistentProtocol>((resolve, reject) => {
+277	
+278				const socket = net.createConnection(pipeName, () => {
+279					socket.removeListener('error', reject);
+280					const protocol = new PersistentProtocol({ socket: new NodeSocket(socket, 'extHost-renderer') });
+281					protocol.sendResume();
+282					resolve(protocol);
+283				});
+284				socket.once('error', reject);
+285	
+286				socket.on('close', () => {
+287					onTerminate('renderer closed the socket');
+288				});
+289			});
+290		}
+291	}
+292	
+293	async function createExtHostProtocol(): Promise<IMessagePassingProtocol> {
+294	
+```
+
+**`src/vs/base/parts/ipc/node/ipc.net.ts`** — calls(calls), setRecordInflateBytes(method), setRecordInflateBytes(calls), connect(function), Client(references), references(references), instantiates(instantiates)
+
+```typescript
+324			return this._flowManager.recordedInflateBytes;
+325		}
+326	
+327		public setRecordInflateBytes(record: boolean): void {
+328			this._flowManager.setRecordInflateBytes(record);
+329		}
+330	
+331		public traceSocketEvent(type: SocketDiagnosticsEventType, data?: VSBuffer | Uint8Array | ArrayBuffer | ArrayBufferView | unknown): void {
+332			this.socket.traceSocketEvent(type, data);
+
+... (gap) ...
+
+1005	
+1006	export function connect(options: { host: string; port: number }, clientId: string): Promise<Client>;
+1007	export function connect(namedPipe: string, clientId: string): Promise<Client>;
+1008	export function connect(hook: { host: string; port: number } | string, clientId: string): Promise<Client> {
+1009		return new Promise<Client>((resolve, reject) => {
+1010			let socket: Socket;
+1011	
+1012			const callbackHandler = () => {
+1013				socket.removeListener('error', reject);
+1014				resolve(Client.fromSocket(new NodeSocket(socket, `ipc-client${clientId}`), clientId));
+1015			};
+1016	
+1017			if (typeof hook === 'string') {
+1018				socket = createConnection(hook, callbackHandler);
+1019			} else {
+1020				socket = createConnection(hook, callbackHandler);
+1021			}
+1022	
+1023			socket.once('error', reject);
+1024		});
+1025	}
+1026	
+```
+
+**`src/vs/workbench/contrib/debug/node/debugAdapter.ts`** — connect(method), Readable(references), calls(calls)
+
+```typescript
+34			super();
+35		}
+36	
+37		protected connect(readable: stream.Readable, writable: stream.Writable): void {
+38	
+39			this.outputStream = writable;
+40			this.rawData = Buffer.allocUnsafe(0);
+41			this.contentLength = -1;
+42	
+43			readable.on('data', (data: Buffer) => this.handleData(data));
+44		}
+45	
+46		sendMessage(message: DebugProtocol.ProtocolMessage): void {
+47	
+```
+
+**`src/vs/base/parts/ipc/common/ipc.net.ts`** — references(references), calls(calls), alloc(calls), traceSocketEvent(function), getEmptyBuffer(function)
+
+```typescript
+74			return socketIds.get(nativeObject)!;
+75		}
+76	
+77		export function traceSocketEvent(nativeObject: unknown, socketDebugLabel: string, type: SocketDiagnosticsEventType, data?: VSBuffer | Uint8Array | ArrayBuffer | ArrayBufferView | any): void {
+78			if (!enableDiagnostics) {
+79				return;
+80			}
+81			const id = getSocketId(nativeObject, socketDebugLabel);
+82	
+83			if (data instanceof VSBuffer || data instanceof Uint8Array || data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+84				const copiedData = VSBuffer.alloc(data.byteLength);
+85				copiedData.set(data);
+86				records.push({ timestamp: Date.now(), id, label: socketDebugLabel, type, buff: copiedData });
+87			} else {
+88				// data is a custom object
+89				records.push({ timestamp: Date.now(), id, label: socketDebugLabel, type, data: data });
+90			}
+91		}
+92	}
+93	
+94	export const enum SocketCloseEventType {
+
+... (gap) ...
+
+160	}
+161	
+162	let emptyBuffer: VSBuffer | null = null;
+163	function getEmptyBuffer(): VSBuffer {
+164		if (!emptyBuffer) {
+165			emptyBuffer = VSBuffer.alloc(0);
+166		}
+167		return emptyBuffer;
+168	}
+169	
+170	export class ChunkStream {
+171	
+```
+
+**`src/vs/base/parts/ipc/node/ipc.cp.ts`** — implements(implements)
+
+```typescript
+81		useQueue?: boolean;
+82	}
+83	
+84	export class Client implements IChannelClient, IDisposable {
+85	
+86		private disposeDelayer: Delayer<void> | undefined;
+87		private activeRequests = new Set<IDisposable>();
+```
+
+**`src/vs/base/common/stream.ts`** — Readable(interface), references(references)
+
+```typescript
+71	 * A interface that emulates the API shape of a node.js readable
+72	 * for use in native and web environments.
+73	 */
+74	export interface Readable<T> {
+75	
+76		/**
+77		 * Read data from the underlying source. Will return
+78		 * null to indicate that no more data can be read.
+79		 */
+80		read(): T | null;
+81	}
+82	
+83	export function isReadable<T>(obj: unknown): obj is Readable<T> {
+84		const candidate = obj as Readable<T> | undefined;
+```
+
+**`src/vs/base/parts/ipc/common/ipc.ts`** — references(references), IMessagePassingProtocol(interface)
+
+```typescript
+96		(response: IRawResponse): void;
+97	}
+98	
+99	export interface IMessagePassingProtocol {
+100		send(buffer: VSBuffer): void;
+101		readonly onMessage: Event<VSBuffer>;
+102		/**
+103		 * Wait for the write buffer (if applicable) to become empty.
+104		 */
+105		drain?(): Promise<void>;
+106	}
+107	
+108	enum State {
+109		Uninitialized,
+```
+
+**Not shown above — explore these names for their source**
+
+- src/vs/platform/remote/browser/browserSocketFactory.ts: connect:282
+- src/vs/workbench/api/common/extHostTypes.ts: DebugAdapterNamedPipeServer:2059, Disposable:64, constructor:2060, Hover:181, VerboseHover:203, DocumentHighlight:232, MultiDocumentHighlight:251, DocumentSymbol:270, CodeAction:309, SelectionRange:329, CodeLens:396, ParameterInformation:413, SignatureInformation:425, SignatureHelp:440, InlayHintLabelPart:464, InlayHint:477, CompletionItem:546, CompletionList:585, InlineSuggestion:597, InlineSuggestionList:612, DocumentLink:762, Color:783, constructor:82, from:66, dispose:86
+- src/vs/workbench/api/common/extHostManagedSockets.ts: ManagedSocket:97, ManagedSocketFactory:90, ExtHostManagedSockets:20, IExtHostManagedSockets:18, constructor:98, $openRemoteSocket:49, constructor:91, setFactory:34, constructor:28, $remoteSocketWrite:73, $remoteSocketEnd:77, $remoteSocketDrain:85, _managedRemoteSockets:26, _factory:25
+- extensions/copilot/src/extension/completions-core/vscode-node/lib/src/snippy/connectionState.ts: ConnectionAPI:11, ConnectionState:25, listen:12, setConnected:13, setRetrying:14, setDisconnected:15, setDisabled:16, enableRetry:17, isConnected:18, isDisconnected:19, isRetrying:20, isDisabled:21, isInitialWait:22, stateAPI:44, registerConnectionState:47, state:37, MaxAttempts:35, BaseRetryTime:33, MaxRetryTime:34, attemptToPing:130, succeedOrRetry:140
+- extensions/copilot/src/extension/renameSuggestions/common/namingConvention.ts: NamingConvention:6, guessNamingConvention:43, enforceNamingConvention:115, chunkUpIdentByConvention:148, chunksToCamelCase:93, chunksToPascalCase:103, chunksToSnakeCase:107, chunksToKebabCase:111
+- src/vs/server/node/extensionHostConnection.ts: toIExtHostSocketMessage:83, ConnectionData:73, _sendSocketToExtensionHost:192, constructor:74, socketDrain:79, constructor:121, acceptReconnection:215, _pipeSockets:161, extensionHostConnection.ts:1
+- src/vs/workbench/api/common/extHostDebugService.ts: convertPipeServerToDto:937, extHostDebugService.ts:1
+- src/vs/workbench/api/browser/mainThreadManagedSockets.ts: MainThreadManagedSocket:96, constructor:107, $unregisterSocketFactory:74, $registerSocketFactory:31, $onDidManagedSocketEnd:91, $onDidManagedSocketClose:82, $onDidManagedSocketHaveData:78, mainThreadManagedSockets.ts:1
+- extensions/copilot/src/extension/renameSuggestions/node/renameSuggestionsProvider.ts: preprocessSymbolNames:257, RenameSuggestionsProvider:51, provideNewSymbolNames:84, renameSuggestionsProvider.ts:1
+- extensions/copilot/src/extension/completions-core/vscode-node/prompt/src/parseBlock.ts: getBlockParser:949, isEmptyBlockStart:206
+- ... and 48 more files
+
+---
+> **Complete source for 8 files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.
+
+> **Explore budget: 3 calls for this project (11,563 files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used 3.
+[assistant] The extension host communicates with the main renderer/process through a **layered RPC protocol built on message-passing**. Here's how it works, from the transport up to the API surface:
+
+## 1. The transport (physical channel)
+
+The extension host runs as a separate process (or a web worker). At startup, `_createExtHostProtocol()` (`src/vs/workbench/api/node/extensionHostProcess.ts:180`) establishes one of three transports and wraps it in an `IMessagePassingProtocol`:
+
+- **MessagePort** — the desktop default: a `MessagePortMain` is transferred from the renderer; messages flow via `port.postMessage`/`port.on('message')`.
+- **Socket** (`VSCODE_EXTHOST_IPC_SOCKET`) — used for remote/reconnectable scenarios. The renderer sends the ext host a `net.Socket` handle, wrapped in a `NodeSocket` or `WebSocketNodeSocket` and driven by a `PersistentProtocol` that supports reconnection with a grace period.
+- **Named pipe** — `net.createConnection(pipeName)` wrapped in a `NodeSocket` + `PersistentProtocol`.
+
+All three converge on the tiny `IMessagePassingProtocol` interface (`src/vs/base/parts/ipc/common/ipc.ts:99`):
+
+```ts
+interface IMessagePassingProtocol {
+  send(buffer: VSBuffer): void;
+  readonly onMessage: Event<VSBuffer>;
+  drain?(): Promise<void>;
+}
+```
+
+So everything above the transport just sends/receives opaque `VSBuffer` byte blobs — the transport details are abstracted away.
+
+## 2. The RPC layer
+
+Both sides construct an `RPCProtocol` (`src/vs/workbench/services/extensions/common/rpcProtocol.ts:117`) over that protocol. This is the actual request/response engine, and it's symmetric — the renderer's side lives in `ExtensionHostManager`, the ext host's side is created in `ExtensionHostMain` (`src/vs/workbench/api/common/extensionHostMain.ts:176`).
+
+**Calling a remote method** — `getProxy(identifier)` returns a JS `Proxy` (`rpcProtocol.ts:251`). Any `$`-prefixed method access is trapped and turned into `_remoteCall(rpcId, method, args)`, which:
+1. Serializes the arguments (`MessageIO.serializeRequest`), assigns an incrementing `req` id.
+2. Stores a `LazyPromise` in `_pendingRPCReplies[req]`.
+3. Sends the bytes via `this._protocol.send(msg)`.
+
+**Receiving** — `_receiveOneMessage` (`rpcProtocol.ts:282`) reads a one-byte `MessageType` + `req` id and dispatches. For a request it calls `_invokeHandler` → `_doInvokeHandler`, which looks up the local actor in `this._locals[rpcId]` and invokes the real method, then serializes the resolved value back as a `ReplyOK*` (or `ReplyErr`) message. Replies resolve the pending promise on the caller's side.
+
+Notable mechanics baked in:
+- **Acknowledgements + responsiveness tracking** — each request is acked; if acks don't arrive within `UNRESPONSIVE_TIME` (3s), the ext host is flagged `Unresponsive` (this is what surfaces the "extension host unresponsive" UI).
+- **Cancellation** — a trailing `CancellationToken` argument is detected and turned into a separate `Cancel` message.
+- **URI transformation** — URIs are rewritten on the way in/out (`transformIncomingURIs` / `_uriReplacer`) so file paths make sense across the local/remote boundary.
+
+## 3. The named-actor API (the contracts)
+
+The `rpcId`s correspond to named proxy identifiers defined in `extHost.protocol.ts` — the `MainContext.*` actors (things the ext host calls in the renderer, e.g. `MainThreadExtensionService`) and `ExtHostContext.*` actors (things the renderer calls in the ext host). Each `MainThread*` class registers itself via `rpcProtocol.set(identifier, this)`. The whole VS Code extension API is implemented as these `$`-prefixed methods flowing over the RPC protocol.
+
+## Summary of the stack
+
+```
+Extension API (MainThread* / ExtHost* actors, $-methods)
+        ↓  getProxy / set
+RPCProtocol   — req/reply, acks, cancellation, URI transform, serialization
+        ↓  send(VSBuffer) / onMessage
+IMessagePassingProtocol
+        ↓
+MessagePort  |  Socket (PersistentProtocol, reconnectable)  |  Named pipe
+```
+
+So: **separate process, connected by a MessagePort/socket/pipe, over which a symmetric `RPCProtocol` marshals `$`-prefixed method calls between named "main thread" and "ext host" actors** — an async message-passing RPC, never shared memory.
+
+If you want, I can trace a concrete end-to-end example (e.g. `window.showInformationMessage`) through both sides.
+[usage] input=2 cache_read=41100 cache_write=10927 output=1793

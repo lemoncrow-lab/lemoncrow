@@ -1,117 +1,152 @@
 {
   "artifacts": {
     "flow_paths": [
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_baseline_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_baseline_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_django_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_baseline_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_baseline_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_gin_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_baseline_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_lemoncrow_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_baseline_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_lemoncrow_rep4.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep0.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep1.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep2.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep3.flow",
+      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep4.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep0.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep1.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep2.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep3.flow",
       "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_lemoncrow_rep4.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep0.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep1.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep2.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep3.flow",
-      "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_baseline_rep4.flow"
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_alamofire_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_django_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_django_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_django_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_django_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_django_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_excalidraw_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_gin_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_gin_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_gin_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_gin_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_gin_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_okhttp_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_tokio_codegraph_rep4.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_codegraph_rep0.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_codegraph_rep1.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_codegraph_rep2.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_codegraph_rep3.flow",
+      "benchmarks/codebench/results/exploration_2026_06_29/cg_vscode_codegraph_rep4.flow"
     ],
     "model_audit_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/model_audit.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/model_audit.csv"
     },
     "pairwise_quality_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/pairwise_quality.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/pairwise_quality.csv"
     },
     "quality_adjusted_summary_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/quality_adjusted_summary.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/quality_adjusted_summary.csv"
     },
     "report_txt": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/report.txt"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/report.txt"
     },
     "results_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/results.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/results.csv"
     },
     "results_jsonl": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/results.jsonl"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/results.jsonl"
     },
     "summary_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/summary.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/summary.csv"
     },
     "task_correctness_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/task_correctness.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/task_correctness.csv"
     },
     "task_metrics_csv": {
       "exists": true,
-      "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/task_metrics.csv"
+      "path": "benchmarks/codebench/results/exploration_2026_06_29/task_metrics.csv"
     }
   },
-  "captured_at": "2026-07-08T13:42:16.003862+00:00",
+  "captured_at": "2026-07-21T08:16:05.660755+00:00",
   "commit_under_test": {
-    "commit": "1b38f025839a25b69a5eeee8712d4c5acacffc1d",
+    "commit": "c5226ac8be97392dd3596be9b8a4ef7e73c60229",
     "dirty": true
   },
   "judge_outputs": {
@@ -129,28 +164,18 @@
       "quality_delta",
       "judge_reason"
     ],
-    "pairwise_path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/pairwise_quality.csv",
-    "path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/results.jsonl"
+    "pairwise_path": "benchmarks/codebench/results/exploration_2026_06_29/pairwise_quality.csv",
+    "path": "benchmarks/codebench/results/exploration_2026_06_29/results.jsonl"
   },
-  "manifest_path": "/home/pankaj/Projects/leanchain/lemoncrow/benchmarks/codebench/results/exploration_2026_06_29/benchmark-manifest.json",
+  "manifest_path": "benchmarks/codebench/results/exploration_2026_06_29/benchmark-manifest.json",
   "suite": "codebench",
   "summary": {
     "arms": [
-      "lemoncrow",
-      "baseline"
+      "baseline",
+      "codegraph",
+      "lemoncrow"
     ],
     "by_arm": {
-      "lemoncrow": {
-        "cache_read_tokens_sum": 2753393,
-        "correct": 0,
-        "cost_usd_sum": 6.28691525,
-        "duration_ms_sum": 1340607,
-        "input_tokens_sum": 205967,
-        "judged": 0,
-        "output_tokens_sum": 68893,
-        "total": 35,
-        "valid": 35
-      },
       "baseline": {
         "cache_read_tokens_sum": 35862919,
         "correct": 0,
@@ -161,8 +186,30 @@
         "output_tokens_sum": 426367,
         "total": 35,
         "valid": 35
+      },
+      "codegraph": {
+        "cache_read_tokens_sum": 3990630,
+        "correct": 0,
+        "cost_usd_sum": 15.98714,
+        "duration_ms_sum": 1653761,
+        "input_tokens_sum": 156116,
+        "judged": 0,
+        "output_tokens_sum": 99043,
+        "total": 35,
+        "valid": 35
+      },
+      "lemoncrow": {
+        "cache_read_tokens_sum": 2753393,
+        "correct": 0,
+        "cost_usd_sum": 6.28691525,
+        "duration_ms_sum": 1340607,
+        "input_tokens_sum": 205967,
+        "judged": 0,
+        "output_tokens_sum": 68893,
+        "total": 35,
+        "valid": 35
       }
     },
-    "total_runs": 70
+    "total_runs": 105
   }
 }

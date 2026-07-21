@@ -1,0 +1,1779 @@
+
+=== Turn 1 ===
+[user] <session>
+How does Django's ORM build and execute a query from a QuerySet?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "Django ORM query building and execution"}
+[usage] input=532 cache_read=0 cache_write=0 output=15
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore Django's ORM query-building and execution machinery using the code intelligence graph.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 1}
+[usage] input=3748 cache_read=15023 cache_write=2328 output=181
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does QuerySet build and execute a SQL query? QuerySet iteration, fetch_all, SQLCompiler, execute_sql, Query object"}
+[usage] input=2 cache_read=15116 cache_write=6847 output=108
+
+=== Turn 4 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. _fetch_all (django/db/models/query.py:2238)
+   ↓ calls
+2. __iter__ (django/db/models/query.py:92)
+   ↓ calls
+3. execute_sql (django/db/models/sql/compiler.py:1595)
+
+**Interface dispatch (a named method has many implementations)**
+
+- `execute` → runtime dispatch to **62** types implementing `BaseCommand` — the static path ends here, the target is chosen at runtime. e.g. `Command.execute` (django/contrib/auth/management/commands/createsuperuser.py:88), `Command.execute` (django/core/management/commands/runserver.py:63), `Command.execute` (django/core/management/commands/sqlmigrate.py:34) +59 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does QuerySet build and execute a SQL query? QuerySet iteration, fetch_all, SQLCompiler, execute_sql, Query object**
+
+Found 68 symbols across 2 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `execute_sql` (django/db/models/sql/compiler.py:2114) — 2 callers in `django/db/models/sql/compiler.py`; ⚠️ no covering tests found
+- `execute_sql` (django/db/models/sql/compiler.py:1595) — 19 callers in `django/db/models/query.py`, `django/db/models/query_utils.py`, `django/db/models/sql/compiler.py`, `django/db/models/sql/query.py` +1 more; tests: `tests/backends/tests.py`, `tests/queries/test_iterator.py`, `tests/queries/test_query.py`, `tests/queries/test_sqlcompiler.py`
+- `Query` (django/db/models/sql/query.py:232) — 57 callers in `django/contrib/gis/db/models/lookups.py`, `django/contrib/postgres/constraints.py`, `django/contrib/postgres/lookups.py`, `django/db/backends/base/schema.py` +8 more; tests: `tests/backends/test_ddl_references.py`, `tests/composite_pk/test_names_to_path.py`, `tests/prefetch_related/tests.py`, `tests/queries/test_query.py` +1
+- `RawQuery` (django/db/models/sql/query.py:156) — 1 caller in `django/db/models/sql/query.py`; ⚠️ no covering tests found
+
+**Relationships**
+
+**extends:**
+- Query → BaseExpression
+- SQLUpdateCompiler → SQLCompiler
+- SQLInsertCompiler → SQLCompiler
+- UpdateQuery → Query
+
+**calls:**
+- execute_sql → execute_sql
+- execute_sql → get_related_updates
+- execute_sql → get_compiler
+- execute_returning_sql → execute_sql
+- pre_sql_setup → execute_sql
+- get_related_updates → items
+- get_related_updates → add_filter
+- execute_returning_sql → get_related_updates
+- get_compiler → compiler
+- constraint_sql → get_compiler
+- ... and 191 more
+
+**instantiates:**
+- get_related_updates → UpdateQuery
+- clone → RawQuery
+- raw → RawQuerySet
+- using → RawQuerySet
+- test_rawqueryset_repr → RawQuerySet
+- test_emptyqs → EmptyQuerySet
+- _avoid_cloning → PreventQuerySetCloning
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`django/db/models/sql/compiler.py`** — calls(calls), close(calls), execute_sql(calls), references(references), get_converters(calls), apply_converters(calls), execute_sql(method), as_sql(calls), cursor(calls), execute(calls), +19 more
+
+```python
+1562	
+1563	            yield row
+1564	
+1565	    def results_iter(
+1566	        self,
+1567	        results=None,
+1568	        tuple_expected=False,
+1569	        chunked_fetch=False,
+1570	        chunk_size=GET_ITERATOR_CHUNK_SIZE,
+1571	    ):
+1572	        """Return an iterator over the results from executing this query."""
+1573	        if results is None:
+1574	            results = self.execute_sql(
+1575	                MULTI, chunked_fetch=chunked_fetch, chunk_size=chunk_size
+1576	            )
+1577	        fields = [s[0] for s in self.select[0 : self.col_count]]
+1578	        converters = self.get_converters(fields)
+1579	        rows = chain.from_iterable(results)
+1580	        if converters:
+1581	            rows = self.apply_converters(rows, converters)
+1582	        if self.has_composite_fields(fields):
+1583	            rows = self.composite_fields_to_tuples(rows, fields)
+1584	        if tuple_expected:
+1585	            rows = map(tuple, rows)
+1586	        return rows
+1587	
+1588	    def has_results(self):
+1589	        """
+1590	        Backends (e.g. NoSQL) can override this in order to use optimized
+1591	        versions of "query has any results."
+1592	        """
+1593	        return bool(self.execute_sql(SINGLE))
+1594	
+1595	    def execute_sql(
+1596	        self, result_type=MULTI, chunked_fetch=False, chunk_size=GET_ITERATOR_CHUNK_SIZE
+1597	    ):
+1598	        """
+1599	        Run the query against the database and return the result(s). The
+1600	        return value depends on the value of result_type.
+1601	
+1602	        When result_type is:
+1603	        - MULTI: Retrieves all rows using fetchmany(). Wraps in an iterator for
+1604	           chunked reads when supported.
+1605	        - SINGLE: Retrieves a single row using fetchone().
+1606	        - ROW_COUNT: Retrieves the number of rows in the result.
+1607	        - CURSOR: Runs the query, and returns the cursor object. It is the
+1608	           caller's responsibility to close the cursor.
+1609	        """
+1610	        result_type = result_type or NO_RESULTS
+1611	        try:
+1612	            sql, params = self.as_sql()
+1613	            if not sql:
+1614	                raise EmptyResultSet
+1615	        except EmptyResultSet:
+1616	            if result_type == MULTI:
+1617	                return iter([])
+1618	            else:
+1619	                return
+1620	        if chunked_fetch:
+1621	            cursor = self.connection.chunked_cursor()
+1622	        else:
+1623	            cursor = self.connection.cursor()
+1624	        try:
+1625	            cursor.execute(sql, params)
+1626	        except Exception as e:
+1627	            # Might fail for server-side cursors (e.g. connection closed)
+1628	            try:
+1629	                cursor.close()
+1630	            except DatabaseError:
+1631	                raise e from None
+1632	            raise
+1633	
+1634	        if result_type == ROW_COUNT:
+1635	            try:
+1636	                return cursor.rowcount
+1637	            finally:
+1638	                cursor.close()
+1639	        if result_type == CURSOR:
+1640	            # Give the caller the cursor to process and close.
+1641	            return cursor
+1642	        if result_type == SINGLE:
+1643	            try:
+1644	                val = cursor.fetchone()
+1645	                if val:
+1646	                    return val[0 : self.col_count]
+1647	                return val
+1648	            finally:
+1649	                # done with the cursor
+1650	                cursor.close()
+1651	        if result_type == NO_RESULTS:
+1652	            cursor.close()
+1653	            return
+1654	
+1655	        result = cursor_iter(
+1656	            cursor,
+1657	            self.connection.features.empty_fetchmany_value,
+1658	            self.col_count if self.has_extra_select else None,
+1659	            chunk_size,
+1660	        )
+1661	        if not chunked_fetch or not self.connection.features.can_use_chunked_reads:
+1662	            # If we are using non-chunked reads, we return the same data
+1663	            # structure as normally, but ensure it is all read into memory
+1664	            # before going any further. Use chunked_fetch if requested,
+1665	            # unless the database doesn't support it.
+1666	            return list(result)
+1667	        return result
+1668	
+1669	    def explain_query(self):
+1670	        result = list(self.execute_sql())
+1671	        # Some backends return 1 item tuples with strings, and others return
+1672	        # tuples with integers and strings. Flatten them out into strings.
+1673	        format_ = self.query.explain_info.format
+1674	        output_formatter = json.dumps if format_ and format_.lower() == "json" else str
+1675	        for row in result:
+1676	            for value in row:
+1677	                if not isinstance(value, str):
+1678	                    yield " ".join([output_formatter(c) for c in value])
+1679	                else:
+1680	                    yield value
+1681	
+1682	
+1683	class SQLInsertCompiler(SQLCompiler):
+1684	    returning_fields = None
+1685	    returning_params = ()
+1686	
+1687	    def field_as_sql(self, field, get_placeholder_sql, val):
+1688	        """
+1689	        Take a field and a value intended to be saved on that field, and
+1690	        return placeholder SQL and accompanying params. Check for raw values,
+1691	        fields with get_placeholder_sql(), and compilable defined in that
+1692	        order.
+1693	
+1694	        When field is None, consider the value raw and use it as the
+1695	        placeholder, with no corresponding parameters returned.
+1696	        """
+1697	        if field is None:
+1698	            # A field value of None means the value is raw.
+1699	            sql, params = val, []
+1700	        elif get_placeholder_sql is not None:
+1701	            # Some fields (e.g. geo fields) need special munging before
+1702	            # they can be inserted.
+1703	            sql, params = get_placeholder_sql(val, self, self.connection)
+1704	        elif hasattr(val, "as_sql"):
+1705	            # This is an expression, let's compile it.
+1706	            sql, params = self.compile(val)
+1707	        else:
+1708	            # Return the common case for the placeholder
+1709	            sql, params = "%s", [val]
+1710	
+1711	        # The following hook is only used by Oracle Spatial, which sometimes
+1712	        # needs to yield 'NULL' and () as its placeholder and params instead
+1713	        # of '%s' and (None,). The 'NULL' placeholder is produced earlier by
+1714	        # OracleOperations.get_geom_placeholder(). The following line removes
+1715	        # the corresponding None parameter. See ticket #10888.
+1716	        params = self.connection.ops.modify_insert_params(sql, params)
+1717	
+1718	        return sql, params
+1719	
+1720	    def prepare_value(self, field, value):
+1721	        """
+1722	        Prepare a value to be used in a query by resolving it if it is an
+1723	        expression and otherwise calling the field's get_db_prep_save().
+1724	        """
+1725	        if hasattr(value, "resolve_expression"):
+1726	            value = value.resolve_expression(
+1727	                self.query, allow_joins=False, for_save=True
+1728	            )
+1729	            # Don't allow values containing Col expressions. They refer to
+1730	            # existing columns on a row, but in the case of insert the row
+1731	            # doesn't exist yet.
+1732	            if value.contains_column_references:
+1733	                raise ValueError(
+1734	                    'Failed to insert expression "%s" on %s. F() expressions '
+1735	                    "can only be used to update, not to insert." % (value, field)
+1736	                )
+1737	            if value.contains_aggregate:
+1738	                raise FieldError(
+1739	                    "Aggregate functions are not allowed in this query "
+1740	                    "(%s=%r)." % (field.name, value)
+1741	                )
+1742	            if value.contains_over_clause:
+1743	                raise FieldError(
+1744	                    "Window expressions are not allowed in this query (%s=%r)."
+1745	                    % (field.name, value)
+1746	                )
+1747	        return field.get_db_prep_save(value, connection=self.connection)
+1748	
+1749	    def pre_save_val(self, field, obj):
+1750	        """
+1751	        Get the given field's value off the given obj. pre_save() is used for
+1752	        things like auto_now on DateTimeField. Skip it if this is a raw query.
+1753	        """
+1754	        if self.query.raw:
+1755	            return getattr(obj, field.attname)
+1756	        return field.pre_save(obj, add=True)
+1757	
+1758	    def assemble_as_sql(self, fields, value_rows):
+1759	        """
+1760	        Take a sequence of N fields and a sequence of M rows of values, and
+1761	        generate placeholder SQL and parameters for each field and value.
+1762	        Return a pair containing:
+1763	         * a sequence of M rows of N SQL placeholder strings, and
+1764	         * a sequence of M rows of corresponding parameter values.
+1765	
+1766	        Each placeholder string may contain any number of '%s' interpolation
+1767	        strings, and each parameter row will contain exactly as many params
+1768	        as the total number of '%s's in the corresponding placeholder row.
+1769	        """
+1770	        if not value_rows:
+1771	            return [], []
+1772	
+1773	        # list of (sql, [params]) tuples for each object to be saved
+1774	        # Shape: [n_objs][n_fields][2]
+1775	        get_placeholder_sqls = [
+1776	            getattr(field, "get_placeholder_sql", None) for field in fields
+1777	        ]
+1778	        rows_of_fields_as_sql = (
+1779	            (
+1780	                self.field_as_sql(field, get_placeholder_sql, value)
+1781	                for field, get_placeholder_sql, value in zip(
+1782	                    fields, get_placeholder_sqls, row
+1783	                )
+1784	            )
+1785	            for row in value_rows
+1786	        )
+1787	
+1788	        # tuple like ([sqls], [[params]s]) for each object to be saved
+1789	        # Shape: [n_objs][2][n_fields]
+1790	        sql_and_param_pair_rows = (zip(*row) for row in rows_of_fields_as_sql)
+1791	
+1792	        # Extract separate lists for placeholders and params.
+1793	        # Each of these has shape [n_objs][n_fields]
+1794	        placeholder_rows, param_rows = zip(*sql_and_param_pair_rows)
+1795	
+1796	        # Params for each field are still lists, and need to be flattened.
+1797	        param_rows = [[p for ps in row for p in ps] for row in param_rows]
+1798	
+1799	        return placeholder_rows, param_rows
+1800	
+1801	    def as_sql(self):
+1802	        qn = self.quote_name
+1803	        opts = self.query.get_meta()
+1804	        insert_statement = self.connection.ops.insert_statement(
+1805	            on_conflict=self.query.on_conflict,
+1806	        )
+1807	        result = ["%s %s" % (insert_statement, qn(opts.db_table))]
+1808	
+1809	        if fields := list(self.query.fields):
+1810	            from django.db.models.expressions import DatabaseDefault
+1811	
+1812	            supports_default_keyword_in_bulk_insert = (
+1813	                self.connection.features.supports_default_keyword_in_bulk_insert
+1814	            )
+1815	            value_cols = []
+1816	            for field in list(fields):
+1817	                field_prepare = partial(self.prepare_value, field)
+1818	                field_pre_save = partial(self.pre_save_val, field)
+1819	
+1820	                field_values = []
+1821	                for obj in self.query.objs:
+1822	                    value = field_pre_save(obj)
+1823	                    if not isinstance(value, DatabaseDefault):
+1824	                        value = field_prepare(value)
+1825	                    field_values.append(value)
+1826	
+1827	                if not field.has_db_default():
+1828	                    value_cols.append(field_values)
+1829	                    continue
+1830	
+1831	                # If all values are DEFAULT don't include the field and its
+1832	                # values in the query as they are redundant and could prevent
+1833	                # optimizations. This cannot be done if we're dealing with the
+1834	                # last field as INSERT statements require at least one.
+1835	                if len(fields) > 1 and all(
+1836	                    isinstance(value, DatabaseDefault) for value in field_values
+1837	                ):
+1838	                    fields.remove(field)
+1839	                    continue
+1840	
+1841	                if supports_default_keyword_in_bulk_insert:
+1842	                    value_cols.append(field_values)
+1843	                    continue
+1844	
+1845	                # If the field cannot be excluded from the INSERT for the
+1846	                # reasons listed above and the backend doesn't support the
+1847	                # DEFAULT keyword each values must be expanded into their
+1848	                # underlying expressions.
+1849	                prepared_db_default = field_prepare(field.db_default)
+1850	                field_values = [
+1851	                    (
+1852	                        prepared_db_default
+1853	                        if isinstance(value, DatabaseDefault)
+1854	                        else value
+1855	                    )
+1856	                    for value in field_values
+1857	                ]
+1858	                value_cols.append(field_values)
+1859	            value_rows = list(zip(*value_cols))
+1860	            result.append("(%s)" % ", ".join(qn(f.column) for f in fields))
+1861	        else:
+1862	            # No fields were specified but an INSERT statement must include at
+1863	            # least one column. This can only happen when the model's primary
+1864	            # key is composed of a single auto-field so default to including it
+1865	            # as a placeholder to generate a valid INSERT statement.
+1866	            value_rows = [
+1867	                [self.connection.ops.pk_default_value()] for _ in self.query.objs
+1868	            ]
+1869	            fields = [None]
+1870	            result.append("(%s)" % qn(opts.pk.column))
+1871	
+1872	        # Currently the backends just accept values when generating bulk
+1873	        # queries and generate their own placeholders. Doing that isn't
+1874	        # necessary and it should be possible to use placeholders and
+1875	        # expressions in bulk inserts too.
+1876	        can_bulk = (
+1877	            not self.returning_fields and self.connection.features.has_bulk_insert
+1878	        )
+1879	
+1880	        placeholder_rows, param_rows = self.assemble_as_sql(fields, value_rows)
+1881	
+1882	        on_conflict_suffix_sql = self.connection.ops.on_conflict_suffix_sql(
+1883	            fields,
+1884	            self.query.on_conflict,
+1885	            (f.column for f in self.query.update_fields),
+1886	            (f.column for f in self.query.unique_fields),
+1887	        )
+1888	        if (
+1889	            self.returning_fields
+1890	            and self.connection.features.can_return_columns_from_insert
+1891	        ):
+1892	            if self.connection.features.can_return_rows_from_bulk_insert:
+1893	                result.append(
+1894	                    self.connection.ops.bulk_insert_sql(fields, placeholder_rows)
+1895	                )
+1896	                params = param_rows
+1897	            else:
+1898	                result.append("VALUES (%s)" % ", ".join(placeholder_rows[0]))
+1899	                params = [param_rows[0]]
+1900	            if on_conflict_suffix_sql:
+1901	                result.append(on_conflict_suffix_sql)
+1902	            # Skip empty r_sql to allow subclasses to customize behavior for
+1903	            # 3rd party backends. Refs #19096.
+1904	            r_sql, self.returning_params = self.connection.ops.returning_columns(
+1905	                self.returning_fields
+1906	            )
+1907	            if r_sql:
+1908	                result.append(r_sql)
+1909	                params += [self.returning_params]
+1910	            return [(" ".join(result), tuple(chain.from_iterable(params)))]
+1911	
+1912	        if can_bulk:
+1913	            result.append(self.connection.ops.bulk_insert_sql(fields, placeholder_rows))
+1914	            if on_conflict_suffix_sql:
+1915	                result.append(on_conflict_suffix_sql)
+1916	            return [(" ".join(result), tuple(p for ps in param_rows for p in ps))]
+1917	        else:
+1918	            if on_conflict_suffix_sql:
+1919	                result.append(on_conflict_suffix_sql)
+1920	            return [
+1921	                (" ".join([*result, "VALUES (%s)" % ", ".join(p)]), vals)
+1922	                for p, vals in zip(placeholder_rows, param_rows)
+1923	            ]
+1924	
+1925	    def execute_sql(self, returning_fields=None):
+1926	        assert not (
+1927	            returning_fields
+1928	            and len(self.query.objs) != 1
+1929	            and not self.connection.features.can_return_rows_from_bulk_insert
+1930	        )
+1931	        opts = self.query.get_meta()
+1932	        self.returning_fields = returning_fields
+1933	        cols = []
+1934	        with self.connection.cursor() as cursor:
+1935	            for sql, params in self.as_sql():
+1936	                cursor.execute(sql, params)
+1937	            if not self.returning_fields:
+1938	                return []
+1939	            obj_len = len(self.query.objs)
+1940	            if (
+1941	                self.connection.features.can_return_rows_from_bulk_insert
+1942	                and obj_len > 1
+1943	            ) or (
+1944	                self.connection.features.can_return_columns_from_insert and obj_len == 1
+1945	            ):
+1946	                rows = self.connection.ops.fetch_returned_rows(
+1947	                    cursor, self.returning_params
+1948	                )
+1949	                cols = [field.get_col(opts.db_table) for field in self.returning_fields]
+1950	            elif returning_fields and isinstance(
+1951	                returning_field := returning_fields[0], AutoField
+1952	            ):
+1953	                cols = [returning_field.get_col(opts.db_table)]
+1954	                rows = [
+1955	                    (
+1956	                        self.connection.ops.last_insert_id(
+1957	                            cursor,
+1958	                            opts.db_table,
+1959	                            returning_field.column,
+1960	                        ),
+1961	                    )
+1962	                ]
+1963	            else:
+1964	                # Backend doesn't support returning fields and no auto-field
+1965	                # that can be retrieved from `last_insert_id` was specified.
+1966	                return []
+1967	        converters = self.get_converters(cols)
+1968	        if converters:
+1969	            rows = self.apply_converters(rows, converters)
+1970	        return list(rows)
+1971	
+1972	
+1973	class SQLDeleteCompiler(SQLCompiler):
+```
+
+**`django/db/models/query.py`** — calls(calls), PreventQuerySetCloning(class), __init__(method), __enter__(method), __exit__(method), extends(extends), _clone(method), chain(calls), _fetch_all(method)
+
+```python
+301	            yield row[0]
+302	
+303	
+304	class PreventQuerySetCloning:
+305	    """
+306	    Temporarily prevent the given QuerySet from creating new QuerySet instances
+307	    on each mutating operation (e.g: filter(), exclude() etc), instead
+308	    modifying the QuerySet in-place.
+309	
+310	    @contextlib.contextmanager is intentionally not used for performance
+311	    reasons.
+312	    """
+313	
+314	    __slots__ = ("queryset",)
+315	
+316	    def __init__(self, queryset):
+317	        self.queryset = queryset
+318	
+319	    def __enter__(self):
+320	        return self.queryset._disable_cloning()
+321	
+322	    def __exit__(self, exc_type, exc_value, traceback):
+323	        self.queryset._enable_cloning()
+324	
+325	
+326	class QuerySet(AltersData):
+327	    """Represent a lazy database lookup for a set of objects."""
+328	
+329	    def __init__(self, model=None, query=None, using=None, hints=None):
+
+... (gap) ...
+
+2215	            obj._sticky_filter = False
+2216	        return obj
+2217	
+2218	    def _clone(self):
+2219	        """
+2220	        Return a copy of the current QuerySet. A lightweight alternative
+2221	        to deepcopy().
+2222	        """
+2223	        c = self.__class__(
+2224	            model=self.model,
+2225	            query=self.query.chain(),
+2226	            using=self._db,
+2227	            hints=self._hints,
+2228	        )
+2229	        c._sticky_filter = self._sticky_filter
+2230	        c._for_write = self._for_write
+2231	        c._prefetch_related_lookups = self._prefetch_related_lookups[:]
+2232	        c._known_related_objects = self._known_related_objects
+2233	        c._iterable_class = self._iterable_class
+2234	        c._fetch_mode = self._fetch_mode
+2235	        c._fields = self._fields
+2236	        return c
+2237	
+2238	    def _fetch_all(self):
+2239	        if self._result_cache is None:
+2240	            self._result_cache = list(self._iterable_class(self))
+2241	        if self._prefetch_related_lookups and not self._prefetch_done:
+2242	            self._prefetch_related_objects()
+2243	
+2244	    def _next_is_sticky(self):
+2245	        """
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me trace the iteration path and the compiler that turns the `Query` into SQL.[tool_use: mcp__codegraph__codegraph_explore] {"query": "ModelIterable __iter__, QuerySet __iter__ _fetch_all, get_compiler, SQLCompiler as_sql pre_sql_setup, RelatedPopulator, Query.chain clone add_filter"}
+[usage] input=2 cache_read=21963 cache_write=9197 output=239
+
+=== Turn 5 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. __iter__ (django/db/models/query.py:420)
+   ↓ calls
+2. _fetch_all (django/db/models/query.py:2238)
+   ↓ calls
+3. __iter__ (django/db/models/query.py:92)
+   ↓ calls
+4. get_compiler (django/db/models/sql/query.py:370)
+
+**Interface dispatch (a named method has many implementations)**
+
+- `as_sql` → runtime dispatch to **50** types implementing `Transform` — the static path ends here, the target is chosen at runtime. e.g. `RasterBandTransform.as_sql` (django/contrib/gis/db/models/lookups.py:10), `ArrayLenTransform.as_sql` (django/contrib/postgres/fields/array.py:310), `IndexTransform.as_sql` (django/contrib/postgres/fields/array.py:342), `SliceTransform.as_sql` (django/contrib/postgres/fields/array.py:368) +46 more
+- `clone` → runtime dispatch to **9** types implementing `GDALBase` — the static path ends here, the target is chosen at runtime. e.g. `SpatialReference.clone` (django/contrib/gis/gdal/srs.py:172), `OGRGeometry.clone` (django/contrib/gis/gdal/geometries.py:448) +7 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: ModelIterable __iter__, QuerySet __iter__ _fetch_all, get_compiler, SQLCompiler as_sql pre_sql_setup, RelatedPopulator, Query.chain clone add_filter**
+
+Found 76 symbols across 2 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `SQLCompiler` (django/db/models/sql/compiler.py:43) — 5 callers in `django/db/backends/mysql/compiler.py`, `django/db/backends/postgresql/compiler.py`; tests: `tests/queries/test_sqlcompiler.py`
+- `compile` (django/db/models/sql/compiler.py:574) — 75 callers in `django/contrib/gis/db/backends/base/operations.py`, `django/contrib/gis/db/backends/postgis/operations.py`, `django/contrib/gis/db/models/functions.py`, `django/contrib/gis/db/models/lookups.py` +21 more; tests: `tests/aggregation/tests.py`, `tests/custom_lookups/tests.py`, `tests/lookup/tests.py`, `tests/postgres_tests/fields.py`
+- `get_compiler` (django/db/models/sql/query.py:370) — 62 callers in `django/contrib/postgres/constraints.py`, `django/db/backends/base/schema.py`, `django/db/models/constraints.py`, `django/db/models/fields/related_descriptors.py` +7 more; tests: `tests/aggregation/tests.py`, `tests/aggregation_regress/tests.py`, `tests/backends/test_ddl_references.py`, `tests/backends/tests.py` +12
+- `add_filter` (django/db/models/sql/query.py:1660) — 6 callers in `django/db/models/sql/compiler.py`, `django/db/models/sql/query.py`, `django/db/models/sql/subqueries.py`; ⚠️ no covering tests found
+
+**Relationships**
+
+**calls:**
+- compile → as_sql
+- get_geom_placeholder_sql → compile
+- get_geom_placeholder_sql → compile
+- as_oracle → compile
+- as_sql → compile
+- process_distance → compile
+- as_sql → compile
+- get_placeholder_sql → compile
+- as_sql → compile
+- as_sql → compile
+- ... and 224 more
+
+**instantiates:**
+- add_filter → Q
+- as_sql → Query
+- _order_by_pairs → PositionRef
+- _order_by_pairs → Ref
+- get_order_by → Ref
+- get_qualify_sql → Ref
+- get_aggregation → Ref
+- solve_lookup_type → Ref
+- resolve_ref → Ref
+- set_group_by → Ref
+- ... and 1 more
+
+**references:**
+- split_having_qualify → XOR
+- split_having_qualify → AND
+- as_sql → fields
+- assemble_as_sql → fields
+- pre_sql_setup → fields
+- as_sql → AND
+- as_sql → XOR
+
+**extends:**
+- SQLInsertCompiler → SQLCompiler
+- PositionRef → Ref
+- Ref → Expression
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`django/db/models/sql/compiler.py`** — SQLCompiler, compile, as_sql, __init__, __repr__, setup_query, pre_sql_setup, get_group_by, collapse_group_by, get_select_from_parent · focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)
+
+```python
+34	class PositionRef(Ref):
+35	def __init__(self, ordinal, refs, source):
+39	def as_sql(self, compiler, connection):
+43	class SQLCompiler:
+50	def __init__(self, query, connection, using, elide_empty=True):
+68	def __repr__(self):
+75	def setup_query(self, with_col_aliases=False):
+83	    def pre_sql_setup(self, with_col_aliases=False):
+84	        """
+85	        Do any necessary class setup immediately prior to producing SQL. This
+86	        is for things that can't necessarily be done in __init__ because we
+87	        might not have all the pieces in place at that time.
+88	        """
+89	        self.setup_query(with_col_aliases=with_col_aliases)
+90	        order_by = self.get_order_by()
+91	        self.where, self.having, self.qualify = self.query.where.split_having_qualify(
+92	            must_group_by=self.query.group_by is not None
+93	        )
+94	        extra_select = self.get_extra_select(order_by, self.select)
+95	        self.has_extra_select = bool(extra_select)
+96	        group_by = self.get_group_by(self.select + extra_select, order_by)
+97	        return extra_select, order_by, group_by
+99	def get_group_by(self, select, order_by):
+202	def collapse_group_by(self, expressions, having):
+235	def get_select_from_parent(cls, klass_info):
+241	def get_select(self, with_col_aliases=False):
+339	def _order_by_pairs(self):
+480	def get_order_by(self):
+541	def get_extra_select(self, order_by, select):
+551	def quote_name(self, name):
+563	def quote_name_unless_alias(self, name):
+574	def compile(self, node):
+582	def get_combinator_sql(self, combinator, all):
+635	def _get_combinator_part_sql(self, compiler):
+661	def get_qualify_sql(self):
+2167	    def pre_sql_setup(self):
+2168	        """
+2169	        If the update depends on results from other tables, munge the "where"
+2170	        conditions to match the format required for (portable) SQL updates.
+2171	
+2172	        If multiple updates are required, pull out the id values to update at
+2173	        this point so that they don't change as a result of the progressive
+2174	        updates.
+2175	        """
+2176	        refcounts_before = self.query.alias_refcount.copy()
+2177	        # Ensure base table is in the query
+2178	        self.query.get_initial_alias()
+2179	        count = self.query.count_active_tables()
+2180	        if not self.query.related_updates and count == 1:
+2181	            return
+2182	        query = self.query.chain(klass=Query)
+2183	        query.select_related = False
+2184	        query.clear_ordering(force=True)
+2185	        query.extra = {}
+2186	        query.select = []
+2187	        meta = query.get_meta()
+2188	        fields = [meta.pk.name]
+2189	        related_ids_index = []
+2190	        for related in self.query.related_updates:
+2191	            if all(
+2192	                path.join_field.primary_key for path in meta.get_path_to_parent(related)
+2193	            ):
+2194	                # If a primary key chain exists to the targeted related update,
+2195	                # then the meta.pk value can be used for it.
+2196	                related_ids_index.append((related, 0))
+2197	            else:
+2198	                # This branch will only be reached when updating a field of an
+2199	                # ancestor that is not part of the primary key chain of a MTI
+2200	                # tree.
+2201	                related_ids_index.append((related, len(fields)))
+2202	                fields.append(related._meta.pk.name)
+2203	        query.add_fields(fields)
+2204	        super().pre_sql_setup()
+2205	
+2206	        is_composite_pk = meta.is_composite_pk
+2207	        must_pre_select = (
+2208	            count > 1 and not self.connection.features.update_can_self_select
+2209	        )
+2210	
+2211	        # Now we adjust the current query: reset the where clause and get rid
+2212	        # of all the tables we don't need (since they're in the sub-select).
+2213	        self.query.clear_where()
+2214	        if self.query.related_updates or must_pre_select:
+2215	            # Either we're using the idents in multiple update queries (so
+2216	            # don't want them to change), or the db backend doesn't support
+2217	            # selecting from the updating table (e.g. MySQL).
+2218	            idents = []
+2219	            related_ids = collections.defaultdict(list)
+2220	            for rows in query.get_compiler(self.using).execute_sql(MULTI):
+2221	                pks = [row if is_composite_pk else row[0] for row in rows]
+2222	                idents.extend(pks)
+2223	                for parent, index in related_ids_index:
+2224	                    related_ids[parent].extend(r[index] for r in rows)
+2225	            self.query.add_filter("pk__in", idents)
+2226	            self.query.related_ids = related_ids
+2227	        else:
+2228	            # The fast path. Filters and updates in one query.
+2229	            self.query.add_filter("pk__in", query)
+2230	        self.query.reset_refcounts(refcounts_before)
+… +22 more (signatures elided)
+```
+
+**`django/db/models/sql/query.py`** — calls(calls), clone(calls), instantiates(instantiates), Ref(instantiates), get_compiler(calls), get_initial_alias(calls), __init__(method), WhereNode(instantiates), output_field(method), decorates(decorates), +19 more
+
+```python
+303	
+304	    explain_info = None
+305	
+306	    def __init__(self, model, alias_cols=True):
+307	        self.model = model
+308	        self.alias_refcount = {}
+309	        # alias_map is the most important data structure regarding joins.
+310	        # It's used for recording which joins exist in the query and what
+311	        # types they are. The key is the alias of the joined table (possibly
+312	        # the table name) and the value is a Join-like object (see
+313	        # sql.datastructures.Join for more information).
+314	        self.alias_map = {}
+315	        # Whether to provide alias to columns during reference resolving.
+316	        self.alias_cols = alias_cols
+317	        # Sometimes the query contains references to aliases in outer queries
+318	        # (as a result of split_exclude). Correct alias quoting needs to know
+319	        # these aliases too. Map external tables to whether they are aliased.
+320	        self.external_aliases = {}
+321	        self.table_map = {}  # Maps table names to list of aliases.
+322	        self.used_aliases = set()
+323	
+324	        self.where = WhereNode()
+325	        # Maps alias -> Annotation Expression.
+326	        self.annotations = {}
+327	        # These are for extensions. The contents are more or less appended
+328	        # verbatim to the appropriate clause.
+329	        self.extra = {}  # Maps col_alias -> (col_sql, params).
+330	
+331	        self._filtered_relations = {}
+332	
+333	    @property
+334	    def output_field(self):
+335	        if len(self.select) == 1:
+336	            select = self.select[0]
+337	            return getattr(select, "target", None) or select.field
+338	        elif len(self.annotation_select) == 1:
+339	            return next(iter(self.annotation_select.values())).output_field
+340	
+341	    @cached_property
+342	    def base_table(self):
+343	        for alias in self.alias_map:
+344	            return alias
+345	
+346	    def __str__(self):
+347	        """
+348	        Return the query as a string of SQL with the parameter values
+349	        substituted in (use sql_with_params() to see the unsubstituted string).
+350	
+351	        Parameter values won't necessarily be quoted correctly, since that is
+352	        done by the database interface at execution time.
+353	        """
+354	        sql, params = self.sql_with_params()
+355	        return sql % params
+356	
+357	    def sql_with_params(self):
+358	        """
+359	        Return the query as an SQL string and the parameters that will be
+360	        substituted into the query.
+361	        """
+362	        return self.get_compiler(DEFAULT_DB_ALIAS).as_sql()
+363	
+364	    def __deepcopy__(self, memo):
+365	        """Limit the amount of work when a Query is deepcopied."""
+366	        result = self.clone()
+367	        memo[id(self)] = result
+368	        return result
+369	
+370	    def get_compiler(self, using=None, connection=None, elide_empty=True):
+371	        if using is None and connection is None:
+372	            raise ValueError("Need either using or connection")
+373	        if using:
+374	            connection = connections[using]
+375	        return connection.ops.compiler(self.compiler)(
+376	            self, connection, using, elide_empty
+377	        )
+378	
+379	    def get_meta(self):
+380	        """
+381	        Return the Options instance (the model._meta) from which to start
+382	        processing. Normally, this is self.model._meta, but it can be changed
+383	        by subclasses.
+384	        """
+385	        if self.model:
+386	            return self.model._meta
+387	
+388	    def clone(self):
+389	        """
+390	        Return a copy of the current Query. A lightweight alternative to
+391	        deepcopy().
+392	        """
+393	        obj = Empty()
+394	        obj.__class__ = self.__class__
+395	        # Copy references to everything.
+396	        obj.__dict__ = self.__dict__.copy()
+397	        # Clone attributes that can't use shallow copy.
+398	        obj.alias_refcount = self.alias_refcount.copy()
+399	        obj.alias_map = self.alias_map.copy()
+400	        obj.external_aliases = self.external_aliases.copy()
+401	        obj.table_map = self.table_map.copy()
+402	        obj.where = self.where.clone()
+403	        obj.annotations = self.annotations.copy()
+404	        if self.annotation_select_mask is not None:
+405	            obj.annotation_select_mask = self.annotation_select_mask.copy()
+406	        if self.combined_queries:
+407	            obj.combined_queries = tuple(
+408	                [query.clone() for query in self.combined_queries]
+409	            )
+410	        # _annotation_select_cache cannot be copied, as doing so breaks the
+411	        # (necessary) state in which both annotations and
+412	        # _annotation_select_cache point to the same underlying objects.
+413	        # It will get re-populated in the cloned queryset the next time it's
+414	        # used.
+415	        obj._annotation_select_cache = None
+416	        obj.extra = self.extra.copy()
+417	        if self.extra_select_mask is not None:
+418	            obj.extra_select_mask = self.extra_select_mask.copy()
+419	        if self._extra_select_cache is not None:
+420	            obj._extra_select_cache = self._extra_select_cache.copy()
+421	        if self.select_related is not False:
+422	            # Use deepcopy because select_related stores fields in nested
+423	            # dicts.
+424	            obj.select_related = copy.deepcopy(obj.select_related)
+425	        if "subq_aliases" in self.__dict__:
+426	            obj.subq_aliases = self.subq_aliases.copy()
+427	        obj.used_aliases = self.used_aliases.copy()
+428	        obj._filtered_relations = self._filtered_relations.copy()
+429	        # Clear the cached_property, if it exists.
+430	        obj.__dict__.pop("base_table", None)
+431	        return obj
+432	
+433	    def chain(self, klass=None):
+434	        """
+435	        Return a copy of the current Query that's ready for another operation.
+436	        The klass argument changes the type of the Query, e.g. UpdateQuery.
+437	        """
+438	        obj = self.clone()
+439	        if klass and obj.__class__ != klass:
+440	            obj.__class__ = klass
+441	        if not obj.filter_is_sticky:
+442	            obj.used_aliases = set()
+443	        obj.filter_is_sticky = False
+444	        if hasattr(obj, "_setup_query"):
+445	            obj._setup_query()
+446	        return obj
+447	
+448	    def relabeled_clone(self, change_map):
+449	        clone = self.clone()
+450	        clone.change_aliases(change_map)
+451	        return clone
+452	
+453	    def _get_col(self, target, field, alias):
+454	        if not self.alias_cols:
+455	            alias = None
+456	        return target.get_col(alias, field)
+457	
+458	    def get_aggregation(self, using, aggregate_exprs):
+459	        """
+460	        Return the dictionary with the values of the existing aggregations.
+461	        """
+462	        if not aggregate_exprs:
+463	            return {}
+464	        # Store annotation mask prior to temporarily adding aggregations for
+465	        # resolving purpose to facilitate their subsequent removal.
+466	        refs_subquery = False
+467	        refs_window = False
+468	        replacements = {}
+469	        annotation_select_mask = self.annotation_select_mask
+470	        for alias, aggregate_expr in aggregate_exprs.items():
+471	            self.check_alias(alias)
+472	            aggregate = aggregate_expr.resolve_expression(
+473	                self, allow_joins=True, reuse=None, summarize=True
+474	            )
+475	            if not aggregate.contains_aggregate:
+476	                raise TypeError("%s is not an aggregate expression" % alias)
+477	            # Temporarily add aggregate to annotations to allow remaining
+478	            # members of `aggregates` to resolve against each others.
+479	            self.append_annotation_mask([alias])
+480	            aggregate_refs = aggregate.get_refs()
+481	            refs_subquery |= any(
+482	                getattr(self.annotations[ref], "contains_subquery", False)
+483	                for ref in aggregate_refs
+484	            )
+485	            refs_window |= any(
+486	                getattr(self.annotations[ref], "contains_over_clause", True)
+487	                for ref in aggregate_refs
+488	            )
+489	            aggregate = aggregate.replace_expressions(replacements)
+490	            self.annotations[alias] = aggregate
+491	            replacements[Ref(alias, aggregate)] = aggregate
+492	        # Stash resolved aggregates now that they have been allowed to resolve
+493	        # against each other.
+494	        aggregates = {alias: self.annotations.pop(alias) for alias in aggregate_exprs}
+495	        self.set_annotation_mask(annotation_select_mask)
+496	        # Existing usage of aggregation can be determined by the presence of
+497	        # selected aggregates but also by filters against aliased aggregates.
+498	        _, having, qualify = self.where.split_having_qualify()
+499	        has_existing_aggregation = (
+500	            any(
+501	                getattr(annotation, "contains_aggregate", True)
+502	                for annotation in self.annotations.values()
+503	            )
+504	            or having
+505	        )
+506	        set_returning_annotations = {
+507	            alias
+508	            for alias, annotation in self.annotation_select.items()
+509	            if getattr(annotation, "set_returning", False)
+510	        }
+511	        # Decide if we need to use a subquery.
+512	        #
+513	        # Existing aggregations would cause incorrect results as
+514	        # get_aggregation() must produce just one result and thus must not use
+515	        # GROUP BY.
+516	        #
+517	        # If the query has limit or distinct, or uses set operations, then
+518	        # those operations must be done in a subquery so that the query
+519	        # aggregates on the limit and/or distinct results instead of applying
+520	        # the distinct and limit after the aggregation.
+521	        if (
+522	            isinstance(self.group_by, tuple)
+523	            or self.is_sliced
+524	            or has_existing_aggregation
+525	            or refs_subquery
+526	            or refs_window
+527	            or qualify
+528	            or self.distinct
+529	            or self.combinator
+530	            or set_returning_annotations
+531	        ):
+532	            from django.db.models.sql.subqueries import AggregateQuery
+533	
+534	            inner_query = self.clone()
+535	            inner_query.subquery = True
+536	            outer_query = AggregateQuery(self.model, inner_query)
+537	            inner_query.select_for_update = False
+538	            inner_query.select_related = False
+539	            inner_query.set_annotation_mask(self.annotation_select)
+540	            # Queries with distinct_fields need ordering and when a limit is
+541	            # applied we must take the slice from the ordered query. Otherwise
+542	            # no need for ordering.
+543	            if inner_query.orderby_issubset_groupby:
+544	                inner_query.clear_ordering(force=False)
+545	            if not inner_query.distinct:
+546	                # If the inner query uses default select and it has some
+547	                # aggregate annotations, then we must make sure the inner
+548	                # query is grouped by the main model's primary key. However,
+549	                # clearing the select clause can alter results if distinct is
+550	                # used.
+551	                if inner_query.default_cols and has_existing_aggregation:
+552	                    inner_query.group_by = (
+553	                        self.model._meta.pk.get_col(inner_query.get_initial_alias()),
+554	                    )
+555	                inner_query.default_cols = False
+556	                if not qualify and not self.combinator:
+557	                    # Mask existing annotations that are not referenced by
+558	                    # aggregates to be pushed to the outer query unless
+559	                    # filtering against window functions or if the query is
+560	                    # combined as both would require complex realiasing logic.
+561	                    annotation_mask = set()
+562	                    if isinstance(self.group_by, tuple):
+563	                        for expr in self.group_by:
+564	                            annotation_mask |= expr.get_refs()
+565	                    for aggregate in aggregates.values():
+566	                        annotation_mask |= aggregate.get_refs()
+567	                    # Avoid eliding expressions that might have an incidence on
+568	                    # the implicit grouping logic.
+569	                    for annotation_alias, annotation in self.annotation_select.items():
+570	                        if annotation.get_group_by_cols():
+571	                            annotation_mask.add(annotation_alias)
+572	                    inner_query.set_annotation_mask(annotation_mask)
+573	                    # Annotations that possibly return multiple rows cannot
+574	                    # be masked as they might have an incidence on the query.
+575	                    annotation_mask |= set_returning_annotations
+576	
+577	            # Add aggregates to the outer AggregateQuery. This requires making
+578	            # sure all columns referenced by the aggregates are selected in the
+579	            # inner query. It is achieved by retrieving all column references
+580	            # by the aggregates, explicitly selecting them in the inner query,
+581	            # and making sure the aggregates are repointed to them.
+582	            col_refs = {}
+583	            for alias, aggregate in aggregates.items():
+584	                replacements = {}
+585	                for col in self._gen_cols([aggregate], resolve_refs=False):
+586	                    if not (col_ref := col_refs.get(col)):
+587	                        index = len(col_refs) + 1
+588	                        col_alias = f"__col{index}"
+589	                        col_ref = Ref(col_alias, col)
+590	                        col_refs[col] = col_ref
+591	                        inner_query.add_annotation(col, col_alias)
+592	                    replacements[col] = col_ref
+593	                outer_query.annotations[alias] = aggregate.replace_expressions(
+594	                    replacements
+595	                )
+596	            if (
+597	                inner_query.select == ()
+598	                and not inner_query.default_cols
+599	                and not inner_query.annotation_select_mask
+600	            ):
+601	                # In case of Model.objects[0:3].count(), there would be no
+602	                # field selected in the inner query, yet we must use a
+603	                # subquery. So, make sure at least one field is selected.
+604	                inner_query.select = (
+605	                    self.model._meta.pk.get_col(inner_query.get_initial_alias()),
+606	                )
+607	        else:
+608	            outer_query = self
+609	            self.select = ()
+610	            self.selected = None
+611	            self.default_cols = False
+612	            self.extra = {}
+613	            if self.annotations:
+614	                # Inline reference to existing annotations and mask them as
+615	                # they are unnecessary given only the summarized aggregations
+616	                # are requested.
+617	                replacements = {
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] Let me pull the two `__iter__` bodies and `SQLCompiler.as_sql` to complete the picture.[tool_use: mcp__codegraph__codegraph_explore] {"query": "ModelIterable.__iter__ at query.py:92, QuerySet.__iter__ at query.py:420, SQLCompiler.as_sql method get_from_clause"}
+[usage] input=2 cache_read=31160 cache_write=9158 output=336
+
+=== Turn 6 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. __iter__ (django/db/models/query.py:420)
+   ↓ calls
+2. _fetch_all (django/db/models/query.py:2238)
+   ↓ calls
+3. __iter__ (django/db/models/query.py:92)
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: ModelIterable.__iter__ at query.py:92, QuerySet.__iter__ at query.py:420, SQLCompiler.as_sql method get_from_clause**
+
+Found 90 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `get_from_clause` (django/db/models/sql/compiler.py:1141) — 2 callers in `django/db/backends/mysql/compiler.py`, `django/db/models/sql/compiler.py`; ⚠️ no covering tests found
+- `as_sql` (django/db/models/sql/compiler.py:1801) — 1 caller in `django/db/models/sql/compiler.py`; ⚠️ no covering tests found
+
+**Relationships**
+
+**extends:**
+- Query → BaseExpression
+- SQLInsertCompiler → SQLCompiler
+- PositionRef → Ref
+- Ref → Expression
+- SQLDeleteCompiler → SQLCompiler
+- SQLUpdateCompiler → SQLCompiler
+- Expression → BaseExpression
+- RawSQL → Expression
+
+**calls:**
+- get_from_clause → items
+- get_from_clause → compile
+- get_from_clause → table_alias
+- get_from_clause → quote_name
+- as_sql → get_from_clause
+- as_sql → get_from_clause
+- as_sql → split_having_qualify
+- as_sql → as_sql
+- as_sql → quote_name
+- as_sql → get_initial_alias
+- ... and 193 more
+
+**references:**
+- split_having_qualify → XOR
+- split_having_qualify → AND
+- as_sql → fields
+- assemble_as_sql → fields
+- pre_sql_setup → fields
+
+**instantiates:**
+- _order_by_pairs → PositionRef
+- _order_by_pairs → Ref
+- get_order_by → Ref
+- get_qualify_sql → Ref
+- get_aggregation → Ref
+- solve_lookup_type → Ref
+- resolve_ref → Ref
+- set_group_by → Ref
+- test_expressions → Ref
+- as_sql → Query
+- ... and 3 more
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`django/db/models/sql/compiler.py`** — get_from_clause, as_sql, SQLCompiler, compile, quote_name, __init__, __repr__, setup_query, pre_sql_setup, get_group_by · focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)
+
+```python
+1	import collections
+34	class PositionRef(Ref):
+35	def __init__(self, ordinal, refs, source):
+39	def as_sql(self, compiler, connection):
+43	class SQLCompiler:
+50	def __init__(self, query, connection, using, elide_empty=True):
+68	def __repr__(self):
+75	def setup_query(self, with_col_aliases=False):
+83	def pre_sql_setup(self, with_col_aliases=False):
+99	def get_group_by(self, select, order_by):
+202	def collapse_group_by(self, expressions, having):
+235	def get_select_from_parent(cls, klass_info):
+241	def get_select(self, with_col_aliases=False):
+339	def _order_by_pairs(self):
+480	def get_order_by(self):
+541	def get_extra_select(self, order_by, select):
+551	def quote_name(self, name):
+563	def quote_name_unless_alias(self, name):
+574	def compile(self, node):
+582	def get_combinator_sql(self, combinator, all):
+757	    def as_sql(self, with_limits=True, with_col_aliases=False):
+758	        """
+759	        Create the SQL for this query. Return the SQL string and list of
+760	        parameters.
+761	
+762	        If 'with_limits' is False, any limit/offset information is not included
+763	        in the query.
+764	        """
+765	        refcounts_before = self.query.alias_refcount.copy()
+766	        try:
+767	            combinator = self.query.combinator
+768	            extra_select, order_by, group_by = self.pre_sql_setup(
+769	                with_col_aliases=with_col_aliases or bool(combinator),
+770	            )
+771	            for_update_part = None
+772	            # Is a LIMIT/OFFSET clause needed?
+773	            with_limit_offset = with_limits and self.query.is_sliced
+774	            combinator = self.query.combinator
+775	            features = self.connection.features
+776	            if combinator:
+777	                if not getattr(features, "supports_select_{}".format(combinator)):
+778	                    raise NotSupportedError(
+779	                        "{} is not supported on this database backend.".format(
+780	                            combinator
+781	                        )
+782	                    )
+783	                result, params = self.get_combinator_sql(
+784	                    combinator, self.query.combinator_all
+785	                )
+786	            elif self.qualify:
+787	                result, params = self.get_qualify_sql()
+788	                order_by = None
+789	            else:
+790	                distinct_fields, distinct_params = self.get_distinct()
+791	                # This must come after 'select', 'ordering', and 'distinct'
+792	                # (see docstring of get_from_clause() for details).
+793	                from_, f_params = self.get_from_clause()
+794	                try:
+795	                    where, w_params = (
+796	                        self.compile(self.where) if self.where is not None else ("", [])
+797	                    )
+798	                except EmptyResultSet:
+799	                    if self.elide_empty:
+800	                        raise
+801	                    # Use a predicate that's always False.
+802	                    where, w_params = "0 = 1", []
+803	                except FullResultSet:
+804	                    where, w_params = "", []
+805	                try:
+806	                    having, h_params = (
+807	                        self.compile(self.having)
+808	                        if self.having is not None
+809	                        else ("", [])
+810	                    )
+811	                except FullResultSet:
+812	                    having, h_params = "", []
+813	                result = ["SELECT"]
+814	                params = []
+815	
+816	                if self.query.distinct:
+817	                    distinct_result, distinct_params = self.connection.ops.distinct_sql(
+818	                        distinct_fields,
+819	                        distinct_params,
+820	                    )
+821	                    result += distinct_result
+822	                    params += distinct_params
+823	
+824	                out_cols = []
+825	                for _, (s_sql, s_params), alias in self.select + extra_select:
+826	                    if alias:
+827	                        s_sql = "%s AS %s" % (
+828	                            s_sql,
+829	                            self.connection.ops.quote_name(alias),
+830	                        )
+831	                    params.extend(s_params)
+832	                    out_cols.append(s_sql)
+833	
+834	                result += [", ".join(out_cols)]
+835	                if from_:
+836	                    result += ["FROM", *from_]
+837	                elif self.connection.features.bare_select_suffix:
+838	                    result += [self.connection.features.bare_select_suffix]
+839	                params.extend(f_params)
+840	
+841	                if self.query.select_for_update and features.has_select_for_update:
+842	                    if (
+843	                        self.connection.get_autocommit()
+844	                        # Don't raise an exception when database doesn't
+845	                        # support transactions, as it's a noop.
+846	                        and features.supports_transactions
+847	                    ):
+848	                        raise TransactionManagementError(
+849	                            "select_for_update cannot be used outside of a transaction."
+850	                        )
+851	
+852	                    if (
+853	                        with_limit_offset
+854	                        and not features.supports_select_for_update_with_limit
+855	                    ):
+856	                        raise NotSupportedError(
+857	                            "LIMIT/OFFSET is not supported with "
+858	                            "select_for_update on this database backend."
+859	                        )
+860	                    nowait = self.query.select_for_update_nowait
+861	                    skip_locked = self.query.select_for_update_skip_locked
+862	                    of = self.query.select_for_update_of
+863	                    no_key = self.query.select_for_no_key_update
+864	                    # If it's a NOWAIT/SKIP LOCKED/OF/NO KEY query but the
+865	                    # backend doesn't support it, raise NotSupportedError to
+866	                    # prevent a possible deadlock.
+867	                    if nowait and not features.has_select_for_update_nowait:
+868	                        raise NotSupportedError(
+869	                            "NOWAIT is not supported on this database backend."
+870	                        )
+871	                    elif skip_locked and not features.has_select_for_update_skip_locked:
+872	                        raise NotSupportedError(
+873	                            "SKIP LOCKED is not supported on this database backend."
+874	                        )
+875	                    elif of and not features.has_select_for_update_of:
+876	                        raise NotSupportedError(
+877	                            "FOR UPDATE OF is not supported on this database backend."
+878	                        )
+879	                    elif no_key and not features.has_select_for_no_key_update:
+880	                        raise NotSupportedError(
+881	                            "FOR NO KEY UPDATE is not supported on this "
+882	                            "database backend."
+883	                        )
+884	                    for_update_part = self.connection.ops.for_update_sql(
+885	                        nowait=nowait,
+886	                        skip_locked=skip_locked,
+887	                        of=self.get_select_for_update_of_arguments(),
+888	                        no_key=no_key,
+889	                    )
+890	
+891	                if for_update_part and features.for_update_after_from:
+892	                    result.append(for_update_part)
+893	
+894	                if where:
+895	                    result.append("WHERE %s" % where)
+896	                    params.extend(w_params)
+897	
+898	                grouping = []
+899	                for g_sql, g_params in group_by:
+900	                    grouping.append(g_sql)
+901	                    params.extend(g_params)
+902	                if grouping:
+903	                    if distinct_fields:
+904	                        raise NotImplementedError(
+905	                            "annotate() + distinct(fields) is not implemented."
+906	                        )
+907	                    order_by = order_by or self.connection.ops.force_no_ordering()
+908	                    result.append("GROUP BY %s" % ", ".join(grouping))
+909	                    if self._meta_ordering:
+910	                        order_by = None
+911	                if having:
+912	                    if not grouping:
+913	                        result.extend(self.connection.ops.force_group_by())
+914	                    result.append("HAVING %s" % having)
+915	                    params.extend(h_params)
+916	
+917	            if self.query.explain_info:
+918	                result.insert(
+919	                    0,
+920	                    self.connection.ops.explain_query_prefix(
+921	                        self.query.explain_info.format,
+922	                        **self.query.explain_info.options,
+923	                    ),
+924	                )
+925	
+926	            if order_by:
+927	                ordering = []
+928	                for _, (o_sql, o_params, _) in order_by:
+929	                    ordering.append(o_sql)
+930	                    params.extend(o_params)
+931	                order_by_sql = "ORDER BY %s" % ", ".join(ordering)
+932	                if combinator and features.requires_compound_order_by_subquery:
+933	                    result = ["SELECT * FROM (", *result, ")", order_by_sql]
+934	                else:
+935	                    result.append(order_by_sql)
+936	
+937	            if with_limit_offset:
+938	                result.append(
+939	                    self.connection.ops.limit_offset_sql(
+940	                        self.query.low_mark, self.query.high_mark
+941	                    )
+942	                )
+943	
+944	            if for_update_part and not features.for_update_after_from:
+945	                result.append(for_update_part)
+946	
+947	            if self.query.subquery and extra_select:
+948	                # If the query is used as a subquery, the extra selects would
+949	                # result in more columns than the left-hand side expression is
+950	                # expecting. This can happen when a subquery uses a combination
+951	                # of order_by() and distinct(), forcing the ordering
+952	                # expressions to be selected as well. Wrap the query in another
+953	                # subquery to exclude extraneous selects.
+954	                sub_selects = []
+955	                sub_params = []
+956	                for index, (select, _, alias) in enumerate(self.select, start=1):
+957	                    if alias:
+958	                        sub_selects.append(
+959	                            "%s.%s"
+960	                            % (
+961	                                self.connection.ops.quote_name("subquery"),
+962	                                self.connection.ops.quote_name(alias),
+963	                            )
+964	                        )
+965	                    else:
+966	                        select_clone = select.relabeled_clone(
+967	                            {select.alias: "subquery"}
+968	                        )
+969	                        subselect, subparams = select_clone.as_sql(
+970	                            self, self.connection
+971	                        )
+972	                        sub_selects.append(subselect)
+973	                        sub_params.extend(subparams)
+974	                return "SELECT %s FROM (%s) subquery" % (
+975	                    ", ".join(sub_selects),
+976	                    " ".join(result),
+977	                ), tuple(sub_params + params)
+978	
+979	            return " ".join(result), tuple(params)
+980	        finally:
+981	            # Finally do cleanup - get rid of the joins we created above.
+982	            self.query.reset_refcounts(refcounts_before)
+… +21 more (signatures elided)
+```
+
+**`django/db/models/query.py`** — calls(calls), __iter__(method), get_compiler(calls), execute_sql(calls), items(calls)
+
+```python
+89	class ModelIterable(BaseIterable):
+90	    """Iterable that yields a model instance for each row."""
+91	
+92	    def __iter__(self):
+93	        queryset = self.queryset
+94	        db = queryset.db
+95	        compiler = queryset.query.get_compiler(using=db)
+96	        fetch_mode = queryset._fetch_mode
+97	        # Execute the query. This will also fill compiler.select, klass_info,
+98	        # and annotations.
+99	        results = compiler.execute_sql(
+100	            chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+101	        )
+102	        select, klass_info, annotation_col_map = (
+103	            compiler.select,
+104	            compiler.klass_info,
+105	            compiler.annotation_col_map,
+106	        )
+107	        model_cls = klass_info["model"]
+108	        select_fields = klass_info["select_fields"]
+109	        model_fields_start, model_fields_end = select_fields[0], select_fields[-1] + 1
+110	        init_list = [
+111	            f[0].target.attname for f in select[model_fields_start:model_fields_end]
+112	        ]
+113	        related_populators = get_related_populators(klass_info, select, db, fetch_mode)
+114	        known_related_objects = [
+115	            (
+116	                field,
+117	                related_objs,
+118	                attnames := [
+119	                    (
+120	                        field.attname
+121	                        if from_field == "self"
+122	                        else queryset.model._meta.get_field(from_field).attname
+123	                    )
+124	                    for from_field in field.from_fields
+125	                ],
+126	                operator.attrgetter(*attnames),
+127	            )
+128	            for field, related_objs in queryset._known_related_objects.items()
+129	        ]
+130	        peers = []
+131	        for row in compiler.results_iter(results):
+132	            obj = model_cls.from_db(
+133	                db,
+134	                init_list,
+135	                row[model_fields_start:model_fields_end],
+136	                fetch_mode=fetch_mode,
+137	            )
+138	            if fetch_mode.track_peers:
+139	                peers.append(weak_ref(obj))
+140	                obj._state.peers = peers
+141	            for rel_populator in related_populators:
+142	                rel_populator.populate(row, obj)
+143	            if annotation_col_map:
+144	                for attr_name, col_pos in annotation_col_map.items():
+145	                    setattr(obj, attr_name, row[col_pos])
+146	
+147	            # Add the known related objects to the model.
+148	            for field, rel_objs, rel_attnames, rel_getter in known_related_objects:
+149	                # Avoid overwriting objects loaded by, e.g., select_related().
+150	                if field.is_cached(obj):
+151	                    continue
+152	                # Avoid fetching potentially deferred attributes that would
+153	                # result in unexpected queries.
+154	                if any(attname not in obj.__dict__ for attname in rel_attnames):
+155	                    continue
+156	                rel_obj_id = rel_getter(obj)
+157	                try:
+158	                    rel_obj = rel_objs[rel_obj_id]
+159	                except KeyError:
+160	                    pass  # May happen in qs1 | qs2 scenarios.
+161	                else:
+162	                    setattr(obj, field.name, rel_obj)
+163	
+164	            yield obj
+165	
+166	
+167	class RawModelIterable(BaseIterable):
+
+... (gap) ...
+
+417	        self._fetch_all()
+418	        return len(self._result_cache)
+419	
+420	    def __iter__(self):
+421	        """
+422	        The queryset iterator protocol uses three nested iterators in the
+423	        default case:
+424	            1. sql.compiler.execute_sql()
+425	               - Returns 100 rows at time (constants.GET_ITERATOR_CHUNK_SIZE)
+426	                 using cursor.fetchmany(). This part is responsible for
+427	                 doing some column masking, and returning the rows in chunks.
+428	            2. sql.compiler.results_iter()
+429	               - Returns one row at time. At this point the rows are still just
+430	                 tuples. In some cases the return values are converted to
+431	                 Python values at this location.
+432	            3. self.iterator()
+433	               - Responsible for turning the rows into model objects.
+434	        """
+435	        self._fetch_all()
+436	        return iter(self._result_cache)
+437	
+438	    def __aiter__(self):
+439	        # Remember, __aiter__ itself is synchronous, it's the thing it returns
+```
+
+**`django/db/models/sql/query.py`** — Query, table_alias, get_initial_alias, get_aggregation, get_meta, get_select_mask, solve_lookup_type, build_filter, resolve_ref, add_fields · skeleton (signatures only — codegraph_explore a name for its full body; do NOT Read)
+
+```python
+156	class RawQuery:
+171	def chain(self, using):
+174	def clone(self, using):
+232	class Query(BaseExpression):
+306	def __init__(self, model, alias_cols=True):
+334	def output_field(self):
+342	def base_table(self):
+346	def __str__(self):
+357	def sql_with_params(self):
+364	def __deepcopy__(self, memo):
+370	def get_compiler(self, using=None, connection=None, elide_empty=True):
+379	def get_meta(self):
+388	def clone(self):
+433	def chain(self, klass=None):
+448	def relabeled_clone(self, change_map):
+453	def _get_col(self, target, field, alias):
+458	def get_aggregation(self, using, aggregate_exprs):
+652	def get_count(self, using):
+659	def has_filters(self):
+662	def exists(self, limit=True):
+… +20 more (signatures elided)
+```
+
+**`django/db/backends/mysql/compiler.py`** — as_sql(method), SQLDeleteCompiler(class), SQLUpdateCompiler(class)
+
+```python
+1	from django.core.exceptions import FieldError, FullResultSet
+2	from django.db.models.expressions import Col
+3	from django.db.models.sql.compiler import SQLAggregateCompiler, SQLCompiler
+4	from django.db.models.sql.compiler import SQLDeleteCompiler as BaseSQLDeleteCompiler
+5	from django.db.models.sql.compiler import SQLInsertCompiler
+6	from django.db.models.sql.compiler import SQLUpdateCompiler as BaseSQLUpdateCompiler
+7	
+8	__all__ = [
+9	    "SQLAggregateCompiler",
+10	    "SQLCompiler",
+11	    "SQLDeleteCompiler",
+12	    "SQLInsertCompiler",
+13	    "SQLUpdateCompiler",
+14	]
+15	
+16	
+17	class SQLDeleteCompiler(BaseSQLDeleteCompiler):
+18	    def as_sql(self):
+19	        # Prefer the non-standard DELETE FROM syntax over the SQL generated by
+20	        # the SQLDeleteCompiler's default implementation when multiple tables
+21	        # are involved since MySQL/MariaDB will generate a more efficient query
+22	        # plan than when using a subquery.
+23	        where, having, qualify = self.query.where.split_having_qualify(
+24	            must_group_by=self.query.group_by is not None
+25	        )
+26	        if self.single_alias or having or qualify:
+27	            # DELETE FROM cannot be used when filtering against aggregates or
+28	            # window functions as it doesn't allow for GROUP BY/HAVING clauses
+29	            # and the subquery wrapping (necessary to emulate QUALIFY).
+30	            return super().as_sql()
+31	        result = ["DELETE %s FROM" % self.quote_name(self.query.get_initial_alias())]
+32	        from_sql, params = self.get_from_clause()
+33	        result.extend(from_sql)
+34	        try:
+35	            where_sql, where_params = self.compile(where)
+36	        except FullResultSet:
+37	            pass
+38	        else:
+39	            result.append("WHERE %s" % where_sql)
+40	            params.extend(where_params)
+41	        return " ".join(result), tuple(params)
+42	
+43	
+44	class SQLUpdateCompiler(BaseSQLUpdateCompiler):
+45	    def as_sql(self):
+46	        update_query, update_params = super().as_sql()
+47	        # MySQL and MariaDB support UPDATE ... ORDER BY syntax.
+48	        if self.query.order_by:
+49	            order_by_sql = []
+50	            order_by_params = []
+51	            db_table = self.query.get_meta().db_table
+52	            try:
+53	                for resolved, (sql, params, _) in self.get_order_by():
+54	                    if (
+55	                        isinstance(resolved.expression, Col)
+56	                        and resolved.expression.alias != db_table
+57	                    ):
+58	                        # Ignore ordering if it contains joined fields, because
+59	                        # they cannot be used in the ORDER BY clause.
+60	                        raise FieldError
+61	                    order_by_sql.append(sql)
+62	                    order_by_params.extend(params)
+63	                update_query += " ORDER BY " + ", ".join(order_by_sql)
+64	                update_params += tuple(order_by_params)
+65	            except FieldError:
+66	                # Ignore ordering if it contains annotations, because they're
+67	                # removed in .update() and cannot be resolved.
+68	                pass
+69	        return update_query, update_params
+```
+
+**Not shown above — explore these names for their source**
+
+- django/db/models/expressions.py: BaseExpression:174, compile:816, Ref:1447, __init__:1453, __repr__:1457, get_source_expressions:1460, set_source_expressions:1463, resolve_expression:1466, get_refs:1473, relabeled_clone:1476, as_sql:1481, get_group_by_cols:1484, Expression:520, RawSQL:1268, copy:443
+- django/db/backends/mysql/schema.py: add_field:86, _alter_column_null_sql:236
+- django/db/models/fields/related_descriptors.py: create:889
+- django/db/backends/mysql/creation.py: _clone_test_db:31
+- tests/expressions/tests.py: test_expressions:2663
+- django/db/models/options.py: get_path_to_parent:754
+
+---
+> **Complete source for 4 files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.
+
+> **Explore budget: 2 calls for this project (3,005 files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used 2.
+[assistant] I now have the complete picture. Here's how Django's ORM builds and executes a query from a QuerySet.
+
+## The two phases: lazy build, then execute
+
+A `QuerySet` is *lazy*. Chaining `.filter()`, `.exclude()`, `.annotate()`, etc. does **not** hit the database — each call clones the QuerySet and mutates an underlying `Query` object (`django/db/models/sql/query.py:232`). SQL is only generated and run when you actually consume the results.
+
+### Phase 1 — Building the abstract `Query`
+
+Every QuerySet wraps a `django.db.models.sql.query.Query` — an in-memory, database-agnostic representation of the query. It holds the pieces a SELECT is assembled from:
+
+- `where` — a `WhereNode` tree (`query.py:324`)
+- `alias_map` / `table_map` / `alias_refcount` — the join graph (`query.py:309-322`)
+- `annotations`, `extra`, `select_related`, `group_by`, ordering, slicing marks, etc.
+
+Because QuerySets are immutable-by-convention, each operation calls `Query.chain()` → `Query.clone()` (`query.py:388-446`), a lightweight alternative to `deepcopy` that shallow-copies the dicts and clones only the mutable structures (like the `where` tree). This is why `qs2 = qs.filter(...)` never disturbs `qs`.
+
+At this stage no SQL exists yet — just a structured description of intent.
+
+### Phase 2 — Execution, triggered by consumption
+
+Iterating (or `len()`, `list()`, `bool()`, indexing…) calls `QuerySet.__iter__` (`query.py:420`), which calls `_fetch_all()`:
+
+```python
+def _fetch_all(self):
+    if self._result_cache is None:
+        self._result_cache = list(self._iterable_class(self))   # query.py:2238
+```
+
+`_result_cache` is the result cache — that's why iterating a QuerySet twice only runs one query. The `_iterable_class` (default `ModelIterable`) drives three nested iterators, documented right in the `__iter__` docstring:
+
+**1. `ModelIterable.__iter__` → `get_compiler` → `execute_sql`** (`query.py:92`)
+
+```python
+compiler = queryset.query.get_compiler(using=db)
+results = compiler.execute_sql(chunked_fetch=..., chunk_size=...)
+```
+
+`Query.get_compiler()` (`query.py:370`) is the key handoff from abstract to concrete: it picks the **backend-specific** compiler via `connection.ops.compiler(...)`. This is how the same `Query` produces different SQL on PostgreSQL vs. MySQL (e.g. MySQL overrides `SQLDeleteCompiler.as_sql` / `SQLUpdateCompiler.as_sql`).
+
+**2. `SQLCompiler.as_sql`** (`compiler.py:757`) — turns the `Query` into a SQL string + params. It calls `pre_sql_setup()` (`compiler.py:83`), which does `setup_query()`, computes `get_order_by()`, splits the WHERE tree into `where`/`having`/`qualify` via `split_having_qualify()`, and computes GROUP BY. Then `as_sql` assembles the clauses in order — `SELECT`, `DISTINCT`, the compiled select columns, `FROM` (`get_from_clause()`), `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT/OFFSET`, `FOR UPDATE` — returning `(" ".join(result), tuple(params))`. Note SQL is always built as **string + parameter list**, never interpolated, which is what prevents SQL injection.
+
+**3. `SQLCompiler.execute_sql`** (`compiler.py:1595`) — runs it:
+
+```python
+sql, params = self.as_sql()
+cursor = self.connection.cursor()      # or chunked_cursor() for server-side
+cursor.execute(sql, params)
+```
+
+The return shape depends on `result_type`: `MULTI` wraps `cursor.fetchmany()` in `cursor_iter` (fetching `GET_ITERATOR_CHUNK_SIZE` = 100 rows at a time); `SINGLE` does `fetchone()`; `ROW_COUNT` returns `cursor.rowcount`; `CURSOR` hands back the raw cursor. For non-chunked reads it eagerly `list()`s everything into memory.
+
+**Back in `ModelIterable`:** rows come back as plain tuples. `compiler.results_iter()` (`compiler.py:1565`) applies per-column **converters** (DB value → Python value). Then each row is turned into a model instance via `model_cls.from_db(...)`, with `select_related` data hydrated by `related_populators` and annotations attached from `annotation_col_map` (`query.py:131-164`).
+
+## Summary of the pipeline
+
+```
+QuerySet.filter()/... ──(clone + mutate)──▶ Query (abstract, DB-agnostic)
+        │  lazy — no DB yet
+        ▼  consumption (iter/len/list/bool)
+QuerySet._fetch_all ──▶ ModelIterable.__iter__
+        ├─ Query.get_compiler(using)          → backend-specific SQLCompiler
+        ├─ SQLCompiler.as_sql()               → (sql_string, params)  [pre_sql_setup assembles clauses]
+        ├─ SQLCompiler.execute_sql()          → cursor.execute(sql, params); fetchmany in 100-row chunks
+        ├─ results_iter()                     → apply DB→Python converters, one tuple at a time
+        └─ model_cls.from_db(...)             → model instances (+ select_related, annotations)
+                                              → cached in _result_cache
+```
+
+Key design points: the **`Query` is the abstract model, the `SQLCompiler` is the backend-specific renderer**, `get_compiler()` is the seam between them, everything flows as `(sql, params)` for safety, results stream in 100-row chunks, and `_result_cache` makes re-iteration free.
+
+Want me to drill into any one stage — e.g. how `.filter()` builds the `WhereNode` join graph, how `select_related` hydration works, or how the backend chooses its compiler?
+[usage] input=2 cache_read=40318 cache_write=8955 output=2180

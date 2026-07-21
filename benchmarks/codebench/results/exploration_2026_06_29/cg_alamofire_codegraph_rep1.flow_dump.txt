@@ -1,0 +1,1079 @@
+
+=== Turn 1 ===
+[user] <session>
+How does Alamofire build, send, and validate a request?
+</session>
+
+Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it. Ignore the language of the examples above.
+[assistant] {"title": "How Alamofire builds and validates requests"}
+[usage] input=531 cache_read=0 cache_write=0 output=17
+
+=== Turn 2 ===
+[system] The following deferred tools are now available via ToolSearch. Their schemas are NOT loaded — calling them directly will fail with InputValidationError. Use ToolSearch with query "select:<name>[,<name>...]" to load tool schemas before calling them:
+CronCreate
+CronDelete
+CronList
+DesignSync
+EnterWorktree
+ExitWorktree
+Monitor
+NotebookEdit
+PushNotification
+RemoteTrigger
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskOutput
+TaskStop
+TaskUpdate
+WebFetch
+WebSearch
+mcp__codegraph__codegraph_explore
+
+Available agent types for the Agent tool:
+- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typed. (Tools: *)
+- Explore: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn't review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
+- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit)
+- statusline-setup: Use this agent to configure the user's Claude Code status line setting. (Tools: Read, Edit)
+
+When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.
+
+# MCP Server Instructions
+
+The following MCP servers have provided instructions for how to use their tools and resources:
+
+## codegraph
+# Codegraph — code intelligence over an indexed knowledge graph
+
+Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
+the workspace — pre-computed structure you would otherwise re-derive by
+reading files (cached intelligence: thousands of parse/trace decisions you
+don't pay to re-reason each run). Reads are sub-millisecond; the index lags
+writes by ~1s through the file watcher. Reach for it BEFORE *and* while
+writing or editing code — not just for questions: one call returns the
+verbatim source PLUS who calls it and what it affects, so you edit with the
+blast radius in view. More accurate context, in far fewer tokens and
+round-trips than reading files yourself.
+
+## One tool: codegraph_explore — use it instead of reading files
+
+There is a single tool, `codegraph_explore`, and it is Read-equivalent. It
+takes either a natural-language question or a bag of symbol/file names and
+returns the **verbatim, line-numbered source** of the relevant symbols
+grouped by file — the same `<n>\t<line>` shape `Read` gives you, safe to
+`Edit` from — PLUS the call path among them (including dynamic-dispatch hops
+like callbacks, React re-render, and JSX children that grep can't follow) and
+a blast-radius summary of what depends on them.
+
+Whether you're answering "how does X work" or implementing a change (fixing a
+bug, adding a feature), call `codegraph_explore` before you Read. ONE call
+usually answers the whole question. Codegraph IS the pre-built search index —
+so running your own grep + read loop, or delegating the lookup to a separate
+file-reading sub-task/agent, repeats work codegraph already did and costs more
+for the same answer. A direct codegraph answer is typically one to a few
+calls; a grep/read exploration is dozens.
+
+## How to query
+
+- **Almost any question — "how does X work", architecture, a bug, "what/where is X", or surveying an area** → `codegraph_explore` with a natural-language question or the relevant names. ONE capped call returns the verbatim source grouped by file; most often the ONLY call y… [truncated]
+
+The following skills are available for use with the Skill tool:
+
+- deep-research: Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. - When the user wants a deep, multi-source, fact-checked research report on any topic. BEFORE invoking, check if the question is specific enough to research directly — if underspecified (e.g., "what car to buy" without budget/use-case/region), ask 2-3 clarifying questions to narrow scope. Then pass the refined question as args, weaving the answers in.
+- dataviz: Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: "chart", "graph", "plot", "data viz", "visualization", "dashboard", "analytics", "visualize data", "categorical colors", "sequential / diverging palette", "stat tile", "sparkline", "heatmap", "legend", "axis", "tooltip", "chart colors", "color by series".
+- update-config: Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, suggest the /config command.
+- keybindings-help: Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".
+- verify: Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.
+- code-review: Review the current diff for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud). Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review.
+- simplify: Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.
+- fewer-permission-prompts: Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.
+- loop: Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace. - When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.
+- schedule: Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule. - When the user wants to schedule a recurring cloud agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/routines. Also use when the user wants a one-time scheduled run ("run this once at 3pm", "remind me to check X tomorrow").
+- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.
+TRIGGER — read BEFORE opening the target file; don't skip because it "looks like a one-liner" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).
+SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).
+- run: Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).
+- init: Initialize a new CLAUDE.md file with codebase documentation
+- review: Review a GitHub pull request; for your working diff use /code-review
+- security-review: Complete a security review of the pending changes on the current branch
+[assistant] I'll explore how Alamofire handles the request lifecycle using the code graph.[tool_use: ToolSearch] {"query": "select:mcp__codegraph__codegraph_explore", "max_results": 1}
+[usage] input=3748 cache_read=15023 cache_write=2267 output=130
+
+=== Turn 3 ===
+[user] [tool_result] 
+Tool loaded.
+[assistant] [tool_use: mcp__codegraph__codegraph_explore] {"query": "How does Alamofire build, send, and validate a request? Session.request, DataRequest, RequestConvertible, Request.validate, response serialization"}
+[usage] input=2 cache_read=15116 cache_write=6735 output=105
+
+=== Turn 4 ===
+[user] [tool_result] **Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- didCompleteTask → validate   [dynamic: runs `validators` handlers @Source/Core/DataRequest.swift:161]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: How does Alamofire build, send, and validate a request? Session.request, DataRequest, RequestConvertible, Request.validate, response serialization**
+
+Found 42 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `DataRequest` (Source/Core/DataRequest.swift:28) — 13 callers in `Source/Core/Session.swift`, `Source/Core/SessionDelegate.swift`, `Source/Features/Combine.swift`, `Source/Features/Concurrency.swift` +1 more; tests: `Tests/TestHelpers.swift`
+- `response` (Source/Core/DataRequest.swift:218) — 173 callers in `Source/Features/Combine.swift`; tests: `Tests/AuthenticationInterceptorTests.swift`, `Tests/AuthenticationTests.swift`, `Tests/CacheTests.swift`, `Tests/CachedResponseHandlerTests.swift` +14
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`Source/Core/DataRequest.swift`** — DataRequest, response, _response, onHTTPResponse, responseDecodable · skeleton (signatures only — codegraph_explore a name for its full body; do NOT Read)
+
+```swift
+28	public class DataRequest: Request, @unchecked Sendable {
+34	private struct DataMutableState {
+73	override func reset() {
+86	func didReceive(data: Data) {
+98	func didReceiveResponse(_ response: HTTPURLResponse, completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+119	override func task(for request: URLRequest, using session: URLSession) -> URLSessionTask {
+125	func updateDownloadProgress() {
+144	public func validate(_ validation: @escaping Validation) -> Self {
+178	public func onHTTPResponse(
+199	public func onHTTPResponse(on queue: DispatchQueue = .main,
+220	public func response(queue: DispatchQueue = .main, completionHandler: @escaping @Sendable (AFDataResponse<Data?>) -> Void) -> Self {
+243	private func _response<Serializer: DataResponseSerializerProtocol>(queue: DispatchQueue = .main,
+… +6 more (signatures elided)
+```
+
+**`Source/Features/Validation.swift`** — validate(method), validate(calls), calls(calls), references(references), instantiates(instantiates), +2 more
+
+```swift
+78	
+79	    // MARK: Status Code
+80	
+81	    fileprivate func validate<S: Sequence>(statusCode acceptableStatusCodes: S,
+82	                                           response: HTTPURLResponse)
+83	        -> ValidationResult
+84	        where S.Iterator.Element == Int {
+85	        if acceptableStatusCodes.contains(response.statusCode) {
+86	            return .success(())
+87	        } else {
+88	            let reason: ErrorReason = .unacceptableStatusCode(code: response.statusCode)
+89	            return .failure(AFError.responseValidationFailed(reason: reason))
+90	        }
+91	    }
+92	
+93	    // MARK: Content Type
+94	
+95	    fileprivate func validate<S: Sequence>(contentType acceptableContentTypes: S,
+96	                                           response: HTTPURLResponse,
+97	                                           isEmpty: Bool)
+98	        -> ValidationResult
+99	        where S.Iterator.Element == String {
+100	        guard !isEmpty else { return .success(()) }
+101	
+102	        return validate(contentType: acceptableContentTypes, response: response)
+103	    }
+104	
+105	    fileprivate func validate<S: Sequence>(contentType acceptableContentTypes: S,
+106	                                           response: HTTPURLResponse)
+107	        -> ValidationResult
+108	        where S.Iterator.Element == String {
+109	        guard
+110	            let responseContentType = response.mimeType,
+111	            let responseMIMEType = MIMEType(responseContentType)
+112	        else {
+113	            for contentType in acceptableContentTypes {
+114	                if let mimeType = MIMEType(contentType), mimeType.isWildcard {
+115	                    return .success(())
+116	                }
+117	            }
+118	
+119	            let error: AFError = {
+120	                let reason: ErrorReason = .missingContentType(acceptableContentTypes: acceptableContentTypes.sorted())
+121	                return AFError.responseValidationFailed(reason: reason)
+122	            }()
+123	
+124	            return .failure(error)
+125	        }
+126	
+127	        for contentType in acceptableContentTypes {
+128	            if let acceptableMIMEType = MIMEType(contentType), acceptableMIMEType.matches(responseMIMEType) {
+129	                return .success(())
+130	            }
+131	        }
+132	
+133	        let error: AFError = {
+134	            let reason: ErrorReason = .unacceptableContentType(acceptableContentTypes: acceptableContentTypes.sorted(),
+135	                                                               responseContentType: responseContentType)
+136	
+137	            return AFError.responseValidationFailed(reason: reason)
+138	        }()
+139	
+140	        return .failure(error)
+141	    }
+142	}
+143	
+144	// MARK: -
+145	
+146	extension DataRequest {
+147	    /// A closure used to validate a request that takes a URL request, a URL response and data, and returns whether the
+148	    /// request was valid.
+149	    public typealias Validation = @Sendable (URLRequest?, HTTPURLResponse, Data?) -> ValidationResult
+150	
+151	    /// Validates that the response has a status code in the specified sequence.
+152	    ///
+153	    /// If validation fails, subsequent calls to response handlers will have an associated error.
+154	    ///
+155	    /// - Parameter acceptableStatusCodes: `Sequence` of acceptable response status codes.
+156	    ///
+157	    /// - Returns:                         The instance.
+158	    @preconcurrency
+159	    @discardableResult
+160	    public func validate<S: Sequence>(statusCode acceptableStatusCodes: S) -> Self where S.Iterator.Element == Int, S: Sendable {
+161	        validate { [unowned self] _, response, _ in
+162	            self.validate(statusCode: acceptableStatusCodes, response: response)
+163	        }
+164	    }
+165	
+166	    /// Validates that the response has a content type in the specified sequence.
+167	    ///
+168	    /// If validation fails, subsequent calls to response handlers will have an associated error.
+169	    ///
+170	    /// - parameter contentType: The acceptable content types, which may specify wildcard types and/or subtypes.
+171	    ///
+172	    /// - returns: The request.
+173	    @preconcurrency
+174	    @discardableResult
+175	    public func validate<S: Sequence>(contentType acceptableContentTypes: @escaping @Sendable @autoclosure () -> S) -> Self where S.Iterator.Element == String, S: Sendable {
+176	        validate { [unowned self] _, response, data in
+177	            self.validate(contentType: acceptableContentTypes(), response: response, isEmpty: (data == nil || data?.isEmpty == true))
+178	        }
+179	    }
+180	
+181	    /// Validates that the response has a status code in the default acceptable range of 200...299, and that the content
+182	    /// type matches any specified in the Accept HTTP header field.
+183	    ///
+184	    /// If validation fails, subsequent calls to response handlers will have an associated error.
+185	    ///
+186	    /// - returns: The request.
+187	    @discardableResult
+188	    public func validate() -> Self {
+189	        let contentTypes: @Sendable () -> [String] = { [unowned self] in
+190	            acceptableContentTypes
+191	        }
+192	        return validate(statusCode: acceptableStatusCodes).validate(contentType: contentTypes())
+193	    }
+194	}
+195	
+196	extension DataStreamRequest {
+197	    /// A closure used to validate a request that takes a `URLRequest` and `HTTPURLResponse` and returns whether the
+```
+
+**`Source/Features/Concurrency.swift`** — send(method), send(calls)
+
+```swift
+856	    ///
+857	    /// - Parameter message: The `Message`.
+858	    ///
+859	    public func send(_ message: URLSessionWebSocketTask.Message) async throws {
+860	        try await withCheckedThrowingContinuation { continuation in
+861	            request.send(message, queue: .streamCompletionQueue(forRequestID: request.id)) { result in
+862	                continuation.resume(with: result)
+863	            }
+864	        }
+865	    }
+866	
+867	    /// Close the underlying `WebSocketRequest`.
+868	    public func close(sending closeCode: URLSessionWebSocketTask.CloseCode, reason: Data? = nil) {
+```
+
+**`Source/Core/Session.swift`** — request(method), DataRequest(references), instantiates(instantiates), request(calls), DataRequest(instantiates), +1 more
+
+```swift
+364	    ///   - requestModifier:           `RequestModifier` which will be applied to the `URLRequest` created from the provided parameters. `nil` by default.
+365	    ///
+366	    /// - Returns:                     The created `DataRequest`.
+367	    open func request<Parameters: Encodable & Sendable>(_ convertible: any URLConvertible,
+368	                                                        method: HTTPMethod = .get,
+369	                                                        parameters: Parameters? = nil,
+370	                                                        encoder: any ParameterEncoder = URLEncodedFormParameterEncoder.default,
+371	                                                        headers: HTTPHeaders? = nil,
+372	                                                        interceptor: (any RequestInterceptor)? = nil,
+373	                                                        shouldAutomaticallyResume: Bool? = nil,
+374	                                                        requestModifier: RequestModifier? = nil) -> DataRequest {
+375	        let convertible = RequestEncodableConvertible(url: convertible,
+376	                                                      method: method,
+377	                                                      parameters: parameters,
+378	                                                      encoder: encoder,
+379	                                                      headers: headers,
+380	                                                      requestModifier: requestModifier)
+381	
+382	        return request(convertible, interceptor: interceptor, shouldAutomaticallyResume: shouldAutomaticallyResume)
+383	    }
+384	
+385	    /// Creates a `DataRequest` from a `URLRequestConvertible` value and a `RequestInterceptor`.
+386	    ///
+
+... (gap) ...
+
+390	    ///   - shouldAutomaticallyResume: Whether the `DataRequest` should resume after the first response handler is added.
+391	    ///
+392	    /// - Returns:                     The created `DataRequest`.
+393	    open func request(_ convertible: any URLRequestConvertible,
+394	                      interceptor: (any RequestInterceptor)? = nil,
+395	                      shouldAutomaticallyResume: Bool? = nil) -> DataRequest {
+396	        let request = DataRequest(convertible: convertible,
+397	                                  underlyingQueue: rootQueue,
+398	                                  serializationQueue: serializationQueue,
+399	                                  eventMonitor: eventMonitor,
+400	                                  interceptor: interceptor,
+401	                                  shouldAutomaticallyResume: shouldAutomaticallyResume,
+402	                                  delegate: self)
+403	
+404	        performEagerlyIfNecessary(request)
+405	
+406	        return request
+407	    }
+408	
+409	    // MARK: - DataStreamRequest
+410	
+
+... (gap) ...
+
+1383	// MARK: - SessionStateProvider
+1384	
+1385	extension Session: SessionStateProvider {
+1386	    func request(for task: URLSessionTask) -> Request? {
+1387	        dispatchPrecondition(condition: .onQueue(rootQueue))
+1388	
+1389	        return mutableState.read { $0.requestTaskMap[task] }
+1390	    }
+1391	
+1392	    func didGatherMetricsForTask(_ task: URLSessionTask) {
+1393	        dispatchPrecondition(condition: .onQueue(rootQueue))
+```
+
+
+> Some file sections were trimmed for size. For a specific symbol you still need, run another `codegraph_explore` (or `codegraph_node`) with its exact name — line-numbered source, cheaper and more complete than Read.
+[assistant] Let me dig into the core request lifecycle — how the request actually gets built into a `URLRequest`, sent, and how validation runs on completion.[tool_use: mcp__codegraph__codegraph_explore] {"query": "Request performSetupOperations, Session.perform, requestTask, didCreateURLRequest, didCompleteTask, adapt interceptor, resume, task(for:using:)"}
+[usage] input=2 cache_read=21851 cache_write=4612 output=241
+
+=== Turn 5 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. perform (Source/Core/Session.swift:1166)
+   ↓ calls
+2. performUploadRequest (Source/Core/Session.swift:1220)
+   ↓ calls
+3. performSetupOperations (Source/Core/Session.swift:1246)
+   ↓ calls
+4. didCreateURLRequest (Source/Core/Session.swift:1291)
+   ↓ calls
+5. didCreateURLRequest (Source/Core/Request.swift:360)
+
+**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- didCompleteTask → validate   [dynamic: runs `validators` handlers @Source/Core/DataRequest.swift:161]
+
+**Interface dispatch (a named method has many implementations)**
+
+- `adapt` → runtime dispatch to **16** types implementing `RequestInterceptor` — the static path ends here, the target is chosen at runtime. e.g. `Adapter.adapt` (Source/Features/RequestInterceptor.swift:162), `Adapter.adapt` (Source/Features/RequestInterceptor.swift:167), `DeflateRequestCompressor.adapt` (Source/Features/RequestCompression.swift:70), `Interceptor.adapt` (Source/Features/RequestInterceptor.swift:260) +12 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: Request performSetupOperations, Session.perform, requestTask, didCreateURLRequest, didCompleteTask, adapt interceptor, resume, task(for:using:)**
+
+Found 52 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `RequestTaskMap` (Source/Core/RequestTaskMap.swift:28) — 1 caller in `Source/Core/Session.swift`; ⚠️ no covering tests found
+- `RequestAdapter` (Source/Features/RequestInterceptor.swift:57) — 2 callers in `Source/Core/Session.swift`, `Source/Features/RequestInterceptor.swift`; ⚠️ no covering tests found
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`Source/Features/RequestInterceptor.swift`** — RequestInterceptor, RequestAdapter, RequestAdapterState, RequestRetrier, retry · focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)
+
+```swift
+28	public struct RequestAdapterState: Sendable {
+39	public protocol RequestAdapter: Sendable {
+57	extension RequestAdapter {
+59	public func adapt(_ urlRequest: URLRequest, using state: RequestAdapterState, completion: @escaping @Sendable (_ result: Result<URLRequest, any Error>) -> Void) {
+119	public protocol RequestInterceptor: RequestAdapter, RequestRetrier {}
+121	extension RequestInterceptor {
+123	public func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+128	public func retry(_ request: Request,
+137	public typealias AdaptHandler = @Sendable (_ request: URLRequest,
+150	open class Adapter: @unchecked Sendable, RequestInterceptor {
+163	open func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+168	open func adapt(_ urlRequest: URLRequest, using state: RequestAdapterState, completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+260	    @preconcurrency
+261	    open func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+262	        adapt(urlRequest, for: session, using: adapters, completion: completion)
+263	    }
+265	    private func adapt(_ urlRequest: URLRequest,
+266	                       for session: Session,
+267	                       using adapters: [any RequestAdapter],
+268	                       completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+269	        var pendingAdapters = adapters
+270	
+271	        guard !pendingAdapters.isEmpty else { completion(.success(urlRequest)); return }
+272	
+273	        let adapter = pendingAdapters.removeFirst()
+274	
+275	        adapter.adapt(urlRequest, for: session) { [pendingAdapters] result in
+276	            switch result {
+277	            case let .success(urlRequest):
+278	                self.adapt(urlRequest, for: session, using: pendingAdapters, completion: completion)
+279	            case .failure:
+280	                completion(result)
+281	            }
+282	        }
+283	    }
+285	    @preconcurrency
+286	    open func adapt(_ urlRequest: URLRequest, using state: RequestAdapterState, completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+287	        adapt(urlRequest, using: state, adapters: adapters, completion: completion)
+288	    }
+290	    private func adapt(_ urlRequest: URLRequest,
+291	                       using state: RequestAdapterState,
+292	                       adapters: [any RequestAdapter],
+293	                       completion: @escaping @Sendable (Result<URLRequest, any Error>) -> Void) {
+294	        var pendingAdapters = adapters
+295	
+296	        guard !pendingAdapters.isEmpty else { completion(.success(urlRequest)); return }
+297	
+298	        let adapter = pendingAdapters.removeFirst()
+299	
+300	        adapter.adapt(urlRequest, using: state) { [pendingAdapters] result in
+301	            switch result {
+302	            case let .success(urlRequest):
+303	                self.adapt(urlRequest, using: state, adapters: pendingAdapters, completion: completion)
+304	            case .failure:
+305	                completion(result)
+306	            }
+307	        }
+308	    }
+… +12 more (signatures elided)
+```
+
+**`Source/Core/Request.swift`** — calls(calls), references(references), Protected(instantiates), instantiates(instantiates), didCreateURLRequest(method), +3 more
+
+```swift
+180	    // MARK: Redirect Handling
+181	
+182	    /// `RedirectHandler` set on the instance.
+183	    public internal(set) var redirectHandler: (any RedirectHandler)? {
+184	        get { mutableState.read(\.redirectHandler) }
+185	        set { mutableState.write { $0.redirectHandler = newValue } }
+186	    }
+
+... (gap) ...
+
+283	        self.id = id
+284	        self.underlyingQueue = underlyingQueue
+285	        self.serializationQueue = serializationQueue
+286	        mutableState = Protected(MutableState(eventMonitor: eventMonitor,
+287	                                              interceptor: interceptor))
+288	        self.shouldAutomaticallyResume = shouldAutomaticallyResume
+289	        self.delegate = delegate
+
+... (gap) ...
+
+357	    /// Final `URLRequest` has been created for the instance.
+358	    ///
+359	    /// - Parameter request: The `URLRequest` created.
+360	    func didCreateURLRequest(_ request: URLRequest) {
+361	        dispatchPrecondition(condition: .onQueue(underlyingQueue))
+362	
+363	        mutableState.read { state in
+364	            guard let urlRequestHandler = state.urlRequestHandler else { return }
+365	
+366	            urlRequestHandler.queue.async { urlRequestHandler.handler(request) }
+367	        }
+368	
+369	        eventMonitor?.request(self, didCreateURLRequest: request)
+370	
+371	        callCURLHandlerIfNecessary()
+372	    }
+373	
+374	    /// Asynchronously calls any stored `cURLHandler` and then removes it from `mutableState`.
+375	    private func callCURLHandlerIfNecessary() {
+
+... (gap) ...
+
+512	    ///   - task:  The `URLSessionTask` which completed.
+513	    ///   - error: The `AFError` `task` may have completed with. If `error` has already been set on the instance, this
+514	    ///            value is ignored.
+515	    func didCompleteTask(_ task: URLSessionTask, with error: AFError?) {
+516	        dispatchPrecondition(condition: .onQueue(underlyingQueue))
+517	
+518	        mutableState.write { $0.error = $0.error ?? error }
+519	
+520	        let validators = validators.read(\.self)
+521	        validators.forEach { $0() }
+522	
+523	        eventMonitor?.request(self, didCompleteTask: task, with: error)
+524	
+525	        retryOrFinish(error: self.error)
+526	    }
+527	
+528	    /// Called when the `RequestDelegate` is going to retry this `Request`. Calls `reset()`.
+529	    func prepareForRetry() {
+
+... (gap) ...
+
+697	    ///   - session: `URLSession` which creates the `URLSessionTask`.
+698	    ///
+699	    /// - Returns:   The `URLSessionTask` created.
+700	    func task(for request: URLRequest, using session: URLSession) -> URLSessionTask {
+701	        fatalError("Subclasses must override.")
+702	    }
+703	
+704	    // MARK: - Public API
+705	
+
+... (gap) ...
+
+764	    /// Resumes the instance.
+765	    ///
+766	    /// - Returns: The instance.
+767	    @discardableResult
+768	    public func resume() -> Self {
+769	        let needsToPerform = mutableState.write { mutableState in
+770	            guard mutableState.state.canTransitionTo(.resumed) else { return false }
+771	
+772	            mutableState.state = .resumed
+773	
+774	            underlyingQueue.async { self.didResume() }
+775	
+776	            // Ensure we have a task, otherwise Session hasn't called perform yet.
+777	            guard let task = mutableState.tasks.last else { return true }
+778	            // We have a task, so we shouldn't need to trigger perform again.
+779	            guard task.state != .completed else { return false }
+780	
+781	            task.resume()
+782	            underlyingQueue.async { self.didResumeTask(task) }
+783	            return false
+784	        }
+785	
+786	        if needsToPerform {
+787	            delegate?.readyToPerform(request: self)
+788	        }
+789	
+790	        return self
+791	    }
+792	
+793	    // MARK: - Closure API
+794	
+```
+
+**`Source/Core/Session.swift`** — MutableState, didCompleteTask, didGatherMetricsForTask, adapter, retrier · focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)
+
+```swift
+30	open class Session: @unchecked Sendable {
+32	public static let `default` = Session()
+35	public enum RequestSetup {
+89	struct MutableState {
+469	open func streamRequest(_ convertible: any URLConvertible,
+612	open func download(_ convertible: any URLConvertible,
+678	open func download(_ convertible: any URLRequestConvertible,
+1166	    func perform(_ request: Request, forRetry isRetrying: Bool = false) {
+1167	        rootQueue.async {
+1168	            self.mutableState.write { mutableState in
+1169	                guard !request.isCancelled else { return }
+1170	                // Try to insert, only proceeding if this is the first time or we're retrying.
+1171	                // Protects against rapid resume -> suspend -> resume calls which may enqueue multiple performs.
+1172	                guard mutableState.activeRequests.insert(request).inserted || isRetrying else { return }
+1173	
+1174	                self.requestQueue.async {
+1175	                    // Leaf types must come first, otherwise they will cast as their superclass.
+1176	                    switch request {
+1177	                    // UploadRequest must come before DataRequest due to subtype relationship.
+1178	                    case let r as UploadRequest: self.performUploadRequest(r)
+1179	                    case let r as DataRequest: self.performDataRequest(r)
+1180	                    case let r as DownloadRequest: self.performDownloadRequest(r)
+1181	                    case let r as DataStreamRequest: self.performDataStreamRequest(r)
+1182	                    default:
+1183	                        #if canImport(Darwin) && !canImport(FoundationNetworking)
+1184	                        if #available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *),
+1185	                           let request = request as? WebSocketRequest {
+1186	                            self.performWebSocketRequest(request)
+1187	                        } else {
+1188	                            fatalError("Attempted to perform unsupported Request subclass: \(type(of: request))")
+1189	                        }
+1190	                        #else
+1191	                        fatalError("Attempted to perform unsupported Request subclass: \(type(of: request))")
+1192	                        #endif
+1193	                    }
+1194	                }
+1195	            }
+1196	        }
+1197	    }
+1246	    func performSetupOperations(for request: Request,
+1247	                                convertible: any URLRequestConvertible,
+1248	                                shouldCreateTask: @escaping @Sendable () -> Bool = { true }) {
+1249	        dispatchPrecondition(condition: .onQueue(requestQueue))
+1250	
+1251	        let initialRequest: URLRequest
+1252	
+1253	        do {
+1254	            initialRequest = try convertible.asURLRequest()
+1255	            try initialRequest.validate()
+1256	        } catch {
+1257	            rootQueue.async { request.didFailToCreateURLRequest(with: error.asAFError(or: .createURLRequestFailed(error: error))) }
+1258	            return
+1259	        }
+1260	
+1261	        rootQueue.async { request.didCreateInitialURLRequest(initialRequest) }
+1262	
+1263	        guard !request.isCancelled else { return }
+1264	
+1265	        guard let adapter = adapter(for: request) else {
+1266	            guard shouldCreateTask() else { return }
+1267	            rootQueue.async { self.didCreateURLRequest(initialRequest, for: request) }
+1268	            return
+1269	        }
+1270	
+1271	        let adapterState = RequestAdapterState(requestID: request.id, session: self)
+1272	
+1273	        adapter.adapt(initialRequest, using: adapterState) { result in
+1274	            do {
+1275	                let adaptedRequest = try result.get()
+1276	                try adaptedRequest.validate()
+1277	
+1278	                self.rootQueue.async { request.didAdaptInitialRequest(initialRequest, to: adaptedRequest) }
+1279	
+1280	                guard shouldCreateTask() else { return }
+1281	
+1282	                self.rootQueue.async { self.didCreateURLRequest(adaptedRequest, for: request) }
+1283	            } catch {
+1284	                self.rootQueue.async { request.didFailToAdaptURLRequest(initialRequest, withError: .requestAdaptationFailed(error: error)) }
+1285	            }
+1286	        }
+1287	    }
+1291	    func didCreateURLRequest(_ urlRequest: URLRequest, for request: Request) {
+1292	        dispatchPrecondition(condition: .onQueue(rootQueue))
+1293	
+1294	        request.didCreateURLRequest(urlRequest)
+1295	
+1296	        guard !request.isCancelled else { return }
+1297	
+1298	        let task = request.task(for: urlRequest, using: session)
+1299	        mutableState.write { $0.requestTaskMap[request] = task }
+1300	        request.didCreateTask(task)
+1301	    }
+1315	func adapter(for request: Request) -> (any RequestAdapter)? {
+1323	func retrier(for request: Request) -> (any RequestRetrier)? {
+1392	func didGatherMetricsForTask(_ task: URLSessionTask) {
+1409	    func didCompleteTask(_ task: URLSessionTask, completion: @escaping () -> Void) {
+1410	        dispatchPrecondition(condition: .onQueue(rootQueue))
+1411	
+1412	        let immediatelyPerformCompletion = mutableState.write { mutableState in
+1413	            let didDisassociate = mutableState.requestTaskMap.disassociateIfNecessaryAfterCompletingTask(task)
+1414	
+1415	            if didDisassociate {
+1416	                return true
+1417	            } else {
+1418	                mutableState.waitingCompletions[task] = completion
+1419	                return false
+1420	            }
+1421	        }
+1422	
+1423	        if immediatelyPerformCompletion { completion() }
+1424	    }
+```
+
+**`Source/Core/DownloadRequest.swift`** — DownloadRequest, task · skeleton (signatures only — codegraph_explore a name for its full body; do NOT Read)
+
+```swift
+28	public final class DownloadRequest: Request, @unchecked Sendable {
+205	override func task(for request: URLRequest, using session: URLSession) -> URLSessionTask {
+216	public func task(forResumeData data: Data, using session: URLSession) -> URLSessionTask {
+```
+
+
+> Some file sections were trimmed for size. For a specific symbol you still need, run another `codegraph_explore` (or `codegraph_node`) with its exact name — line-numbered source, cheaper and more complete than Read.
+[assistant] Let me get the last pieces: how the `URLRequest` is actually assembled from parameters, and how response serialization consumes validation results.[tool_use: mcp__codegraph__codegraph_explore] {"query": "RequestEncodableConvertible asURLRequest, ParameterEncoder encode, DataRequest _response serializer serialize, appendResponseSerializer processNextResponseSerializer"}
+[usage] input=2 cache_read=26463 cache_write=6525 output=261
+
+=== Turn 6 ===
+[user] [tool_result] **Flow (call path among the symbols you queried)**
+
+1. _response (Source/Core/DataRequest.swift:243)
+   ↓ calls
+2. appendResponseSerializer (Source/Core/Request.swift:589)
+   ↓ calls
+3. processNextResponseSerializer (Source/Core/Request.swift:613)
+
+**Interface dispatch (a named method has many implementations)**
+
+- `asURLRequest` → runtime dispatch to **8** types implementing `URLRequestConvertible` — the static path ends here, the target is chosen at runtime. e.g. `URLRequest.asURLRequest` (Source/Core/URLConvertible+URLRequestConvertible.swift:84), `RequestConvertible.asURLRequest` (Source/Core/Session.swift:294), `RequestEncodableConvertible.asURLRequest` (Source/Core/Session.swift:344), `ParameterlessRequestConvertible.asURLRequest` (Source/Core/Session.swift:741) +4 more
+
+> The method above is dispatched at runtime to one of the listed implementations (a registry / plugin / strategy interface) — there is no single static caller→callee edge; the implementations ARE the continuations. To follow one, run codegraph_explore on a listed target.
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: RequestEncodableConvertible asURLRequest, ParameterEncoder encode, DataRequest _response serializer serialize, appendResponseSerializer processNextResponseSerializer**
+
+Found 31 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `ParameterEncoder` (Source/Core/ParameterEncoder.swift:95) — 1 caller in `Source/Core/Session.swift`; ⚠️ no covering tests found
+- `DataRequest` (Source/Core/DataRequest.swift:28) — 13 callers in `Source/Core/Session.swift`, `Source/Core/SessionDelegate.swift`, `Source/Features/Combine.swift`, `Source/Features/Concurrency.swift` +1 more; tests: `Tests/TestHelpers.swift`
+- `URLEncodedFormSerializer` (Source/Features/URLEncodedFormEncoder.swift:1048) — 1 caller in `Source/Features/URLEncodedFormEncoder.swift`; ⚠️ no covering tests found
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`Source/Core/Request.swift`** — calls(calls), appendResponseSerializer(method), processNextResponseSerializer(calls), processNextResponseSerializer(method)
+
+```swift
+586	    ///  - Note: This method will also `resume` the instance if `delegate.startImmediately` returns `true`.
+587	    ///
+588	    /// - Parameter closure: The closure containing the response serialization call.
+589	    func appendResponseSerializer(_ closure: @escaping @Sendable () -> Void) {
+590	        mutableState.write { mutableState in
+591	            mutableState.responseSerializers.append(closure)
+592	
+593	            if mutableState.state == .finished {
+594	                mutableState.state = .resumed
+595	            }
+596	
+597	            // If serializers have already been processed, execute the added serializer immediately.
+598	            if mutableState.responseSerializerProcessingFinished {
+599	                underlyingQueue.async { self.processNextResponseSerializer() }
+600	            }
+601	
+602	            if mutableState.state.canTransitionTo(.resumed) {
+603	                underlyingQueue.async { [self] in
+604	                    if (shouldAutomaticallyResume ?? delegate?.startImmediately) == true {
+605	                        resume()
+606	                    }
+607	                }
+608	            }
+609	        }
+610	    }
+611	
+612	    /// Processes the next response serializer and calls all completions if response serialization is complete.
+613	    func processNextResponseSerializer() {
+614	        let executeOutside: (() -> Void)? = mutableState.write { mutableState in
+615	            guard !mutableState.isResponseSerializerEnqueued else { return nil }
+616	
+617	            let responseSerializerIndex = mutableState.responseSerializerCompletions.count
+618	            let isAvailableSerializer = responseSerializerIndex < mutableState.responseSerializers.count
+619	            let responseSerializer = isAvailableSerializer ? mutableState.responseSerializers[responseSerializerIndex] : nil
+620	
+621	            if let responseSerializer {
+622	                mutableState.isResponseSerializerEnqueued = true
+623	                return { self.serializationQueue.async { responseSerializer() } }
+624	            } else {
+625	                let completions = mutableState.responseSerializerCompletions
+626	                // Clear out all response serializers and response serializer completions in mutable state since the
+627	                // request is complete. It's important to do this prior to calling the completion closures in case
+628	                // the completions call back into the request triggering a re-processing of the response serializers.
+629	                // An example of how this can happen is by calling cancel inside a response completion closure.
+630	                mutableState.responseSerializers.removeAll()
+631	                mutableState.responseSerializerCompletions.removeAll()
+632	
+633	                if mutableState.state.canTransitionTo(.finished) {
+634	                    mutableState.state = .finished
+635	                }
+636	
+637	                mutableState.responseSerializerProcessingFinished = true
+638	                mutableState.isFinishing = false
+639	
+640	                return {
+641	                    completions.forEach { $0() }
+642	
+643	                    // Cleanup the request outside the lock
+644	                    self.cleanup()
+645	                }
+646	            }
+647	        }
+648	
+649	        executeOutside?()
+650	    }
+651	
+652	    /// Notifies the `Request` that the response serializer is complete.
+653	    ///
+```
+
+**`Source/Core/DataRequest.swift`** — calls(calls), instantiates(instantiates), appendResponseSerializer(calls), response(method), _response(method)
+
+```swift
+215	    ///   - completionHandler: The code to be executed once the request has finished.
+216	    ///
+217	    /// - Returns:             The request.
+218	    @preconcurrency
+219	    @discardableResult
+220	    public func response(queue: DispatchQueue = .main, completionHandler: @escaping @Sendable (AFDataResponse<Data?>) -> Void) -> Self {
+221	        appendResponseSerializer {
+222	            // Start work that should be on the serialization queue.
+223	            let result = AFResult<Data?>(value: self.data, error: self.error)
+224	            // End work that should be on the serialization queue.
+225	
+226	            self.underlyingQueue.async {
+227	                let response = DataResponse(request: self.request,
+228	                                            response: self.response,
+229	                                            data: self.data,
+230	                                            metrics: self.metrics,
+231	                                            serializationDuration: 0,
+232	                                            result: result)
+233	
+234	                self.eventMonitor?.request(self, didParseResponse: response)
+235	
+236	                self.responseSerializerDidComplete { queue.async { completionHandler(response) } }
+237	            }
+238	        }
+239	
+240	        return self
+241	    }
+242	
+243	    private func _response<Serializer: DataResponseSerializerProtocol>(queue: DispatchQueue = .main,
+244	                                                                       responseSerializer: Serializer,
+245	                                                                       completionHandler: @escaping @Sendable (AFDataResponse<Serializer.SerializedObject>) -> Void)
+246	        -> Self {
+247	        appendResponseSerializer {
+248	            // Start work that should be on the serialization queue.
+249	            let start = ProcessInfo.processInfo.systemUptime
+250	            let result: AFResult<Serializer.SerializedObject> = Result {
+251	                try responseSerializer.serialize(request: self.request,
+252	                                                 response: self.response,
+253	                                                 data: self.data,
+254	                                                 error: self.error)
+255	            }.mapError { error in
+256	                error.asAFError(or: .responseSerializationFailed(reason: .customSerializationFailed(error: error)))
+257	            }
+258	
+259	            let end = ProcessInfo.processInfo.systemUptime
+260	            // End work that should be on the serialization queue.
+261	
+262	            self.underlyingQueue.async {
+263	                let response = DataResponse(request: self.request,
+264	                                            response: self.response,
+265	                                            data: self.data,
+266	                                            metrics: self.metrics,
+267	                                            serializationDuration: end - start,
+268	                                            result: result)
+269	
+270	                self.eventMonitor?.request(self, didParseResponse: response)
+271	
+272	                guard !self.isCancelled, let serializerError = result.failure, let delegate = self.delegate else {
+273	                    self.responseSerializerDidComplete { queue.async { completionHandler(response) } }
+274	                    return
+275	                }
+276	
+277	                delegate.retryResult(for: self, dueTo: serializerError) { retryResult in
+278	                    var didComplete: (@Sendable () -> Void)?
+279	
+280	                    defer {
+281	                        if let didComplete {
+282	                            self.responseSerializerDidComplete { queue.async { didComplete() } }
+283	                        }
+284	                    }
+285	
+286	                    switch retryResult {
+287	                    case .doNotRetry:
+288	                        didComplete = { completionHandler(response) }
+289	
+290	                    case let .doNotRetryWithError(retryError):
+291	                        let result: AFResult<Serializer.SerializedObject> = .failure(retryError.asAFError(orFailWith: "Received retryError was not already AFError"))
+292	
+293	                        let response = DataResponse(request: self.request,
+294	                                                    response: self.response,
+295	                                                    data: self.data,
+296	                                                    metrics: self.metrics,
+297	                                                    serializationDuration: end - start,
+298	                                                    result: result)
+299	
+300	                        didComplete = { completionHandler(response) }
+301	
+302	                    case .retry, .retryWithDelay:
+303	                        delegate.retryRequest(self, withDelay: retryResult.delay)
+304	                    }
+305	                }
+306	            }
+307	        }
+308	
+309	        return self
+310	    }
+311	
+312	    /// Adds a handler to be called once the request has finished.
+313	    ///
+```
+
+**`Source/Core/ParameterEncoder.swift`** — JSONParameterEncoder(references), ParameterEncoder(interface), JSONParameterEncoder(class), ParameterEncoder(extends), encode(method), +6 more
+
+```swift
+25	import Foundation
+26	
+27	/// A type that can encode any `Encodable` type into a `URLRequest`.
+28	public protocol ParameterEncoder: Sendable {
+29	    /// Encode the provided `Encodable` parameters into `request`.
+30	    ///
+31	    /// - Parameters:
+32	    ///   - parameters: The `Encodable` parameter value.
+33	    ///   - request:    The `URLRequest` into which to encode the parameters.
+34	    ///
+35	    /// - Returns:      A `URLRequest` with the result of the encoding.
+36	    /// - Throws:       An `Error` when encoding fails. For Alamofire provided encoders, this will be an instance of
+37	    ///                 `AFError.parameterEncoderFailed` with an associated `ParameterEncoderFailureReason`.
+38	    func encode<Parameters: Encodable & Sendable>(_ parameters: Parameters?, into request: URLRequest) throws -> URLRequest
+39	}
+40	
+41	/// A `ParameterEncoder` that encodes types as JSON body data.
+42	///
+43	/// If no `Content-Type` header is already set on the provided `URLRequest`s, it's set to `application/json`.
+44	open class JSONParameterEncoder: @unchecked Sendable, ParameterEncoder {
+45	    /// Returns an encoder with default parameters.
+46	    public static var `default`: JSONParameterEncoder { JSONParameterEncoder() }
+47	
+48	    /// Returns an encoder with `JSONEncoder.outputFormatting` set to `.prettyPrinted`.
+49	    public static var prettyPrinted: JSONParameterEncoder {
+50	        let encoder = JSONEncoder()
+51	        encoder.outputFormatting = .prettyPrinted
+52	
+53	        return JSONParameterEncoder(encoder: encoder)
+54	    }
+55	
+56	    /// Returns an encoder with `JSONEncoder.outputFormatting` set to `.sortedKeys`.
+57	    @available(macOS 10.13, iOS 11.0, tvOS 11.0, watchOS 4.0, *)
+58	    public static var sortedKeys: JSONParameterEncoder {
+59	        let encoder = JSONEncoder()
+60	        encoder.outputFormatting = .sortedKeys
+61	
+62	        return JSONParameterEncoder(encoder: encoder)
+63	    }
+64	
+65	    /// `JSONEncoder` used to encode parameters.
+66	    public let encoder: JSONEncoder
+67	
+68	    /// Creates an instance with the provided `JSONEncoder`.
+69	    ///
+70	    /// - Parameter encoder: The `JSONEncoder`. `JSONEncoder()` by default.
+71	    public init(encoder: JSONEncoder = JSONEncoder()) {
+72	        self.encoder = encoder
+73	    }
+74	
+75	    open func encode<Parameters: Encodable>(_ parameters: Parameters?,
+76	                                            into request: URLRequest) throws -> URLRequest {
+77	        guard let parameters else { return request }
+78	
+79	        var request = request
+80	
+81	        do {
+82	            let data = try encoder.encode(parameters)
+83	            request.httpBody = data
+84	            if request.headers["Content-Type"] == nil {
+85	                request.headers.update(.contentType("application/json"))
+86	            }
+87	        } catch {
+88	            throw AFError.parameterEncodingFailed(reason: .jsonEncodingFailed(error: error))
+89	        }
+90	
+91	        return request
+92	    }
+93	}
+94	
+95	extension ParameterEncoder where Self == JSONParameterEncoder {
+96	    /// Provides a default `JSONParameterEncoder` instance.
+97	    public static var json: JSONParameterEncoder { JSONParameterEncoder() }
+98	
+99	    /// Creates a `JSONParameterEncoder` using the provided `JSONEncoder`.
+100	    ///
+101	    /// - Parameter encoder: `JSONEncoder` used to encode parameters. `JSONEncoder()` by default.
+102	    /// - Returns:           The `JSONParameterEncoder`.
+103	    public static func json(encoder: JSONEncoder = JSONEncoder()) -> JSONParameterEncoder {
+104	        JSONParameterEncoder(encoder: encoder)
+105	    }
+106	}
+107	
+108	/// A `ParameterEncoder` that encodes types as URL-encoded query strings to be set on the URL or as body data, depending
+109	/// on the `Destination` set.
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+[assistant] I now have the full picture. Here's how Alamofire handles the request lifecycle.
+
+## The three phases
+
+### 1. Build
+
+Everything starts at `Session.request(...)` (`Source/Core/Session.swift:367`). The convenience overload wraps your URL, method, parameters, encoder, and headers into a `RequestEncodableConvertible` (a `URLRequestConvertible`), then hands off to the core `request(_:interceptor:)` overload (`:393`), which constructs a `DataRequest` and calls `performEagerlyIfNecessary`.
+
+The actual `URLRequest` isn't built until the request is *performed*. `Session.perform` (`:1166`) dispatches by subtype (`UploadRequest`/`DataRequest`/`DownloadRequest`/…) and ultimately reaches `performSetupOperations` (`:1246`), which is where building happens:
+
+```swift
+initialRequest = try convertible.asURLRequest()   // parameters → URLRequest
+try initialRequest.validate()                       // sanity-check the URLRequest itself
+```
+
+`asURLRequest()` on `RequestEncodableConvertible` applies the method/headers/`requestModifier` and runs your `ParameterEncoder` — e.g. `JSONParameterEncoder.encode` (`Source/Core/ParameterEncoder.swift:75`) serializes `Encodable` params into `httpBody` and sets `Content-Type: application/json`. Encoding failures become `AFError.parameterEncodingFailed`.
+
+### 2. Send
+
+Still in `performSetupOperations`, the built request runs through any interceptor's **adapter** before becoming a task:
+
+```swift
+adapter.adapt(initialRequest, using: adapterState) { result in
+    let adaptedRequest = try result.get()
+    try adaptedRequest.validate()
+    ...
+    self.didCreateURLRequest(adaptedRequest, for: request)
+}
+```
+
+`adapt` is dynamically dispatched to whatever `RequestInterceptor` you supplied (16 implementations exist; e.g. `Interceptor.adapt` chains multiple adapters sequentially, `DeflateRequestCompressor`, `Adapter`, etc.). If no adapter, the initial request is used directly.
+
+`Session.didCreateURLRequest` (`:1291`) then:
+1. notifies the request (`request.didCreateURLRequest` → event monitors, cURL handlers),
+2. creates the actual `URLSessionTask` via `request.task(for:using:)` — overridden per subclass (`DataRequest`/`DownloadRequest`),
+3. records it in the `requestTaskMap` and calls `didCreateTask`.
+
+The task is only *resumed* when `Request.resume()` (`Source/Core/Request.swift:768`) runs `task.resume()`. Note resumption is often automatic: adding a response handler via `appendResponseSerializer` (`:589`) calls `resume()` if `shouldAutomaticallyResume`/`startImmediately` is true — this is why you rarely call `.resume()` manually.
+
+### 3. Validate & serialize
+
+You attach validation with `DataRequest.validate(...)` (`Source/Features/Validation.swift`). Rather than running immediately, each validator is **stored as a closure**. The no-arg `validate()` (`:188`) composes the two built-in checks:
+
+```swift
+validate(statusCode: acceptableStatusCodes).validate(contentType: contentTypes())
+```
+
+- `validate(statusCode:)` → checks 200–299 by default, else `AFError.responseValidationFailed(.unacceptableStatusCode)` (`:81`)
+- `validate(contentType:)` → MIME-matches the `Accept` header, with wildcard support (`:105`)
+
+**When does validation actually run?** When the task finishes, `Request.didCompleteTask` (`Source/Core/Request.swift:515`) fires all stored validators, letting each set `mutableState.error`:
+
+```swift
+let validators = validators.read(\.self)
+validators.forEach { $0() }        // runs statusCode/contentType checks
+...
+retryOrFinish(error: self.error)
+```
+
+So validation failures surface as an `error` on the request *before* serialization. Then response serializers (queued by `response(...)` / `responseDecodable(...)` via `_response`, `DataRequest.swift:243`) run:
+
+```swift
+let result = Result {
+    try responseSerializer.serialize(request:, response:, data:, error: self.error)
+}
+```
+
+Crucially, the serializer receives `self.error` — so if validation failed, the serializer sees that error and the `DataResponse.result` is a `.failure`. On a serialization/validation error, `_response` also consults the interceptor's **retrier** (`delegate.retryResult`) and may retry the whole request instead of completing.
+
+`processNextResponseSerializer` (`:613`) walks the serializer queue one at a time on the serialization queue, then invokes all completion handlers and cleans up.
+
+## The flow in one line
+
+`Session.request` → `perform` → `performSetupOperations` (build `URLRequest` via `ParameterEncoder`, **adapt** via interceptor) → `didCreateURLRequest` (create `URLSessionTask`) → `resume` (send) → `didCompleteTask` (**run stored validators** → set error) → response serializers consume `error`+`data` → completion handler gets `DataResponse`, or retrier reschedules.
+
+The key design idea: **validation and serialization are both deferred closures** — you declare them up front on the `DataRequest`, but they only execute once the network task completes, chained through the request's serialization queue.
+[usage] input=2 cache_read=32988 cache_write=5660 output=1958
