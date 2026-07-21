@@ -41,15 +41,6 @@ host, changes nothing about your workflow, and squeezes out the maximum
 saving it can. Every number below is an absolute-dollar measurement
 ([BENCHMARKS.md](BENCHMARKS.md)) — not a token-count hand-wave.
 
-## Project status
-
-LemonCrow is an actively built, open-source local runtime for improving the
-repository context available to coding agents.
-
-LemonCrow's core runtime is fully open source, account-free, and capable of
-operating offline. All LemonCrow-hosted communication is optional and disabled
-by default. The entire runtime, including the proprietary retrieval/ranking
-engine (`lemoncrow.pro`), is open source under Apache-2.0.
 
 ## Quick start
 
