@@ -1655,9 +1655,7 @@ def _validate_mcp_suites(suite_names: list[str], *, repo_root: Path) -> None:
 
 def _ensure_codebench_tasks_dir(repo_root: Path, configured_dir: Path | None) -> Path:
     resolved = (
-        configured_dir.resolve()
-        if configured_dir is not None
-        else repo_root.parent / "benchmarks" / repo_root.name / "codebench-tasks"
+        configured_dir.resolve() if configured_dir is not None else repo_root / "benchmarks" / "codebench" / "cg_tasks"
     )
     tasks_dir = resolved / "tasks"
     if tasks_dir.is_dir():

@@ -8,7 +8,11 @@
 
 ### Keep your coding agent sharp on real codebases
 
+fresh context retrieval for orchestration and workflows
+
 LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
+
+**State-of-the-art context engineering.** LemonCrow is tuned end to end across input context and output — ranked retrieval, exact-range reads, and bounded, compacted output — and out-measures grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
@@ -29,14 +33,12 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 ## Project status
 
 LemonCrow is an experimental open-source local runtime for improving the
-repository context available to coding agents. The project is maintained on a
-best-effort basis. New development is driven by demonstrated usage and external
-contributions rather than a commercial roadmap.
+repository context available to coding agents.
 
 LemonCrow's core runtime is fully open source, account-free, and capable of
 operating offline. All LemonCrow-hosted communication is optional and disabled
-by default. The entire runtime, including the retrieval/ranking engine
-(`lemoncrow.pro`), is open source under Apache-2.0.
+by default. The entire runtime, including propritory the retrieval/ranking engine
+(`lemoncrow.pro` planned to be), is open source under Apache-2.0.
 
 ## Quick start
 
@@ -128,13 +130,8 @@ Both are local and read-only — no model re-run, nothing transmitted.
   provider/API key (Anthropic, OpenAI, Ollama, …).
 - It does **not** guarantee the benchmark deltas below on your repository;
   results vary by task, codebase, and model.
-- It has **no** paid tier, entitlement, subscription, or usage cap. (Legacy
-  "Pro/Enterprise" plans and the savings cap were removed — see
-  [docs/maintenance-mode-transition.md](docs/maintenance-mode-transition.md).)
 - Some integrations are early or in progress; behavior varies by host (e.g.
   session-close verification is enforced on Claude Code, advisory elsewhere).
-- It is maintained best-effort — there is no SLA, support guarantee, or
-  committed roadmap.
 
 ## Privacy and network behavior
 
