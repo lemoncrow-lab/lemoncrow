@@ -136,21 +136,21 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
 
 ## Exploration Tasks
 
-7 open-source codebases, 1 exploration question each, 5 reps per arm, `claude-opus-4-8`. Costs are summed across all reps. The baseline arm is the 2026-06-29 run; the LemonCrow arm was re-run on 2026-07-08 against the current runtime — same tasks, prompts, model, timeout, and driver (protocol recorded in the run's `benchmark-manifest.json`).
+7 open-source codebases, 1 exploration question each, 5 reps per arm, `claude-opus-4-8`. Costs are summed across all reps. The baseline arm is the 2026-06-29 run; the LemonCrow arm was re-run on 2026-07-08 against the current runtime; a third arm -- [CodeGraph](https://github.com/colbymchenry/codegraph), wired in via the harness's BYO-competitor path against its MCP server -- was added on 2026-07-21. Same tasks, prompts, model, timeout, and driver throughout (protocol recorded in the run's `benchmark-manifest.json`).
 
 
-| Codebase   | Language / size                   |                LemonCrow |        Baseline | Cost delta |
-| ------------ | ----------------------------------- | -----------------------: | ----------------: | -----------: |
-| Tokio      | Rust, 784 files, 176k lines       |          $0.34 | $2.69 | **87% cheaper** |            |
-| Alamofire  | Swift, 98 files, 44k lines        |          $0.74 | $4.83 | **85% cheaper** |            |
-| Django     | Python, 3k files, 522k lines      |          $0.37 | $2.31 | **84% cheaper** |            |
-| OkHttp     | Java, 596 files, 133k lines       |          $0.29 | $1.60 | **82% cheaper** |            |
-| VS Code    | TypeScript, 11k files, 3.3M lines |          $0.72 | $3.08 | **77% cheaper** |            |
-| Gin        | Go, 99 files, 24k lines           |          $0.29 | $1.09 | **73% cheaper** |            |
-| Excalidraw | TypeScript, 600 files, 171k lines |          $3.54 | $3.51 |    +0.7% (even) |            |
-| **Total**  | 7 repos, 16k files, 4.4M lines    | **$6.29** | **$19.11** | **67% cheaper** |            |
+| Codebase   | Language / size                   |                LemonCrow |        Baseline |          Codegraph |     LemonCrow Δ |      Codegraph Δ |
+| ------------ | ----------------------------------- | -----------------------: | ----------------: | --------------------: | -----------------: | -----------------: |
+| Tokio      | Rust, 784 files, 176k lines       |          $0.34 | $2.69 |               $3.44 | **87% cheaper** |       28% pricier |
+| Alamofire  | Swift, 98 files, 44k lines        |          $0.74 | $4.83 |               $2.48 | **85% cheaper** |   **49% cheaper** |
+| Django     | Python, 3k files, 522k lines      |          $0.37 | $2.31 |               $2.32 | **84% cheaper** |               even |
+| OkHttp     | Java, 596 files, 133k lines       |          $0.29 | $1.60 |               $1.35 | **82% cheaper** |       16% cheaper |
+| VS Code    | TypeScript, 11k files, 3.3M lines |          $0.72 | $3.08 |               $2.56 | **77% cheaper** |       17% cheaper |
+| Gin        | Go, 99 files, 24k lines           |          $0.29 | $1.09 |               $1.36 | **73% cheaper** |       25% pricier |
+| Excalidraw | TypeScript, 600 files, 171k lines |          $3.54 | $3.51 |               $2.47 |    +0.7% (even) |   **30% cheaper** |
+| **Total**  | 7 repos, 16k files, 4.4M lines    | **$6.29** | **$19.11** | **$15.99** | **67% cheaper** | **16% cheaper** |
 
-Honest outlier: Excalidraw is a dead heat ($3.54 vs $3.51) — the one repo where LemonCrow's answer style spends as much as it saves. Every other repo is 73–87% cheaper. Beyond cost: 91% fewer turns (1,237 → 112), 92% fewer cache-read tokens, 84% fewer output tokens, at equal wall-clock.
+Honest outlier: Excalidraw is a dead heat for LemonCrow ($3.54 vs $3.51) -- the one repo where its answer style spends as much as it saves. Every other repo is 73-87% cheaper for LemonCrow. Codegraph is noisier: cheaper on 5 of 7 repos (16-49%; Excalidraw is its best result, LemonCrow's worst), but pricier than baseline on Tokio (+28%) and Gin (+25%), and 22.7% slower overall (1,653,761ms vs baseline's 1,347,619ms) despite netting 16.3% cheaper in total cost -- a different picture than CodeGraph's own published with/without numbers on this same 7-repo set, which show it uniformly faster and never pricier. Beyond cost: LemonCrow cuts turns 91% (1,237 → 112) and codegraph 84% (→ 197); cache-read tokens fall 92% for LemonCrow vs 89% for codegraph; output tokens fall 84% for LemonCrow vs 77% for codegraph (→ 99,043).
 
 Raw data: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/)
 
@@ -164,6 +164,18 @@ lc benchmark codebench \
   --reps 5 \
   --model claude-opus-4-8 \
   --cli-driver claude
+```
+
+The codegraph arm isn't yet wired through the `lc benchmark codebench` wrapper's `--arm`; it runs through the harness's BYO-competitor path directly:
+
+```bash
+uv run python -m benchmarks.codebench.run \
+  cg_vscode cg_excalidraw cg_django cg_tokio cg_okhttp cg_gin cg_alamofire \
+  --arms codegraph \
+  --competitor benchmarks/codebench/competitors/codegraph.json \
+  --reps 5 --model claude-opus-4-8 --timeout 1800 \
+  --jobs 1 --parallel-scope task \
+  --out benchmarks/codebench/results/exploration_2026_06_29 --resume
 ```
 
 ## Telegraphic Q&A Benchmark
