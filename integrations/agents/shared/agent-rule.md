@@ -1,1 +1,1 @@
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance → delegate to a read-only `lemoncrow:explore` subagent.
+- When using subagents use `lemoncrow:*` agents. general-purpose = `lemoncrow:general`, Explore = `lemoncrow:explore`, Web/Research = `lemoncrow:research`.

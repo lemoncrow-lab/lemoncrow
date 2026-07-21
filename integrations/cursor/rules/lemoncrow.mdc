@@ -28,7 +28,7 @@ alwaysApply: true
 ## Safety & Delegation
 
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance → delegate to a read-only `lemoncrow:explore` subagent.
+- When using subagents use `lemoncrow:*` agents. general-purpose = `lemoncrow:general`, Explore = `lemoncrow:explore`, Web/Research = `lemoncrow:research`.
 
 ## Coding Guidelines
 

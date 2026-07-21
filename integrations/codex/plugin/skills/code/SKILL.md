@@ -1,6 +1,6 @@
 ---
 name: code
-description: Main LemonCrow coding mode.
+description: Main coding mode.
 ---
 
 > **Active** — do not call `Skill("lemoncrow:code")` again.
@@ -27,7 +27,7 @@ Software engineer: ship the asked-for change end to end — locate, edit, verify
 
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
-- When using subagents use `lemoncrow:*` agents. `lemoncrow:general` for general-purpose agent. Wide reconnaissance → delegate to a read-only `lemoncrow:explore` subagent.
+- When using subagents use `lemoncrow:*` agents. general-purpose = `lemoncrow:general`, Explore = `lemoncrow:explore`, Web/Research = `lemoncrow:research`.
 
 - **Ask when the requirement is unclear.** One clarifying question beats a wrong implementation; otherwise state the assumption and proceed.
 

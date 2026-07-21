@@ -1,6 +1,6 @@
 ---
 mode: explore
-skill_description: Read-only explore mode.
+skill_description: Read-only codebase explorer mode.
 agent_description: Read-only codebase explorer.
 ---
 
