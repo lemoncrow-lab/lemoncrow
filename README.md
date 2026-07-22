@@ -2,6 +2,32 @@
 
 <div align="center">
 
+<img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;">
+
+# LemonCrow Runtime
+
+### Keep your coding agent sharp on real codebases
+
+**Context engineering, done right.**
+
+LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
+
+**State-of-the-art context engineering.** LemonCrow is tuned end to end across input context and output — ranked retrieval, exact-range reads, and bounded, compacted output — and out-measures grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
+
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
+[![Stars](https://img.shields.io/github/stars/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow)
+
+[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
+[![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
+[![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
+[![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
+[![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
+
+[Quick start](#quick-start) · [What it does](#what-lemoncrow-does) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Results](#results) · [Removal](#removal)
+
+</div>
+
 ---
 
 ## Why I built this
@@ -49,7 +75,6 @@ Plugins → Browse Plugins → (next to search) + → Create**, paste the
 printed MCP server URL, set Authentication to **OAuth**, and approve the
 browser prompt with the pairing code.
 
-
 | Flag                        | Effect                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
@@ -93,7 +118,6 @@ LemonCrow keeps your existing coding agent and changes the working set around it
 </p>
 <p align="center"><sub>Your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
 
-
 | Stage      | Runtime behavior                                                                                              |
 | ------------ | --------------------------------------------------------------------------------------------------------------- |
 | **Find**   | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration.   |
@@ -106,7 +130,6 @@ LemonCrow keeps your existing coding agent and changes the working set around it
 On Claude Code, `lc init` gives the agent five grounded tools and hides the
 equivalent built-ins — one way to do each job, not two. Other hosts use the
 strongest equivalent controls they expose.
-
 
 | LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
 | ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -123,7 +146,6 @@ What's unchanged: the host, the model, your workflow. Full internals:
 
 Packaged in [integrations/agents/](integrations/agents/) — each a distinct
 capability grant (subagent name `lemoncrow:<mode>`):
-
 
 | Agent      | Writes? | Use                                               |
 | ------------ | :-------: | --------------------------------------------------- |
@@ -186,7 +208,6 @@ headline number links back to committed raw runs and methodology in
 verification harness were held constant. Results are mixed by design and include
 a regression (SWE-bench Lite below).
 
-
 | Benchmark                                         | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |    LemonCrow cost | Cost delta |
 | --------------------------------------------------- | -----------------: | ------------------: | --------------: | ---------------------: | ------------------: | -----------: |
 | SWE-bench Verified, 50 tasks x 5 reps             |            80.8% |         **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** | **29.5% cheaper** |            |
@@ -205,7 +226,6 @@ a regression (SWE-bench Lite below).
 SWE-bench Verified detail (250 runs a side) — one-shot search collapses the
 grep-and-read loop, so turns, wall-clock, and tool calls drop together:
 
-
 | Metric           | Baseline | LemonCrow |            Delta |
 | ------------------ | ---------: | ----------: | -----------------: |
 | Turns            |    6,962 |     4,336 |  **37.7% fewer** |
@@ -219,7 +239,6 @@ Indexing throughput and search quality hold up at repository sizes agents
 actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
 4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
 pairs across 14 repos:
-
 
 | Metric                                    |                          LemonCrow | Grep-class baseline |
 | ------------------------------------------- | -----------------------------------: | --------------------: |
