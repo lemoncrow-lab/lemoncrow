@@ -1,1 +1,2 @@
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
+- **Raw source data first.** Before running any tool (connection open, parser, importer) against not-yet-processed or still-encoded source data that might auto-repair, checkpoint, or discard what it treats as invalid — copy the raw bytes aside first if the transform isn't proven reversible.
