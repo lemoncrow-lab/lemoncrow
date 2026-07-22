@@ -81,24 +81,30 @@ def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path)
     assert "Call 'rescue' before any retry" in output["parts"][0]["text"]
 
 
-def test_opencode_required_arg_error_shows_toast_on_first_occurrence(tmp_path: Path) -> None:
+def test_opencode_required_arg_threshold_1_fires_on_first_occurrence(tmp_path: Path) -> None:
     """A required-argument TypeError never repeats identically (each guessed
-    value produces a different error), so it must fire on the FIRST failure --
-    unlike the repeat-threshold rescue nudge above, which needs 2 calls.
+    value produces a different error), so it's counted by pattern match, not
+    the exact-signature repeat-threshold rescue nudge above.
     """
     env = os.environ.copy()
     env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    env["LEMONCROW_REQUIRED_ARG_NUDGE"] = "1"
+    env["LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD"] = "1"
     # Pin to this checkout's own venv: the JS plugin's python-resolution
     # fallback otherwise finds a globally `uv tool install`-ed lemoncrow (a
     # separate build), silently missing any uncommitted/dev-only source
     # change -- exactly the feature this test exists to exercise.
     env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
+    # The required-arg counter is workspace-keyed (cwd), not tmp_path-isolated
+    # by LEMONCROW_ROOT -- pass tmp_path as the plugin's own directory too, or
+    # this pollutes (and reads back) the REAL repo's .lemoncrow/workspace/
+    # session_state.json across every test run.
+    workdir = tmp_path / "work"
+    workdir.mkdir()
     script = f"""
     import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
     const toasts = []
     const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+    const hooks = await LemonCrowNudge({{ client, directory: {json.dumps(str(workdir))} }})
     const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
     const failure = {{ title: 'failed', output: "TypeError: encode() missing 1 required keyword-only argument: 'task_name'", metadata: {{ exitCode: 1 }} }}
     await hooks['tool.execute.after'](input, failure)
@@ -115,19 +121,23 @@ def test_opencode_required_arg_error_shows_toast_on_first_occurrence(tmp_path: P
     assert any("read what it controls" in toast["body"]["message"].lower() for toast in toasts)
 
 
-def test_opencode_required_arg_nudge_off_by_default(tmp_path: Path) -> None:
+def test_opencode_required_arg_default_threshold_needs_three_hits(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
     env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
-    env.pop("LEMONCROW_REQUIRED_ARG_NUDGE", None)
+    env.pop("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", None)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
     script = f"""
     import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
     const toasts = []
     const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
-    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+    const hooks = await LemonCrowNudge({{ client, directory: {json.dumps(str(workdir))} }})
     const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
-    const failure = {{ title: 'failed', output: "TypeError: encode() missing 1 required keyword-only argument: 'task_name'", metadata: {{ exitCode: 1 }} }}
-    await hooks['tool.execute.after'](input, failure)
+    for (const guess of ['task_name', 'other_name', 'third_name']) {{
+      const failure = {{ title: 'failed', output: `TypeError: encode() missing 1 required keyword-only argument: '${{guess}}'`, metadata: {{ exitCode: 1 }} }}
+      await hooks['tool.execute.after']({{ ...input, callID: guess }}, failure)
+    }}
     console.log(JSON.stringify(toasts))
     """
     result = subprocess.run(
@@ -138,7 +148,8 @@ def test_opencode_required_arg_nudge_off_by_default(tmp_path: Path) -> None:
         env=env,
     )
     toasts = json.loads(result.stdout)
-    assert not any("read what it controls" in (toast["body"].get("message") or "").lower() for toast in toasts)
+    matches = [t for t in toasts if "read what it controls" in (t["body"].get("message") or "").lower()]
+    assert len(matches) == 1, f"expected exactly 1 nudge (on the 3rd hit), got {len(matches)}: {toasts}"
 
 
 def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:

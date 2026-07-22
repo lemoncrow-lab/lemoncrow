@@ -1987,9 +1987,14 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     tool_response = normalized.get("tool_response")
     if isinstance(tool_response, dict):
         error_text = str(tool_response.get("output") or tool_response.get("stderr") or tool_response.get("error") or "")
-        required_arg_nudge = _required_arg_nudge_message(error_text)
-        if required_arg_nudge:
-            return {"uiMessage": required_arg_nudge}
+        nudge_text = _required_arg_nudge_message(error_text)
+        if nudge_text:
+            nudge_state = _read_codex_session_state(root, normalized)
+            hits = int(nudge_state.get("required_arg_hits", 0) or 0) + 1
+            nudge_state["required_arg_hits"] = hits
+            _write_codex_session_state(root, normalized, nudge_state)
+            if hits >= _required_arg_nudge_threshold():
+                return {"uiMessage": nudge_text}
     if _is_lemoncrow_tool(str(normalized.get("tool_name") or "")):
         return {"no_output": True}
     nudge = _codex_native_tool_nudge(root, normalized)
@@ -3053,18 +3058,24 @@ _CODEX_FAILURE_THRESHOLD = 2
 # First-occurrence nudge for Python's own "missing N required ... argument"
 # TypeError shape -- shared by Codex and OpenCode below. Claude's parallel
 # implementation lives in integrations/claude/plugin/hooks/
-# post_tool_use_failure.py (its module docstring has the full rationale: this
-# failure shape never repeats identically, so the ordinary repeat-failure
-# counters just above/below never catch it, and it is worth the false-positive
-# risk only for autonomous/no-human-in-the-loop sessions -- hence off by
-# default). Kept here, not duplicated per-host, so the pattern/wording/flag
-# name cannot drift between Claude, Codex, and OpenCode.
+# post_tool_use_failure.py (its module docstring has the full rationale). Kept
+# here, not duplicated per-host, so the pattern/wording/threshold-env-var name
+# cannot drift between Claude, Codex, and OpenCode. Counted by PATTERN match
+# (via _required_arg_nudge_threshold, applied by each caller against its own
+# session state), not exact signature -- this failure shape never repeats
+# identically, so the ordinary repeat-failure counters nearby never catch it.
 _REQUIRED_ARG_NUDGE_PATTERN = re.compile(r"missing \d+ required (?:keyword-only |positional )?argument")
 
 
+def _required_arg_nudge_threshold() -> int:
+    raw = os.environ.get("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", "3")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
 def _required_arg_nudge_message(error: str) -> str | None:
-    if os.environ.get("LEMONCROW_REQUIRED_ARG_NUDGE", "").strip().lower() not in {"1", "true", "on", "yes"}:
-        return None
     if not isinstance(error, str) or not _REQUIRED_ARG_NUDGE_PATTERN.search(error):
         return None
     return (
@@ -3548,9 +3559,14 @@ def _codex_record_command(
 
     if ok:
         return {"no_output": True}
-    nudge = _required_arg_nudge_message(error)
-    if nudge:
-        return {"systemMessage": nudge}
+    nudge_text = _required_arg_nudge_message(error)
+    if nudge_text:
+        nudge_state = _read_codex_session_state(root, payload)
+        hits = int(nudge_state.get("required_arg_hits", 0) or 0) + 1
+        nudge_state["required_arg_hits"] = hits
+        _write_codex_session_state(root, payload, nudge_state)
+        if hits >= _required_arg_nudge_threshold():
+            return {"systemMessage": nudge_text}
     return _codex_track_failure(root, payload, command, signature)
 
 
