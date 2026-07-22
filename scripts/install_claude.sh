@@ -600,9 +600,6 @@ if [[ -n "${PROJECT_ENFORCE:-}" ]]; then
     fi
     info "Configuring enforcement for project: ${PROJECT_ENFORCE}"
     configure_project_enforcement "${PROJECT_ENFORCE}"
-    lemoncrow_install_attribution_hook "$PROJECT_ENFORCE" "$DRY_RUN"
-elif $WORKSPACE_SET; then
-    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
 fi
 
 info "Done. Start Claude Code in your workspace. The lemoncrow:code agent is available."

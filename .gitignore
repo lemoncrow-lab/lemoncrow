@@ -317,3 +317,4 @@ build_dist/
 
 # LibreOffice/soffice lock files (created while a CSV is open in a spreadsheet app)
 .~lock.*#
+docs/assets/screenshots/session-replay.gif

@@ -284,9 +284,7 @@ else
 fi
 
 
-if $WORKSPACE_SET; then
-    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
-fi
+
 
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."
