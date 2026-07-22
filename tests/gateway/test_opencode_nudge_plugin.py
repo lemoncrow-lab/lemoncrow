@@ -81,6 +81,66 @@ def test_opencode_repeated_failure_injects_rescue_on_next_prompt(tmp_path: Path)
     assert "Call 'rescue' before any retry" in output["parts"][0]["text"]
 
 
+def test_opencode_required_arg_error_shows_toast_on_first_occurrence(tmp_path: Path) -> None:
+    """A required-argument TypeError never repeats identically (each guessed
+    value produces a different error), so it must fire on the FIRST failure --
+    unlike the repeat-threshold rescue nudge above, which needs 2 calls.
+    """
+    env = os.environ.copy()
+    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
+    env["LEMONCROW_REQUIRED_ARG_NUDGE"] = "1"
+    # Pin to this checkout's own venv: the JS plugin's python-resolution
+    # fallback otherwise finds a globally `uv tool install`-ed lemoncrow (a
+    # separate build), silently missing any uncommitted/dev-only source
+    # change -- exactly the feature this test exists to exercise.
+    env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
+    script = f"""
+    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
+    const toasts = []
+    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
+    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+    const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
+    const failure = {{ title: 'failed', output: "TypeError: encode() missing 1 required keyword-only argument: 'task_name'", metadata: {{ exitCode: 1 }} }}
+    await hooks['tool.execute.after'](input, failure)
+    console.log(JSON.stringify(toasts))
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    toasts = json.loads(result.stdout)
+    assert any("read what it controls" in toast["body"]["message"].lower() for toast in toasts)
+
+
+def test_opencode_required_arg_nudge_off_by_default(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
+    env["LEMONCROW_PYTHON"] = str(ROOT / ".venv" / "bin" / "python3")
+    env.pop("LEMONCROW_REQUIRED_ARG_NUDGE", None)
+    script = f"""
+    import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
+    const toasts = []
+    const client = {{ tui: {{ showToast: async (toast) => toasts.push(toast) }} }}
+    const hooks = await LemonCrowNudge({{ client, directory: process.cwd() }})
+    const input = {{ tool: 'bash', sessionID: 's1', callID: 'c1', args: {{ command: 'python3 run.py' }} }}
+    const failure = {{ title: 'failed', output: "TypeError: encode() missing 1 required keyword-only argument: 'task_name'", metadata: {{ exitCode: 1 }} }}
+    await hooks['tool.execute.after'](input, failure)
+    console.log(JSON.stringify(toasts))
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    toasts = json.loads(result.stdout)
+    assert not any("read what it controls" in (toast["body"].get("message") or "").lower() for toast in toasts)
+
+
 def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
