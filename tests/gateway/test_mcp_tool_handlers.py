@@ -1271,7 +1271,7 @@ def test_smart_read_batch_credits_calls_saved(store_root: Path, tmp_path: Path) 
 
 
 def test_compact_applied_entries_groups_by_path() -> None:
-    """Compaction groups same-path hunks and keeps special entries (e.g. symbol).
+    """Compaction groups same-path hunks and buckets "kind" entries by kind.
 
     This formatting only reaches the model on a LOUD result (clean exact edits are
     silenced), so it is verified directly on the helper rather than via a clean
@@ -1284,12 +1284,29 @@ def test_compact_applied_entries_groups_by_path() -> None:
         {"path": "first.txt", "hunks": [{"line_start": 3, "line_end": 3}]},
         {"path": "second.txt", "hunks": [{"line_start": 1, "line_end": 2}]},
         {"path": "sym.py", "kind": "symbol"},
+        {"path": "nb.ipynb", "kind": "notebook"},
+        {"path": "whole.txt", "kind": "replace"},
+        {
+            "path": "p.py",
+            "kind": "projection",
+            "projection_kind": "minified",
+            "hunks": [{"line_start": 3, "line_end": 4}],
+        },
     ]
     compact = _compact_applied_entries(entries)
     assert "first.txt:1,3" in compact
     assert "second.txt:1-2" in compact
-    # A special entry (extra keys beyond path/hunks) is preserved verbatim.
-    assert {"path": "sym.py", "kind": "symbol"} in compact
+    # "kind" entries with nothing beyond path+kind bucket as a bare path list,
+    # grouped one entry per kind rather than one raw dict per file.
+    assert {"symbol": ["sym.py"]} in compact
+    assert {"notebook": ["nb.ipynb"]} in compact
+    # "replace" reads as its past-tense outcome, not the raw kind value.
+    assert {"replaced": ["whole.txt"]} in compact
+    # A richer "kind" entry (extra fields beyond path) keeps those fields,
+    # grouped as a dict under the kind label instead of a bare path.
+    assert {
+        "projection": [{"path": "p.py", "projection_kind": "minified", "hunks": [{"line_start": 3, "line_end": 4}]}]
+    } in compact
 
 
 def test_smart_edit_blocks_test_assertion_removal(
