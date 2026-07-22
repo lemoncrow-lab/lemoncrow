@@ -75,11 +75,11 @@ Plugins → Browse Plugins → (next to search) + → Create**, paste the
 printed MCP server URL, set Authentication to **OAuth**, and approve the
 browser prompt with the pairing code.
 
-| Flag                          | Effect                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| `--no-tunnel`                | Bring your own tunnel (named cloudflared tunnel, ngrok).                         |
+| Flag                        | Effect                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
 | `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. |
-| `--no-auth`                  | Serve `/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default). |
+| `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
 
 Full request/response traffic is logged locally per run (path printed at
 startup; credentials and tokens are redacted) so you can audit exactly what
@@ -299,5 +299,5 @@ bash scripts/local.sh
 ## License
 
 LemonCrow is free and open-source software under the
-[Apache License, Version 2.0](LICENSE) — in its entirety, including the
-`lemoncrow.pro` engine. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+[Apache License, Version 2.0](LICENSE)
+`lemoncrow.pro` engine is planned to be released soon. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
