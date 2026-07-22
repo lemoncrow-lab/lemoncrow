@@ -20,6 +20,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/managed_context.sh"
 
+# Resolve the Python binary early (before option parsing) so DIST_ROOT
+# can use it to locate the installed lemoncrow package.
+if [[ -x "${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}/lemoncrow/bin/python" ]]; then
+    DIST_PYTHON=("${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}/lemoncrow/bin/python")
+elif command -v uv >/dev/null 2>&1; then
+    DIST_PYTHON=(uv run python)
+else
+    DIST_PYTHON=(python3)
+fi
+
+# In a distribution package, LEMONCROW_REPO points at an ephemeral extracted
+# directory that does NOT contain integrations/ or src/.  Resolve the actual
+# distribution root from the installed lemoncrow package so that agent and
+# plugin asset copies work regardless of where the script was launched from.
+if [[ -d "${LEMONCROW_REPO}/integrations" ]]; then
+    DIST_ROOT="${LEMONCROW_REPO}"
+else
+    DIST_ROOT="$(${DIST_PYTHON[@]} - <<'_PY'
+import importlib.resources
+from pathlib import Path
+print(Path(str(importlib.resources.files("lemoncrow"))))
+_PY
+    )"
+    if [[ -z "$DIST_ROOT" || ! -d "$DIST_ROOT/integrations" ]]; then
+        echo "[lemoncrow:opencode] ERROR: cannot locate lemoncrow distribution assets" >&2
+        exit 1
+    fi
+fi
+
 DRY_RUN=false
 PRINT_ONLY=false
 STRICT=false
@@ -82,11 +111,7 @@ fi
 info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:opencode] $*" || true; }
 warn()  { echo "[lemoncrow:opencode] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
-if command -v uv >/dev/null 2>&1; then
-    PYTHON_CMD=(uv run python)
-else
-    PYTHON_CMD=(python3)
-fi
+PYTHON_CMD=("${DIST_PYTHON[@]}")
 backup_file() {
     local f="$1"
     if $WORKSPACE_SET; then
@@ -240,16 +265,16 @@ if $WORKSPACE_SET; then
     if $DRY_RUN; then
         echo "  [dry-run] project workspace-local OpenCode agents (${ROLES}) into '$AGENT_DEST_DIR'"
     else
-        PYTHONPATH="${LEMONCROW_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "${PYTHON_CMD[@]}" - <<PYEOF
+        "${PYTHON_CMD[@]}" - <<PYEOF
 from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_opencode_agents
 
-written = write_workspace_opencode_agents(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
+written = write_workspace_opencode_agents(Path("${WORKSPACE}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
 print(f"[lemoncrow:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
     fi
 elif [[ "$ROLES" == "code" ]]; then
-    AGENT_SRC="${LEMONCROW_REPO}/integrations/opencode/agents/code.md"
+    AGENT_SRC="${DIST_ROOT}/integrations/opencode/agents/code.md"
 
     STAGING_DIR="${HOME}/.lemoncrow/opencode"
     run "mkdir -p $(printf %q "$STAGING_DIR")"
@@ -277,11 +302,11 @@ else
     if $DRY_RUN; then
         echo "  [dry-run] project global OpenCode agents (${ROLES}) into '$AGENT_DEST_DIR', set default_agent=lemoncrow.code"
     else
-        PYTHONPATH="${LEMONCROW_REPO}/src${PYTHONPATH:+:${PYTHONPATH}}" "${PYTHON_CMD[@]}" - <<PYEOF
+        "${PYTHON_CMD[@]}" - <<PYEOF
 from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_opencode_agents
 
-written = write_opencode_agents(Path("${AGENT_DEST_DIR}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
+written = write_opencode_agents(Path("${AGENT_DEST_DIR}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
 print(f"[lemoncrow:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
         "${PYTHON_CMD[@]}" - <<PYEOF2
@@ -297,7 +322,7 @@ PYEOF2
 fi
 
 # ---- install prompt-time nudge plugin ---------------------------------------
-PLUGIN_SRC_DIR="${LEMONCROW_REPO}/integrations/opencode/plugins"
+PLUGIN_SRC_DIR="${DIST_ROOT}/integrations/opencode/plugins"
 if $DRY_RUN; then
     echo "  [dry-run] copy LemonCrow nudge plugin to '$PLUGIN_DEST_DIR'"
 else
@@ -307,9 +332,6 @@ else
     info "LemonCrow nudge plugin installed -> $PLUGIN_DEST_DIR/lemoncrow-nudge.js"
 fi
 
-if $WORKSPACE_SET; then
-    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
-fi
 
 if $DRY_RUN; then
     info "Dry run complete; skipped post-install verification because no files were written."
