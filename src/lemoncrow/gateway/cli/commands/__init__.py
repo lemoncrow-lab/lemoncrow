@@ -200,6 +200,13 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .chatgpt import chatgpt_group
+
+        cli.add_command(chatgpt_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .knowledge import knowledge_group
 
         _h(knowledge_group)

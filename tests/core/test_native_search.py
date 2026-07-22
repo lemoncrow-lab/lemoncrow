@@ -240,3 +240,21 @@ def test_native_search_file_content_mode_spills_large_payload(tmp_path: Path, mo
     assert payload["_meta"]["fileMatchCount"] >= 1
     assert payload["content"]
     assert "needle" in payload["content"][0]["text"]
+
+
+def test_native_search_ranked_file_map_includes_root_dotfiles_but_skips_internal_dirs(tmp_path: Path) -> None:
+    token = "root_dotfile_unique_token"
+    (tmp_path / ".env.example").write_text(f"{token}\n", encoding="utf-8")
+    internal = tmp_path / ".lemoncrow"
+    internal.mkdir()
+    (internal / "state.txt").write_text(f"{token}\n", encoding="utf-8")
+
+    result = search_workspace(
+        path=".",
+        content_regex=token,
+        output_mode="ranked_file_map",
+        repo_root=tmp_path,
+    )
+
+    files = [match["file"] for match in result["matches"]]
+    assert files == [".env.example"]
