@@ -245,9 +245,7 @@ if ! $WORKSPACE_SET; then
     fi
 fi
 
-if $WORKSPACE_SET; then
-    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
-fi
+
 
 if command -v lc &>/dev/null; then
     vpass "lc is available on PATH"

@@ -561,9 +561,7 @@ patch_plugin_mcp
 write_marketplace
 install_codex_plugin
 merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
-if $WORKSPACE_SET; then
-    lemoncrow_install_attribution_hook "$WORKSPACE" "$DRY_RUN"
-fi
+
 
 TASKS_SRC_DIR="${LEMONCROW_REPO}/integrations/codex/tasks"
 if $WORKSPACE_SET && [ -d "$TASKS_SRC_DIR" ]; then

@@ -50,6 +50,12 @@ done
 if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
     echo "📝 Running code formatting..."
 
+    # Check if there were any unstaged changes in the repo before formatting
+    set +e
+    git diff --quiet
+    HAD_UNSTAGED=$?
+    set -e
+
     # Run ruff check --fix (lint auto-fixes). Handles exit codes explicitly:
     #   0 = all good (no issues or all fixed)
     #   1+ = unfixable issues remain — warn but proceed to black anyway
@@ -71,16 +77,21 @@ if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
         [[ -n "$file" ]] && FORMATTED_FILES+=("$file")
     done < <(git diff --name-only -- "${PYTHON_FILES[@]}")
     if [ ${#FORMATTED_FILES[@]} -gt 0 ]; then
-        echo -e "\n\033[1;31m================================================================================\033[0m"
-        echo -e "\033[1;31m❌  FORMATTING APPLIED — COMMIT ABORTED\033[0m"
-        echo -e "\n📝  The following files were auto-formatted during pre-commit checks."
-        echo -e "    \033[1;33mPlease review the changes, stage them, and commit again:\033[0m"
-        echo -e "\033[1;31m================================================================================\033[0m"
-        for file in "${FORMATTED_FILES[@]}"; do
-            echo "    - $file"
-        done
-        echo -e "\033[1;31m================================================================================\033[0m\n"
-        exit 1
+        if [ $HAD_UNSTAGED -eq 0 ]; then
+            echo "✨ Auto-staging formatting changes because all other changes were already staged..."
+            git add "${FORMATTED_FILES[@]}"
+        else
+            echo -e "\n\033[1;31m================================================================================\033[0m"
+            echo -e "\033[1;31m❌  FORMATTING APPLIED — COMMIT ABORTED\033[0m"
+            echo -e "\n📝  The following files were auto-formatted during pre-commit checks."
+            echo -e "    \033[1;33mPlease review the changes, stage them, and commit again:\033[0m"
+            echo -e "\033[1;31m================================================================================\033[0m"
+            for file in "${FORMATTED_FILES[@]}"; do
+                echo "    - $file"
+            done
+            echo -e "\033[1;31m================================================================================\033[0m\n"
+            exit 1
+        fi
     fi
 fi
 
