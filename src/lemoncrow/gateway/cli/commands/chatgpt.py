@@ -367,9 +367,9 @@ def chatgpt_serve_cmd(
     is printed.
 
     \b
-    1. In ChatGPT:  Settings -> Connectors -> Advanced settings ->
-                    enable Developer mode -> Create. Set the printed MCP server
-                    URL (https://<tunnel-host>/mcp), Authentication: OAuth.
+    1. In ChatGPT:  Settings -> Plugins -> Browse Plugins -> Next to search
+                    click + -> Create. Set the printed MCP server URL
+                    (https://<tunnel-host>/mcp), Authentication: OAuth.
     2. Approve the browser OAuth page with the pairing code below.
 
     With --no-tunnel, expose the port yourself (named cloudflared tunnel, ngrok).
@@ -535,8 +535,8 @@ def chatgpt_serve_cmd(
             + click.style(f"{tunnel_url}/mcp", fg="green", bold=True)
         )
         click.echo("")
-        click.echo(click.style("  1.", bold=True) + " ChatGPT → Settings → Connectors → Advanced settings →")
-        click.echo("     enable Developer mode → Create.")
+        click.echo(click.style("  1.", bold=True) + " ChatGPT → Settings → Plugins → Browse Plugins →")
+        click.echo("     Next to search click + → Create.")
         click.echo("       Name: LC-<project> (so you can refer it per project)")
         click.echo("       MCP server URL:  " + click.style(f"{tunnel_url}/mcp", fg="green"))
         click.echo(f"       Authentication:  {auth_value}")
@@ -552,8 +552,8 @@ def chatgpt_serve_cmd(
         click.echo(click.style("  1.", bold=True) + " Expose it through a tunnel (in another terminal):")
         click.echo(f"       cloudflared tunnel --url http://localhost:{port}")
         click.echo(f"       # or:  ngrok http {port}")
-        click.echo(click.style("  2.", bold=True) + " ChatGPT → Settings → Connectors → Advanced settings →")
-        click.echo("     enable Developer mode → Create.")
+        click.echo(click.style("  2.", bold=True) + " ChatGPT → Settings → Plugins → Browse Plugins →")
+        click.echo("     Next to search click + → Create.")
         click.echo("       Name: LC-<project> (so you can refer it per project)")
         click.echo("       MCP server URL:  https://<tunnel-host>/mcp")
         click.echo(f"       Authentication:  {auth_value}")
