@@ -249,10 +249,15 @@ def test_web_tools_fully_off_by_default_matching_baseline(
     hidden_mcp = {t.strip() for t in lemoncrow_agent._HIDDEN_MCP_TOOLS.split(",") if t.strip()}
     assert "web_fetch" in hidden_mcp
 
-    # Both signals combined must report web access as fully off.
-    assert (
-        lemoncrow_agent._web_access_line() == "- Web access is disabled; solve from the task and the files present.\n"
-    )
+    # Both signals combined must report the tools as off WITHOUT implying the
+    # network itself is unreachable (allow_internet=true tasks like
+    # mteb-leaderboard need bash-level curl/git even with both tools hidden --
+    # see _web_access_line's docstring).
+    line = lemoncrow_agent._web_access_line()
+    assert "web_fetch and WebSearch tools are unavailable" in line
+    assert "does not mean" in line and "unreachable" in line
+    assert "Terminal-Bench integrity policy" in line
+    assert "'" not in line
 
     # End-to-end: LEMONCROW_HIDE_TOOLS actually reaches the container env,
     # and --disallowedTools actually reaches the constructed command.
