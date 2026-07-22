@@ -232,6 +232,54 @@ def test_post_tool_use_records_command_and_rescues_on_repeat_failure(tmp_path: P
     assert commands[0]["payload"]["command"] == "pytest -q"
 
 
+def test_post_tool_use_required_arg_nudge_fires_on_first_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mirrors integrations/claude/plugin/hooks/post_tool_use_failure.py's
+    equivalent check: a required-argument TypeError never repeats identically
+    (each guess produces a different error), so it must fire on the FIRST
+    failure -- unlike the repeat-threshold rescue nudge above, which needs a
+    second identical failure.
+    """
+    monkeypatch.setenv("LEMONCROW_REQUIRED_ARG_NUDGE", "1")
+    root = tmp_path / ".lemoncrow"
+    session_id = "run1"
+    _seed_run_file(root, session_id)
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": session_id,
+        "tool_name": "shell",
+        "tool_input": {"command": "python3 run.py"},
+        "tool_response": {
+            "stderr": "TypeError: encode() missing 1 required keyword-only argument: 'task_name'",
+            "exit_code": 1,
+        },
+        "cwd": str(tmp_path),
+    }
+    out = plugin_runtime.build_codex_post_tool_use_ledger_output(root, payload)
+    assert "read what it controls" in out.get("systemMessage", "").lower()
+
+
+def test_post_tool_use_required_arg_nudge_off_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LEMONCROW_REQUIRED_ARG_NUDGE", raising=False)
+    root = tmp_path / ".lemoncrow"
+    session_id = "run1"
+    _seed_run_file(root, session_id)
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": session_id,
+        "tool_name": "shell",
+        "tool_input": {"command": "python3 run.py"},
+        "tool_response": {
+            "stderr": "TypeError: encode() missing 1 required keyword-only argument: 'task_name'",
+            "exit_code": 1,
+        },
+        "cwd": str(tmp_path),
+    }
+    out = plugin_runtime.build_codex_post_tool_use_ledger_output(root, payload)
+    assert "systemMessage" not in out
+
+
 def test_post_tool_use_successful_command_is_silent(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     session_id = "run1"

@@ -1978,6 +1978,18 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     cap_msg = build_cap_nudge(root, session_id=str(normalized.get("session_id") or "default"), host="opencode")
     if cap_msg:
         return {"uiMessage": cap_msg}
+    # Required-argument nudge (Codex/Claude parity -- see
+    # _required_arg_nudge_message's docstring): applies regardless of lc-tool
+    # vs. native tool, so it is checked ahead of that split. OpenCode's raw
+    # tool_response carries the combined output under "output" (see
+    # lemoncrow-nudge.js's failureKey), falling back to stderr/error for
+    # parity with Claude/Codex's shape.
+    tool_response = normalized.get("tool_response")
+    if isinstance(tool_response, dict):
+        error_text = str(tool_response.get("output") or tool_response.get("stderr") or tool_response.get("error") or "")
+        required_arg_nudge = _required_arg_nudge_message(error_text)
+        if required_arg_nudge:
+            return {"uiMessage": required_arg_nudge}
     if _is_lemoncrow_tool(str(normalized.get("tool_name") or "")):
         return {"no_output": True}
     nudge = _codex_native_tool_nudge(root, normalized)
@@ -3038,6 +3050,30 @@ _CODEX_MAX_LEDGER_BYTES = 4096
 _CODEX_MAX_DIFF_BYTES = 20_000
 _CODEX_FAILURE_THRESHOLD = 2
 
+# First-occurrence nudge for Python's own "missing N required ... argument"
+# TypeError shape -- shared by Codex and OpenCode below. Claude's parallel
+# implementation lives in integrations/claude/plugin/hooks/
+# post_tool_use_failure.py (its module docstring has the full rationale: this
+# failure shape never repeats identically, so the ordinary repeat-failure
+# counters just above/below never catch it, and it is worth the false-positive
+# risk only for autonomous/no-human-in-the-loop sessions -- hence off by
+# default). Kept here, not duplicated per-host, so the pattern/wording/flag
+# name cannot drift between Claude, Codex, and OpenCode.
+_REQUIRED_ARG_NUDGE_PATTERN = re.compile(r"missing \d+ required (?:keyword-only |positional )?argument")
+
+
+def _required_arg_nudge_message(error: str) -> str | None:
+    if os.environ.get("LEMONCROW_REQUIRED_ARG_NUDGE", "").strip().lower() not in {"1", "true", "on", "yes"}:
+        return None
+    if not isinstance(error, str) or not _REQUIRED_ARG_NUDGE_PATTERN.search(error):
+        return None
+    return (
+        "This error means the function requires this argument to behave correctly -- "
+        "it is a spec, not a type-checker hoop. Read what it controls (source or docs) "
+        "before picking a value; the value determines correctness, not just whether the "
+        "call returns."
+    )
+
 
 def _codex_workspace_root(payload: dict[str, Any]) -> str:
     cwd = str(payload.get("cwd") or "").strip()
@@ -3512,6 +3548,9 @@ def _codex_record_command(
 
     if ok:
         return {"no_output": True}
+    nudge = _required_arg_nudge_message(error)
+    if nudge:
+        return {"systemMessage": nudge}
     return _codex_track_failure(root, payload, command, signature)
 
 
