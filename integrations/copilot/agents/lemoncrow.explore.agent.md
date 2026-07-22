@@ -1,5 +1,5 @@
 ---
-description: "Read-only codebase explorer."
+description: "Fast read-only search agent for locating code."
 model: gpt-5.4
 tools:
   [
