@@ -687,6 +687,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             # included here (it wasn't, previously -- a real gap, not a
             # no-op).
             "LEMONCROW_HIDE_TOOLS": _HIDDEN_MCP_TOOLS,
+            # Autonomous, no human in the loop to notice a wrong guess -- opt in
+            # to the required_arg_nudge.py hook (see its own docstring; off by
+            # default everywhere else, this is the exact context it's for).
+            "LEMONCROW_REQUIRED_ARG_NUDGE": "1",
             # Strict: the benchmark must nag on every text/data deliverable, so
             # pin the verify skip-list empty (the isolated CLAUDE_CONFIG_DIR
             # already blocks the host's production .md,csv setting from leaking).
