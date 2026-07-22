@@ -5,20 +5,18 @@ Tracks command failures keyed by (command, error_signature). On the second
 identical failure, returns a decision that tells Claude to call
 `rescue` before retrying.
 
-Also carries a second, independent check ahead of that one: a first-occurrence
-nudge for Python's own "missing N required ... argument" TypeError shape. That
-failure shape never repeats identically -- each guessed value produces a
-different error -- so the repeat-count logic above would never catch it, no
-matter how many times it fires. Off by default (LEMONCROW_REQUIRED_ARG_NUDGE=1
-to enable): a missing-argument TypeError is usually just a typo in normal
-interactive development, where a human notices and fixes it -- nagging every
-user on every forgotten argument would be noise, not help. Meant for
-autonomous/no-human-in-the-loop sessions where a wrong guess would otherwise
-ship unnoticed -- a prompt-level rule stating this exact lesson was already
-present and still got silently overridden by a same-session guess-and-move-on
-in one such run, which is why this exists as a code-level check instead.
-
-Opt-in via hooks.json.
+Also carries a second, independent check ahead of that one: a nudge for
+Python's own "missing N required ... argument" TypeError shape, counted by
+PATTERN match rather than exact signature -- that failure shape never repeats
+identically (each guessed value produces a different error), so the
+repeat-count logic above would never catch it no matter how many times it
+fires. Threshold defaults to 3 (LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD to
+override) so normal interactive sessions -- where a human notices a one-off
+typo anyway -- aren't nagged on the first miss; the harbor benchmark sets it
+to 1, since a wrong guess there ships unnoticed with nobody to catch it (a
+prompt-level rule stating this exact lesson was already present and still got
+silently overridden by a same-session guess-and-move-on in one real run,
+which is why this exists as a code-level check too).
 """
 
 from __future__ import annotations
@@ -37,6 +35,14 @@ from typing import Any
 REPEAT_THRESHOLD = 3  # block on the third identical failure
 
 _REQUIRED_ARG_PATTERN = re.compile(r"missing \d+ required (?:keyword-only |positional )?argument")
+
+
+def _required_arg_nudge_threshold() -> int:
+    raw = os.environ.get("LEMONCROW_REQUIRED_ARG_NUDGE_THRESHOLD", "3")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
 
 
 def _session_state_path() -> Path:
@@ -148,10 +154,6 @@ def _signature(command: str, error: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-def _required_arg_nudge_enabled() -> bool:
-    return os.environ.get("LEMONCROW_REQUIRED_ARG_NUDGE", "").strip().lower() in {"1", "true", "on", "yes"}
-
-
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -164,28 +166,33 @@ def main() -> int:
     if not command:
         return 0
 
-    # First-occurrence nudge, checked ahead of (and independent from) the
-    # repeat-count logic below -- see module docstring for why. Uses its own
-    # defensively-typed error extraction so a malformed tool_response can
-    # never crash this branch; falls through to the existing logic untouched
-    # either way.
-    if _required_arg_nudge_enabled() and isinstance(tool_response, dict):
+    # Nudge checked ahead of (and independent from) the repeat-count logic
+    # below -- see module docstring for why, and for the threshold. Uses its
+    # own defensively-typed error extraction so a malformed tool_response can
+    # never crash this branch; falls through to the existing logic either way
+    # (below-threshold hits still count toward the ordinary repeat rescue).
+    if isinstance(tool_response, dict):
         nudge_error = tool_response.get("stderr") or tool_response.get("error") or ""
         if isinstance(nudge_error, str) and _REQUIRED_ARG_PATTERN.search(nudge_error):
-            print(
-                json.dumps(
-                    {
-                        "decision": "ask",
-                        "reason": (
-                            "This error means the function requires this argument to behave "
-                            "correctly -- it is a spec, not a type-checker hoop. Read what it "
-                            "controls (source or docs) before picking a value; the value "
-                            "determines correctness, not just whether the call returns."
-                        ),
-                    }
+            state = _read_session_state()
+            hits = int(state.get("required_arg_hits", 0) or 0) + 1
+            state["required_arg_hits"] = hits
+            _save_state(state)
+            if hits >= _required_arg_nudge_threshold():
+                print(
+                    json.dumps(
+                        {
+                            "decision": "ask",
+                            "reason": (
+                                "This error means the function requires this argument to behave "
+                                "correctly -- it is a spec, not a type-checker hoop. Read what it "
+                                "controls (source or docs) before picking a value; the value "
+                                "determines correctness, not just whether the call returns."
+                            ),
+                        }
+                    )
                 )
-            )
-            return 0
+                return 0
 
     error = (
         (tool_response.get("stderr") or tool_response.get("error") or "")[:1000]
