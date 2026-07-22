@@ -2,32 +2,6 @@
 
 <div align="center">
 
-<img src="docs-site/favicon.png" width="36" height="36" alt="" style="vertical-align: middle;">
-
-# LemonCrow Runtime
-
-### Keep your coding agent sharp on real codebases
-
-**Context engineering, done right.**
-
-LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
-
-**State-of-the-art context engineering.** LemonCrow is tuned end to end across input context and output — ranked retrieval, exact-range reads, and bounded, compacted output — and out-measures grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
-
-[![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
-[![Stars](https://img.shields.io/github/stars/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow)
-
-[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
-[![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
-[![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
-[![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
-[![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
-
-[Quick start](#quick-start) · [What it does](#what-lemoncrow-does) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Results](#results) · [Removal](#removal)
-
-</div>
-
 ---
 
 ## Why I built this
@@ -85,8 +59,8 @@ Full request/response traffic is logged locally per run (path printed at
 startup; credentials and tokens are redacted) so you can audit exactly what
 ChatGPT sent and got back.
 
-**Known ChatGPT-side quirk:** Chatgpt doesn't allow reattaching tool on conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
-**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission. Can also try to reconnect option.
+**Known ChatGPT-side quirk:** Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
+**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
 
 > ⚠ The pairing code is a password — don't share the tunnel URL. This
 > exposes shell-grade tool access (`bash`, `edit`) to this machine while the

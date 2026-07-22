@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Read-only codebase explorer.
+description: Fast read-only search agent for locating code.
 model: haiku
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "Agent", "mcp__lc__edit", "mcp__plugin_lemoncrow_lc__edit", "Workflow", "ScheduleWakeup"]
 color: blue
