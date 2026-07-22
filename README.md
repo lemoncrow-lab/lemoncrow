@@ -85,7 +85,8 @@ Full request/response traffic is logged locally per run (path printed at
 startup; credentials and tokens are redacted) so you can audit exactly what
 ChatGPT sent and got back.
 
-**Known ChatGPT-side quirk:** Chatgpt doesn't allow reattaching tool on conversation and without reattaching it can't access the tool. Workaround is create a branch and then reattach the tool and continue with your message.
+**Known ChatGPT-side quirk:** Chatgpt doesn't allow reattaching tool on conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
+**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission. Can also try to reconnect option.
 
 > ⚠ The pairing code is a password — don't share the tunnel URL. This
 > exposes shell-grade tool access (`bash`, `edit`) to this machine while the
