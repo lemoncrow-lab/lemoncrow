@@ -1,7 +1,7 @@
 ---
 mode: explore
-skill_description: Read-only codebase explorer mode.
-agent_description: Read-only codebase explorer.
+skill_description: Codebase explore mode.
+agent_description: Fast read-only search agent for locating code.
 ---
 
 # Explore mode
