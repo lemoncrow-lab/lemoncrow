@@ -129,6 +129,42 @@ capability grant (subagent name `lemoncrow:<mode>`):
 Optional Packaged in [integrations/skills/](integrations/skills/): `/lemoncrow`, `/benchmark`,
 `/orchestrate`, `/swarm`, `/perf-review`, `/ux-review`, `/recall`.
 
+### ChatGPT
+
+ChatGPT chat usage doesn't burn API/agent-plan credits the way a coding
+agent's own usage-based billing does. So LemonCrow's tools (search, read,
+edit, bash) can be exposed through a tunnel and driven straight from a
+ChatGPT conversation instead — same grounded tool surface, no separate
+agent bill:
+
+```bash
+lc chatgpt serve
+```
+
+Prints a pairing code and, by default, an auto-launched cloudflared tunnel
+URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
+Connectors → Advanced settings → enable Developer mode → Create**, paste the
+printed MCP server URL, set Authentication to **OAuth**, and approve the
+browser prompt with the pairing code.
+
+| Flag                          | Effect                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `--no-tunnel`                | Bring your own tunnel (named cloudflared tunnel, ngrok).                         |
+| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. |
+| `--no-auth`                  | Serve `/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default). |
+
+Full request/response traffic is logged locally per run (path printed at
+startup; credentials and tokens are redacted) so you can audit exactly what
+ChatGPT sent and got back.
+
+Known ChatGPT-side quirk: it sometimes drops connector tool access mid-
+conversation. Reattach the tool (or start a new chat) if it stalls — not a
+LemonCrow bug, just how Developer Mode connectors currently behave.
+
+> ⚠ The pairing code is a password — don't share the tunnel URL. This
+> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
+> server runs. Stop it (Ctrl-C) when you're done.
+
 ## What LemonCrow does not do
 
 - It is **not** a hosted service. There is no cloud backend, dashboard account,
