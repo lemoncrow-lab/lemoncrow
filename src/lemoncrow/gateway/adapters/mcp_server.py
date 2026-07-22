@@ -6707,21 +6707,34 @@ _EDIT_PATH_RANGE_RE = re.compile(r":L\d+(?:-L\d+)?$")
 
 
 def _compact_applied_entries(entries: list[dict[str, Any]]) -> list[str | dict[str, Any]]:
-    """Group ordinary edit hunks by path while retaining special edit metadata."""
+    """Group ordinary edit hunks by path; group every edit "kind" by kind too.
+
+    Ordinary hunk edits collapse to one "path:line,line-line" string per file.
+    Structural variants (notebook/projection/symbol/whole-file replace) carry a
+    "kind" -- instead of one raw dict per file per kind, bucket them under a
+    single {label: [...]} entry per kind: a bare path when the entry has nothing
+    beyond path+kind (replace/notebook), or the remaining fields (hunks,
+    match_mode, projection_kind, ...) alongside path when there's more to see.
+    """
     grouped: dict[str, list[str]] = {}
+    kind_groups: dict[str, list[Any]] = {}
     special: list[dict[str, Any]] = []
-    replaced: list[str] = []
     _ORDINARY_KEYS = frozenset({"path", "hunks", "match_mode", "result"})
     # match_mode values that carry zero text-matching ambiguity and so compact
     # like "exact": "range" is a pure line-number splice (no old_string search
     # at all), not a match outcome to double-check. Only normalized/placeholder/
     # fuzzy -- genuine near-matches to old_string -- warrant staying a loud dict.
     _UNAMBIGUOUS_MODES = frozenset({"exact", "range"})
+    # "replace" reads better as its past-tense outcome; other kinds read fine
+    # as the kind name itself ("notebook", "projection", "symbol").
+    _KIND_LABELS = {"replace": "replaced"}
     for entry in entries:
-        # Whole-file overwrites carry only path+kind (no hunks/match_mode to lose) --
-        # group them into one concise list instead of one dict per replaced file.
-        if set(entry) == {"path", "kind"} and entry.get("kind") == "replace":
-            replaced.append(str(entry.get("path", "")))
+        kind = entry.get("kind")
+        if kind:
+            label = _KIND_LABELS.get(kind, kind)
+            rest = {k: v for k, v in entry.items() if k not in ("path", "kind")}
+            value: Any = {"path": entry.get("path", ""), **rest} if rest else str(entry.get("path", ""))
+            kind_groups.setdefault(label, []).append(value)
             continue
         if set(entry) - _ORDINARY_KEYS:
             special.append(entry)
@@ -6740,8 +6753,8 @@ def _compact_applied_entries(entries: list[dict[str, Any]]) -> list[str | dict[s
             if isinstance(start, int) and isinstance(end, int):
                 spans.append(str(start) if start == end else f"{start}-{end}")
     compact = [f"{path}:{','.join(spans)}" if spans else path for path, spans in grouped.items()]
-    replaced_entry = [{"kind": "replace", "paths": replaced}] if replaced else []
-    return [*compact, *replaced_entry, *special]
+    kind_entries = [{label: values} for label, values in kind_groups.items()]
+    return [*compact, *kind_entries, *special]
 
 
 # Keys whose presence makes an edit result actionable -- the model must see them.
