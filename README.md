@@ -71,7 +71,7 @@ lc chatgpt serve
 
 Prints a pairing code and, by default, an auto-launched cloudflared tunnel
 URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
-Connectors → Advanced settings → enable Developer mode → Create**, paste the
+Plugins → Browse Plugins → (next to search) + → Create**, paste the
 printed MCP server URL, set Authentication to **OAuth**, and approve the
 browser prompt with the pairing code.
 
