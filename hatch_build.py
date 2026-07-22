@@ -126,6 +126,17 @@ _SKIP_PATHS = {
     # "str object expected; got fastapi.params.Header" the instant run_daemon
     # defines its route handlers. Ship interpreted like the FastAPI modules above.
     "lemoncrow/gateway/adapters/mcp_daemon.py",
+    # create_protected_mcp_app builds its bearer-auth FastAPI dependency as a
+    # nested closure over per-app state (the OAuth token store). mypyc compiles
+    # a closure that captures outer-scope variables into an environment-class
+    # callable whose __call__ has no inspectable signature, so
+    # inspect.signature() (which FastAPI's Depends() machinery calls while
+    # registering the route) raises "no signature found for builtin
+    # <..._create_protected_mcp_app_obj>" the instant the /mcp route is
+    # registered -- reproduced directly against a minimal mypyc-compiled
+    # repro of this exact pattern. Ship interpreted like the other FastAPI
+    # modules above.
+    "lemoncrow/gateway/adapters/mcp_oauth.py",
 }
 
 
@@ -297,9 +308,7 @@ def _assert_no_source_leak(artifact_path: str, require_compiled: bool = False) -
             + "\n    ".join(pro_leaks)
         )
     if problems:
-        raise RuntimeError(
-            f"[hatch-mypyc] SOURCE LEAK in {os.path.basename(artifact_path)}:\n" + "\n".join(problems)
-        )
+        raise RuntimeError(f"[hatch-mypyc] SOURCE LEAK in {os.path.basename(artifact_path)}:\n" + "\n".join(problems))
     print(
         "[hatch-mypyc] source-leak check PASSED: no compiled .py twins, no lemoncrow/pro/*.py",
         flush=True,
