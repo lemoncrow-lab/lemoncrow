@@ -9,7 +9,7 @@
 
 set -u
 input=$(cat)
-PLUGIN_LABEL="❯ lc(free)"
+PLUGIN_LABEL="❯ lc"
 
 if command -v jq >/dev/null 2>&1; then
   # Use a non-whitespace delimiter so Bash preserves empty fields.
@@ -94,7 +94,7 @@ except Exception:
       _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_TIER_ICONS[@]} ))
       _LEMONCROW_ICON="${_LEMONCROW_TIER_ICONS[$_LEMONCROW_ICON_IDX]}"
       if [ "${_LEMONCROW_PLAN}" = "lite" ]; then
-        PLUGIN_LABEL="${_LEMONCROW_ICON} lc(lite)"
+        PLUGIN_LABEL="${_LEMONCROW_ICON} lc"
       else
         PLUGIN_LABEL="${_LEMONCROW_ICON} lc"
       fi

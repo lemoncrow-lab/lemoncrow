@@ -6710,19 +6710,26 @@ def _compact_applied_entries(entries: list[dict[str, Any]]) -> list[str | dict[s
     """Group ordinary edit hunks by path while retaining special edit metadata."""
     grouped: dict[str, list[str]] = {}
     special: list[dict[str, Any]] = []
-    # "result" (context snippet) and "match_mode" are informational fields added
-    # by apply_rich_edits to every edit entry; they do NOT make an entry "special".
-    # Special entries are structural variants (notebook, symbol edits, fuzzy matches
-    # that still carry match_mode after the exact-match strip, etc.).
+    replaced: list[str] = []
     _ORDINARY_KEYS = frozenset({"path", "hunks", "match_mode", "result"})
+    # match_mode values that carry zero text-matching ambiguity and so compact
+    # like "exact": "range" is a pure line-number splice (no old_string search
+    # at all), not a match outcome to double-check. Only normalized/placeholder/
+    # fuzzy -- genuine near-matches to old_string -- warrant staying a loud dict.
+    _UNAMBIGUOUS_MODES = frozenset({"exact", "range"})
     for entry in entries:
+        # Whole-file overwrites carry only path+kind (no hunks/match_mode to lose) --
+        # group them into one concise list instead of one dict per replaced file.
+        if set(entry) == {"path", "kind"} and entry.get("kind") == "replace":
+            replaced.append(str(entry.get("path", "")))
+            continue
         if set(entry) - _ORDINARY_KEYS:
             special.append(entry)
             continue
         # Non-exact fuzzy matches are actionable: keep as dicts so the model
         # sees match_mode and knows to re-read and verify the divergence.
         match_mode = entry.get("match_mode")
-        if match_mode and match_mode != "exact":
+        if match_mode and match_mode not in _UNAMBIGUOUS_MODES:
             special.append(entry)
             continue
         path = _EDIT_PATH_RANGE_RE.sub("", str(entry.get("path", "")))
@@ -6733,7 +6740,8 @@ def _compact_applied_entries(entries: list[dict[str, Any]]) -> list[str | dict[s
             if isinstance(start, int) and isinstance(end, int):
                 spans.append(str(start) if start == end else f"{start}-{end}")
     compact = [f"{path}:{','.join(spans)}" if spans else path for path, spans in grouped.items()]
-    return [*compact, *special]
+    replaced_entry = [{"kind": "replace", "paths": replaced}] if replaced else []
+    return [*compact, *replaced_entry, *special]
 
 
 # Keys whose presence makes an edit result actionable -- the model must see them.

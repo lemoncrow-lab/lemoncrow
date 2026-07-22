@@ -68,6 +68,11 @@ locally. `lc status` reports local runtime health. That's it — you're running.
 
 LemonCrow keeps your existing coding agent and changes the working set around it:
 
+<p align="center">
+  <img src="landing/public/images/source-map.jpg" alt="LemonCrow source map showing a full repository code universe: 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, with one function focused to show its callers and callees." width="720">
+</p>
+<p align="center"><sub>Your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
+
 | Stage      | Runtime behavior                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------------------------- |
 | **Find**   | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration.        |

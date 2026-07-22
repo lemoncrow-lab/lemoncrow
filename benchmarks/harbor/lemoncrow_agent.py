@@ -268,30 +268,47 @@ def _web_access_line() -> str:
     (Claude Code built-ins only) -- checking the wrong one here is exactly how
     an earlier version silently kept web_fetch enabled while claiming it was
     off (see _HIDDEN_MCP_TOOLS's docstring).
+
+    Disabling web_fetch/WebSearch (to match baseline's tool surface) is a
+    separate axis from container network reachability: some tasks set
+    allow_internet=true in task.toml and their own reference solution shells
+    out to git/curl directly (e.g. mteb-leaderboard's solve.sh clones a
+    pinned results repo). A prior version of the disabled-branch line here
+    told the model outright that solving must come from local files only,
+    which is false whenever the container network is actually up -- it took
+    that claim at face value instead of testing reachability itself and fell
+    back to a memorized guess (see benchmarks/harbor/README.md). Both
+    branches must therefore route through the same integrity-policy tail
+    below rather than imply network access is impossible.
     """
     disallowed = _DISALLOWED_TOOLS.split()
     hidden_mcp = {t.strip() for t in _HIDDEN_MCP_TOOLS.split(",") if t.strip()}
     fetch_on = "web_fetch" not in hidden_mcp and "mcp__lc__web_fetch" not in disallowed
     search_on = "WebSearch" not in disallowed
-    if not fetch_on and not search_on:
-        return "- Web access is disabled; solve from the task and the files present.\n"
-    have = []
-    if fetch_on:
-        have.append("a URL-fetch tool (web_fetch)")
-    if search_on:
-        have.append("web search")
     # NOTE: no apostrophes/contractions here. This text goes through nested
     # shlex.quote() layers (task text quoted, then the whole bash -c wrapper
     # quoted again); an apostrophe triggers repeated re-escaping across those
     # layers and mangles the command silently (0-cost, no-exception trials --
     # claude never actually runs). Keep this apostrophe-free.
-    return (
-        f"- You have {' and '.join(have)} available. Per the Terminal-Bench integrity "
-        "policy: never access tbench.ai, github.com/harbor-framework/*, or "
-        "github.com/laude-institute/* (the terminal-bench/harbor repos), or any "
-        "terminal-bench leaderboard/dataset page -- and do not fetch or search for the "
-        "solution to this task online.\n"
+    integrity_policy = (
+        "Per the Terminal-Bench integrity policy: never access tbench.ai, "
+        "github.com/harbor-framework/*, or github.com/laude-institute/* (the "
+        "terminal-bench/harbor repos), or any terminal-bench leaderboard/dataset page "
+        "-- and do not fetch or search for the solution to this task online.\n"
     )
+    if not fetch_on and not search_on:
+        return (
+            "- The web_fetch and WebSearch tools are unavailable. This does not mean "
+            "the network itself is unreachable -- some tasks allow outbound access at "
+            "the container level; test reachability with bash (curl, git, python) if a "
+            "command needs it, do not assume it is blocked either way. " + integrity_policy
+        )
+    have = []
+    if fetch_on:
+        have.append("a URL-fetch tool (web_fetch)")
+    if search_on:
+        have.append("web search")
+    return f"- You have {' and '.join(have)} available. " + integrity_policy
 
 
 # Benchmark-only task framing (disposable-container facts that must NOT live in the
@@ -305,7 +322,11 @@ def _bench_task_preamble() -> str:
         "`uv` (rarely present here), and chain probe+install fallbacks into ONE compound command "
         "instead of one attempt per turn. Install all dependencies before running any build or "
         "compile.\n"
-        "- Call only a library's public, documented API; direct use of internal functions are forbridden.\n"
+        "- Call only a library's public, documented API; direct use of internal functions are forbridden. "
+        "Code you write may later run under different library versions than the ones installed here: "
+        "where an API varies across versions (renamed kwargs, moved modules), adapt at runtime -- select "
+        "kwargs via inspect.signature, or try/except TypeError with the alternate spelling -- never "
+        "hardcode one version's spelling.\n"
         "- Numeric requirements (speed, size, accuracy): measure your solution and leave "
         "enough headroom, don't land at the line.\n"
         "- Write the exact deliverable — right path, filename, format — and confirm it exists "
