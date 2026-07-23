@@ -28,6 +28,11 @@ const REVIEW_LENSES = [
     focus:
       "Review for missing regression coverage, brittle assertions, untested edge cases, and verification gaps.",
   },
+  {
+    name: "over-engineering",
+    focus:
+      "Review for code that should not exist: unused abstractions, hand-rolled stdlib or native features, wrapper layers with a single caller, dead configurability, and dependencies a native feature covers. Output a concrete delete-list (file:line → what replaces it, or nothing), not a rewrite plan.",
+  },
 ]
 
 function resolveTask(runtime) {
