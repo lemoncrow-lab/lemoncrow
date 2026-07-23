@@ -186,6 +186,13 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .debt import debt_cmd
+
+        cli.add_command(debt_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .update import update_cmd
 
         cli.add_command(update_cmd)
