@@ -29,8 +29,10 @@ from benchmarks.codebench.run import (
     REPO_ROOT,
     ArmResult,
     _free_port,
+    _cursor_model,
     _lean_plugin_root,
     _parse_claude_result,
+    _parse_cursor_result,
     _wait_port,
 )
 
@@ -57,6 +59,19 @@ _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 # Persona per arm for the "code" capability (mirrors run.ARM_SPECS).
 _ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lemoncrow:auto"}
 
+# --- cursor driver -----------------------------------------------------------
+# cursor-agent authenticates from ~/.config/cursor/auth.json (accessToken +
+# refreshToken, written by `cursor-agent login`). Bind-mounted into the container
+# so cursor-agent runs authenticated with no interactive login.
+CURSOR_AUTH_HOST = Path.home() / ".config" / "cursor" / "auth.json"
+# cursor-agent's persona rule (mirrors the exploration driver in run.py). The
+# leaner `auto` persona -- `solve` was measured as an over-investigation tax on
+# single-turn work -- is the default for the container arm too.
+CURSOR_RULE_HOST = REPO_ROOT / "integrations" / "cursor" / "rules" / "lemoncrow.auto.mdc"
+# Egress allowlist for the cursor driver: cursor-agent's model inference + auth
+# live on *.cursor.sh / *.cursor.com, which the hermetic guard would else block.
+CURSOR_EGRESS_ALLOW = "cursor.sh,cursor.com,anthropic.com,amazonaws.com"
+
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
 _BASELINE_INSTALL = r"""
@@ -68,6 +83,21 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y --no-install-recommends nodejs
 npm install -g @anthropic-ai/claude-code
 npm cache clean --force
+rm -rf /var/lib/apt/lists/*
+"""
+
+# Cursor driver baseline overlay: install the cursor-agent CLI. Self-contained
+# binary from the official installer (no Node needed); symlinked onto PATH so the
+# entry script resolves `cursor-agent` regardless of the image's default user.
+# Runs at overlay-build time (egress open), same as the claude npm install.
+_CURSOR_INSTALL = r"""
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends curl ca-certificates git
+curl https://cursor.com/install -fsS | bash
+ln -sf "$HOME/.local/bin/cursor-agent" /usr/local/bin/cursor-agent
+cursor-agent --version || true
 rm -rf /var/lib/apt/lists/*
 """
 
@@ -157,8 +187,12 @@ def _safe(base_image: str) -> str:
     return re.sub(r"[^a-z0-9_.-]+", "_", base_image.lower()).strip("_")
 
 
-def overlay_tag(base_image: str, *, lc: bool) -> str:
-    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{'lemoncrow' if lc else 'baseline'}"
+def overlay_tag(base_image: str, *, lc: bool, driver: str = "claude") -> str:
+    arm = "lemoncrow" if lc else "baseline"
+    # claude tags stay bare (:baseline/:lemoncrow) so existing cached overlays
+    # remain valid; other drivers get a prefix (:cursor-baseline, ...).
+    prefix = "" if driver == "claude" else f"{driver}-"
+    return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{prefix}{arm}"
 
 
 def ensure_base_image(image: str, *, timeout: float = 1800) -> None:
@@ -245,26 +279,26 @@ def _install_zoekt_into(builder: str, *, timeout: float = 600) -> None:
         _run(["docker", "rm", "-f", tmp])
 
 
-def ensure_overlay(base_image: str, *, lc: bool, build_timeout: float = 3600) -> str:
+def ensure_overlay(base_image: str, *, lc: bool, driver: str = "claude", build_timeout: float = 3600) -> str:
     """Build (once, then cache) the harness overlay for *base_image*.
 
-    The LemonCrow overlay layers on the baseline overlay (which already carries
-    Node + claude), so node/claude install once per base image and the LemonCrow
-    build only adds the LemonCrow CLI.
+    The LemonCrow overlay layers on the driver's baseline overlay (which already
+    carries the agent CLI -- claude or cursor-agent), so the CLI installs once per
+    base image and the LemonCrow build only adds the LemonCrow CLI.
     """
-    tag = overlay_tag(base_image, lc=lc)
+    tag = overlay_tag(base_image, lc=lc, driver=driver)
     if image_exists(tag):
         return tag
     if lc:
-        parent = ensure_overlay(base_image, lc=False)
+        parent = ensure_overlay(base_image, lc=False, driver=driver)
         install = _LEMONCROW_INSTALL
         mounts = ["-v", f"{REPO_ROOT}:/opt/lemoncrow:ro"]
     else:
         ensure_base_image(base_image)
         parent = base_image
-        install = _BASELINE_INSTALL
+        install = _CURSOR_INSTALL if driver == "cursor" else _BASELINE_INSTALL
         mounts = []
-    builder = f"overlay_build_{_safe(base_image)}_{'lemoncrow' if lc else 'baseline'}"
+    builder = f"overlay_build_{_safe(base_image)}_{driver}_{'lemoncrow' if lc else 'baseline'}"
     _run(["docker", "rm", "-f", builder])
     # --entrypoint sleep overrides whatever ENTRYPOINT the base image sets (most
     # SWE-bench images have none, so "sleep infinity" runs as the CMD -- but
@@ -295,7 +329,10 @@ def ensure_overlay(base_image: str, *, lc: bool, build_timeout: float = 3600) ->
     return tag
 
 
-def _start_proxy(port: int, flow_path: Path) -> subprocess.Popen[bytes]:
+def _start_proxy(port: int, flow_path: Path, *, egress_allow: str | None = None) -> subprocess.Popen[bytes]:
+    proc_env = dict(os.environ)
+    if egress_allow:
+        proc_env["CODEBENCH_EGRESS_ALLOW"] = egress_allow
     return subprocess.Popen(
         [
             "uv",
@@ -317,6 +354,7 @@ def _start_proxy(port: int, flow_path: Path) -> subprocess.Popen[bytes]:
             "-q",
         ],
         cwd=str(REPO_ROOT),
+        env=proc_env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -353,6 +391,7 @@ def _docker_run_cmd(
     instance: RunnableInstance,
     arm: str,
     *,
+    driver: str = "claude",
     overlay: str,
     model: str,
     max_turns: int,
@@ -380,8 +419,19 @@ def _docker_run_cmd(
         "-v",
         f"{CA_CERT}:/mnt/mitm.pem:ro",
     ]
+    if driver == "cursor":
+        # cursor-agent auth (accessToken/refreshToken); the entry script copies it
+        # into a writable HOME so a token refresh mid-run isn't blocked by the
+        # read-only bind mount.
+        cmd += ["-v", f"{CURSOR_AUTH_HOST}:/mnt/cursor-auth.json:ro"]
     if arm == "lemoncrow":
-        cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
+        if driver == "cursor":
+            # cursor drives the lc MCP server via .cursor/mcp.json + a persona rule
+            # (both written by the entry script), not the claude plugin-dir.
+            if CURSOR_RULE_HOST.is_file():
+                cmd += ["-v", f"{CURSOR_RULE_HOST}:/mnt/cursor-rule.mdc:ro"]
+        else:
+            cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
         # Account-free: no host auth files are mounted and no device id is
         # forwarded (device minting removed). The runtime is fully unlocked
@@ -412,12 +462,30 @@ def _docker_run_cmd(
     env: dict[str, str] = {
         "IS_SANDBOX": "1",
         "NODE_EXTRA_CA_CERTS": "/mnt/mitm.pem",
-        "HTTPS_PROXY": f"http://host.docker.internal:{proxy_port}",
-        "HTTP_PROXY": f"http://host.docker.internal:{proxy_port}",
         "CODEBENCH_ARM": arm,
         "CODEBENCH_MODEL": model,
         "CODEBENCH_MAX_TURNS": str(max_turns),
+        "CODEBENCH_DRIVER": driver,
     }
+    # claude routes through the hermetic mitmproxy. cursor-agent uses a streaming
+    # transport to *.cursor.sh that mitmproxy cannot tunnel (verified: endless
+    # "Connection lost, reconnecting"), so the cursor driver talks DIRECTLY by
+    # default -- cost still comes from cursor-agent's own JSON usage (the flow
+    # capture is claude-only anyway). Opt back into the proxy with
+    # CODEBENCH_CURSOR_PROXY=1 (caveat: without it the egress guard can't block a
+    # server-side gold-PR fetch, so cursor SWE numbers are cost-only, not hermetic).
+    _use_proxy = driver != "cursor" or os.environ.get("CODEBENCH_CURSOR_PROXY", "0") not in ("", "0")
+    if _use_proxy:
+        env["HTTPS_PROXY"] = f"http://host.docker.internal:{proxy_port}"
+        env["HTTP_PROXY"] = f"http://host.docker.internal:{proxy_port}"
+    if driver == "cursor":
+        env["CODEBENCH_HOST"] = "cursor"
+        # cursor-agent only accepts its own model ids (composer-*, gpt-*, specific
+        # claude-* ids); the codebench --model default is a claude id cursor-agent
+        # rejects, and the free plan supports only "auto" regardless. So run auto
+        # unless an operator explicitly pins a real cursor id via this env var.
+        _pin = os.environ.get("CODEBENCH_CURSOR_MODEL", "").strip()
+        env["CODEBENCH_CURSOR_MODEL"] = (_cursor_model(_pin) or "") if _pin else ""
     # SWE-bench images carry the repo at /testbed; pin it so the entry script
     # never picks a stray .git (e.g. under site-packages). Multi-SWE instances
     # leave this unset and the entry script auto-discovers the repo.
@@ -522,6 +590,7 @@ def run_in_container(
     arm: str,
     rep: int,
     *,
+    driver: str = "claude",
     model: str,
     out_dir: Path,
     timeout: int,
@@ -537,7 +606,7 @@ def run_in_container(
     agent_env = agent_env or {}
     if arm == "lemoncrow":
         _ensure_tiktoken_cache()
-    overlay = overlay or ensure_overlay(instance.image, lc=(arm == "lemoncrow"))
+    overlay = overlay or ensure_overlay(instance.image, lc=(arm == "lemoncrow"), driver=driver)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{instance.instance_id}_{arm}_rep{rep}"
@@ -547,7 +616,8 @@ def run_in_container(
     prompt_path.write_text(instance.problem_statement, encoding="utf-8")
 
     port = _free_port()
-    proxy = _start_proxy(port, flow_path)
+    egress_allow = CURSOR_EGRESS_ALLOW if driver == "cursor" else None
+    proxy = _start_proxy(port, flow_path, egress_allow=egress_allow)
     started = time.time()
     timed_out = False
     stdout = ""
@@ -558,6 +628,7 @@ def run_in_container(
         cmd = _docker_run_cmd(
             instance,
             arm,
+            driver=driver,
             overlay=overlay,
             model=model,
             max_turns=max_turns,
@@ -576,9 +647,12 @@ def run_in_container(
         _stop_proxy(proxy)
     wall_ms = int((time.time() - started) * 1000)
 
-    claude_json, diff = _split_output(stdout)
+    head, diff = _split_output(stdout)
     patch_path.write_text(diff, encoding="utf-8")
-    result = _parse_claude_result(claude_json, flow_path, instance.instance_id, arm, rep)
+    if driver == "cursor":
+        result = _parse_cursor_result(head, flow_path, instance.instance_id, arm, rep)
+    else:
+        result = _parse_claude_result(head, flow_path, instance.instance_id, arm, rep)
     if result.duration_ms == 0:
         result.duration_ms = wall_ms
     if result.duration_api_ms == 0:
