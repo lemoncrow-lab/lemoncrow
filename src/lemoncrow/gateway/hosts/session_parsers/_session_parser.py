@@ -1082,6 +1082,14 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                         )
                     )
                 else:
+                    # Surface tool_name + arguments as top-level keys so the
+                    # replay/opportunity engine (session_replay.detect_episodes
+                    # -> _is_grep/_is_whole_file_read/_read_path/_grep_query,
+                    # which read turn["tool_name"]/turn["arguments"]) can spot
+                    # collapsible grep/whole-file-read loops for EVERY normalized
+                    # host, not just Claude. Previously these turns carried the
+                    # args only as JSON in `content`, so detection silently
+                    # no-oped for cursor/hermes/antigravity/opencode.
                     assistant_turns.append(
                         _turn(
                             "tool_call",
@@ -1090,6 +1098,8 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                             at=at,
                             tokens=tokens,
                             raw=event,
+                            tool_name=name,
+                            arguments=arguments,
                         )
                     )
         turns.extend(_apply_tokens_once(assistant_turns, tokens))

@@ -1,11 +1,13 @@
 {
   "mcpServers": {
-    "lc": {
+    "lemoncrow": {
       "type": "stdio",
-      "command": "lemoncrow",
+      "command": "lc",
       "args": ["mcp", "--host", "cursor"],
       "alwaysAllow": [
-        "code",
+        "bash",
+        "code_search",
+        "codemod",
         "compact",
         "context",
         "edit",
@@ -13,9 +15,7 @@
         "memory",
         "read",
         "rescue",
-        "route",
         "search",
-        "bash",
         "sql",
         "trace",
         "verify"

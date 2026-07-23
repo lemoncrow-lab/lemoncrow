@@ -1,0 +1,43 @@
+diff --git a/CHANGES.rst b/CHANGES.rst
+index 498d5e51..40f6c78c 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -35,6 +35,8 @@ Unreleased
+ -   Ensure subdomains are applied with nested blueprints. :issue:`4834`
+ -   ``config.from_file`` can use ``text=False`` to indicate that the parser wants a
+     binary file instead. :issue:`4989`
++-   If a blueprint is created with an empty name it raises a ``ValueError``.
++    :issue:`5010`
+ 
+ 
+ Version 2.2.4
+diff --git a/src/flask/blueprints.py b/src/flask/blueprints.py
+index eb50585d..1aa82562 100644
+--- a/src/flask/blueprints.py
++++ b/src/flask/blueprints.py
+@@ -190,6 +190,9 @@ class Blueprint(Scaffold):
+             root_path=root_path,
+         )
+ 
++        if not name:
++            raise ValueError("'name' may not be empty.")
++
+         if "." in name:
+             raise ValueError("'name' may not contain a dot '.' character.")
+ 
+diff --git a/tests/test_blueprints.py b/tests/test_blueprints.py
+index d46b769b..76cee660 100644
+--- a/tests/test_blueprints.py
++++ b/tests/test_blueprints.py
+@@ -256,6 +256,11 @@ def test_dotted_name_not_allowed(app, client):
+         flask.Blueprint("app.ui", __name__)
+ 
+ 
++def test_empty_name_not_allowed(app, client):
++    with pytest.raises(ValueError):
++        flask.Blueprint("", __name__)
++
++
+ def test_dotted_names_from_app(app, client):
+     test = flask.Blueprint("test", __name__)
+ 

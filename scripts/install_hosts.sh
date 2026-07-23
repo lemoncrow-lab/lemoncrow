@@ -104,7 +104,7 @@ host_is_detected() {
         opencode) command -v opencode >/dev/null 2>&1 ;;
         copilot) command -v code >/dev/null 2>&1 ;;
         antigravity) command -v antigravity >/dev/null 2>&1 || command -v agy >/dev/null 2>&1 ;;
-        cursor) command -v cursor >/dev/null 2>&1 || [ -d "${HOME}/.cursor" ] ;;
+        cursor) command -v cursor >/dev/null 2>&1 || command -v cursor-agent >/dev/null 2>&1 || [ -d "${HOME}/.cursor" ] ;;
         hermes) command -v hermes >/dev/null 2>&1 || [ -f "${HERMES_HOME:-${HOME}/.hermes}/config.yaml" ] ;;
         *) return 1 ;;
     esac

@@ -79,9 +79,9 @@ MCP_ENTRY=$(cat <<JSON
   "mcpServers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lemoncrow",
+      "command": "lc",
       "args": ["mcp", "--host", "cursor"],
-      "alwaysAllow": ["code","compact","context","edit","grep","memory","read","rescue","route","search","shell","sql","trace","verify"]
+      "alwaysAllow": ["bash","code_search","codemod","compact","context","edit","grep","memory","read","rescue","search","sql","trace","verify"]
     }
   }
 }
@@ -107,16 +107,17 @@ if $PRINT_ONLY; then
 fi
 
 # ---- check cursor installation ----------------------------------------------
-if [ ! -d "${HOME}/.cursor" ] && ! $WORKSPACE_SET && [ ! -f "$MCP_FILE" ]; then
+if [ ! -d "${HOME}/.cursor" ] && ! command -v cursor >/dev/null 2>&1 \
+   && ! command -v cursor-agent >/dev/null 2>&1 && ! $WORKSPACE_SET && [ ! -f "$MCP_FILE" ]; then
     if $STRICT; then
-        echo "[lemoncrow:cursor] ERROR: ~/.cursor not found. Is Cursor installed?" >&2
+        echo "[lemoncrow:cursor] ERROR: Cursor not found (no ~/.cursor, 'cursor', or 'cursor-agent'). Is Cursor installed?" >&2
         exit 1
     fi
-    warn "~/.cursor not found - SKIPPING. Install Cursor from https://cursor.com"
+    warn "Cursor not found (no ~/.cursor, 'cursor', or 'cursor-agent') - SKIPPING. Install from https://cursor.com"
     echo "=== SKIPPED (Cursor not detected) ==="
     exit 0
 fi
-info "Found Cursor config dir"
+info "Found Cursor (IDE and/or cursor-agent CLI)"
 
 # ---- merge MCP config -------------------------------------------------------
 run "mkdir -p $(printf %q "$(dirname "$MCP_FILE")")"
@@ -141,7 +142,7 @@ existing.setdefault('mcpServers', {}).update({
         'type': 'stdio',
         'command': 'lc',
         'args': ['mcp', '--host', 'cursor'],
-        'alwaysAllow': ['code','compact','context','edit','grep','memory','read','rescue','route','search','shell','sql','trace','verify'],
+        'alwaysAllow': ['bash','code_search','codemod','compact','context','edit','grep','memory','read','rescue','search','sql','trace','verify'],
     }
 })
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
@@ -157,25 +158,66 @@ else
     fi
 fi
 
-# ---- install sessionStart hook (savings/session attribution bridge) ---------
-# Cursor sets no session env var for MCP subprocesses; the hook writes the
-# live session id to workspaces/<hash>/session_state.json, which the LemonCrow
-# MCP server reads as its attribution fallback (else savings show $0).
-HOOKS_STAGING="${HOME}/.lemoncrow/cursor-hooks"
-HOOK_SRC="${LEMONCROW_REPO}/integrations/cursor/hooks/session_start.py"
-CURSOR_HOOKS_FILE="${HOME}/.cursor/hooks.json"
-if [ -f "$HOOK_SRC" ] && ! $WORKSPACE_SET; then
-    run "mkdir -p $(printf %q "$HOOKS_STAGING")"
-    run "cp $(printf %q "$HOOK_SRC") $(printf %q "$HOOKS_STAGING/session_start.py")"
+# ---- cursor-agent CLI: approve the shared MCP server ------------------------
+# The Cursor CLI (`cursor-agent`) reads the same ~/.cursor/mcp.json (and project
+# .cursor/mcp.json) as the IDE, but only loads a server once it is on the
+# approved list, and that approved list is scoped to the directory the command
+# runs in -- so for a --workspace install we must enable from the workspace,
+# where its project .cursor/mcp.json defines the server. Best-effort: never
+# fail the install if the CLI is old or the workspace still prompts on first use.
+if command -v cursor-agent >/dev/null 2>&1; then
+    ENABLE_DIR="${PWD}"
+    $WORKSPACE_SET && ENABLE_DIR="${WORKSPACE}"
     if $DRY_RUN; then
-        echo "  [dry-run] merge sessionStart hook into $CURSOR_HOOKS_FILE"
+        echo "  [dry-run] (cd ${ENABLE_DIR} && cursor-agent mcp enable lemoncrow)"
+    elif ( cd "$ENABLE_DIR" && cursor-agent mcp enable lemoncrow ) >/dev/null 2>&1; then
+        info "cursor-agent: enabled lemoncrow MCP server (${ENABLE_DIR})"
     else
-        LEMONCROW_CURSOR_HOOKS_FILE="$CURSOR_HOOKS_FILE" LEMONCROW_CURSOR_HOOK_CMD="python3 ${HOOKS_STAGING}/session_start.py" python3 - <<'PYEOF'
+        info "cursor-agent: could not auto-enable lemoncrow (it will prompt on first use)"
+    fi
+fi
+
+# ---- install lifecycle hooks (attribution bridge + session recap) -----------
+# Cursor sets no session env var for MCP subprocesses, so sessionStart writes
+# the live session id into <workspace>/.lemoncrow/workspace/session_state.json,
+# which the LemonCrow MCP server reads as its attribution fallback (else savings
+# show $0). stop refreshes attribution and logs a savings recap. Both the Cursor
+# IDE and the cursor-agent CLI load these hooks from the same hooks.json.
+CURSOR_HOOKS_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/hooks"
+# event:source-basename pairs.
+CURSOR_HOOKS=("sessionStart:session_start.py" "stop:stop.py")
+if $WORKSPACE_SET; then
+    CURSOR_HOOKS_FILE="${WORKSPACE}/.cursor/hooks.json"
+    HOOKS_DEST_DIR="${WORKSPACE}/.cursor/hooks"
+    # Project hooks run from the project root, so a repo-relative command works.
+    HOOK_CMD_DIR=".cursor/hooks"
+else
+    CURSOR_HOOKS_FILE="${HOME}/.cursor/hooks.json"
+    HOOKS_DEST_DIR="${HOME}/.lemoncrow/cursor-hooks"
+    HOOK_CMD_DIR="${HOOKS_DEST_DIR}"
+fi
+
+if [ -d "$CURSOR_HOOKS_SRC_DIR" ]; then
+    run "mkdir -p $(printf %q "$HOOKS_DEST_DIR")"
+    for _pair in "${CURSOR_HOOKS[@]}"; do
+        _event="${_pair%%:*}"
+        _script="${_pair##*:}"
+        _src="${CURSOR_HOOKS_SRC_DIR}/${_script}"
+        [ -f "$_src" ] || continue
+        run "cp $(printf %q "$_src") $(printf %q "$HOOKS_DEST_DIR/$_script")"
+        if $DRY_RUN; then
+            echo "  [dry-run] merge ${_event} hook into $CURSOR_HOOKS_FILE"
+        else
+            LEMONCROW_CURSOR_HOOKS_FILE="$CURSOR_HOOKS_FILE" \
+            LEMONCROW_CURSOR_HOOK_EVENT="$_event" \
+            LEMONCROW_CURSOR_HOOK_CMD="python3 ${HOOK_CMD_DIR}/${_script}" \
+            python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
 
 path = Path(os.environ["LEMONCROW_CURSOR_HOOKS_FILE"])
+event = os.environ["LEMONCROW_CURSOR_HOOK_EVENT"]
 cmd = os.environ["LEMONCROW_CURSOR_HOOK_CMD"]
 try:
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -185,14 +227,20 @@ if not isinstance(data, dict):
     data = {}
 data.setdefault("version", 1)
 hooks = data.setdefault("hooks", {})
-entries = hooks.setdefault("sessionStart", [])
-if not any(isinstance(e, dict) and "lc" in str(e.get("command", "")) for e in entries):
+entries = hooks.setdefault(event, [])
+if not isinstance(entries, list):
+    entries = []
+    hooks[event] = entries
+# Idempotent on our staged script basename (survives re-install/upgrade).
+script_base = os.path.basename(cmd.split()[-1])
+if not any(isinstance(e, dict) and script_base in str(e.get("command", "")) for e in entries):
     entries.append({"command": cmd})
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print(f"[lemoncrow:cursor] merged sessionStart hook into {path}")
+print(f"[lemoncrow:cursor] merged {event} hook into {path}")
 PYEOF
-    fi
+        fi
+    done
 fi
 
 # ---- write rules files (workspace only) -------------------------------------
