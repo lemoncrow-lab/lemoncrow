@@ -694,7 +694,7 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
 )
 @click.option(
     "--cli-driver",
-    type=click.Choice(["claude", "copilot", "codex", "opencode", "lemoncrow-run"]),
+    type=click.Choice(["claude", "copilot", "codex", "opencode", "lemoncrow-run", "cursor"]),
     default="claude",
     show_default=True,
     help="CLI host to benchmark.",
@@ -1471,6 +1471,13 @@ def benchmark_telegraphic_cmd(
     type=click.Choice(["baseline", "lemoncrow"]),
     help="Arm to run; repeat for both.",
 )
+@click.option(
+    "--driver",
+    type=click.Choice(["claude", "cursor"]),
+    default="claude",
+    show_default=True,
+    help="Agent CLI inside each container: claude or cursor-agent (needs a host `cursor-agent login`).",
+)
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option("--model", default="claude-opus-4-8", show_default=True)
 @click.option(
@@ -1505,6 +1512,7 @@ def benchmark_swe_cmd(
     limit: int | None,
     instances: tuple[str, ...],
     arms: tuple[str, ...],
+    driver: str,
     reps: int,
     model: str,
     max_turns: int,
@@ -1548,6 +1556,8 @@ def benchmark_swe_cmd(
         suite,
         "--arms",
         *arms,
+        "--driver",
+        driver,
         "--reps",
         str(reps),
         "--model",

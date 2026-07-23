@@ -1,0 +1,47 @@
+task,arm,rep,ok,cost_usd,duration_ms,duration_api_ms,num_turns,input_tokens,cache_read_tokens,cache_creation_tokens,thinking_tokens,output_tokens,models,is_error,timed_out,result_excerpt,flow_path,valid,validity_reason,correct,score,judge_model,judge_reason,saved_usd,saved_tokens
+django__django-12155,baseline,2,True,0.3246192,60327,60327,1,47324,301312,0,0,4124,['claude-sonnet-4-5'],False,False,"I'll locate `trim_docstring` and fix the indentation logic so the first line is skipped when computing the common indent.Ticket #30255 replaced `trim_docstring` with `inspect.cleandoc`. I'll pull that commit and apply the same approach here.Applying the official fix: replace `trim_docstring` with `inspect.cleandoc` and update the tests.Reverting the release note — the upstream fix didn't include one, and calling it a regression was inaccurate.Fixed. `trim_docstring` treated the first line’s indent as 0, so later lines kept their indentation and broke reST under the `default-role` directive.
+
+**Change:** drop the custom helper and use `inspect.cleandoc()` (PEP 257), which skips the first line when computing indent.
+
+- `django/contrib/admindocs/utils.py` — use `cleandoc` in `parse_docstring`
+- `django/contrib/admindocs/views.py` — same for model method docs
+- `tests/admin_docs/test_utils.py` — cover docstrings without a leading blank line
+
+All `admin_docs` tests pass.",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/django__django-12155_baseline_rep2.flow,True,,True,1.0,swebench,resolved,0.0,0
+django__django-12155,baseline,1,True,0.1840386,66251,66251,1,18938,178432,0,0,4913,['claude-sonnet-4-5'],False,False,"I'll look up `trim_docstring` and how admindocs renders view docstrings so we can fix the first-line indentation bug.Ticket #30255 suggests replacing `trim_docstring` with `inspect.cleandoc`. I'll pull the committed fix and apply it.Applying the fix: replace `trim_docstring` with `inspect.cleandoc` and add a regression test.Fixed. `trim_docstring` treated the first line’s indent as 0, so the shared indent for later lines was wrong and leftover whitespace broke the `default-role` directive.
+
+**Change:** drop the custom helper and use `inspect.cleandoc()` (PEP 257), which skips the first line when computing indent.
+
+- `django/contrib/admindocs/utils.py` — `parse_docstring()` uses `cleandoc`
+- `django/contrib/admindocs/views.py` — model method docs use `cleandoc`
+- `tests/admin_docs/test_utils.py` — regression for docstrings without a leading blank line
+
+All 53 `admin_docs` tests pass.",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/django__django-12155_baseline_rep1.flow,True,,True,1.0,swebench,resolved,0.0,0
+django__django-12155,lemoncrow,2,True,0.4307244,96976,96976,1,37757,481664,0,0,5897,['claude-sonnet-4-5'],False,False,"I'll investigate the `trim_docstring` indentation bug that breaks docutils when the first docstring line isn't empty.Fix matches PEP 257: skip first line for indent; guard empty `lines[1:]`. Writing a failing test, then applying the fix.Checking supported Python versions and tightening the regression test.Stale lines left in the test file — checking and fixing.`done: trim_docstring` skips first line for indent (PEP 257) → `default-role` no longer sees indented body → verified: `python tests/runtests.py admin_docs.test_utils -v2` → 9 passed.",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/django__django-12155_lemoncrow_rep2.flow,True,,True,1.0,swebench,resolved,-0.1061,-172558
+django__django-12155,lemoncrow,1,True,0.3827088,108271,108271,1,25775,450048,0,0,6357,['claude-sonnet-4-5'],False,False,"I'll investigate the `trim_docstring` indentation bug that breaks docutils when the first docstring line isn't empty.Reproducing the bug, then applying the PEP 257 fix (skip first line when computing indent).The edit dropped the `lines = ...` assignment — restoring it.Preferring a style without `min(..., default=)` — uncommon in this codebase.`done: skip first line in `trim_docstring` indent calc (PEP 257) → leftover indent no longer breaks `default-role` → verified: `admin_docs.test_utils` + `test_views` 54 OK.`",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/django__django-12155_lemoncrow_rep1.flow,True,,True,1.0,swebench,resolved,-0.1987,-279897
+pallets__flask-5014,baseline,2,True,0.118665,28002,28002,1,18324,136960,0,0,1507,['claude-sonnet-4-5'],False,False,"I'll look at how Blueprint names are handled and where we should reject empty names with a `ValueError`.There's an upstream PR for this — I'll check its implementation and the nearby test for dotted names.Applying the upstream fix: reject empty Blueprint names, add a test, and note it in CHANGES.`Blueprint` now rejects an empty `name` with a `ValueError`, matching the existing check that forbids dots.
+
+```193:197:src/flask/blueprints.py
+        if not name:
+            raise ValueError(""'name' may not be empty."")
+
+        if ""."" in name:
+            raise ValueError(""'name' may not contain a dot '.' character."")
+```
+
+Also added `test_empty_name_not_allowed` and a CHANGES note for issue #5010.",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/pallets__flask-5014_baseline_rep2.flow,True,,True,1.0,swebench,resolved,0.0,0
+pallets__flask-5014,baseline,1,True,0.1163844,44683,44683,1,14866,143488,0,0,1916,['claude-sonnet-4-5'],False,False,"I'll look up how Blueprint names are handled and where empty names should raise `ValueError`.There's an existing PR for this — I'll check its implementation to match the expected approach.I'll add empty-name validation on Blueprint creation, plus a test and changelog entry.`Blueprint` now rejects an empty `name` with a `ValueError`.
+
+In `Blueprint.__init__`, empty names are checked before the existing dotted-name check:
+
+```193:197:src/flask/blueprints.py
+        if not name:
+            raise ValueError(""'name' may not be empty."")
+
+        if ""."" in name:
+            raise ValueError(""'name' may not contain a dot '.' character."")
+```
+
+Also added `test_empty_name_not_allowed` and a changelog note for `:issue:`5010``.",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/pallets__flask-5014_baseline_rep1.flow,True,,True,1.0,swebench,resolved,0.0,0
+pallets__flask-5014,lemoncrow,2,True,0.28137,59598,59598,1,21014,391680,0,0,2888,['claude-sonnet-4-5'],False,False,"I'll look up how Blueprint names are handled and add a non-empty name check that raises `ValueError`.Existing dot check in `Blueprint.__init__` — adding empty-name validation the same way.Writing the failing test first, then the check.done: `Blueprint("""")` → `ValueError` → risk: none → verified: `pytest test_empty_name_not_allowed` (+ dotted/unique) → 3 passed",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/pallets__flask-5014_lemoncrow_rep2.flow,True,,True,1.0,swebench,resolved,-0.1627,-258791
+pallets__flask-5014,lemoncrow,1,True,0.292713,106079,106079,1,24151,348800,0,0,4732,['claude-sonnet-4-5'],False,False,"I'll look up how Blueprint names are handled and add a `ValueError` for empty names.Also validating empty `name=` on register, then applying the change.Edit dropped `self.name = name` and left duplicate lines — fixing.`done: empty Blueprint names → ValueError` → `Blueprint("""")` / `register_blueprint(..., name="""")` → `verified: pytest test_empty_name_not_allowed + related → 4 passed`",/home/pankaj/Projects/leanchain/lemoncrow-dev/benchmarks/codebench/results/swelite_cursor_focus_2026_07_23/pallets__flask-5014_lemoncrow_rep1.flow,True,,True,1.0,swebench,resolved,-0.1763,-217413

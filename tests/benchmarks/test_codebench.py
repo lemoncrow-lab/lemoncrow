@@ -82,7 +82,7 @@ def test_lemoncrow_mcp_is_written_to_isolated_user_config(tmp_path: Path) -> Non
 
 def test_swe_entrypoint_fails_closed_on_mcp_preflight() -> None:
     entrypoint = (ROOT / "benchmarks" / "codebench" / "incontainer_entry.sh").read_text()
-    assert "lemoncrow mcp --host claude check" in entrypoint
+    assert 'lemoncrow mcp --host "$HOST" check' in entrypoint
     assert '"alwaysLoad":true' in entrypoint
     assert "exit 6" in entrypoint
     assert "--mcp-config" not in entrypoint.split('if [ "$ARM" = "lemoncrow" ]; then', 2)[-1].split("else", 1)[0]

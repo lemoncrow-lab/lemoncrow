@@ -146,7 +146,22 @@ PROVIDER_ALIASES: dict[str, str] = {
     "azure": "azure-claude",
     "openrouter": "openrouter-claude",
 }
-CLI_DRIVERS = ("claude", "lemoncrow-run", "codex")
+CLI_DRIVERS = ("claude", "lemoncrow-run", "codex", "cursor")
+
+# Cursor model ids differ from the Claude/codebench shorthands ("sonnet").
+# cursor-agent only accepts its own ids (claude-opus-4-7-thinking-high, gpt-5.x,
+# composer-2.5, cursor-grok-*). Anything else -> omit --model so cursor-agent
+# runs its server-chosen "auto" model (the only option without a paid plan).
+_CURSOR_MODEL_PREFIXES = ("claude-", "gpt-", "composer", "cursor-grok")
+
+
+def _cursor_model(model: str) -> str | None:
+    m = (model or "").strip()
+    if m.startswith(_CURSOR_MODEL_PREFIXES):
+        return m
+    return None
+
+
 # Arms that drive many model + tool round-trips and so dominate wall time.
 HEAVY_ARMS = tuple(name for name, spec in ARM_SPECS.items() if spec.heavy)
 # Heuristic floor: on a non-trivial task a tool-heavy arm routinely issues this
@@ -915,6 +930,74 @@ def _parse_codex_result(stdout: str, flow_path: Path, task: str, arm: str, rep: 
     )
 
 
+def _parse_cursor_result(stdout: str, flow_path: Path, task: str, arm: str, rep: int) -> ArmResult:
+    """Parse ``cursor-agent -p --output-format json``.
+
+    Cursor emits a single Claude-Code-style envelope:
+    ``{type:"result", result, is_error, duration_ms, usage:{inputTokens,
+    outputTokens, cacheReadTokens, cacheWriteTokens}}``. It reports NO
+    ``total_cost_usd`` (flat-rate subscription), so cost is priced from the
+    reported tokens via the shared catalog -- exactly like the Codex path. When
+    the model is server-chosen ("auto", no paid model pin), price at a Sonnet
+    fallback so BOTH cursor arms use one consistent rate and the lc-on/off
+    token/cost DELTA stays valid even if the absolute rate is approximate.
+    """
+    obj: dict[str, Any] | None = None
+    # cursor-agent may print a stray log line before the envelope; scan from the
+    # end for the last `type:"result"` object.
+    for line in reversed(stdout.strip().splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            cand = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(cand, dict) and cand.get("type") == "result":
+            obj = cand
+            break
+    if obj is None:
+        return ArmResult(task, arm, rep, False, 0.0, 0, 0, 0, 0, 0, 0, 0, [], True, stdout[:200], str(flow_path))
+
+    u = obj.get("usage", {}) or {}
+    input_tokens = _usage_int(u.get("inputTokens", 0))
+    output_tokens = _usage_int(u.get("outputTokens", 0))
+    cache_read = _usage_int(u.get("cacheReadTokens", 0))
+    cache_write = _usage_int(u.get("cacheWriteTokens", 0))
+    # Cursor's JSON doesn't echo the resolved model; use the pinned model when
+    # given (a real claude-*/gpt-* id), else a Sonnet fallback rate.
+    model_id = str(obj.get("model") or "").strip() or "claude-sonnet-4-5"
+    cost_usd = 0.0
+    with contextlib.suppress(Exception):
+        cost_usd = usage_cost_usd(
+            model_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        )
+    is_error = bool(obj.get("is_error", False))
+    return ArmResult(
+        task=task,
+        arm=arm,
+        rep=rep,
+        ok=not is_error,
+        cost_usd=cost_usd,
+        duration_ms=int(obj.get("duration_ms", 0) or 0),
+        duration_api_ms=int(obj.get("duration_api_ms", 0) or 0),
+        num_turns=1,
+        input_tokens=input_tokens,
+        cache_read_tokens=cache_read,
+        cache_creation_tokens=cache_write,
+        output_tokens=output_tokens,
+        thinking_tokens=0,
+        models=[model_id],
+        is_error=is_error,
+        result_excerpt=str(obj.get("result", ""))[:4000],
+        flow_path=str(flow_path),
+    )
+
+
 def _parse_claude_result(stdout: str, flow_path: Path, task: str, arm: str, rep: int) -> ArmResult:
 
     try:
@@ -1121,6 +1204,13 @@ def _parse_cli_result(
         return _parse_lemoncrow_run_result(stdout, flow_path, task, arm, rep, wall_duration_ms)
     if cli_driver == "codex":
         result = _parse_codex_result(stdout, flow_path, task, arm, rep)
+        if result.duration_ms == 0:
+            result.duration_ms = wall_duration_ms
+        if result.duration_api_ms == 0:
+            result.duration_api_ms = wall_duration_ms
+        return result
+    if cli_driver == "cursor":
+        result = _parse_cursor_result(stdout, flow_path, task, arm, rep)
         if result.duration_ms == 0:
             result.duration_ms = wall_duration_ms
         if result.duration_api_ms == 0:
@@ -1455,6 +1545,11 @@ def run_arm(
         persistent_workspace = True
     elif cli_driver == "codex":
         ws = prepare_workspace(task)
+    elif cli_driver == "cursor":
+        # Persistent so `cursor-agent mcp enable` (per-workspace approval) and
+        # the pre-built lc index survive across reps.
+        ws = prepare_workspace(task, out_dir / "workspaces" / f"{task.id}_{arm}_rep{rep}")
+        persistent_workspace = True
     else:
         ws = prepare_workspace(task)
     if cli_driver not in CLI_DRIVERS:
@@ -1589,6 +1684,60 @@ def run_arm(
                 cmd += ["--model", model]
             # codex needs to run in the workspace.
             cmd += ["-C", str(ws), "--", task.prompt()]
+            cmd += list(cli_extra_args)
+        elif cli_driver == "cursor":
+            # Cursor CLI arm: cursor-native (baseline) vs cursor + LemonCrow MCP.
+            # The only A/B difference is whether the lc MCP server + persona rule
+            # are present in the workspace's .cursor/ config -- so the delta is
+            # LemonCrow, not ambient host state.
+            spec = ARM_SPECS[arm]
+            cursor_dir = ws / ".cursor"
+            mcp_file = cursor_dir / "mcp.json"
+            if spec.plugin or not spec.strip_mcp:
+                # LemonCrow arm: register the lc MCP server (host=cursor), copy the
+                # matching persona rule, and approve the server non-interactively
+                # (per-workspace approved list -- must run with cwd=ws).
+                cursor_dir.mkdir(parents=True, exist_ok=True)
+                mcp_file.write_text(
+                    json.dumps(
+                        {
+                            "mcpServers": {
+                                "lemoncrow": {
+                                    "type": "stdio",
+                                    "command": "lc",
+                                    "args": ["mcp", "--host", "cursor"],
+                                }
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                persona = spec.persona_by_capability.get(task.capability) or "lemoncrow:solve"
+                rule_src = REPO_ROOT / "integrations" / "cursor" / "rules" / f"{persona.replace(':', '.')}.mdc"
+                if rule_src.is_file():
+                    rules_dir = cursor_dir / "rules"
+                    rules_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(rule_src, rules_dir / rule_src.name)
+                with contextlib.suppress(Exception):
+                    subprocess.run(
+                        ["cursor-agent", "mcp", "enable", "lemoncrow"],
+                        cwd=str(ws),
+                        env=env,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+            else:
+                # Baseline: ensure NO LemonCrow server is present (cursor-native).
+                if mcp_file.exists():
+                    with contextlib.suppress(Exception):
+                        mcp_file.unlink()
+            env["CURSOR_WORKSPACE_ROOT"] = str(ws)
+            cmd = ["cursor-agent", "-p", task.prompt(), "--force", "--output-format", "json"]
+            cursor_model = _cursor_model(model)
+            if cursor_model:
+                cmd += ["--model", cursor_model]
             cmd += list(cli_extra_args)
         else:
             raise ValueError(f"unsupported cli driver: {cli_driver}")

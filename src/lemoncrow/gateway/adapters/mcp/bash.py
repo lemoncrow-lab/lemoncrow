@@ -431,50 +431,63 @@ def _run_bash_tool(
     if action in {"poll", "kill", "status", "update", "send"}:
         if not session_id:
             raise ValueError(f"session_id is required for shell action={action}")
-        if action == "send":
-            # Feed an interactive session's stdin and return the output delta.
-            # `timeout` here is only how long to wait for that delta -- the
-            # session itself lives on under its own idle-TTL.
-            return send_managed_input(
-                session_id,
-                input_text or "",
-                wait=float(timeout) if timeout is not None else 30.0,
-            )
-        if action == "kill":
-            result = poll_managed_command(session_id, cancel=True)
-            _forget_mcp_managed_bash(session_id)
-            return result
-        if action == "status":
-            # Single non-blocking check -- unlike `poll`, never waits for the
-            # command to finish and never reaps the session.
-            result = peek_managed_command(session_id)
-            if result.get("status") != "running":
+
+        def _session_not_found() -> dict[str, Any]:
+            return {
+                "status": "error",
+                "session_id": session_id,
+                "stderr": f"unknown shell session: {session_id}",
+                "exit_code": -1,
+            }
+
+        try:
+            if action == "send":
+                # Feed an interactive session's stdin and return the output delta.
+                # `timeout` here is only how long to wait for that delta -- the
+                # session itself lives on under its own idle-TTL.
+                return send_managed_input(
+                    session_id,
+                    input_text or "",
+                    wait=float(timeout) if timeout is not None else 30.0,
+                )
+            if action == "kill":
+                result = poll_managed_command(session_id, cancel=True)
                 _forget_mcp_managed_bash(session_id)
-            return result
-        if action == "update":
-            if timeout is None:
-                raise ValueError("timeout is required for shell action=update")
-            if timeout <= 0:
-                raise ValueError("timeout must be positive")
-            return update_managed_command(session_id, timeout)
-        # Block until the managed command finishes, is cancelled, or the
-        # caller's optional poll timeout expires. With no timeout, wait
-        # indefinitely (subject to the managed command's own deadline).
-        delay = 0.02
-        poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
-        while True:
-            poll_result = poll_managed_command(session_id)
-            if poll_result.get("status") != "running":
-                _forget_mcp_managed_bash(session_id)
-                return poll_result
-            if poll_deadline is not None:
-                remaining = poll_deadline - time.monotonic()
-                if remaining <= 0:
+                return result
+            if action == "status":
+                # Single non-blocking check -- unlike `poll`, never waits for the
+                # command to finish and never reaps the session.
+                result = peek_managed_command(session_id)
+                if result.get("status") != "running":
+                    _forget_mcp_managed_bash(session_id)
+                return result
+            if action == "update":
+                if timeout is None:
+                    raise ValueError("timeout is required for shell action=update")
+                if timeout <= 0:
+                    raise ValueError("timeout must be positive")
+                return update_managed_command(session_id, timeout)
+            # Block until the managed command finishes, is cancelled, or the
+            # caller's optional poll timeout expires. With no timeout, wait
+            # indefinitely (subject to the managed command's own deadline).
+            delay = 0.02
+            poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
+            while True:
+                poll_result = poll_managed_command(session_id)
+                if poll_result.get("status") != "running":
+                    _forget_mcp_managed_bash(session_id)
                     return poll_result
-                time.sleep(min(delay, remaining))
-            else:
-                time.sleep(delay)
-            delay = min(delay * 2, 0.5)
+                if poll_deadline is not None:
+                    remaining = poll_deadline - time.monotonic()
+                    if remaining <= 0:
+                        return poll_result
+                    time.sleep(min(delay, remaining))
+                else:
+                    time.sleep(delay)
+                delay = min(delay * 2, 0.5)
+        except KeyError:
+            _forget_mcp_managed_bash(session_id)
+            return _session_not_found()
     if not command.strip():
         raise ValueError("command is required for shell action=run")
     if timeout is None:

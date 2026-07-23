@@ -79,7 +79,7 @@ def _patch_path(out_dir: Path, inst: Any, arm: str, rep: int) -> Path:
     return out_dir / f"{inst.instance_id}_{arm}_rep{rep}.patch"
 
 
-def _prebuild_overlays(instances: list[Any], arms: list[str]) -> None:
+def _prebuild_overlays(instances: list[Any], arms: list[str], driver: str = "claude") -> None:
     """Build every needed overlay serially up front so parallel runs don't race.
 
     One instance's broken/unusual base image (e.g. missing apt-get -- a non-
@@ -98,7 +98,7 @@ def _prebuild_overlays(instances: list[Any], arms: list[str]) -> None:
             seen.add(key)
             print(f"[overlay] ensuring {arm} overlay for {inst.image}", flush=True)
             try:
-                incontainer.ensure_overlay(inst.image, lc=(arm == "lemoncrow"))
+                incontainer.ensure_overlay(inst.image, lc=(arm == "lemoncrow"), driver=driver)
             except Exception as exc:
                 print(f"[overlay] FAILED for {arm}/{inst.image}: {exc} -- skipping, will error at run time", flush=True)
 
@@ -312,13 +312,15 @@ def run(args: argparse.Namespace) -> int:
     print(f"[run] {len(instances)} instance(s) x {len(args.arms)} arm(s) x {args.reps} rep(s)", flush=True)
     print(f"[run] results -> {out_dir}", flush=True)
 
-    _prebuild_overlays(instances, args.arms)
+    _prebuild_overlays(instances, args.arms, args.driver)
 
     agent_env = _load_benchmark_env()
     # Rotate container runs across the available OAuth tokens, capping each at
     # --jobs-per-token concurrent runs via a slot queue. With both tokens set and
     # the default cap of 4, total parallelism is 8 (4 per token).
-    tokens = _resolve_oauth_tokens(agent_env)
+    # OAuth-token rotation is claude-only; cursor authenticates from auth.json and
+    # parallelizes via --jobs.
+    tokens = [] if args.driver == "cursor" else _resolve_oauth_tokens(agent_env)
     per_token = max(1, args.jobs_per_token)
     token_slots: queue.Queue[str] | None = None
     if tokens:
@@ -399,6 +401,7 @@ def run(args: argparse.Namespace) -> int:
                 inst,
                 arm,
                 rep,
+                driver=args.driver,
                 model=args.model,
                 out_dir=out_dir,
                 timeout=args.timeout,
@@ -495,6 +498,13 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=None, help="Max total instances")
     p.add_argument("--instances", nargs="*", default=None, help="Explicit instance ids to run")
     p.add_argument("-a", "--arms", nargs="*", default=list(ARMS), choices=ARMS)
+    p.add_argument(
+        "--driver",
+        choices=["claude", "cursor"],
+        default="claude",
+        help="Agent CLI run inside each container: claude (default) or cursor-agent. "
+        "cursor requires a host `cursor-agent login` (auth.json is mounted in).",
+    )
     p.add_argument("--reps", type=int, default=1)
     p.add_argument("--model", default="claude-opus-4-8")
     p.add_argument(
