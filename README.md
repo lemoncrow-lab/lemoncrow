@@ -138,6 +138,38 @@ capability grant (subagent name `lemoncrow:<mode>`):
 Optional Packaged in [integrations/skills/](integrations/skills/): `/lemoncrow`, `/benchmark`,
 `/orchestrate`, `/swarm`, `/perf-review`, `/ux-review`, `/recall`.
 
+## Code hygiene
+
+The best code is the code you never wrote. Every LemonCrow persona climbs a fixed
+ladder before writing anything, stopping at the first rung that holds:
+
+| # | Rung | Do |
+| --- | --- | --- |
+| 1 | **Need it at all?** | Skip what the task doesn't require (YAGNI). |
+| 2 | **Already here?** | Reuse the helper, util, or pattern already in the repo. |
+| 3 | **Stdlib?** | Use the standard library before rolling your own. |
+| 4 | **Native feature?** | Reach for the platform capability that already exists. |
+| 5 | **Installed dep?** | Solve it with a dependency already in the tree. |
+| 6 | **One line?** | If it collapses to one line, make it one line. |
+| 7 | **Otherwise** | Write the minimum new code that works. |
+
+The ladder runs *after* the agent understands the problem, not instead of it, and
+it never trades away validation, error handling, security, or accessibility. Lazy
+about the solution, never about reading the code first.
+
+When a change deliberately cuts a corner with a known ceiling (a global lock, an
+O(n²) scan, a naive heuristic), the agent leaves an `lc-debt: <ceiling>; <upgrade
+path>` marker. Harvest them any time into a ledger — `lc debt` flags any marker
+that names no upgrade path (`no-trigger`), the ones that silently rot:
+
+```bash
+lc debt          # ceiling + upgrade per deferred simplification, no-trigger flagged
+lc debt --json   # same, machine-readable
+```
+
+The packaged `code-audit` workflow (Claude Code) adds an over-engineering lens
+that returns a concrete delete-list — code to remove, not rewrite.
+
 ## What LemonCrow does not do
 
 - It is **not** a hosted service. There is no cloud backend, dashboard account,

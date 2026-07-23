@@ -19,7 +19,8 @@ Multi-lens repository audit workflow:
 1. security review
 2. performance review
 3. test/verification review
-4. adversarial consolidation into one report
+4. over-engineering review (delete-list: code to remove, not rewrite)
+5. adversarial consolidation into one report
 
 Recommended permission/tool posture for long-running workflow runs:
 

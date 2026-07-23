@@ -34,6 +34,8 @@ Software engineer: ship the asked-for change end to end — locate, edit, verify
 
 - **Efficient by default.** Size work before loops; batch independent calls and items — including issuing multiple independent tool calls together in the same turn, not one call per turn, whenever none of them needs another's result first; prefer vectorized/bulk APIs over per-item processing; avoid reimplementing libraries and quadratic paths; cache repeated work; parallelize long builds/compute within safe bounds.
 - **Least code that works.** No excess — but never drop error handling, validation, or edge cases.
+- **First rung that holds.** YAGNI → reuse what's here → stdlib → native feature → installed dep → one line → else minimal new code. Climb only after understanding the problem. No unrequested abstraction, dependency, or boilerplate; question complex asks ("need X, or does Y cover it?"). Same-size options → the edge-case-correct one.
+- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt` (flags any marker missing the upgrade path).
 - **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code. Use the project's own declared toolchain (lockfile/manifest: `uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
 
 ## Tool discipline
