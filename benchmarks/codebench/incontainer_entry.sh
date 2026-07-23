@@ -62,13 +62,31 @@ export BASH_ENV="$_act"
 
 ARM="${CODEBENCH_ARM:-baseline}"
 MODEL="${CODEBENCH_MODEL:-opus}"
-export CLAUDE_CONFIG_DIR=/tmp/codebench-claude-config
-mkdir -p "$CLAUDE_CONFIG_DIR"
-if [ "$ARM" = "lemoncrow" ]; then
-  printf '%s' '{"mcpServers":{"lc":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","claude"],"alwaysLoad":true}}}' \
-    >"$CLAUDE_CONFIG_DIR/.claude.json"
-else
-  printf '%s' '{}' >"$CLAUDE_CONFIG_DIR/.claude.json"
+DRIVER="${CODEBENCH_DRIVER:-claude}"
+# LemonCrow MCP host: claude|cursor (which adapter the lc server speaks). Both
+# drivers share the lc index/prewarm below; only the agent CLI + MCP wiring differ.
+HOST="${CODEBENCH_HOST:-claude}"
+
+if [ "$DRIVER" = "claude" ]; then
+  export CLAUDE_CONFIG_DIR=/tmp/codebench-claude-config
+  mkdir -p "$CLAUDE_CONFIG_DIR"
+  if [ "$ARM" = "lemoncrow" ]; then
+    printf '%s' '{"mcpServers":{"lc":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","claude"],"alwaysLoad":true}}}' \
+      >"$CLAUDE_CONFIG_DIR/.claude.json"
+  else
+    printf '%s' '{}' >"$CLAUDE_CONFIG_DIR/.claude.json"
+  fi
+elif [ "$DRIVER" = "cursor" ]; then
+  # cursor-agent reads auth from ~/.config/cursor/auth.json. Copy the mounted
+  # credential into a WRITABLE location so an access-token refresh mid-run can
+  # write back without failing on the read-only bind mount.
+  mkdir -p "$HOME/.config/cursor"
+  if [ -f /mnt/cursor-auth.json ]; then
+    cp /mnt/cursor-auth.json "$HOME/.config/cursor/auth.json"
+  else
+    echo "FATAL: cursor driver but /mnt/cursor-auth.json not mounted (run 'cursor-agent login' on the host)" >&2
+    exit 8
+  fi
 fi
 
 if [ "$ARM" = "lemoncrow" ]; then
@@ -118,7 +136,7 @@ if [ "$ARM" = "lemoncrow" ]; then
       || { echo "[warn] lemoncrow zoekt up failed -- falling back to FTS5" >&2; tail -n 5 /tmp/lemoncrow-zoekt.log >&2 || true; }
   fi
 
-  if ! lemoncrow mcp --host claude check >/tmp/lemoncrow-mcp-check.log 2>&1; then
+  if ! lemoncrow mcp --host "$HOST" check >/tmp/lemoncrow-mcp-check.log 2>&1; then
     echo "FATAL: LemonCrow MCP failed initialize/tools-list preflight; aborting before Claude starts." >&2
     tail -n 20 /tmp/lemoncrow-mcp-check.log >&2 || true
     exit 6
@@ -127,6 +145,25 @@ if [ "$ARM" = "lemoncrow" ]; then
 fi
 
 prompt="$(cat /mnt/prompt.txt)"
+
+if [ "$DRIVER" = "cursor" ]; then
+  cargs=(-p "$prompt" --force --output-format json)
+  [ -n "${CODEBENCH_CURSOR_MODEL:-}" ] && cargs+=(--model "$CODEBENCH_CURSOR_MODEL")
+  if [ "$ARM" = "lemoncrow" ]; then
+    # Register the lc MCP server + persona rule in the workspace and approve it
+    # non-interactively (the per-workspace approved list needs cwd=$REPO). The
+    # .cursor/ dir is stripped before the diff capture so it never contaminates
+    # the patch.
+    mkdir -p "$REPO/.cursor/rules"
+    printf '%s' '{"mcpServers":{"lemoncrow":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","cursor"]}}}' \
+      >"$REPO/.cursor/mcp.json"
+    [ -f /mnt/cursor-rule.mdc ] && cp /mnt/cursor-rule.mdc "$REPO/.cursor/rules/lemoncrow.auto.mdc"
+    (cd "$REPO" && cursor-agent mcp enable lemoncrow >/tmp/cursor-mcp-enable.log 2>&1) || true
+  fi
+  (cd "$REPO" && cursor-agent "${cargs[@]}")
+  # Strip the injected config so it never lands in the captured diff.
+  rm -rf "$REPO/.cursor"
+else
 args=(-p "$prompt" --model "$MODEL" --output-format json --permission-mode bypassPermissions)
 [ -n "${CODEBENCH_MAX_TURNS:-}" ] && args+=(--max-turns "$CODEBENCH_MAX_TURNS")
 if [ "$ARM" = "lemoncrow" ]; then
@@ -153,6 +190,7 @@ disallowed=(AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch mcp__l
 args+=(--disallowedTools "${disallowed[@]}")
 
 claude "${args[@]}"
+fi
 
 echo "<<<CODEBENCH_DIFF_BEGIN>>>"
 git -C "$REPO" add -A 2>/dev/null
