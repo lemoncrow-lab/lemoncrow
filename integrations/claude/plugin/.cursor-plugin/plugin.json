@@ -1,0 +1,14 @@
+{
+  "name": "lemoncrow",
+  "version": "0.1.0",
+  "description": "AI task/procedure/runtime layer for agentic workflows",
+  "keywords": [
+    "read",
+    "search",
+    "edit",
+    "tool-cache"
+  ],
+  "author": {
+    "name": "LemonCrow Team"
+  }
+}
