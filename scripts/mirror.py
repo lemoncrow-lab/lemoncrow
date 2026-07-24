@@ -185,7 +185,88 @@ def _write_tree(index_path: Path) -> str:
     return result.stdout.strip()
 
 
-def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_path: Path) -> str:
+# ---------------------------------------------------------------------------
+# Git-LFS pointer detection
+# ---------------------------------------------------------------------------
+
+# A blob copied byte-for-byte into the public mirror may actually be a Git LFS
+# *pointer* (a small text stub -- the real content lives in LFS storage, never
+# in the git object itself). Copying the pointer without also copying its LFS
+# content leaves the public mirror with dangling pointers: any git-lfs-enabled
+# clone gets a 404 trying to smudge them. So every added blob is checked (cheap,
+# batched -- see below) and any pointer's content OID is tracked so the caller
+# can push the real objects to the public remote's LFS store too.
+LFS_POINTER_HEADER = "version https://git-lfs.github.com/spec/v1"
+_LFS_POINTER_MAX_BYTES = 1024  # spec: pointer files are always small
+
+
+def _shas_from_index_lines(lines: list[str]) -> list[str]:
+    """Extract the blob SHA from `update-index --index-info` lines ("<mode> <sha> 0\\t<path>")."""
+    return [line.split(" ", 2)[1] for line in lines]
+
+
+def _batch_object_sizes(shas: list[str]) -> dict[str, int]:
+    """Bulk blob-size lookup via `git cat-file --batch-check` -- one subprocess
+    call for any number of objects -- used to cheaply narrow down which blobs
+    are small enough to possibly be LFS pointer files before reading content.
+    """
+    if not shas:
+        return {}
+    out = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        input="\n".join(shas) + "\n",
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+    ).stdout
+    sizes: dict[str, int] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] == "blob":
+            sizes[parts[0]] = int(parts[2])
+    return sizes
+
+
+def _batch_lfs_oids(shas: list[str]) -> set[str]:
+    """Return the set of Git LFS content OIDs (sha256) referenced by any of the
+    given blob SHAs that turn out to be LFS pointer files.
+
+    Two batched passes, regardless of how many blobs are checked: a size check
+    narrows candidates, then a single `--batch` read parses only those (exact
+    byte-offset slicing, since pointer content is plain, small, and self-sized).
+    """
+    sizes = _batch_object_sizes(shas)
+    candidates = [sha for sha, size in sizes.items() if size <= _LFS_POINTER_MAX_BYTES]
+    if not candidates:
+        return set()
+    proc = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        input=("\n".join(candidates) + "\n").encode(),
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    data = proc.stdout
+    header_prefix = LFS_POINTER_HEADER.encode()
+    lfs_oids: set[str] = set()
+    pos = 0
+    for _sha in candidates:
+        nl = data.index(b"\n", pos)
+        header = data[pos:nl].decode()
+        size = int(header.rsplit(" ", 1)[1])
+        content_start = nl + 1
+        content = data[content_start : content_start + size]
+        pos = content_start + size + 1  # +1 for the trailing newline after content
+        if content.startswith(header_prefix):
+            for line in content.decode(errors="replace").splitlines():
+                if line.startswith("oid sha256:"):
+                    lfs_oids.add(line[len("oid sha256:") :].strip())
+                    break
+    return lfs_oids
+
+
+def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_path: Path, lfs_oids: set[str]) -> str:
     """Full build: seed the scratch index from `commit_sha`'s tree, filtered to the
     public allowlist, then write it out.
 
@@ -193,6 +274,11 @@ def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_
     hierarchy is reconstructed by git itself in one process, not by shelling out
     to `git mktree` once per directory (that fan-out -- ~3500 subprocess calls
     for this repo -- was the actual cost of every previous `make mirror` run).
+
+    Any LFS-pointer blobs among the included files have their content OID added
+    to `lfs_oids` (mutated in place) so the caller can push the actual LFS
+    objects to the public remote afterward -- otherwise the public mirror ends
+    up with dangling pointers no client can resolve.
     """
     if index_path.exists():
         index_path.unlink()
@@ -203,6 +289,7 @@ def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_
         mode, _obj_type, sha = meta.split()
         if is_public(path, public_prefixes):
             lines.append(f"{mode} {sha} 0\t{public_output_path(path)}")
+    lfs_oids.update(_batch_lfs_oids(_shas_from_index_lines(lines)))
     _update_index_info(index_path, lines)
     return _write_tree(index_path)
 
@@ -263,6 +350,7 @@ def update_filtered_tree(
     curr_dev_sha: str,
     public_prefixes: list[str],
     index_path: Path,
+    lfs_oids: set[str],
 ) -> str:
     """Incremental update: apply only the paths that changed between `prev_dev_sha`
     and `curr_dev_sha` to the scratch index, then write it out.
@@ -270,8 +358,12 @@ def update_filtered_tree(
     O(files changed in this commit), not O(files in repo) -- the fix for the slow
     `make mirror` / `make release`: previously every commit re-walked and
     re-`mktree`'d the *entire* filtered tree regardless of diff size.
+
+    Any newly-added LFS-pointer blobs have their content OID added to `lfs_oids`
+    (mutated in place); see `build_filtered_tree_full`.
     """
     add_lines, remove_paths = _diff_add_remove(prev_dev_sha, curr_dev_sha, public_prefixes)
+    lfs_oids.update(_batch_lfs_oids(_shas_from_index_lines(add_lines)))
     _force_remove(index_path, remove_paths)
     _update_index_info(index_path, add_lines)
     return _write_tree(index_path)
@@ -409,6 +501,44 @@ def push_to_public(remote_url: str, final_sha: str, force: bool, dry_run: bool) 
     subprocess.run(cmd, check=True, cwd=REPO_ROOT)
 
 
+def ensure_lfs_objects_cached(lfs_oids: set[str]) -> None:
+    """Make sure the local Git LFS cache actually has content for every OID we're
+    about to publish, in case this machine never smudged/fetched them (e.g. a
+    fresh checkout or CI runner). `git lfs fetch` has no --object-id filter, so
+    this pulls everything reachable from DEV_REMOTE's refs -- cheap when the
+    cache is already warm (a no-op fetch), safe otherwise.
+    """
+    if not lfs_oids:
+        return
+    subprocess.run(
+        ["git", "lfs", "fetch", "--all", DEV_REMOTE],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+
+
+def push_lfs_objects(remote_url: str, lfs_oids: set[str], dry_run: bool) -> None:
+    """Push the real LFS content for every pointer copied into the public mirror
+    this run, so the public repo never carries a dangling pointer.
+    """
+    if not lfs_oids:
+        return
+    safe = remote_url.split("@")[-1] if "@" in remote_url else remote_url
+    if dry_run:
+        print(f"[dry-run] Would push {len(lfs_oids)} LFS object(s) -> {safe}")
+        return
+    subprocess.run(
+        ["git", "lfs", "push", "--object-id", remote_url, "--stdin"],
+        input="\n".join(sorted(lfs_oids)) + "\n",
+        text=True,
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    print(f"Pushed {len(lfs_oids)} LFS object(s) -> {safe}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -481,6 +611,7 @@ def main() -> int:
         current_pub_parent = initial_pub_parent  # None on fresh run
         prev_dev_sha = watermark_dev  # None on fresh run
         seeded = False
+        lfs_oids: set[str] = set()
 
         for i, dev_sha in enumerate(commits):
             meta = get_commit_metadata(dev_sha)
@@ -491,13 +622,13 @@ def main() -> int:
                     # of rebuilding the filtered tree from the source repo.
                     pub_tree = git("rev-parse", f"{initial_pub_parent}^{{tree}}")
                     seed_index_from_tree(index_path, pub_tree)
-                    filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path)
+                    filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path, lfs_oids)
                 else:
-                    filtered_tree = build_filtered_tree_full(dev_sha, public_prefixes, index_path)
+                    filtered_tree = build_filtered_tree_full(dev_sha, public_prefixes, index_path, lfs_oids)
                 seeded = True
             else:
                 assert prev_dev_sha is not None
-                filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path)
+                filtered_tree = update_filtered_tree(prev_dev_sha, dev_sha, public_prefixes, index_path, lfs_oids)
             prev_dev_sha = dev_sha
 
             dev_parents = get_commit_parents(dev_sha)
@@ -525,12 +656,17 @@ def main() -> int:
             print("Nothing produced.")
             return 0
 
+        if lfs_oids:
+            print(f"Found {len(lfs_oids)} LFS object(s) referenced by newly mirrored commits.")
+            ensure_lfs_objects_cached(lfs_oids)
+
         push_to_public(
             remote_url,
             current_pub_parent,
             force=(fresh or args.force),
             dry_run=args.dry_run,
         )
+        push_lfs_objects(remote_url, lfs_oids, dry_run=args.dry_run)
         set_watermark(dev_tip, current_pub_parent, dry_run=args.dry_run)
         print(f"Done. Mirrored {len(commits)} commit(s). Public HEAD: {current_pub_parent[:12]}")
         return 0
