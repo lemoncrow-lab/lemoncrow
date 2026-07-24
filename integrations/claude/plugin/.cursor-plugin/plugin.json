@@ -10,5 +10,6 @@
   ],
   "author": {
     "name": "LemonCrow Team"
-  }
+  },
+  "hooks": ".cursor-plugin/hooks.json"
 }
