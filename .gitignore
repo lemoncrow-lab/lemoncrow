@@ -143,6 +143,14 @@ benchmark_results/
 .bench-work/
 eval_results/
 
+# Benchmark results and datasets (moved to lemoncrow-lab/benchmarks)
+benchmarks/codebench/results/
+benchmarks/harbor/results/
+benchmarks/codebench/data/
+benchmarks/codebench/competitors/
+benchmarks/embedding/corpus.jsonl
+benchmarks/embedding/queries.jsonl
+
 # Scripts output
 outputs/
 
