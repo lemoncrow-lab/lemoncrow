@@ -2307,9 +2307,8 @@ def _bump_historical_savings_cache(row: dict[str, Any]) -> None:
     read_tok_inc = 0
     if not row.get("kind") and _is_read_lever(str(row.get("tool") or "")):
         rt = max(0, int(row.get("tokens") or row.get("tokens_saved") or 0))
-        if rt <= 2_000_000:
-            read_tok_inc = rt
-            read_usd_inc = max(0.0, float(row.get("cost_saved_usd") or 0.0))
+        read_tok_inc = rt
+        read_usd_inc = max(0.0, float(row.get("cost_saved_usd") or 0.0))
     for cache_key, (cached_ts, val) in list(_historical_savings_cache.items()):
         u, t, c, turns, spend, carry, routing, read_usd, read_tok, carry_tok = val
         _historical_savings_cache[cache_key] = (
