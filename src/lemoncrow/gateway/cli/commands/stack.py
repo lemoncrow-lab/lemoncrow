@@ -18,6 +18,7 @@ from typing import Any
 
 import click
 
+from lemoncrow.gateway.cli.commands._shared import _emit
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
 from lemoncrow.infra.runtime.daemon_units import (
     DEFAULT_STACK_FRONTEND_HOST,
@@ -144,14 +145,18 @@ def stack_stop(ctx: click.Context, force: bool) -> None:
 
 
 @stack_group.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
-def stack_status(ctx: click.Context) -> None:
+def stack_status(ctx: click.Context, as_json: bool) -> None:
     """Show visualization stack process status."""
     root = ctx.obj["root"]
+    payload = _stack_status_payload(root)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
     if (SYSTEMD_USER_DIR / STACK_UNIT).exists():
         subprocess.run(["systemctl", "--user", "status", STACK_UNIT, "--no-pager"], check=False)
         click.echo("-" * 40)
-    payload = _stack_status_payload(root)
     click.echo(f"running: {str(payload['running']).lower()}")
     click.echo(f"runner_pid: {payload['runner_pid']}")
     click.echo(f"service_pid: {payload['service_pid']}")
