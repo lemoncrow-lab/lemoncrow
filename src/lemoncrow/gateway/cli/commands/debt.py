@@ -61,17 +61,26 @@ def _harvest(root: Path) -> list[dict[str, object]]:
 
 @click.command("debt")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
+@click.option(
+    "--fail-on-no-trigger",
+    is_flag=True,
+    help="Exit non-zero if any marker names no upgrade path (for CI gating).",
+)
 @click.pass_context
-def debt_cmd(ctx: click.Context, as_json: bool) -> None:
+def debt_cmd(ctx: click.Context, as_json: bool, fail_on_no_trigger: bool) -> None:
     """Harvest ``lc-debt:`` markers (deferred simplifications) into a ledger."""
     items = _harvest(Path.cwd())
+    missing = sum(1 for it in items if it["no_trigger"])
     if as_json:
         _emit(items, as_json=True)
+        if fail_on_no_trigger and missing:
+            ctx.exit(1)
         return
     if not items:
         click.echo("No lc-debt: markers found — clean.")
+        if fail_on_no_trigger and missing:
+            ctx.exit(1)
         return
-    missing = sum(1 for it in items if it["no_trigger"])
     header = f"{len(items)} deferred simplification(s)"
     if missing:
         header += f", {missing} with no trigger"
@@ -79,3 +88,5 @@ def debt_cmd(ctx: click.Context, as_json: bool) -> None:
     for it in items:
         tail = "[no-trigger]" if it["no_trigger"] else f"→ {it['upgrade']}"
         click.echo(f"  {it['file']}:{it['line']}  {it['ceiling']}  {tail}")
+    if fail_on_no_trigger and missing:
+        ctx.exit(1)
