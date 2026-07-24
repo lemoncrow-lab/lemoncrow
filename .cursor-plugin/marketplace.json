@@ -1,0 +1,19 @@
+{
+  "name": "lemoncrow",
+  "owner": {
+    "name": "LemonCrow Team",
+    "email": "support@lemoncrow.com"
+  },
+  "plugins": [
+    {
+      "name": "lemoncrow",
+      "source": "integrations/claude/plugin",
+      "description": "AI task/procedure/runtime layer for agentic workflows",
+      "version": "0.1.0",
+      "author": {
+        "name": "LemonCrow Team"
+      },
+      "category": "development"
+    }
+  ]
+}
