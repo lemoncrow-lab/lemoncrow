@@ -2,6 +2,8 @@
 
 This document keeps benchmark proof out of the first-use README while preserving the evidence trail for the headline claims.
 
+> **Raw results and datasets** are in a separate repository: [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks)
+
 **Quick definitions:** *Input tok* = fresh tokens sent that turn. *Cache write* = context stored for reuse (billed once). *Cache read* = reused cached context (billed at a steep discount vs fresh input -- this is why cutting cache-read tokens saves less money than the token-count drop implies). *pp* = percentage points. *MRR / rec@1 / p95* (Code Search table) = mean reciprocal rank (higher is better) / recall at rank 1 / 95th-percentile latency.
 
 ## Headline Results
@@ -33,7 +35,7 @@ End-to-end bug fixing on 50 SWE-bench Verified instances across 12 Python repos,
 | Baseline    |     $234.84 | 1,118,221 |   7,036,456 | 181,596,567 |  3,039,396 |     192.8M |     6,962 |     14.3h |   202 / 250 (80.8%)   |
 | Delta       |      -29.5% |     -9.9% |      -18.6% |      -46.5% |     -27.9% |     -44.9% |    -37.7% |    -23.7% |       +12.0 pp       |
 
-Raw data: [`benchmarks/codebench/results/swe50_2026_06_30/`](benchmarks/codebench/results/swe50_2026_06_30/)
+Raw data: [`swe50_2026_06_30/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe50_2026_06_30)
 
 Run it:
 
@@ -73,7 +75,7 @@ A smaller companion cut: 10 SWE-bench Lite instances x 5 reps, same harness (`mu
 | Baseline    |     $19.83 |   198,203 |     669,766 | 12,180,657 |    251,465 |     13.30M |     771 |     68.8min | **49 / 50 (98%)** |
 | Delta       |     -11.7% |    -24.2% |      -10.1% |       -4.9% |     -21.3% |      -5.8% |  -10.6% |       -3.2% |     -2.0 pp     |
 
-Raw data: [`benchmarks/codebench/results/swe-lite_2026-07-16/`](benchmarks/codebench/results/swe-lite_2026-07-16/).
+Raw data: [`swe-lite_2026-07-16/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-lite_2026-07-16).
 
 Run it:
 
@@ -119,7 +121,7 @@ A structurally different, harder benchmark than SWE-bench (Verified/Lite above):
 
 Honest result: at 5 reps the earlier single-rep correctness loss disappears -- LemonCrow resolves 45/50 vs baseline's 44/50 (+2.0 pp) and is 21.5% cheaper end-to-end. The correctness deltas concentrate in 3 tasks (teleport 5/5 vs baseline 1/5; NodeBB 1/5 vs baseline 3/5; openlibrary 4/5 vs 5/5) -- every other task ties 5/5. Three tasks (flipt, vuls, tutanota) cost more than baseline despite matching correctness, a known tradeoff on larger non-Python codebases. This 5-rep run supersedes the earlier single-rep cut's -10.0pp result, which was n=1 noise.
 
-Raw data: [`benchmarks/codebench/results/swe-pro_2026_07_07/`](benchmarks/codebench/results/swe-pro_2026_07_07/) -- the original single-invocation 2026-07-06 rep1 (with the protonmail dead slot) is kept at [`benchmarks/codebench/results/swe-pro_2026-07-06/`](benchmarks/codebench/results/swe-pro_2026-07-06/) for history.
+Raw data: [`swe-pro_2026_07_07/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-pro_2026_07_07) -- the original single-invocation 2026-07-06 rep1 (with the protonmail dead slot) is kept at [`swe-pro_2026-07-06/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-pro_2026-07-06) for history.
 
 Run it:
 
@@ -152,7 +154,7 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
 
 Honest outlier: Excalidraw is a dead heat for LemonCrow ($3.54 vs $3.51) -- the one repo where its answer style spends as much as it saves. Every other repo is 73-87% cheaper for LemonCrow. Codegraph is noisier: cheaper on 5 of 7 repos (16-49%; Excalidraw is its best result, LemonCrow's worst), but pricier than baseline on Tokio (+28%) and Gin (+25%), and 22.7% slower overall (1,653,761ms vs baseline's 1,347,619ms) despite netting 16.3% cheaper in total cost -- a different picture than CodeGraph's own published with/without numbers on this same 7-repo set, which show it uniformly faster and never pricier. Beyond cost: LemonCrow cuts turns 91% (1,237 → 112) and codegraph 84% (→ 197); cache-read tokens fall 92% for LemonCrow vs 89% for codegraph; output tokens fall 84% for LemonCrow vs 77% for codegraph (→ 99,043).
 
-Raw data: [`benchmarks/codebench/results/exploration_2026_06_29/`](benchmarks/codebench/results/exploration_2026_06_29/)
+Raw data: [`exploration_2026_06_29/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/exploration_2026_06_29)
 
 Run it:
 
@@ -216,7 +218,7 @@ LemonCrow vs baseline, output tokens per prompt: down on **20 of 20** (mean 67%,
 
 Caveman vs baseline, output tokens per prompt: down on 19 of 20 (mean 48%, median 50%, range -11%-82%, stdev 18pp). `error-boundary` is caveman's own regression this run (2,946 vs baseline's 2,649, +11.2% more tokens) -- the same genuine code-generation answer where LemonCrow no longer regresses. Caveman also now costs **3.3% more** than baseline overall (not less, as in the prior cut) despite the token cut, driven by far heavier cache-write spend -- it only compresses replies, not the input/context tokens that set the price.
 
-Raw data: [`benchmarks/codebench/results/telegraphic_2026_07_17/`](benchmarks/codebench/results/telegraphic_2026_07_17/) -- includes `summary.csv`, the full `results.jsonl` (300 rows: baseline/lemoncrow/caveman x 20 prompts x 5 reps), and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
+Raw data: [`telegraphic_2026_07_17/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/telegraphic_2026_07_17) -- includes `summary.csv`, the full `results.jsonl` (300 rows: baseline/lemoncrow/caveman x 20 prompts x 5 reps), and per-call `.flow_dump.txt` transcripts (raw `.flow` wire captures are gitignored; they carry bearer tokens).
 
 Run it:
 
@@ -253,7 +255,7 @@ Pure retrieval quality was measured against common CLI and MCP code-search tools
 
 Both `LemonCrow lexical` and `+semantic` rows are 2026-07-06 re-runs after a latency fix (an unbounded ANN-matrix cache-miss path) and a harness measurement bug (the bench server was paying its own statusline pipeline inside timed queries); other rows' latencies predate that fix and may be pessimistic.
 
-Raw data and per-repo details: [`benchmarks/codebench/results/retrieval_2026_07_05/`](benchmarks/codebench/results/retrieval_2026_07_05/)
+Raw data and per-repo details: [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05)
 
 Run it:
 
@@ -332,7 +334,7 @@ LemonCrow resolves **+1.1pp** more trials (356 vs 351 of 445) while sending **91
 
 <sub>Fresh input = input tokens excluding cache. Harbor Hub reports baseline input inclusive of cache, so baseline fresh input here is total input (174.8M) minus cache (161.9M). Cache tokens are combined read + write.</sub>
 
-Raw data: [`benchmarks/harbor/results/lemoncrow/2026-07-14__13-44-30/`](benchmarks/harbor/results/lemoncrow/2026-07-14__13-44-30/); baseline + full methodology: [`benchmarks/harbor/results/baseline/`](benchmarks/harbor/results/baseline/).
+Raw data: [`2026-07-14__13-44-30/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/2026-07-14__13-44-30); baseline + full methodology: [`baseline/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/baseline).
 
 Run it:
 
