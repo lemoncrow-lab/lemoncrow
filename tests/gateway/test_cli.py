@@ -478,6 +478,25 @@ def test_worker_runs_consolidation_job_on_sqlite(
     assert len(store.lessons.list_consolidation_candidates()) == 1
 
 
+def test_stack_status_json(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    init_store_at(str(root))
+    res = _invoke(root, "stack", "status", "--json")
+    assert res.exit_code == 0, res.output
+    payload = json.loads(res.output)
+    assert set(payload) >= {
+        "running",
+        "runner_pid",
+        "service_pid",
+        "frontend_pid",
+        "log_file",
+        "service_url",
+        "frontend_url",
+        "last_exit_reason",
+    }
+    assert payload["running"] is False
+
+
 def test_stack_start_spawns_native_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     spawned_calls: list[list[str]] = []
 
