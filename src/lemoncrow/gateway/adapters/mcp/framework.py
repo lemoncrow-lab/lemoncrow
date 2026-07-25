@@ -21,6 +21,12 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from pydantic import Field, ValidationError, create_model
 
+# Advisory labels other hosts' native tool schemas train models to attach to
+# every call (e.g. Cursor's `description`/`explanation` on terminal commands).
+# Dropped before the unknown-args check when the tool has no such parameter --
+# rejecting them throws away the whole emitted call for a zero-information key.
+_HOST_METADATA_KEYS = frozenset({"description", "explanation", "reasoning", "rationale"})
+
 # Registry: tool_name -> {name, handler, description, inputSchema, param_aliases}.
 # Populated at import time by every @mcp_tool-decorated handler.
 TOOLS: dict[str, dict[str, Any]] = {}
@@ -200,7 +206,7 @@ def mcp_tool(
         # ("20" -> 20) can be coerced before the (mypyc-strict) handler runs.
         try:
             resolved_hints = get_type_hints(func)
-        except Exception:  # noqa: BLE001 - fall back to raw annotations if hints don't resolve
+        except Exception:  # fall back to raw annotations if hints don't resolve
             resolved_hints = {}
         param_annotations = {
             param_name: resolved_hints.get(param_name, param.annotation) for param_name, param in sig.parameters.items()
@@ -268,6 +274,18 @@ def mcp_tool(
                 # callers that legitimately pass extras are not broken. Accepted
                 # aliases are not "unknown" even if a caller passes both names.
                 if isinstance(args, dict):
+                    # Host-metadata keys models habitually attach (Cursor's native
+                    # tool convention sends a `description`/`explanation` label
+                    # with every call). They carry no semantics for us -- drop
+                    # them silently instead of burning a full error round-trip.
+                    for _meta_key in _HOST_METADATA_KEYS:
+                        if _meta_key in args and _meta_key not in known_params and _meta_key not in aliases:
+                            args = {
+                                k: v
+                                for k, v in args.items()
+                                if k not in _HOST_METADATA_KEYS or k in known_params or k in aliases
+                            }
+                            break
                     unknown = [key for key in args if key not in known_params and key not in aliases]
                     if unknown:
                         msg = (

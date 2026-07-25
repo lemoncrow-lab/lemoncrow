@@ -1091,7 +1091,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "REPLs → interactive=true."
     ),
     hidden_params=("max_lines", "max_output_tokens", "idle_ttl"),
-    param_aliases={"session_id": "id", "background": "bg"},
+    param_aliases={"session_id": "id", "background": "bg", "is_background": "bg"},
 )
 def tool_bash(
     command: str = "",
@@ -1127,6 +1127,10 @@ def tool_bash(
     heavy imports loaded). The session dies after `idle_ttl` seconds (default
     300) without a send; every send resets the clock.
     """
+    if timeout is not None and timeout > 86_400:
+        # A wait budget past 24h is a milliseconds value from a host whose
+        # native convention is ms (e.g. 120000 meaning 120s), not a real wait.
+        timeout = max(1, timeout // 1000)
     if id and input is not None and action == "run":
         # bash(id=x, input=...) with no explicit action = feed the session.
         action = "send"

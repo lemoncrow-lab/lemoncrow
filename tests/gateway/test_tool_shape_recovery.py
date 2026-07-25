@@ -269,3 +269,38 @@ def test_code_search_force_true_is_not_an_unknown_argument(workspace: Path) -> N
 def test_read_force_not_in_advertised_schema(workspace: Path) -> None:
     assert "force" not in mcp_server.TOOLS["read"]["inputSchema"]["properties"]
     assert "force" not in mcp_server.TOOLS["code_search"]["inputSchema"]["properties"]
+
+
+# ---------------------------------------------------------------------------
+# Host-metadata keys: Cursor's native tool convention trains models to attach
+# a description/explanation label to every call. Rejecting those threw away
+# the whole emitted call (observed twice per debt-benchmark rep on `bash`).
+# They must be silently dropped for every tool that has no such parameter.
+# ---------------------------------------------------------------------------
+
+
+def test_bash_description_metadata_key_is_dropped(workspace: Path) -> None:
+    out = _text(_call("bash", {"command": "echo hi", "description": "Say hi"}))
+    assert "unknown argument" not in out
+    assert "hi" in out
+
+
+def test_read_explanation_metadata_key_is_dropped(workspace: Path) -> None:
+    (workspace / "meta.py").write_text("META = 1\n", encoding="utf-8")
+    out = _text(_call("read", {"files": ["meta.py"], "explanation": "look at meta"}))
+    assert "unknown argument" not in out
+    assert "META = 1" in out
+
+
+def test_bash_is_background_native_alias(workspace: Path) -> None:
+    out = _text(_call("bash", {"command": "echo bgtest", "is_background": False}))
+    assert "unknown argument" not in out
+    assert "bgtest" in out
+
+
+def test_bash_millisecond_timeout_treated_as_ms(workspace: Path) -> None:
+    # Cursor-style ms value (120000 meaning 120s) must not become a 33h wait
+    # budget -- and must not error.
+    out = _text(_call("bash", {"command": "echo fast", "timeout": 120000}))
+    assert "unknown argument" not in out
+    assert "fast" in out
