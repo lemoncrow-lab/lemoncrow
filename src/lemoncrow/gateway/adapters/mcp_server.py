@@ -16,7 +16,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -4924,6 +4924,9 @@ def _render_code_search_md(payload: dict[str, Any]) -> str | None:
         parts.append(line)
     if payload.get("truncated"):
         parts.append("(truncated; narrow with paths=)")
+    _repeat_hint = payload.get("repeat_query_hint")
+    if isinstance(_repeat_hint, str) and _repeat_hint:
+        parts.append(f"[lc: {_repeat_hint}]")
     return "\n\n".join(parts) if parts else None
 
 
@@ -5494,6 +5497,21 @@ _RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int, bool]]] = OrderedDi
 _range_read_sigs_lock = threading.Lock()
 _MAX_RANGE_READ_SIG_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
 
+# Per-session recent code_search queries, same session-bucketing rationale as
+# _RANGE_READ_SIGS above (HTTP: per client session; stdio: one process-wide
+# "_global" bucket per host window). Feeds _check_repeat_query's near-
+# duplicate nudge -- measured 11 near-duplicate code_search calls in a single
+# debt-benchmark rep (2026-07-25): "fail-on-stale stale-days debt_cmd",
+# "stale_days fail_on_stale debt stale age git blame", "_line_age_days git
+# blame annotate stale", ... -- each re-phrasing re-sent on every later turn's
+# resent history, compounding for the rest of the run.
+_RECENT_CODE_SEARCH_QUERIES: OrderedDict[str, deque[tuple[str, frozenset[str]]]] = OrderedDict()
+_recent_code_search_queries_lock = threading.Lock()
+_MAX_RECENT_QUERY_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
+_RECENT_QUERY_HISTORY = 3
+_REPEAT_QUERY_SIMILARITY_FLOOR = 0.35
+_QUERY_WORD_RE = re.compile(r"[a-z0-9]+")
+
 
 def _range_read_sigs() -> dict[str, tuple[int, int, bool]]:
     """The current request's freshness-signature bucket.
@@ -5515,6 +5533,60 @@ def _range_read_sigs() -> dict[str, tuple[int, int, bool]]:
         else:
             _RANGE_READ_SIGS.move_to_end(sid)
         return bucket
+
+
+def _query_words(query: str) -> frozenset[str]:
+    """Lowercased alnum tokens of length >=3, for cheap query-similarity."""
+    return frozenset(w for w in _QUERY_WORD_RE.findall(query.lower()) if len(w) >= 3)
+
+
+def _recent_code_search_queries() -> deque[tuple[str, frozenset[str]]]:
+    """The current session's recent-query bucket (see _RECENT_CODE_SEARCH_QUERIES)."""
+    led = getattr(_request_ledger, "value", None)
+    sid = led.session_id if isinstance(led, RunLedger) and led.session_id else "_global"
+    with _recent_code_search_queries_lock:
+        bucket = _RECENT_CODE_SEARCH_QUERIES.get(sid)
+        if bucket is None:
+            if len(_RECENT_CODE_SEARCH_QUERIES) >= _MAX_RECENT_QUERY_SESSIONS:
+                _RECENT_CODE_SEARCH_QUERIES.popitem(last=False)
+            bucket = deque(maxlen=_RECENT_QUERY_HISTORY)
+            _RECENT_CODE_SEARCH_QUERIES[sid] = bucket
+        else:
+            _RECENT_CODE_SEARCH_QUERIES.move_to_end(sid)
+        return bucket
+
+
+def _check_repeat_query(query: str) -> str | None:
+    """Nudge when *query* overlaps heavily (Jaccard >= floor) with a query this
+    session already ran in the last _RECENT_QUERY_HISTORY calls -- re-phrasing
+    the same investigation rarely surfaces anything new, and each extra call
+    gets resent on every later turn's history regardless. Soft signal only:
+    never blocks the call, just names the closest prior query so the caller
+    can choose to read the file directly instead of searching again. Always
+    records *query* into the bucket, hint or not.
+    """
+    words = _query_words(query)
+    bucket = _recent_code_search_queries()
+    hint: str | None = None
+    if words:
+        best_ratio = 0.0
+        best_prior = ""
+        for prior_text, prior_words in bucket:
+            union = words | prior_words
+            if not union:
+                continue
+            ratio = len(words & prior_words) / len(union)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_prior = prior_text
+        if best_ratio >= _REPEAT_QUERY_SIMILARITY_FLOOR:
+            hint = (
+                f'query overlaps heavily with an earlier search this turn ("{best_prior}") -- '
+                "if that result didn't have what you needed, re-phrasing rarely helps; read the "
+                "specific file/symbol directly instead, or broaden paths= in one call"
+            )
+    bucket.append((query, words))
+    return hint
 
 
 def _record_read_sig(path: Path | str, *, exact: bool = True) -> None:
@@ -9951,6 +10023,9 @@ def tool_code_search(
     # the agent reads only what it picks. Content-only shaping -- the ranked
     # file/candidate surface (and retrieval MRR) is untouched either way.
     shaped = _outline_lean_view(lean, keep_top2=include_source or bool(lean.get("exact_match")))
+    _repeat_hint = _check_repeat_query(query)
+    if _repeat_hint:
+        shaped["repeat_query_hint"] = _repeat_hint
     return _attach_code_search_savings(shaped, workspace_root)
 
 

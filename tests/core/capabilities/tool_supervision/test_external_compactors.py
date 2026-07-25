@@ -48,6 +48,19 @@ def test_explicit_enable_values(monkeypatch, value: str) -> None:
         (["pnpm", "list"], "rtk"),
         (["pip", "list"], "rtk"),
         (["aws", "s3", "ls"], "rtk"),
+        # Transparent-runner wrappers: uv run/poetry run/pipenv run/npx exec
+        # their trailing argv unchanged, so they should match same as bare.
+        (["uv", "run", "pytest", "-q"], "rtk"),
+        (["uv", "run", "ruff", "check", "."], "rtk"),
+        (["poetry", "run", "pytest"], "rtk"),
+        (["pipenv", "run", "pytest"], "rtk"),
+        (["npx", "jest"], "rtk"),
+        (["poetry", "run", "uv", "run", "pytest"], "rtk"),  # chained wrappers
+        # npm/yarn/pnpm `run <script>` is opaque (package.json alias) --
+        # deliberately NOT treated as a match even if the script name happens
+        # to collide with a real allowlisted command.
+        (["npm", "run", "pytest"], None),
+        (["yarn", "run", "pytest"], None),
         (["docker", "rm", "web"], None),
         (["kubectl", "delete", "pod", "x"], None),
         (["aws", "s3", "cp", "a", "b"], None),
