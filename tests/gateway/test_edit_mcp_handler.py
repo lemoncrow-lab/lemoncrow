@@ -641,6 +641,15 @@ def test_flattened_replace_call_auto_recovered(workspace: Path) -> None:
     assert f.read_text(encoding="utf-8") == "x = 2\n"
 
 
+def test_flattened_content_alias_create_call_auto_recovered(workspace: Path) -> None:
+    """edit(path=..., content=...) -- the native-host file-write convention a
+    model reaches for when creating a brand-new file -- is recovered the same
+    way, not rejected as an unknown argument."""
+    payload = _edit({"path": "gen2.py", "content": "print('hi')\n", "hooks": False})
+    assert "failed" not in payload, payload
+    assert (workspace / "gen2.py").read_text(encoding="utf-8") == "print('hi')\n"
+
+
 def test_flattened_call_without_content_still_rejected(workspace: Path) -> None:
     """A stray path with no new-content key is NOT an unambiguous edit -- the
     unknown-argument error must still surface."""

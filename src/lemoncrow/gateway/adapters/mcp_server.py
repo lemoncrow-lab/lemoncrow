@@ -6555,6 +6555,7 @@ _NEW_ALIASES = (
     "after",
     "target",
     "result",
+    "content",
 )
 
 
@@ -7099,7 +7100,8 @@ _EDIT_DIAG_CAP = 20
         "Batch file edits. Use edits=[{path: 'f.py:L10-L14', new}, ...]; "
         "batch many range+new hunks in one call, even same-file hunks "
         "(ranges use the original snapshot). Use {path, old, new} only without "
-        "a fresh range. Whole file: {path, new, replace:true}. Minified-view "
+        "a fresh range. Whole file, including creating a brand-new one: "
+        "{path, new, replace:true}. Minified-view "
         "line number, not disk? add :minified, e.g. 'f.py:minified:L10-L14'. "
         "No re-read after success."
     ),
