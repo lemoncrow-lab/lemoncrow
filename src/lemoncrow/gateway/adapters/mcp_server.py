@@ -6556,6 +6556,7 @@ _NEW_ALIASES = (
     "target",
     "result",
     "content",
+    "contents",
 )
 
 
