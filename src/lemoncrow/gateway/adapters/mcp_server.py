@@ -109,6 +109,7 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _ledger_for_session,
     _mcp_window_id,
     _request_ledger,
+    _request_session_identity,
     _resolve_live_session_id,
     _workspace_ws_hash,
 )
@@ -2456,6 +2457,15 @@ def _workspace_bridge_session_id() -> str:
 
 def _resolved_host_session() -> tuple[str, str]:
     """Resolved ``(session_id, host)`` for the current host, or empty strings."""
+    # Singleton daemon: the caller's identity rides in the request headers. The
+    # daemon serves every window of a workspace and is not a child of any of
+    # them, so its own window/env resolution below names whichever session
+    # started it -- crediting every other window's savings to that one session
+    # (or, with no launch env id, to the unattributed quarantine ledger) while
+    # the live window's statusline reads its own empty sidecar and shows $0.
+    req_sid, req_host = _request_session_identity()
+    if req_sid:
+        return req_sid, req_host or _detect_agent()
     sid = _resolve_live_session_id()
     if sid:
         return sid, "claude"
@@ -2871,6 +2881,12 @@ _STATUSLINE_SIDECAR_MIN_INTERVAL: float = 5.0  # seconds — rate-limit transcri
 _statusline_wake = threading.Event()
 _statusline_worker_lock = threading.Lock()
 _statusline_worker_started = False
+# (session_id, host) pairs awaiting a segment write. Captured on the DISPATCH
+# thread — under the singleton daemon the request session context is a
+# thread-local the worker thread cannot see, and one daemon serves many
+# windows, so the worker must be told which sessions to render for.
+_statusline_pending: set[tuple[str, str]] = set()
+_statusline_pending_lock = threading.Lock()
 
 
 def _statusline_sidecar_loop() -> None:
@@ -2885,10 +2901,14 @@ def _statusline_sidecar_loop() -> None:
     while True:
         _statusline_wake.wait()
         _statusline_wake.clear()
-        try:
-            _write_statusline_sidecar_now()
-        except Exception:
-            _log.debug("statusline sidecar write failed", exc_info=True)
+        with _statusline_pending_lock:
+            pending = sorted(_statusline_pending)
+            _statusline_pending.clear()
+        for sid, host in pending:
+            try:
+                _write_statusline_sidecar_now(sid, host)
+            except Exception:
+                _log.debug("statusline sidecar write failed", exc_info=True)
         # Rate-limit AFTER the write: the first event renders immediately and a
         # burst coalesces into one trailing refresh (wakes set during compute or
         # sleep re-enter the loop, so the sidecar never goes stale after a burst).
@@ -2898,6 +2918,13 @@ def _statusline_sidecar_loop() -> None:
 def _write_statusline_sidecar() -> None:
     """Signal the statusline worker; never compute on the caller's thread."""
     global _statusline_worker_started
+    # Resolve the session HERE, on the dispatch thread that still carries the
+    # request context; the worker thread would resolve the daemon's own window.
+    sid, host = _resolved_host_session()
+    if not sid:
+        return
+    with _statusline_pending_lock:
+        _statusline_pending.add((sid, host or _detect_agent()))
     if not _statusline_worker_started:
         with _statusline_worker_lock:
             if not _statusline_worker_started:
@@ -2908,7 +2935,7 @@ def _write_statusline_sidecar() -> None:
     _statusline_wake.set()
 
 
-def _write_statusline_sidecar_now() -> None:
+def _write_statusline_sidecar_now(session_id: str = "", host: str = "") -> None:
     """Write the current savings segment to sessions/<resolved_id>/statusline_segment.
 
     Runs on the statusline worker thread after every burst of savings events so
@@ -2919,13 +2946,13 @@ def _write_statusline_sidecar_now() -> None:
     """
     # Fail closed: an unresolved session id would otherwise resolve to the
     # workspace-shared slot and publish one window's segment for every sibling.
-    sid = _resolved_host_session_id()
+    sid = session_id or _resolved_host_session_id()
     if not sid:
         return
     try:
         from lemoncrow.core.foundation.paths import session_dir
 
-        seg_dir = session_dir(_lemoncrow_root(), _detect_agent(), sid)
+        seg_dir = session_dir(_lemoncrow_root(), host or _detect_agent(), sid)
         from lemoncrow.core.capabilities.savings_summary import savings_frames
 
         frames = savings_frames(session_id=sid)

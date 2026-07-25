@@ -664,3 +664,67 @@ def test_append_savings_unresolved_session_routes_to_quarantine_ledger(
     assert ledgers[0] in [p for p, _, _ in _scan_savings_files(tmp_path)]
     # ...while per-session lookups (exact-id glob) can never resolve to it.
     assert find_session_dir(tmp_path, "some-live-session") is None
+
+
+def test_append_savings_follows_daemon_request_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under the singleton daemon, savings follow the CALLING window's session.
+
+    The daemon serves every window of a workspace and is not a child of any of
+    them: its own window/env resolution names whichever session started it, so
+    without the request-header context every window's savings are credited to
+    that one session and the live window's statusline shows $0.
+    """
+    import json
+
+    from lemoncrow.core.foundation.paths import session_dir
+    from lemoncrow.gateway.adapters import mcp_server as m
+
+    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
+    # The daemon's own signals both point at the window that spawned it.
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "daemon-sid")
+    monkeypatch.setattr(m, "_resolve_live_session_id", lambda: "daemon-sid")
+    monkeypatch.setattr(m, "_SAVINGS_SIDECAR_PATH_BY_SID", {}, raising=False)
+    monkeypatch.setattr(m, "_current_context_state", lambda: (0, ""))
+    monkeypatch.setattr(m, "_get_mcp_model", lambda: MODEL)
+    monkeypatch.setattr(m, "_write_statusline_sidecar", lambda: None)
+
+    prior = m._set_request_session("caller-sid", "claude")
+    try:
+        assert m._resolved_host_session() == ("caller-sid", "claude")
+        m._append_savings("read", 1000, 1, rid="7")
+    finally:
+        m._clear_request_session(prior)
+
+    sidecar = session_dir(tmp_path, "claude", "caller-sid") / "savings.jsonl"
+    row = json.loads(sidecar.read_text(encoding="utf-8").splitlines()[0])
+    assert row["tokens"] == 1000 and row["calls"] == 1
+    assert "unattributed" not in row
+    # Nothing credited to the daemon's own window, nor quarantined.
+    assert not (session_dir(tmp_path, "claude", "daemon-sid") / "savings.jsonl").exists()
+    assert not list((tmp_path / "sessions").glob("*/*/*/*/unattributed-*/savings.jsonl"))
+
+
+def test_statusline_sidecar_queues_calling_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The segment write is queued for the CALLER's session, not the daemon's.
+
+    The worker runs off the dispatch thread, where the request-session
+    thread-local is invisible, so the (session, host) pair must be captured at
+    signal time or the segment lands under the daemon-starter's session.
+    """
+    from lemoncrow.gateway.adapters import mcp_server as m
+
+    monkeypatch.setattr(m, "_lemoncrow_root", lambda: tmp_path)
+    monkeypatch.setattr(m, "_resolve_live_session_id", lambda: "daemon-sid")
+    monkeypatch.setattr(m, "_statusline_pending", set())
+    monkeypatch.setattr(m, "_statusline_worker_started", True)  # no worker thread in tests
+
+    prior = m._set_request_session("caller-sid", "claude")
+    try:
+        m._write_statusline_sidecar()
+    finally:
+        m._clear_request_session(prior)
+
+    assert m._statusline_pending == {("caller-sid", "claude")}
