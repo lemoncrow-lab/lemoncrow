@@ -50,6 +50,9 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # without clearing it, an earlier test's code_search query (e.g. the
     # common "src.py" fixture file) can blank out a later, unrelated test.
     mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    # Same rationale, for the bash-cat/sed redundancy backstop's own
+    # process-wide "_global" bucket (lives in mcp.ledger, not mcp_server).
+    mcp_server._ledger._RECENT_FULL_READS.clear()
     return tmp_path
 
 
@@ -198,3 +201,34 @@ def test_bash_schema_advertises_cwd() -> None:
     assert "cwd" in props
     assert "persist" in props["cwd"]["description"]
     assert "cwd" in mcp_server.TOOLS["bash"]["description"]
+
+
+# ---------------------------------------------------------------------------
+# bash: redundant re-dump of a path already `read` in full this session
+# ---------------------------------------------------------------------------
+
+
+def test_bash_cat_blocked_after_full_read_end_to_end(workspace: Path) -> None:
+    (workspace / "debt.py").write_text("x = 1\n" * 5, encoding="utf-8")
+
+    read_text = _text(_call("read", {"files": ["debt.py:full"]}))
+    assert "x = 1" in read_text
+
+    cat_text = _text(_call("bash", {"command": "cat debt.py"}))
+    assert cat_text == "[lc: already read in full this session -- reuse that content, don't re-dump]"
+
+
+def test_bash_cat_not_blocked_for_a_file_never_read(workspace: Path) -> None:
+    (workspace / "other.py").write_text("y = 2\n", encoding="utf-8")
+
+    cat_text = _text(_call("bash", {"command": "cat other.py"}))
+    assert "y = 2" in cat_text
+
+
+def test_bash_cat_not_blocked_when_piped(workspace: Path) -> None:
+    (workspace / "debt.py").write_text("x = 1\n" * 5, encoding="utf-8")
+    _call("read", {"files": ["debt.py:full"]})
+
+    cat_text = _text(_call("bash", {"command": "cat debt.py | wc -l"}))
+    assert cat_text != "[lc: already read in full this session -- reuse that content, don't re-dump]"
+    assert "5" in cat_text

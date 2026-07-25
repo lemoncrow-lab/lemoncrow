@@ -108,6 +108,7 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _http_session_ledgers_lock,
     _ledger_for_session,
     _mcp_window_id,
+    _record_full_read,
     _request_ledger,
     _request_session_identity,
     _resolve_live_session_id,
@@ -6020,6 +6021,8 @@ def _smart_read_single(
     # default, which is also trustworthy even without a gutter (content is
     # verbatim disk bytes).
     _record_read_sig(resolved, exact=_line_refs_trustworthy or projection.untransformed_text)
+    if mode == "full":
+        _record_full_read(resolved)
     # Omit null fields: outline/range/language are absent for most reads (e.g. a
     # range read carries no outline, a plain text read no language), and a null
     # key is pure wire noise the model must skip over. Only attach them when set.

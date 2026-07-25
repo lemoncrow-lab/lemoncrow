@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
-from collections import OrderedDict
+import time
+from collections import OrderedDict, deque
 from typing import Any
 
 from lemoncrow.gateway.adapters.mcp.session_state import _lemoncrow_root, _mcp_session_file
@@ -293,3 +295,95 @@ def _get_claude_session_id() -> str:
     except (OSError, json.JSONDecodeError):
         _log.debug("MCP session id read failed", exc_info=True)
     return _get_product_session_id()
+
+
+# Per-session paths served IN FULL via `read` (mode == "full"). Same session-
+# bucketing/time-window rationale as mcp_server's _RECENT_CODE_SEARCH_QUERIES
+# (HTTP: per client session; stdio: one process-wide "_global" bucket per host
+# window). Feeds _check_redundant_file_dump: a bash `cat`/`head`/`tail`/
+# `sed -n ...p` of a path the model already has the complete content of (from
+# THIS session's `read` call) adds nothing -- confirmed in a 2026-07-25
+# debt-benchmark rep: `read debt.py:full`, then `sed -n '60,160p' debt.py` via
+# bash, then `cat debt.py` via bash -- three servings of the same ~130-line
+# file, each re-sent on every later turn's resent history. Lives here (not
+# mcp_server) so bash.py can consume it without a back-dependency on
+# mcp_server -- mcp_server records, bash.py checks, both import this leaf
+# module. Time-bounded like the query bucket so a stale entry from a much
+# earlier, unrelated conversation on the same long-lived daemon never blocks a
+# legitimate re-read.
+_RECENT_FULL_READS: OrderedDict[str, deque[tuple[float, str]]] = OrderedDict()
+
+_recent_full_reads_lock = threading.Lock()
+
+_MAX_RECENT_FULL_READ_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
+
+_RECENT_FULL_READ_HISTORY = 12
+
+_RECENT_FULL_READ_WINDOW_SECONDS = 180.0
+
+_BASH_FILE_DUMP_RE = re.compile(
+    r"^\s*cat(?:\s+-\S+)*\s+(?P<path1>\S+)\s*$"
+    r"|^\s*(?:head|tail)(?:\s+-\S+(?:\s+\d+)?)*\s+(?P<path2>\S+)\s*$"
+    r"|^\s*sed\s+-n\s+\S+\s+(?P<path3>\S+)\s*$"
+)
+
+
+def _recent_full_reads() -> deque[tuple[float, str]]:
+    """The current session's recent-full-read bucket (see _RECENT_FULL_READS)."""
+    led = getattr(_request_ledger, "value", None)
+    sid = led.session_id if isinstance(led, RunLedger) and led.session_id else "_global"
+    with _recent_full_reads_lock:
+        bucket = _RECENT_FULL_READS.get(sid)
+        if bucket is None:
+            if len(_RECENT_FULL_READS) >= _MAX_RECENT_FULL_READ_SESSIONS:
+                _RECENT_FULL_READS.popitem(last=False)
+            bucket = deque(maxlen=_RECENT_FULL_READ_HISTORY)
+            _RECENT_FULL_READS[sid] = bucket
+        else:
+            _RECENT_FULL_READS.move_to_end(sid)
+        return bucket
+
+
+def _record_full_read(path: Any) -> None:
+    """Record that *path* was just served IN FULL via `read`, for
+    _check_redundant_file_dump below. Best-effort: never raises."""
+    from pathlib import Path
+
+    try:
+        resolved = str(Path(path).resolve())
+    except OSError:
+        return
+    _recent_full_reads().append((time.monotonic(), resolved))
+
+
+def _check_redundant_file_dump(command: str, cwd: str | None) -> str | None:
+    """Terse redirect when *command* is a bare cat/head/tail/sed-print of a path
+    already served in full via `read` this session, within
+    _RECENT_FULL_READ_WINDOW_SECONDS.
+
+    A hard backstop for the tool-discipline guidance ("bash = execution only,
+    never cat/sed a file already read") -- textual guidance alone did not stop
+    it under verification pressure (measured in the same debt-benchmark rep
+    that motivated _RECENT_CODE_SEARCH_QUERIES). Returns None when *command*
+    doesn't match a bare dump, or the path wasn't recently read in full --
+    never blocks a compound command (pipes/redirects/`&&`) or a fresh path.
+    """
+    from pathlib import Path
+
+    m = _BASH_FILE_DUMP_RE.match(command)
+    if not m:
+        return None
+    raw_path = next((g for g in m.groups() if g), None)
+    if not raw_path:
+        return None
+    base = Path(cwd) if cwd else Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd())
+    try:
+        target = Path(raw_path)
+        resolved = str(target.resolve()) if target.is_absolute() else str((base / target).resolve())
+    except OSError:
+        return None
+    now = time.monotonic()
+    for ts, p in _recent_full_reads():
+        if p == resolved and now - ts <= _RECENT_FULL_READ_WINDOW_SECONDS:
+            return "[lc: already read in full this session -- reuse that content, don't re-dump]"
+    return None
