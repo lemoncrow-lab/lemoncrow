@@ -51,11 +51,11 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from starlette.datastructures import FormData
 
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.gateway.adapters import mcp_server
@@ -100,10 +100,27 @@ def _public_base_url(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
-def _form_str(form: FormData, key: str) -> str:
-    """Read a single form field as ``str`` (uploads/absent → empty string)."""
-    value = form.get(key)
-    return value if isinstance(value, str) else ""
+async def _urlencoded_form(request: Request) -> Mapping[str, str]:
+    """Parse an ``application/x-www-form-urlencoded`` body.
+
+    Deliberately not Starlette's ``request.form()``: that path asserts
+    ``python-multipart`` is installed for ANY form parse, urlencoded included,
+    and a missing optional dependency would turn the pairing POST into a 500
+    mid-handshake. Both endpoints here only ever receive urlencoded bodies
+    (the pairing form this module renders, and RFC 6749 token requests), so
+    there is nothing multipart to lose. First value wins on repeated keys,
+    matching ``FormData.get``.
+    """
+    raw = await request.body()
+    form: dict[str, str] = {}
+    for key, value in urllib.parse.parse_qsl(raw.decode("utf-8", "replace"), keep_blank_values=True):
+        form.setdefault(key, value)
+    return form
+
+
+def _form_str(form: Mapping[str, str], key: str) -> str:
+    """Read a single form field as ``str`` (absent → empty string)."""
+    return form.get(key, "")
 
 
 def _is_allowed_redirect_uri(uri: str) -> bool:
@@ -612,7 +629,7 @@ def create_protected_mcp_app(
 
     @app.post("/authorize")
     async def authorize_post(request: Request) -> Response:
-        form = await request.form()
+        form = await _urlencoded_form(request)
         client_id = _form_str(form, "client_id")
         redirect_uri = _form_str(form, "redirect_uri")
         client = store.get_client(client_id)
@@ -648,7 +665,7 @@ def create_protected_mcp_app(
     # -- Token endpoint -------------------------------------------------------
     @app.post("/token")
     async def token(request: Request) -> Response:
-        form = await request.form()
+        form = await _urlencoded_form(request)
         grant_type = _form_str(form, "grant_type")
         if grant_type == "authorization_code":
             return _exchange_auth_code(store, form)
@@ -682,7 +699,7 @@ def create_protected_mcp_app(
     return app
 
 
-def _exchange_auth_code(store: _OAuthStore, form: FormData) -> Response:
+def _exchange_auth_code(store: _OAuthStore, form: Mapping[str, str]) -> Response:
     code = _form_str(form, "code")
     client_id = _form_str(form, "client_id")
     redirect_uri = _form_str(form, "redirect_uri")
@@ -704,7 +721,7 @@ def _exchange_auth_code(store: _OAuthStore, form: FormData) -> Response:
     return _token_success(access_token, refresh_token)
 
 
-def _exchange_refresh(store: _OAuthStore, form: FormData) -> Response:
+def _exchange_refresh(store: _OAuthStore, form: Mapping[str, str]) -> Response:
     refresh_token = _form_str(form, "refresh_token")
     if not refresh_token:
         return _token_error("invalid_request", "refresh_token is required")

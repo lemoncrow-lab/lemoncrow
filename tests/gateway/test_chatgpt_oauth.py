@@ -158,6 +158,36 @@ def test_dcr_allows_loopback_http(tmp_path: Path) -> None:
     assert resp.status_code == 201
 
 
+# ── Form parsing ──────────────────────────────────────────────────────────────
+def test_form_posts_work_without_python_multipart(tmp_path: Path) -> None:
+    """`request.form()` asserts python-multipart is installed even for
+    urlencoded bodies, which 500'd the pairing POST mid-handshake. The
+    endpoints parse urlencoded bodies themselves instead."""
+    import importlib.util
+
+    assert importlib.util.find_spec("multipart") is None  # the failing environment, reproduced
+
+    client = _app(tmp_path / "s.json")
+    authorize = client.post("/authorize", data={"client_id": "nope", "redirect_uri": _REDIRECT_URI})
+    token = client.post("/token", data={"grant_type": "weird"})
+    assert authorize.status_code == 400  # reaches the handler's own validation, not a 500
+    assert token.status_code == 400
+    assert token.json()["error"] == "unsupported_grant_type"
+
+
+def test_urlencoded_form_takes_the_first_value_of_a_repeated_key() -> None:
+    import asyncio
+
+    from lemoncrow.gateway.adapters.mcp_oauth import _urlencoded_form
+
+    class _Req:
+        async def body(self) -> bytes:
+            return b"a=1&a=2&b=&c=x+y"
+
+    form = asyncio.run(_urlencoded_form(_Req()))  # type: ignore[arg-type]
+    assert form == {"a": "1", "b": "", "c": "x y"}
+
+
 # ── Full happy-path handshake ──────────────────────────────────────────────────
 def test_full_handshake_reaches_mcp(tmp_path: Path) -> None:
     client = _app(tmp_path / "s.json")
