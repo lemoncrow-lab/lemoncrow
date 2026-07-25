@@ -316,22 +316,18 @@ def render_cursor_coding_rules() -> str:
 
 
 def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
-    frontmatter = ["---", f"description: LemonCrow {role.role_id} mode reference for Cursor."]
-    if role.role_id == "auto":
-        # Every other mode rule is "Agent Requested" -- Cursor's own model
-        # decides whether to pull it in, which never happens in a genuinely
-        # unattended session (nobody @-mentions a rule when no one is
-        # watching). auto is specifically the unattended-agent persona, so
-        # leaving it opt-in means its "fewest calls, lead with code_search,
-        # batch reads" tool discipline never reaches the model in exactly the
-        # autonomous-run case it exists for. Measured: Cursor debt-benchmark
-        # reps ran 17+ near-duplicate code_search calls with zero batching --
-        # this rule was never once attached. alwaysApply makes it load
-        # unconditionally, matching Claude Code's own `auto` subagent (which
-        # is the active persona by default, not opt-in).
-        frontmatter.append("alwaysApply: true")
-    frontmatter += ["---", "", render_mode_body(mode_doc)]
-    return "\n".join(frontmatter).rstrip() + "\n"
+    return (
+        "\n".join(
+            [
+                "---",
+                f"description: LemonCrow {role.role_id} mode reference for Cursor.",
+                "---",
+                "",
+                render_mode_body(mode_doc),
+            ]
+        ).rstrip()
+        + "\n"
+    )
 
 
 def _already_active_guard(skill_name: str) -> str:
