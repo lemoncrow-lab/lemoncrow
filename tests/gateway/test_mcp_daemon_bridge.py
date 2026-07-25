@@ -348,3 +348,39 @@ def test_attached_idle_session_survives_grace_then_reaps_on_close(repo_and_root:
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_registration_records_code_fingerprint(tmp_path: Path) -> None:
+    md._write_registration(tmp_path, "ws", socket_path="/x.sock", token="t", workspace=str(tmp_path))
+    reg = md.read_daemon_registration(tmp_path, "ws")
+    assert reg is not None
+    assert reg["code_fingerprint"] == md._code_fingerprint()
+
+
+def test_registration_stale_detects_reinstall(tmp_path: Path) -> None:
+    md._write_registration(tmp_path, "ws", socket_path="/x.sock", token="t", workspace=str(tmp_path))
+    reg = md.read_daemon_registration(tmp_path, "ws")
+    assert reg is not None
+    assert md._registration_stale(reg) is False
+    # A reinstall rewrote the sentinel -> recorded fingerprint no longer matches.
+    reg["code_fingerprint"] = "0"
+    assert md._registration_stale(reg) is True
+    # Fail-open: registrations from before the field existed never force a kill.
+    del reg["code_fingerprint"]
+    assert md._registration_stale(reg) is False
+
+
+@pytest.mark.slow
+def test_ensure_daemon_restarts_stale_code_daemon(repo_and_root: tuple[Path, Path]) -> None:
+    """A healthy daemon running pre-reinstall code is replaced, not reused."""
+    work, root = repo_and_root
+    reg = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)
+    path = md.daemon_registration_path(root, reg["ws_hash"])
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["code_fingerprint"] = "0"  # simulate: daemon started before a reinstall
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    reg2 = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)
+    assert reg2["pid"] != reg["pid"]
+    assert reg2["code_fingerprint"] == md._code_fingerprint()
+    assert len(md.list_daemons(root)) == 1

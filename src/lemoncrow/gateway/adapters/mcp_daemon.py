@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -223,6 +224,66 @@ class _FileLock:
 # ── find-or-spawn (bridge side) ──────────────────────────────────────────────
 
 
+def _code_fingerprint() -> str | None:
+    """Identity of the installed code a daemon runs (mtime_ns of a sentinel).
+
+    Any (re)install rewrites ``mcp_server.py``, so its mtime_ns changes exactly
+    when the code a fresh daemon would load differs from what a running daemon
+    loaded. ``None`` (unreadable) fails open: never force a restart on it.
+    """
+    try:
+        from lemoncrow.gateway.adapters import mcp_server
+
+        return str(os.stat(mcp_server.__file__).st_mtime_ns)
+    except (OSError, ImportError, AttributeError):
+        return None
+
+
+_STARTUP_CODE_FINGERPRINT: str | None = None
+_startup_fingerprint_lock = threading.Lock()
+
+
+def _startup_code_fingerprint() -> str | None:
+    """The fingerprint of the code THIS process loaded, pinned at first call.
+
+    Heartbeat rewrites must keep recording what the daemon actually runs, not
+    whatever a later reinstall put on disk -- otherwise the staleness check
+    compares new-disk to new-disk and never fires.
+    """
+    global _STARTUP_CODE_FINGERPRINT
+    with _startup_fingerprint_lock:
+        if _STARTUP_CODE_FINGERPRINT is None:
+            _STARTUP_CODE_FINGERPRINT = _code_fingerprint()
+        return _STARTUP_CODE_FINGERPRINT
+
+
+def _registration_stale(reg: dict[str, Any]) -> bool:
+    """True when the daemon was started from code that has since been replaced.
+
+    Without this, a singleton daemon silently outlives every reinstall and
+    keeps serving stale code to all attached hosts.
+    """
+    current = _code_fingerprint()
+    recorded = reg.get("code_fingerprint")
+    return current is not None and recorded is not None and recorded != current
+
+
+def _terminate_daemon(reg: dict[str, Any], *, timeout: float = 5.0) -> None:
+    """SIGTERM the registered daemon pid and wait (bounded) for it to exit."""
+    pid = reg.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return
+        time.sleep(0.05)
+
+
 def ensure_daemon(
     workspace: str,
     root: Path | None = None,
@@ -234,20 +295,23 @@ def ensure_daemon(
     Idempotent + race-safe: a fast unlocked check handles the common
     already-running case; on a miss the spawn happens under a per-workspace file
     lock with a second check inside, so concurrent bridges converge on one
-    daemon.
+    daemon. A healthy daemon running code older than the current install is
+    restarted so a reinstall actually takes effect for every host.
     """
     root = default_store_root() if root is None else Path(root)
     ws_hash = workspace_hash(workspace)
 
     reg = read_daemon_registration(root, ws_hash)
-    if reg is not None and _probe_healthy(reg):
+    if reg is not None and _probe_healthy(reg) and not _registration_stale(reg):
         return reg
 
     _daemon_dir(root).mkdir(parents=True, exist_ok=True)
     with _FileLock(_daemon_lock_path(root, ws_hash)):
         reg = read_daemon_registration(root, ws_hash)
         if reg is not None and _probe_healthy(reg):
-            return reg
+            if not _registration_stale(reg):
+                return reg
+            _terminate_daemon(reg)
         return _spawn_daemon(workspace, root, ws_hash, idle_grace_seconds)
 
 
@@ -620,6 +684,9 @@ def _write_registration(
         "workspace": workspace,
         "ws_hash": ws_hash,
         "version": mcp_server.SERVER_VERSION,
+        # Code identity at daemon start: lets bridges detect a daemon that
+        # outlived a reinstall and restart it (see _registration_stale).
+        "code_fingerprint": _startup_code_fingerprint(),
         # Preserve the original start time across heartbeat rewrites.
         "started_at": _existing_started_at(path),
         "last_heartbeat": time.time(),
