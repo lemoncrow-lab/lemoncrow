@@ -56,8 +56,7 @@ from lemoncrow.core.foundation.paths import default_store_root
 # sharing a tunnel id are treated by Cloudflare as replicas of one tunnel:
 # edge traffic is load-balanced across them, so project A's requests land on
 # project B's local port. Everything per-connector (tunnel name, state file,
-# OAuth store) is therefore keyed by `hostname_slug`.
-TUNNEL_NAME_PREFIX = "lemoncrow-chatgpt"
+# OAuth store) is therefore keyed off the hostname.
 
 # Pre-isolation layout: one shared tunnel of exactly this name, one shared
 # state file. Migrated to the per-hostname layout by `migrate_legacy_state`.
@@ -68,15 +67,21 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def hostname_slug(hostname: str) -> str:
-    """``lc-lc.beseam.com`` → ``lc-lc-beseam-com`` — one key usable as both a
-    filename stem and a Cloudflare tunnel name. Only hostnames differing
-    purely in punctuation (``a_b.com`` vs ``a-b.com``) could collide, which
-    no real pair of connector hostnames does."""
+    """``lc-lc.beseam.com`` → ``lc-lc-beseam-com`` — the per-hostname key for
+    state and OAuth filenames. Only hostnames differing purely in punctuation
+    (``a_b.com`` vs ``a-b.com``) could collide, which no real pair of
+    connector hostnames does."""
     return _SLUG_RE.sub("-", hostname.strip().lower()).strip("-") or "default"
 
 
 def tunnel_name_for(hostname: str) -> str:
-    return f"{TUNNEL_NAME_PREFIX}-{hostname_slug(hostname)}"
+    """The tunnel is named after the subdomain label alone — ``lc-lc`` for
+    ``lc-lc.beseam.com`` — so `cloudflared tunnel list` reads like the
+    connector list. Labels repeat across zones (``lc-lc.a.com`` vs
+    ``lc-lc.b.com``), so the caller must check no other configured hostname
+    already claims the name before creating/reusing it — sharing one tunnel
+    is exactly the replica bug this isolation exists to prevent."""
+    return hostname_slug(hostname.strip().split(".")[0])
 
 
 class TunnelSetupError(RuntimeError):

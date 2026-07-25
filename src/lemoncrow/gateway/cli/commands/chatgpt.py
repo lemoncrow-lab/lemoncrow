@@ -395,6 +395,7 @@ def chatgpt_serve_cmd(
         migrate_legacy_state,
         reset_tunnel_state,
         setup_persistent_tunnel,
+        tunnel_name_for,
         tunnel_state_path_for,
     )
 
@@ -450,6 +451,24 @@ def chatgpt_serve_cmd(
             )
         else:
             existing_tunnel_state = load_tunnel_state(tunnel_state_path)
+        if existing_tunnel_state is None:
+            # Tunnel names are the bare subdomain label, so two zones sharing
+            # a label would silently land both connectors on one tunnel —
+            # Cloudflare would then load-balance their traffic together.
+            claimed = tunnel_name_for(resolved_hostname)
+            clash = next(
+                (
+                    state
+                    for state in load_all_tunnel_states()
+                    if state.hostname != resolved_hostname and state.tunnel_name == claimed
+                ),
+                None,
+            )
+            if clash is not None:
+                raise click.UsageError(
+                    f"tunnel name {claimed!r} is already used by {clash.hostname} — "
+                    "pick a different subdomain label so each connector keeps its own tunnel"
+                )
 
     code: str | None = None
     if no_auth:
