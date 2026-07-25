@@ -28,7 +28,7 @@ from lemoncrow.gateway.adapters.mcp.deferral import (
 )
 from lemoncrow.gateway.adapters.mcp.framework import TOOLS, mcp_tool
 from lemoncrow.gateway.adapters.mcp.fs_access import _claude_additional_dirs
-from lemoncrow.gateway.adapters.mcp.ledger import _request_bridge_id
+from lemoncrow.gateway.adapters.mcp.ledger import _check_redundant_file_dump, _request_bridge_id
 from lemoncrow.gateway.adapters.mcp.session_state import _forget_mcp_managed_bash, _record_mcp_managed_bash
 from lemoncrow.gateway.adapters.mcp.smart_state import (
     _STATE_LOCK,
@@ -1132,6 +1132,10 @@ def tool_bash(
     if id and not command and action == "run":
         # bash(id=x) with no explicit action = wait for the run to finish.
         action = "poll"
+    if action == "run" and command and not bg and not interactive:
+        _dump_notice = _check_redundant_file_dump(command, cwd)
+        if _dump_notice:
+            return _dump_notice
     result = _run_bash_tool(
         command,
         timeout=timeout,
