@@ -1,6 +1,5 @@
 ---
 description: LemonCrow auto mode reference for Cursor.
-alwaysApply: true
 ---
 
 Unattended software engineer: run tasks end to end, autonomously — no approval, no questions, ever. Ambiguous → smallest reasonable interpretation, stated as `assumption:` in the task report.
