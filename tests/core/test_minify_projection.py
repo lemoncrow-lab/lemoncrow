@@ -127,6 +127,88 @@ def test_edit_no_match_raises() -> None:
     assert exc.value.code == "no_match"
 
 
+def test_edit_fuzzy_fallback_recovers_near_miss_reconstruction() -> None:
+    # old_string is neither an exact match against disk (missing the trailing
+    # whitespace on the email-config line) nor against the minified view (same
+    # gap, since minification doesn't add it back) -- a plausible "recalled
+    # from memory instead of copy-pasted" near miss. The exact-substring check
+    # in minified space misses it; the new fuzzy fallback should still locate
+    # the one unambiguous match and splice the edit back onto real disk content.
+    src = (
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "\n"
+        "\n"
+        "def make_repo(tmp_path: Path) -> Path:\n"
+        '    root = tmp_path / "repo"\n'
+        "    root.mkdir()\n"
+        '    subprocess.run(["git", "init", "-q"], cwd=root, check=True)\n'
+        '    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=root, check=True)  \n'
+        '    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)\n'
+        "    return root\n"
+    )
+    old_string = (
+        "def make_repo(tmp_path: Path) -> Path:\n"
+        '    root = tmp_path / "repo"\n'
+        "    root.mkdir()\n"
+        '    subprocess.run(["git", "init", "-q"], cwd=root, check=True)\n'
+        '    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=root, check=True)\n'
+        '    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)\n'
+        "    return root"
+    )
+    new_string = old_string.replace("return root", "return root.resolve()")
+    updated, line_start, line_end = apply_minified_edit(src, "python", old_string, new_string)
+    assert "return root.resolve()" in updated
+    assert updated.count("subprocess.run") == 3
+    assert line_start <= line_end
+
+
+def test_edit_fuzzy_ambiguous_in_minified_space_falls_back_not_crashes() -> None:
+    # old_string dropped one of several near-identical `import` lines while
+    # recalling the file from memory; every remaining import line loosely
+    # matches old_string's first line, and all resulting candidate windows
+    # converge on the same unique end anchor -- so multiple windows clear the
+    # similarity floor within the ambiguity margin of each other.
+    # apply_minified_edit must surface this as a MinifiedEditError(code=
+    # "ambiguous") -- the same contract as every other failure mode -- and not
+    # let the underlying FuzzyAmbiguousMatchError escape, which would skip
+    # rich_edit's fall-through to plain full-text fuzzy matching (its
+    # `except MinifiedEditError: pass` wouldn't catch a bare ValueError subtype
+    # it doesn't name).
+    src = (
+        "import os\n"
+        "import sys\n"
+        "import re\n"
+        "import json\n"
+        "\n"
+        "\n"
+        "def helper():\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "    z = 3\n"
+        "    return x + y + z\n"
+        "\n"
+        "\n"
+        "# a trailing module note kept only to give the minifier real savings\n"
+        "VERSION = 1\n"
+    )
+    old_string = (
+        "import os\n"
+        "import sys\n"
+        "import json\n"  # 'import re' forgotten
+        "\n"
+        "\n"
+        "def helper():\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "    z = 3\n"
+        "    return x + y + z"
+    )
+    with pytest.raises(MinifiedEditError) as exc:
+        apply_minified_edit(src, "python", old_string, old_string + "  # x")
+    assert exc.value.code == "ambiguous"
+
+
 def test_edit_dropped_interior_fails_closed() -> None:
     # old_string as seen in the minified view spans a comment dropped on disk.
     src = "def f():\n    a = 1\n    # critical\n    b = 2\n    return a + b\n"

@@ -1,6 +1,6 @@
 ---
 name: solve
-description: Autonomous verified task solver.
+description: Always use for autonomous verified task solver.
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "Agent", "Workflow", "ScheduleWakeup"]
 color: orange
 ---

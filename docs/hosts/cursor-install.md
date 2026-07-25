@@ -40,7 +40,7 @@ The MCP entry (identical in every branch — server key `lemoncrow`, command `lc
       "type": "stdio",
       "command": "lc",
       "args": ["mcp", "--host", "cursor"],
-      "alwaysAllow": ["bash", "code_search", "read", "edit", "context", "..."]
+      "autoApprove": ["bash", "code_search", "edit", "read", "web_fetch"]
     }
   }
 }

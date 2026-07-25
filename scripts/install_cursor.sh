@@ -74,14 +74,28 @@ backup_file() {
     fi
 }
 
+# Resolve to an absolute path: Cursor spawns MCP server subprocesses without
+# necessarily inheriting the shell PATH lc was installed onto, so a bare
+# "lc" command silently fails to start (confirmed: `env -i sh -c 'which lc'`
+# fails even though `lc` resolves fine in an interactive shell). Falls back
+# to the bare name only if lc genuinely isn't found (print-only/dry-run still
+# shows something sensible; the later "lc on PATH" check catches that case).
+LC_BIN="$(command -v lc || echo lc)"
+
+# Must match the visible surface computed by mcp_tool_visible_to_llm() in
+# src/lemoncrow/core/environment.py (all registered tools minus
+# HIDDEN_LLM_TOOLS) -- NOT the full tool registry. Hidden tools (grep, sql,
+# memory, codemod, etc.) stay registered and callable by name on the server
+# side, so auto-approving them here would silently skip Cursor's permission
+# prompt on the rare/adversarial call that reaches one directly.
 MCP_ENTRY=$(cat <<JSON
 {
   "mcpServers": {
     "lemoncrow": {
       "type": "stdio",
-      "command": "lc",
+      "command": "$LC_BIN",
       "args": ["mcp", "--host", "cursor"],
-      "alwaysAllow": ["bash","code_search","codemod","compact","context","edit","grep","memory","read","rescue","search","sql","trace","verify"]
+      "autoApprove": ["bash","code_search","edit","read","web_fetch"]
     }
   }
 }
@@ -140,9 +154,11 @@ else:
 existing.setdefault('mcpServers', {}).update({
     'lemoncrow': {
         'type': 'stdio',
-        'command': 'lc',
+        'command': '$LC_BIN',
         'args': ['mcp', '--host', 'cursor'],
-        'alwaysAllow': ['bash','code_search','codemod','compact','context','edit','grep','memory','read','rescue','search','sql','trace','verify'],
+        # Kept in sync with mcp_tool_visible_to_llm()'s visible surface --
+        # see the comment on the create-branch MCP_ENTRY above.
+        'autoApprove': ['bash','code_search','edit','read','web_fetch'],
     }
 })
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
@@ -184,8 +200,16 @@ fi
 # show $0). stop refreshes attribution and logs a savings recap. Both the Cursor
 # IDE and the cursor-agent CLI load these hooks from the same hooks.json.
 CURSOR_HOOKS_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/hooks"
-# event:source-basename pairs.
-CURSOR_HOOKS=("sessionStart:session_start.py" "stop:stop.py")
+# event:source-basename[:matcher] triples (matcher optional -- most hooks fire
+# for everything; preToolUse needs one to stay scoped to the gap tools
+# beforeShellExecution/beforeReadFile don't already own).
+CURSOR_HOOKS=(
+    "sessionStart:session_start.py"
+    "stop:stop.py"
+    "beforeShellExecution:before_shell_execution.py"
+    "beforeReadFile:before_read_file.py"
+    "preToolUse:before_tool_use.py:Grep|Glob|Write|StrReplace|Delete"
+)
 if $WORKSPACE_SET; then
     CURSOR_HOOKS_FILE="${WORKSPACE}/.cursor/hooks.json"
     HOOKS_DEST_DIR="${WORKSPACE}/.cursor/hooks"
@@ -200,8 +224,7 @@ fi
 if [ -d "$CURSOR_HOOKS_SRC_DIR" ]; then
     run "mkdir -p $(printf %q "$HOOKS_DEST_DIR")"
     for _pair in "${CURSOR_HOOKS[@]}"; do
-        _event="${_pair%%:*}"
-        _script="${_pair##*:}"
+        IFS=':' read -r _event _script _matcher <<< "$_pair"
         _src="${CURSOR_HOOKS_SRC_DIR}/${_script}"
         [ -f "$_src" ] || continue
         run "cp $(printf %q "$_src") $(printf %q "$HOOKS_DEST_DIR/$_script")"
@@ -211,6 +234,7 @@ if [ -d "$CURSOR_HOOKS_SRC_DIR" ]; then
             LEMONCROW_CURSOR_HOOKS_FILE="$CURSOR_HOOKS_FILE" \
             LEMONCROW_CURSOR_HOOK_EVENT="$_event" \
             LEMONCROW_CURSOR_HOOK_CMD="python3 ${HOOK_CMD_DIR}/${_script}" \
+            LEMONCROW_CURSOR_HOOK_MATCHER="${_matcher:-}" \
             python3 - <<'PYEOF'
 import json
 import os
@@ -219,6 +243,7 @@ from pathlib import Path
 path = Path(os.environ["LEMONCROW_CURSOR_HOOKS_FILE"])
 event = os.environ["LEMONCROW_CURSOR_HOOK_EVENT"]
 cmd = os.environ["LEMONCROW_CURSOR_HOOK_CMD"]
+matcher = os.environ.get("LEMONCROW_CURSOR_HOOK_MATCHER", "")
 try:
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 except (OSError, json.JSONDecodeError):
@@ -234,7 +259,10 @@ if not isinstance(entries, list):
 # Idempotent on our staged script basename (survives re-install/upgrade).
 script_base = os.path.basename(cmd.split()[-1])
 if not any(isinstance(e, dict) and script_base in str(e.get("command", "")) for e in entries):
-    entries.append({"command": cmd})
+    entry = {"command": cmd}
+    if matcher:
+        entry["matcher"] = matcher
+    entries.append(entry)
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(f"[lemoncrow:cursor] merged {event} hook into {path}")

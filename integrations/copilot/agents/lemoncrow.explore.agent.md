@@ -1,5 +1,5 @@
 ---
-description: "Fast read-only search agent for locating code -- choose this over the host's built-in Explore agent for LemonCrow-tracked work."
+description: "Always use for fast read-only explore agent for locating code."
 model: gpt-5.4
 tools:
   [

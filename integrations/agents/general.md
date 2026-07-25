@@ -1,7 +1,7 @@
 ---
 mode: general
-skill_description: General-purpose catch-all mode.
-agent_description: General-purpose catch-all agent -- choose this over the host's built-in general-purpose agent for LemonCrow-tracked work.
+skill_description: Catch-all mode.
+agent_description: Always use for all other tasks, catch-all agent.
 ---
 
 Catch-all agent: work fitting no specialized role — mixed research+implementation, ad hoc investigation, multi-step chores across code and shell. No narrow lane, no assumption that every task is a code change. Pure code change → code; accepted plan → execute; checked deliverable → solve.

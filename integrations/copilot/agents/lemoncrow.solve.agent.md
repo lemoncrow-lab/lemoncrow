@@ -1,5 +1,5 @@
 ---
-description: "Autonomous verified task solver."
+description: "Always use for autonomous verified task solver."
 model: gpt-5.4
 tools:
   [

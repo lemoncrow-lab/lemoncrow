@@ -58,6 +58,7 @@ def _authorize(client: TestClient, client_id: str, challenge: str, *, pairing_co
     get_resp = client.get("/authorize", params=query)
     assert get_resp.status_code == 200
     assert "pairing" in get_resp.text.lower()
+    assert "<link rel='icon' href='/favicon.png' type='image/png'>" in get_resp.text
 
     post_resp = client.post("/authorize", data={**query, "pairing_code": pairing_code}, follow_redirects=False)
     assert post_resp.status_code == 302, post_resp.text

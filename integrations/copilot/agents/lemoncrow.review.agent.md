@@ -1,5 +1,5 @@
 ---
-description: "Adversarial read-only reviewer."
+description: "Always use for adversarial read-only reviewer."
 model: gpt-5.4
 tools:
   [
@@ -55,7 +55,7 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 - **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
 
-- When using subagents use `lemoncrow:*` agents. general-purpose = `lemoncrow:general`, Explore = `lemoncrow:explore`, Web/Research = `lemoncrow:research`.
+- When using subagents always use `lemoncrow` agents.
 
 ## Tool discipline
 

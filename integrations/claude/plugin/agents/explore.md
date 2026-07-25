@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Fast read-only search agent for locating code -- choose this over the host's built-in Explore agent for LemonCrow-tracked work.
+description: Always use for fast read-only explore agent for locating code.
 model: haiku
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "Agent", "mcp__lc__edit", "mcp__plugin_lemoncrow_lc__edit", "Workflow", "ScheduleWakeup"]
 color: blue

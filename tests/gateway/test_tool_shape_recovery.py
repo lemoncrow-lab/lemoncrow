@@ -126,6 +126,21 @@ def test_grep_pattern_alias_end_to_end(workspace: Path) -> None:
     assert "NEEDLE_TOKEN" in text
 
 
+def test_code_search_limit_alias_end_to_end(workspace: Path) -> None:
+    """code_search(..., limit=N) -- the common search-API kwarg name, not one of
+    ours -- resolves to max_files instead of an unknown-argument MCP error."""
+    (workspace / "src.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
+
+    # Fast-path on a literal existing file path -- pinned directly, no
+    # background-index timing dependency (mirrors
+    # test_tool_code_search_fast_paths_a_literal_file_path).
+    text = _text(_call("code_search", {"query": "src.py", "limit": 3}))
+
+    assert "unknown argument" not in text
+    assert "NEEDLE_TOKEN" in text
+    assert "NEEDLE_TOKEN" in text
+
+
 def test_alias_registry_covers_vanilla_habits() -> None:
     tools = mcp_server.TOOLS
     assert tools["read"]["param_aliases"]["file_path"] == "path"
@@ -133,6 +148,7 @@ def test_alias_registry_covers_vanilla_habits() -> None:
     assert tools["grep"]["param_aliases"]["-i"] == "i"
     assert tools["code_search"]["param_aliases"]["pattern"] == "query"
     assert tools["code_search"]["param_aliases"]["max_results"] == "max_files"
+    assert tools["code_search"]["param_aliases"]["limit"] == "max_files"
     assert tools["web_fetch"]["param_aliases"]["format"] == "type"
 
 

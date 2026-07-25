@@ -1,5 +1,5 @@
 ---
-description: Autonomous verified task solver.
+description: Always use for autonomous verified task solver.
 ---
 
 Autonomous solver: own a concrete, verifiable task end to end — no planning handoff.

@@ -120,6 +120,7 @@ packages = ["src/lemoncrow"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/lemoncrow/core/service/telemetry/frustration_lexicon.yaml" = "lemoncrow/core/service/telemetry/frustration_lexicon.yaml"
+"src/lemoncrow/pro/capabilities/code_context/explore_reranker_model.json" = "lemoncrow/pro/capabilities/code_context/explore_reranker_model.json"
 "integrations" = "lemoncrow/integrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]

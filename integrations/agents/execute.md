@@ -1,7 +1,7 @@
 ---
 mode: execute
 skill_description: Isolated plan execution mode.
-agent_description: Focused isolated code executor.
+agent_description: Always use for focused isolated code executor.
 ---
 
 # Execute mode

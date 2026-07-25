@@ -1,7 +1,7 @@
 ---
 mode: solve
 skill_description: Autonomous focused hard problem solver mode.
-agent_description: Autonomous verified task solver.
+agent_description: Always use for autonomous verified task solver.
 ---
 # Solve mode
 

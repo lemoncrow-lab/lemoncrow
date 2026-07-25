@@ -1,0 +1,16 @@
+---
+description: Force LemonCrow MCP tools over Cursor's built-in Read/Grep/Shell -- installed by scripts/install_cursor.sh alongside the beforeShellExecution/beforeReadFile hooks that deny the native tools.
+alwaysApply: true
+---
+
+Native Read, Grep, Glob, Write, StrReplace, Delete, and the terminal/Shell
+tool are blocked by this project's hooks (`.cursor/hooks.json`). Use the
+LemonCrow MCP server's tools instead for every file/shell operation:
+
+- `bash` — all shell/terminal execution
+- `read` — all file reads
+- `code_search` — all code search / grep / glob-equivalent lookups
+- `edit` — all file edits
+
+If a native tool call is denied, retry immediately with the matching tool
+above instead of asking the user or giving up.

@@ -149,6 +149,7 @@ from lemoncrow.gateway.adapters.mcp.tools_commodity import (  # noqa: F401  (reg
     tool_mcp,
     tool_web_fetch,
 )
+from lemoncrow.gateway.adapters.mcp_branding import icon_metadata
 from lemoncrow.infra.runtime.run_ledger import (
     RunLedger,
     outcomes_path,
@@ -5929,6 +5930,9 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
     description=(
         "Read files or exact symbols. :Lx-Ly = exact range, :full = full source. "
         "Whole file → ONE :full (or ONE wide range) — never successive narrow ranges. "
+        "Hunting for one function/test/section in a large file → symbol= or a targeted "
+        "range, not a bare whole-file read; reserve :full for files you're about to "
+        "fully understand or edit. "
         "Batch all files/ranges into one call's files=[] array: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
         "Images (png/jpg/gif/webp/bmp, up to 4MB) are returned as a real viewable image, not text — "
@@ -9372,17 +9376,39 @@ def _lean_code_search_view(
         fp = f.get("path")
         return epscore_by_path.get(fp if isinstance(fp, str) else "", 0.0)
 
+    # A learned explore reranker already produced the file order. Preserve that
+    # order through the MCP projection instead of immediately overwriting it
+    # with legacy entry-point scores; otherwise the reranker is effectively a
+    # no-op on the agent-visible `files + candidate_files` ranking. This changes
+    # ordering only — the lean response schema is untouched.
+    experiment = result.get("experiment")
+    learned_order = isinstance(experiment, dict) and str(experiment.get("name") or "").startswith("explore_reranker_")
+
     # Reserve up to the top-2 spots for in-scope files that actually matched
     # (epscore > 0), highest first; every other file -- out-of-scope neighbours the
     # whole-repo channels surfaced, plus any 3rd+ in-scope file -- races purely on
     # score below them. An unmatched in-scope file claims no reserved slot, so a
     # 0-match seed lets a neighbour take rank #1.
-    _reserved = sorted((f for f in files if is_seed(f.get("path")) and _fscore(f) > 0.0), key=_fscore, reverse=True)[:2]
-    _reserved_ids = {id(f) for f in _reserved}
-    _rest = sorted((f for f in files if id(f) not in _reserved_ids), key=_fscore, reverse=True)
+    if learned_order:
+        _reserved = [f for f in files if is_seed(f.get("path")) and _fscore(f) > 0.0][:2]
+        _reserved_ids = {id(f) for f in _reserved}
+        _rest = [f for f in files if id(f) not in _reserved_ids]
+    else:
+        _reserved = sorted(
+            (f for f in files if is_seed(f.get("path")) and _fscore(f) > 0.0),
+            key=_fscore,
+            reverse=True,
+        )[:2]
+        _reserved_ids = {id(f) for f in _reserved}
+        _rest = sorted((f for f in files if id(f) not in _reserved_ids), key=_fscore, reverse=True)
     ranked = [*_reserved, *_rest]
-    top_fs = epscore_by_path.get(ranked[0].get("path"), 0.0) if ranked else 0.0
-    second_fs = epscore_by_path.get(ranked[1].get("path"), 0.0) if len(ranked) > 1 else 0.0
+    # Dominance controls source volume, not file relevance. Keep it anchored to
+    # the legacy entry-point confidence even when the learned model changes file
+    # order; otherwise a reranked low-epscore file at rank 1 turns an exact-hit
+    # response from one source file into up to `max_files` source files.
+    dominance_ranked = sorted(files, key=_fscore, reverse=True) if learned_order else ranked
+    top_fs = epscore_by_path.get(dominance_ranked[0].get("path"), 0.0) if dominance_ranked else 0.0
+    second_fs = epscore_by_path.get(dominance_ranked[1].get("path"), 0.0) if len(dominance_ranked) > 1 else 0.0
     dominant = (
         exact and not seed_norm and top_fs > 0.0 and (second_fs == 0.0 or top_fs >= _LEAN_DOMINANT_RATIO * second_fs)
     )
@@ -9513,11 +9539,15 @@ def _attach_code_search_savings(view: dict[str, Any], workspace_root: Path | Non
         "inline (bounded), lower-ranked or oversized matches as precise "
         "path:Lx-Ly pointers (`read` exactly that range), a related-symbols "
         "map (path:Lx-Ly kind name), and candidate_files. Use instead of "
-        "grep/find. Inline source = already read."
+        "grep/find. Inline source = already read. One broad query beats several "
+        "narrow rephrasings — combine every term/pattern you're hunting for into "
+        "a single call before calling again; re-querying the same investigation "
+        "rarely surfaces anything new."
     ),
     param_aliases={
         "maxFiles": "max_files",
         "max_results": "max_files",
+        "limit": "max_files",
         "projectPath": "paths",
         "path": "paths",
         "include_paths": "paths",
@@ -10793,7 +10823,13 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
             rid,
             {
                 "protocolVersion": PROTOCOL_VERSION,
-                "serverInfo": {"name": SERVER_DISPLAY_NAME, "version": SERVER_VERSION},
+                "serverInfo": {
+                    "name": SERVER_DISPLAY_NAME,
+                    "title": "LemonCrow",
+                    "version": SERVER_VERSION,
+                    "description": "Indexed code search, bounded file tools, editing, and verification for coding agents.",
+                    "icons": [icon_metadata()],
+                },
                 "capabilities": {"tools": {}},
                 # Read automatically by MCP clients and folded into the host
                 # system prompt — the steering surface that reaches every host
