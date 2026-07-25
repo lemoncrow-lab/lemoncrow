@@ -591,6 +591,33 @@ def test_persistent_oauth_store_is_scoped_per_hostname(monkeypatch: pytest.Monke
     assert seen == [tmp_path / ".lemoncrow" / "chatgpt" / "oauth-a-example-com.json"]
 
 
+def test_legacy_oauth_store_migrates_to_the_first_persistent_hostname(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A connector paired before the per-hostname split must keep working:
+    its client_id lives in the shared ``oauth.json``, so that file moves onto
+    the first hostname served instead of being left orphaned (which shows up
+    in ChatGPT as "Unknown client_id")."""
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    legacy = tmp_path / ".lemoncrow" / "chatgpt" / "oauth.json"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text(json.dumps({"clients": {"cid-1": {"client_id": "cid-1"}}}), encoding="utf-8")
+
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(pt, "is_logged_in", lambda: True)
+    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: None)
+    monkeypatch.setattr(pt, "create_tunnel", lambda binary, name: ("id-x", "/x.json"))
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: None)
+    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda binary, ref, port, cred: _FakeTunnelProc())
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "a.example.com"])
+    assert result.exit_code == 0, result.output
+    migrated = tmp_path / ".lemoncrow" / "chatgpt" / "oauth-a-example-com.json"
+    assert json.loads(migrated.read_text(encoding="utf-8"))["clients"]["cid-1"]["client_id"] == "cid-1"
+    assert not legacy.exists()  # moved, not copied — no token bleed into a second connector's store
+
+
 def test_persistent_without_hostname_errors_when_several_configured(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
