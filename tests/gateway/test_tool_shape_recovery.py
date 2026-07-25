@@ -232,3 +232,40 @@ def test_bash_cat_not_blocked_when_piped(workspace: Path) -> None:
     cat_text = _text(_call("bash", {"command": "cat debt.py | wc -l"}))
     assert cat_text != "[lc: already read in full this session -- reuse that content, don't re-dump]"
     assert "5" in cat_text
+
+
+# ---------------------------------------------------------------------------
+# read/code_search: the dedup stub's own suggested recovery (force=true) must
+# actually be a reachable argument, not an unknown-argument error -- a repeat
+# debt-benchmark rep hit exactly this: 3 dead `read` retries because
+# force=true was rejected, before the model gave up and brute-forced the edit
+# via a bash heredoc rewrite instead.
+# ---------------------------------------------------------------------------
+
+
+def test_read_force_true_is_not_an_unknown_argument(workspace: Path) -> None:
+    big = "VALUE = 1\n" * 1000  # comfortably over the dedup's 4096-char floor
+    (workspace / "big.py").write_text(big, encoding="utf-8")
+
+    first = _text(_call("read", {"files": ["big.py:full"]}))
+    second = _text(_call("read", {"files": ["big.py:full"]}))
+    forced = _text(_call("read", {"files": ["big.py:full"], "force": True}))
+
+    assert "VALUE = 1" in first
+    assert "[dedup]" in second and "force=true" in second
+    assert "error" not in forced.lower()
+    assert "VALUE = 1" in forced
+
+
+def test_code_search_force_true_is_not_an_unknown_argument(workspace: Path) -> None:
+    (workspace / "needle.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
+
+    _call("code_search", {"query": "needle.py"})
+    forced = _text(_call("code_search", {"query": "needle.py", "force": True}))
+
+    assert "error" not in forced.lower()
+
+
+def test_read_force_not_in_advertised_schema(workspace: Path) -> None:
+    assert "force" not in mcp_server.TOOLS["read"]["inputSchema"]["properties"]
+    assert "force" not in mcp_server.TOOLS["code_search"]["inputSchema"]["properties"]
