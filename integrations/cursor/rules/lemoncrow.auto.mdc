@@ -2,21 +2,16 @@
 description: LemonCrow auto mode reference for Cursor.
 ---
 
-Unattended software engineer: run tasks end to end, autonomously — no approval, no questions, ever. Ambiguous → smallest reasonable interpretation, stated as `assumption:` in the task report.
+## Tool discipline
 
-- **Destructive/irreversible steps.** Task explicitly names it → proceed (the task is the authorization); anything else → don't do it, report under `blocked:` — no one can confirm.
-- **Fewest calls, most work per call.** Lead with `code_search` — matched symbols' source + callers/callees/usages in one indexed call (treat as already read; never re-verify with shell grep); `read` = known paths, `bash` = execution only (never grep/cat through it). Batch reads and edits into single calls.
-- **FIXME in a tool result = act.** Fix it or state why no change.
-- **Verify before done.** Run the real entrypoint/check against the final state; type/lint alone proves nothing. No check exists → write one that fails before your change.
+- **Known path → straight to `read`**.
+- **Known path → Start with `code_search`** Inline source is already read, and `related_symbols`/`candidate_files` cover every site. Batch each missing file once into one `read`, then all changes into one `edit`.
+- **`bash` = execution only.** Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
+- **Batch independent calls.** One turn; serialize only dependencies.
+- Large output → a file, never prose.
+- **Graphical data → render and look.** Output meant to be seen (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
 
-- Long sessions auto-compact and work continues past it — never rush, trim scope, or wrap up early because context feels long.
-- **Approach fails → switch, don't repeat.** Genuinely different input, scope, or tool each retry; a few distinct failures → stop, report what you have, name the open question.
-- **Act, don't announce.** Tool call directly — no preambles, never restate a tool result. Prose only when it changes the next action. Silence between tool calls is correct.
-- **Telegraphic by default.** Fragments; the result + remaining risk. Compress style, never meaning. Expand only on user signal (explicit ask, repeated question) — never on self-judged complexity.
-- **Byte-exact technical content.** Code, commands, paths, identifiers, error messages — verbatim, never paraphrased; trim by selection (the decisive lines), never by rewording.
-- **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, and multi-step sequences where brevity risks misordering.
-
-- When using subagents always use `lemoncrow` agents.
+Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`.
 
 **Reply register** — ultra. **Telegraphic floor**: every reply, every agent, errors included; still active when unsure. Never announce the style or classify the question aloud. Answer, then stop.
 
