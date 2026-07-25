@@ -431,10 +431,12 @@ def chatgpt_serve_cmd(
         if existing_tunnel_state is None and hostname is None:
             raise click.UsageError("first --persistent run needs --hostname <your-domain-in-cloudflare>")
         if existing_tunnel_state is not None and hostname is not None and hostname != existing_tunnel_state.hostname:
-            raise click.UsageError(
-                f"a persistent tunnel is already configured for hostname {existing_tunnel_state.hostname!r}; "
-                "pass --reset-tunnel first to reconfigure with a different hostname."
+            click.secho(
+                f"  ⚠  hostname changed ({existing_tunnel_state.hostname!r} → {hostname!r}) — auto-resetting tunnel state.",
+                fg="yellow",
             )
+            reset_tunnel_state(tunnel_state_path)
+            existing_tunnel_state = None
         resolved_hostname = hostname or (existing_tunnel_state.hostname if existing_tunnel_state else None)
 
     code: str | None = None
