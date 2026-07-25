@@ -41,6 +41,13 @@ def test_explicit_enable_values(monkeypatch, value: str) -> None:
         (["pytest", "-q"], "rtk"),
         (["cargo", "test"], "rtk"),
         (["ruff", "check", "."], "rtk"),
+        (["mypy", "src"], "rtk"),
+        (["go", "vet", "./..."], "rtk"),
+        (["go", "build", "./..."], "rtk"),
+        (["next", "build"], "rtk"),
+        (["./gradlew", "test"], "rtk"),
+        (["mvn", "verify"], "rtk"),
+        (["python3", "-m", "pytest", "-q"], "rtk"),
         (["docker", "ps"], "rtk"),
         (["docker", "logs", "web"], "rtk"),
         (["docker", "compose", "ps"], "rtk"),
@@ -68,6 +75,9 @@ def test_explicit_enable_values(monkeypatch, value: str) -> None:
         (["git", "branch", "foo"], None),  # mutating -- not on the allowlist
         (["git", "commit", "-m", "x"], None),
         (["docker", "run", "x"], None),
+        (["docker", "build", "."], None),  # build stays native post-hoc only
+        (["kubectl", "apply", "-f", "x.yaml"], None),
+        (["biome", "format", "--write", "."], None),
         (["prettier", "."], None),  # missing --check -> mutates in place
         ([], None),
     ],
@@ -122,6 +132,40 @@ def test_resolve_compactor_version_probe_fails(monkeypatch) -> None:
 def test_resolve_compactor_unknown_name() -> None:
     resolution = ec.resolve_compactor("nonexistent")
     assert resolution.available is False
+
+
+def test_rewrite_compactor_command_uses_canonical_rtk_rewrite(monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(args, 0, stdout="rtk next\n", stderr="")
+
+    monkeypatch.setattr(ec.subprocess, "run", fake_run)
+    resolution = ec.CompactorResolution(available=True, path=ec.Path("/opt/rtk"), version="rtk 0.43.0")
+    rewritten = ec.rewrite_compactor_command(ec.RTK, resolution, "next build")
+    assert rewritten == "/opt/rtk next"
+    assert calls == [("/opt/rtk", "rewrite", "next build")]
+
+
+def test_rewrite_compactor_command_accepts_rtk_code_three_when_valid(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ec.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 3, stdout="rtk mypy src\n", stderr=""),
+    )
+    resolution = ec.CompactorResolution(available=True, path=ec.Path("/opt/rtk"), version="rtk 0.43.0")
+    assert ec.rewrite_compactor_command(ec.RTK, resolution, "mypy src") == "/opt/rtk mypy src"
+
+
+def test_rewrite_compactor_command_rejects_shell_syntax(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ec.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="rtk pytest; git push\n", stderr=""),
+    )
+    resolution = ec.CompactorResolution(available=True, path=ec.Path("/opt/rtk"), version="rtk 0.43.0")
+    assert ec.rewrite_compactor_command(ec.RTK, resolution, "pytest") is None
 
 
 def test_registered_compactors_include_rtk_with_install_hint() -> None:

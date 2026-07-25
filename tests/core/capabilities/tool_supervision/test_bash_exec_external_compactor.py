@@ -38,11 +38,12 @@ def test_explicit_opt_out_skips_detection_entirely(monkeypatch) -> None:
 
 def test_binary_present_rewrites_automatically(monkeypatch) -> None:
     monkeypatch.setattr(ec.shutil, "which", lambda name: "/usr/local/bin/rtk")
-    monkeypatch.setattr(
-        ec.subprocess,
-        "run",
-        lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout="rtk 1.0\n", stderr=""),
-    )
+
+    def fake_run(args: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        stdout = "rtk 1.0\n" if args[1:] == ["--version"] else "rtk git status\n"
+        return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(ec.subprocess, "run", fake_run)
     decision = bash_exec.classify_command("git status")
     assert decision.action == "rewrite"
     assert decision.rewrite_target == "external_compactor"
@@ -50,6 +51,7 @@ def test_binary_present_rewrites_automatically(monkeypatch) -> None:
     assert decision.rewrite_payload["compactor"] == "rtk"
     assert decision.rewrite_payload["binary_path"] == "/usr/local/bin/rtk"
     assert decision.rewrite_payload["original_command"] == "git status"
+    assert decision.rewrite_payload["command"] == "/usr/local/bin/rtk git status"
 
 
 def test_mutating_command_never_rewritten_even_when_enabled(monkeypatch) -> None:
@@ -61,3 +63,16 @@ def test_mutating_command_never_rewritten_even_when_enabled(monkeypatch) -> None
     )
     assert bash_exec.classify_command("git commit -m x").action == "allow"
     assert bash_exec.classify_command("docker run x").action == "allow"
+    assert bash_exec.classify_command("docker build .").action == "allow"
+
+
+def test_supported_family_with_unsupported_rtk_rewrite_falls_back(monkeypatch) -> None:
+    monkeypatch.setattr(ec.shutil, "which", lambda name: "/usr/local/bin/rtk")
+
+    def fake_run(args: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        if args[1:] == ["--version"]:
+            return subprocess.CompletedProcess(args, 0, stdout="rtk 1.0\n", stderr="")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(ec.subprocess, "run", fake_run)
+    assert bash_exec.classify_command("dotnet test").action == "allow"

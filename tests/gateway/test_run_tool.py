@@ -70,6 +70,23 @@ def test_classify_rewrite_cat() -> None:
     assert decision.rewrite_target == "read"
 
 
+def test_classify_rewrite_multifile_and_numbered_cat() -> None:
+    decision = classify_command("cat -n first.txt second.txt")
+    assert decision.action == "rewrite"
+    assert decision.rewrite_target == "cat"
+    assert decision.rewrite_payload == {"files": ["first.txt", "second.txt"], "number_mode": "all"}
+
+
+def test_run_numbered_cat_continues_across_files(tmp_path: Path) -> None:
+    (tmp_path / "first.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    (tmp_path / "second.txt").write_text("gamma\n", encoding="utf-8")
+    result = run_command("cat -n first.txt second.txt", cwd=str(tmp_path))
+    assert result.exit_code == 0
+    assert "     1\talpha" in result.stdout
+    assert "     2\tbeta" in result.stdout
+    assert "     3\tgamma" in result.stdout
+
+
 def test_classify_rewrite_rg() -> None:
     decision = classify_command("rg -i hello src")
     assert decision.action == "rewrite"
@@ -79,6 +96,34 @@ def test_classify_rewrite_rg() -> None:
     assert payload["content_regex"] == "hello"
     assert payload["ignore_case"] is True
     assert payload["output_mode"] in ("content", "file_paths_with_content")
+
+
+def test_classify_rewrite_grep_count_fixed_word_line() -> None:
+    decision = classify_command("rg -cFwx needle src")
+    assert decision.action == "rewrite"
+    assert decision.rewrite_target == "grep"
+    payload = decision.rewrite_payload
+    assert payload["output_mode"] == "file_paths_with_match_count"
+    assert payload["content_regex"] == r"^(?:(?<!\w)(?:needle)(?!\w))$"
+
+
+def test_classify_rewrite_common_sed_range_spellings() -> None:
+    for command in (
+        "sed -n '20,40p' app.py",
+        "sed --quiet '20,40p' app.py",
+        "sed -n -e '20,40p' app.py",
+        "sed -ne '20,40p' app.py",
+    ):
+        decision = classify_command(command)
+        assert decision.action == "rewrite", command
+        assert decision.rewrite_target == "read_range", command
+        assert decision.rewrite_payload == {"spec": "app.py:L20-L40"}
+
+
+def test_classify_does_not_rewrite_transforming_sed() -> None:
+    for command in ("sed 's/a/b/' app.py", "sed -i 's/a/b/' app.py", "sed -n '20,40p;50p' app.py"):
+        decision = classify_command(command)
+        assert decision.rewrite_target != "read_range", command
 
 
 def test_run_allows_destructive_rm(tmp_path: Path) -> None:
