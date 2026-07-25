@@ -52,7 +52,7 @@ browser prompt with the pairing code.
 | Flag                        | Effect                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
-| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. |
+| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. Each hostname gets its own tunnel, state and OAuth store, so several projects can serve at once. |
 | `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
 
 Full request/response traffic is logged locally per run (path printed at

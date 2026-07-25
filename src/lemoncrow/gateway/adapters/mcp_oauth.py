@@ -135,8 +135,14 @@ def _sha256_hex(token: str) -> str:
 
 
 # ── State persistence ─────────────────────────────────────────────────────────
-def default_state_path() -> Path:
-    """Where OAuth state lives by default: ``<store_root>/chatgpt/oauth.json``.
+def default_state_path(scope: str | None = None) -> Path:
+    """Where OAuth state lives by default: ``<store_root>/chatgpt/oauth.json``,
+    or ``<store_root>/chatgpt/oauth-<scope>.json`` when ``scope`` is given.
+
+    ``scope`` is a hostname slug, passed by ``serve --persistent`` so two
+    projects serving different hostnames at once get separate stores: every
+    mutation flushes the whole file, so a shared one is last-writer-wins and
+    the other connector's clients/token hashes vanish mid-session.
 
     ``<store_root>`` is ``default_store_root()`` (``~/.lemoncrow``, or
     ``$LEMONCROW_ROOT`` when set) — the same root every other LemonCrow
@@ -149,7 +155,8 @@ def default_state_path() -> Path:
     of split across XDG directories. Parent dirs are created lazily on first
     write.
     """
-    return default_store_root() / "chatgpt" / _DEFAULT_STATE_FILENAME
+    name = _DEFAULT_STATE_FILENAME if scope is None else f"oauth-{scope}.json"
+    return default_store_root() / "chatgpt" / name
 
 
 def reset_state(state_path: Path) -> bool:

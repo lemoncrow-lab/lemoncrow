@@ -27,8 +27,11 @@ against the actually-installed binary's own ``--help`` output (cloudflared
   filter), used here to look up a tunnel that already exists under our name
   rather than depending on parsing a server-generated (and unverifiable
   without a live account) "already exists" error message from ``create``.
-- ``cloudflared tunnel route dns TUNNEL HOSTNAME`` — positional tunnel ref +
-  hostname; idempotent-safe (tolerated) on an already-routed hostname.
+- ``cloudflared tunnel route dns [--overwrite-dns] TUNNEL HOSTNAME`` —
+  positional tunnel ref + hostname; ``--overwrite-dns/-f`` (verified on
+  ``route dns --help``) is passed so re-pointing a hostname that currently
+  CNAMEs to a different tunnel succeeds instead of failing on an existing
+  record.
 - ``cloudflared tunnel run --credentials-file PATH --url URL TUNNEL`` — ``run``
   supports ``--url`` directly (confirmed on ``tunnel run --help``), so no
   ingress ``config.yml`` is needed for this single-service case.
@@ -49,11 +52,31 @@ from pathlib import Path
 
 from lemoncrow.core.foundation.paths import default_store_root
 
-# Fixed name: one persistent tunnel per machine backs every `--persistent`
-# invocation, reused across restarts (see `find_existing_tunnel`).
-TUNNEL_NAME = "lemoncrow-chatgpt"
+# One tunnel PER HOSTNAME, not per machine. Two `--persistent` servers
+# sharing a tunnel id are treated by Cloudflare as replicas of one tunnel:
+# edge traffic is load-balanced across them, so project A's requests land on
+# project B's local port. Everything per-connector (tunnel name, state file,
+# OAuth store) is therefore keyed by `hostname_slug`.
+TUNNEL_NAME_PREFIX = "lemoncrow-chatgpt"
 
-_STATE_FILENAME = "state.json"
+# Pre-isolation layout: one shared tunnel of exactly this name, one shared
+# state file. Migrated to the per-hostname layout by `migrate_legacy_state`.
+LEGACY_TUNNEL_NAME = "lemoncrow-chatgpt"
+_LEGACY_STATE_FILENAME = "state.json"
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def hostname_slug(hostname: str) -> str:
+    """``lc-lc.beseam.com`` → ``lc-lc-beseam-com`` — one key usable as both a
+    filename stem and a Cloudflare tunnel name. Only hostnames differing
+    purely in punctuation (``a_b.com`` vs ``a-b.com``) could collide, which
+    no real pair of connector hostnames does."""
+    return _SLUG_RE.sub("-", hostname.strip().lower()).strip("-") or "default"
+
+
+def tunnel_name_for(hostname: str) -> str:
+    return f"{TUNNEL_NAME_PREFIX}-{hostname_slug(hostname)}"
 
 
 class TunnelSetupError(RuntimeError):
@@ -83,8 +106,40 @@ def default_tunnel_state_dir() -> Path:
     return default_store_root() / "chatgpt" / "tunnel"
 
 
-def default_tunnel_state_path() -> Path:
-    return default_tunnel_state_dir() / _STATE_FILENAME
+def tunnel_state_path_for(hostname: str) -> Path:
+    """``<store_root>/chatgpt/tunnel/<hostname-slug>.json`` — one file per
+    configured connector hostname, so a second project never overwrites the
+    first project's tunnel reference."""
+    return default_tunnel_state_dir() / f"{hostname_slug(hostname)}.json"
+
+
+def load_all_tunnel_states() -> list[TunnelState]:
+    """Every configured hostname's state, hostname-sorted. Unreadable files
+    are skipped (same fail-open posture as `load_tunnel_state`). Used to let
+    ``--persistent`` keep working without ``--hostname`` when exactly one
+    connector is configured."""
+    try:
+        paths = sorted(default_tunnel_state_dir().glob("*.json"))
+    except OSError:
+        return []
+    states = [state for path in paths if (state := load_tunnel_state(path)) is not None]
+    return sorted(states, key=lambda state: state.hostname)
+
+
+def migrate_legacy_state() -> None:
+    """Move the pre-isolation shared ``tunnel/state.json`` onto its
+    per-hostname path, keeping its recorded tunnel name/id so an
+    already-configured connector keeps serving from the same tunnel. No-op
+    when there's nothing (or nothing readable) to migrate."""
+    legacy = default_tunnel_state_dir() / _LEGACY_STATE_FILENAME
+    state = load_tunnel_state(legacy)
+    if state is None:
+        return
+    target = tunnel_state_path_for(state.hostname)
+    if not target.exists():
+        save_tunnel_state(target, state)
+    with contextlib.suppress(OSError):
+        legacy.unlink()
 
 
 def load_tunnel_state(path: Path) -> TunnelState | None:
@@ -233,19 +288,20 @@ def create_tunnel(binary: str, name: str) -> tuple[str, str]:
 
 
 def route_dns(binary: str, tunnel_ref: str, hostname: str) -> None:
-    """Run ``cloudflared tunnel route dns TUNNEL HOSTNAME``, tolerating an
-    already-routed hostname the same idempotent-safe way tunnel reuse is
-    tolerated — routing the same hostname to the same tunnel twice is a
-    no-op, not a failure."""
+    """Run ``cloudflared tunnel route dns --overwrite-dns TUNNEL HOSTNAME``.
+
+    ``--overwrite-dns`` makes this idempotent for the same tunnel AND able to
+    re-point a hostname that currently CNAMEs elsewhere (e.g. off the old
+    shared tunnel onto this connector's own). Without it an existing record
+    is an error, and swallowing that error would leave the operator with a
+    "tunnel up" banner for a hostname pointing at someone else's tunnel.
+    """
     result = subprocess.run(
-        [binary, "tunnel", "route", "dns", tunnel_ref, hostname],
+        [binary, "tunnel", "route", "dns", "--overwrite-dns", tunnel_ref, hostname],
         capture_output=True,
         text=True,
     )
     if result.returncode == 0:
-        return
-    combined = (result.stdout + result.stderr).lower()
-    if "already exist" in combined or "already has" in combined or "already configured" in combined:
         return
     raise TunnelSetupError(
         f"`cloudflared tunnel route dns {tunnel_ref} {hostname}` failed "
@@ -303,11 +359,11 @@ def setup_persistent_tunnel(
     """Full ``--persistent`` setup (or fast-path reuse), then launch
     ``cloudflared tunnel run``.
 
-    Assumes the caller (``chatgpt.py``) already resolved and validated
-    ``hostname`` (first-run-needs---hostname, hostname-mismatch-needs-reset)
-    against ``existing_state`` — this function only orchestrates cloudflared.
-    ``narrate`` is called with short progress messages so the operator isn't
-    staring at a silent hang during the interactive browser login step.
+    Assumes the caller (``chatgpt.py``) already resolved ``hostname`` and
+    loaded ``existing_state`` from that hostname's own state file — this
+    function only orchestrates cloudflared. ``narrate`` is called with short
+    progress messages so the operator isn't staring at a silent hang during
+    the interactive browser login step.
     """
     if existing_state is not None:
         narrate(f"Using persisted tunnel {existing_state.tunnel_name!r} (id={existing_state.tunnel_id}).")
@@ -319,21 +375,22 @@ def setup_persistent_tunnel(
     else:
         narrate(f"Cloudflare login already present ({default_cert_path()}).")
 
-    narrate(f"Looking for an existing tunnel named {TUNNEL_NAME!r}…")
-    existing = find_existing_tunnel(binary, TUNNEL_NAME)
+    tunnel_name = tunnel_name_for(hostname)
+    narrate(f"Looking for an existing tunnel named {tunnel_name!r}…")
+    existing = find_existing_tunnel(binary, tunnel_name)
     if existing is not None:
         tunnel_id, credentials_path = existing
-        narrate(f"Reusing existing tunnel {TUNNEL_NAME!r} (id={tunnel_id}).")
+        narrate(f"Reusing existing tunnel {tunnel_name!r} (id={tunnel_id}).")
     else:
-        narrate(f"Creating tunnel {TUNNEL_NAME!r}…")
-        tunnel_id, credentials_path = create_tunnel(binary, TUNNEL_NAME)
-        narrate(f"Created tunnel {TUNNEL_NAME!r} (id={tunnel_id}).")
+        narrate(f"Creating tunnel {tunnel_name!r}…")
+        tunnel_id, credentials_path = create_tunnel(binary, tunnel_name)
+        narrate(f"Created tunnel {tunnel_name!r} (id={tunnel_id}).")
 
-    narrate(f"Routing DNS: {hostname} → {TUNNEL_NAME}…")
-    route_dns(binary, TUNNEL_NAME, hostname)
+    narrate(f"Routing DNS: {hostname} → {tunnel_name}…")
+    route_dns(binary, tunnel_name, hostname)
 
     save_tunnel_state(
         state_path,
-        TunnelState(tunnel_name=TUNNEL_NAME, tunnel_id=tunnel_id, hostname=hostname, credentials_path=credentials_path),
+        TunnelState(tunnel_name=tunnel_name, tunnel_id=tunnel_id, hostname=hostname, credentials_path=credentials_path),
     )
     return start_named_tunnel_process(binary, tunnel_id, port, credentials_path)

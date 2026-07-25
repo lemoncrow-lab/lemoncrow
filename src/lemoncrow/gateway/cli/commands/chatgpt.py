@@ -338,15 +338,16 @@ def chatgpt_group() -> None:
     "--hostname",
     default=None,
     help="Public hostname to bind for --persistent, e.g. mcp.example.com (a domain you "
-    "manage in Cloudflare). Required on the first --persistent run; read from persisted "
-    "state on later runs.",
+    "manage in Cloudflare). Each hostname gets its own tunnel, state and OAuth store, so "
+    "several projects can serve at once. Required on the first --persistent run, and "
+    "whenever more than one hostname is already configured.",
 )
 @click.option(
     "--reset-tunnel",
     is_flag=True,
     default=False,
-    help="Clear the persisted --persistent tunnel state first, so it can be "
-    "reconfigured with a different hostname. Does NOT delete the Cloudflare-side "
+    help="Clear this hostname's persisted tunnel state first, so it can be "
+    "reconfigured from scratch. Does NOT delete the Cloudflare-side "
     "tunnel — that's `cloudflared tunnel delete` yourself.",
 )
 def chatgpt_serve_cmd(
@@ -387,10 +388,13 @@ def chatgpt_serve_cmd(
     )
     from lemoncrow.gateway.cli.commands._persistent_tunnel import (
         TunnelSetupError,
-        default_tunnel_state_path,
+        hostname_slug,
+        load_all_tunnel_states,
         load_tunnel_state,
+        migrate_legacy_state,
         reset_tunnel_state,
         setup_persistent_tunnel,
+        tunnel_state_path_for,
     )
 
     if no_auth and (pairing_code is not None or reset):
@@ -416,10 +420,27 @@ def chatgpt_serve_cmd(
         raise click.ClickException(f"could not bind {host}:{port if port is not None else '(auto)'} — {exc}") from exc
     port = sock.getsockname()[1]
 
-    tunnel_state_path = default_tunnel_state_path()
+    tunnel_state_path: Path | None = None
     existing_tunnel_state = None
     resolved_hostname: str | None = None
     if persistent:
+        migrate_legacy_state()
+        if hostname is not None:
+            resolved_hostname = hostname
+        else:
+            # No --hostname: unambiguous only while exactly one connector is
+            # configured. Silently picking one of several would resurrect the
+            # very cross-project mix-up per-hostname state exists to prevent.
+            configured = load_all_tunnel_states()
+            if not configured:
+                raise click.UsageError("first --persistent run needs --hostname <your-domain-in-cloudflare>")
+            if len(configured) > 1:
+                raise click.UsageError(
+                    "several hostnames are configured — pass --hostname to pick one: "
+                    + ", ".join(state.hostname for state in configured)
+                )
+            resolved_hostname = configured[0].hostname
+        tunnel_state_path = tunnel_state_path_for(resolved_hostname)
         if reset_tunnel:
             removed = reset_tunnel_state(tunnel_state_path)
             click.echo(
@@ -428,16 +449,6 @@ def chatgpt_serve_cmd(
             )
         else:
             existing_tunnel_state = load_tunnel_state(tunnel_state_path)
-        if existing_tunnel_state is None and hostname is None:
-            raise click.UsageError("first --persistent run needs --hostname <your-domain-in-cloudflare>")
-        if existing_tunnel_state is not None and hostname is not None and hostname != existing_tunnel_state.hostname:
-            click.secho(
-                f"  ⚠  hostname changed ({existing_tunnel_state.hostname!r} → {hostname!r}) — auto-resetting tunnel state.",
-                fg="yellow",
-            )
-            reset_tunnel_state(tunnel_state_path)
-            existing_tunnel_state = None
-        resolved_hostname = hostname or (existing_tunnel_state.hostname if existing_tunnel_state else None)
 
     code: str | None = None
     if no_auth:
@@ -446,7 +457,11 @@ def chatgpt_serve_cmd(
         app = create_mcp_http_app()
     else:
         code = pairing_code or secrets.token_urlsafe(9)
-        state_path = default_state_path()
+        # Per-hostname OAuth store under --persistent: every mutation flushes
+        # the whole file, so two concurrently-serving projects on one store
+        # would clobber each other's clients and token hashes (the other
+        # connector starts 401-ing mid-session).
+        state_path = default_state_path(hostname_slug(resolved_hostname) if resolved_hostname else None)
         if reset:
             removed = reset_state(state_path)
             click.echo(f"  Reset OAuth state ({'removed ' + str(state_path) if removed else 'nothing to remove'}).")
@@ -478,7 +493,9 @@ def chatgpt_serve_cmd(
     tunnel_proc: subprocess.Popen[str] | None = None
     tunnel_url: str | None = None
     if persistent:
-        assert resolved_hostname is not None  # guaranteed by the validation above
+        # both guaranteed by the --persistent resolution above
+        assert resolved_hostname is not None
+        assert tunnel_state_path is not None
         binary = _resolve_cloudflared()
         if binary is None:
             binary = _install_cloudflared_interactive(port)
@@ -598,24 +615,33 @@ def chatgpt_serve_cmd(
     multiple=True,
     help="OAuth redirect URI to register (repeatable; default: ChatGPT's connector redirects).",
 )
-def chatgpt_client_cmd(redirect_uris: tuple[str, ...]) -> None:
+@click.option(
+    "--hostname",
+    default=None,
+    help="Mint the client in the OAuth store of this --persistent hostname (each "
+    "hostname has its own store). Omit for the default/quick-tunnel store.",
+)
+def chatgpt_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None:
     """Print a stable OAuth client ID for ChatGPT's "Enter a client ID" field.
 
     ChatGPT's connector form can use a user-supplied OAuth client instead of
     dynamic registration. This mints one in the same state store `serve` uses
-    (idempotent: re-running prints the same ID) so it survives restarts.
+    (idempotent: re-running prints the same ID) so it survives restarts. Pass
+    the same --hostname you serve that connector with.
     """
     from lemoncrow.gateway.adapters.mcp_oauth import (
         _is_allowed_redirect_uri,
         default_state_path,
         ensure_user_client,
     )
+    from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
 
     uris = list(redirect_uris) if redirect_uris else list(_CHATGPT_REDIRECT_URIS)
     for uri in uris:
         if not _is_allowed_redirect_uri(uri):
             raise click.UsageError(f"redirect_uri must be https (or http loopback): {uri}")
-    record = ensure_user_client(default_state_path(), uris)
+    scope = hostname_slug(hostname) if hostname is not None else None
+    record = ensure_user_client(default_state_path(scope), uris)
 
     click.echo("")
     click.echo(
