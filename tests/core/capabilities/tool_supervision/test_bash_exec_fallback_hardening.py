@@ -26,6 +26,7 @@ from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
 def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
     output_delta.reset()
     monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
+    monkeypatch.setenv("LEMONCROW_BASH_EXTERNAL_COMPACTORS", "0")
     monkeypatch.delenv("LEMONCROW_BASH_UNCHANGED_DELTA", raising=False)
     monkeypatch.delenv("LEMONCROW_BASH_FLAG_INJECTION", raising=False)
 

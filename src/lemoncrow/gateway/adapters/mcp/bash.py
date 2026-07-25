@@ -541,10 +541,9 @@ def _run_bash_tool(
     # the real command family, not to the compactor binary's path.
     _stats_command = command
     if policy.action == "rewrite" and policy.rewrite_target == "external_compactor" and policy.rewrite_payload:
-        _binary_path = str(policy.rewrite_payload.get("binary_path") or "")
-        _original_command = str(policy.rewrite_payload.get("original_command") or command)
-        if _binary_path:
-            command = f"{shlex.quote(_binary_path)} {_original_command}"
+        _rewritten_command = str(policy.rewrite_payload.get("command") or "")
+        if _rewritten_command:
+            command = _rewritten_command
 
     # Pipeline seek rewrite (classify_command): `od <bigfile> | tail` -> an
     # in-place `od -j <offset>` that formats only the tail region instead of the
@@ -557,7 +556,7 @@ def _run_bash_tool(
             command = _seek_command
             _pipeline_note = str(policy.rewrite_payload.get("note") or "")
 
-    if policy.action == "rewrite" and policy.rewrite_target in {"head", "tail", "wc"} and policy.rewrite_payload:
+    if policy.action == "rewrite" and policy.rewrite_target in {"cat", "head", "tail", "wc"} and policy.rewrite_payload:
         _stdout, _stderr, _exit = execute_inline_op(policy.rewrite_target, policy.rewrite_payload, effective_cwd)
         return {
             "stdout": _stdout,
@@ -649,7 +648,7 @@ def _run_bash_tool(
                 rewritten_stdout = pipe_proc.stdout
                 if pipe_proc.returncode != 0 and pipe_proc.stderr:
                     rewritten_stdout = rewritten_stdout + pipe_proc.stderr
-            except (OSError, ValueError, _sp.TimeoutExpired):  # type: ignore[possibly-undefined]
+            except (OSError, ValueError, _sp.TimeoutExpired):
                 pass  # fall through with unpiped output on any error
 
         return {
@@ -1014,16 +1013,18 @@ def _render_bash_text(result: dict[str, Any]) -> str:
         if exit_code in (None, 0) and not blocked:
             parts.append("stderr:")
         parts.append(stderr)
-    if truncated and isinstance(lines_omitted, int) and lines_omitted > 0:
+    if truncated:
         if stdout or stderr:
             parts.append("")
-        # The spill notice already carries the omission accounting AND the
-        # recovery path; a second "[output truncated ...]" line would restate
-        # it. Only fall back to the bare marker (+ log pointer) without a spill.
+        # Character-only and structured-data sampling can be lossy without a
+        # meaningful line count. Surface recovery whenever the result says it
+        # was compacted, not only when lines_omitted happens to be positive.
         if spill_hint:
             parts.append(spill_hint)
-        else:
+        elif isinstance(lines_omitted, int) and lines_omitted > 0:
             parts.append(f"[output truncated: {lines_omitted} lines omitted{log_ptr}]")
+        else:
+            parts.append(f"[output compacted{log_ptr}]")
     rendered = "\n".join(parts).strip()
     if rendered:
         return rendered
