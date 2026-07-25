@@ -191,7 +191,7 @@ def test_create_tunnel_raises_when_output_unparseable(monkeypatch: pytest.Monkey
 
 
 # ── route dns ────────────────────────────────────────────────────────────────
-def test_route_dns_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_route_dns_success_overwrites_existing_record(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
     def _fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
@@ -200,12 +200,17 @@ def test_route_dns_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(pt.subprocess, "run", _fake_run)
     pt.route_dns("cloudflared", "lemoncrow-chatgpt", "mcp.example.com")
-    assert calls == [["cloudflared", "tunnel", "route", "dns", "lemoncrow-chatgpt", "mcp.example.com"]]
+    # --overwrite-dns: re-pointing a hostname off another tunnel must succeed,
+    # instead of erroring on the existing record and being silently tolerated.
+    assert calls == [
+        ["cloudflared", "tunnel", "route", "dns", "--overwrite-dns", "lemoncrow-chatgpt", "mcp.example.com"]
+    ]
 
 
-def test_route_dns_tolerates_already_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_route_dns_raises_on_already_exists(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pt.subprocess, "run", lambda cmd, **kw: _completed(1, stderr="a CNAME record already exists"))
-    pt.route_dns("cloudflared", "lemoncrow-chatgpt", "mcp.example.com")  # must not raise
+    with pytest.raises(pt.TunnelSetupError):
+        pt.route_dns("cloudflared", "lemoncrow-chatgpt", "mcp.example.com")
 
 
 def test_route_dns_raises_on_other_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -317,7 +322,7 @@ def test_setup_persistent_tunnel_first_time_full_flow(monkeypatch: pytest.Monkey
 
     saved = pt.load_tunnel_state(state_path)
     assert saved == pt.TunnelState(
-        tunnel_name=pt.TUNNEL_NAME,
+        tunnel_name=pt.tunnel_name_for("mcp.example.com"),
         tunnel_id="new-tunnel-id",
         hostname="mcp.example.com",
         credentials_path="/home/x/.cloudflared/new-tunnel-id.json",
@@ -366,9 +371,9 @@ def test_setup_persistent_tunnel_reuses_found_tunnel_skips_create(
         binary="cloudflared",
         narrate=lambda _msg: None,
     )
-    # route_dns is called with the tunnel's fixed name (accepted by `route dns`
-    # just like an ID would be), not the resolved UUID — see setup_persistent_tunnel.
-    assert routed == [pt.TUNNEL_NAME]
+    # route_dns is called with the tunnel's per-hostname name (accepted by `route
+    # dns` just like an ID would be), not the resolved UUID — see setup_persistent_tunnel.
+    assert routed == [pt.tunnel_name_for("mcp.example.com")]
     saved = pt.load_tunnel_state(state_path)
     assert saved is not None
     assert saved.tunnel_id == "found-id"
@@ -412,7 +417,7 @@ def test_persistent_first_run_with_hostname_full_flow(monkeypatch: pytest.Monkey
     def _fake_create(binary: str, name: str) -> tuple[str, str]:
         call_order.append("create")
         assert binary == "/usr/bin/cloudflared"
-        assert name == pt.TUNNEL_NAME
+        assert name == pt.tunnel_name_for("mcp.example.com")
         return "fresh-id", "/home/x/.cloudflared/fresh-id.json"
 
     monkeypatch.setattr(pt, "create_tunnel", _fake_create)
@@ -439,14 +444,14 @@ def test_persistent_first_run_with_hostname_full_flow(monkeypatch: pytest.Monkey
     )
     assert result.exit_code == 0, result.output
     assert call_order == ["is_logged_in", "find", "create", "route", "run"]
-    assert routed == [(pt.TUNNEL_NAME, "mcp.example.com")]
+    assert routed == [(pt.tunnel_name_for("mcp.example.com"), "mcp.example.com")]
     assert proc.terminated  # cleaned up via the same finally-block lifecycle as the quick tunnel
 
-    state_path = pt.default_tunnel_state_path()
+    state_path = pt.tunnel_state_path_for("mcp.example.com")
     assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
     saved = pt.load_tunnel_state(state_path)
     assert saved == pt.TunnelState(
-        tunnel_name=pt.TUNNEL_NAME,
+        tunnel_name=pt.tunnel_name_for("mcp.example.com"),
         tunnel_id="fresh-id",
         hostname="mcp.example.com",
         credentials_path="/home/x/.cloudflared/fresh-id.json",
@@ -457,11 +462,11 @@ def test_persistent_second_run_uses_saved_state_skips_setup(monkeypatch: pytest.
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
     monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
 
-    state_path = pt.default_tunnel_state_path()
+    state_path = pt.tunnel_state_path_for("mcp.example.com")
     pt.save_tunnel_state(
         state_path,
         pt.TunnelState(
-            tunnel_name=pt.TUNNEL_NAME,
+            tunnel_name=pt.tunnel_name_for("mcp.example.com"),
             tunnel_id="saved-id",
             hostname="mcp.example.com",
             credentials_path="/saved/creds.json",
@@ -511,19 +516,144 @@ def test_persistent_finds_existing_tunnel_skips_create(monkeypatch: pytest.Monke
 
     result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "mcp.example.com"])
     assert result.exit_code == 0, result.output
-    saved = pt.load_tunnel_state(pt.default_tunnel_state_path())
+    saved = pt.load_tunnel_state(pt.tunnel_state_path_for("mcp.example.com"))
     assert saved is not None
     assert saved.tunnel_id == "existing-id"
 
 
-def test_persistent_hostname_mismatch_auto_resets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """When --hostname differs from persisted state, auto-reset and reconfigure."""
+def test_second_hostname_gets_its_own_tunnel_and_leaves_the_first_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The bug this isolation exists for: serving project B must not re-point
+    project A's hostname onto a shared tunnel — Cloudflare treats two
+    cloudflared processes on one tunnel id as replicas and load-balances edge
+    traffic across them, landing A's requests on B's local port."""
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    state_path = pt.default_tunnel_state_path()
+    pt.save_tunnel_state(
+        pt.tunnel_state_path_for("a.example.com"),
+        pt.TunnelState(
+            tunnel_name=pt.tunnel_name_for("a.example.com"),
+            tunnel_id="tunnel-a",
+            hostname="a.example.com",
+            credentials_path="/a.json",
+        ),
+    )
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(pt, "is_logged_in", lambda: True)
+    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: None)
+    created: list[str] = []
+    monkeypatch.setattr(pt, "create_tunnel", lambda binary, name: (created.append(name), ("tunnel-b", "/b.json"))[1])
+    routed: list[tuple[str, str]] = []
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: routed.append((ref, hostname)))
+    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda binary, ref, port, cred: _FakeTunnelProc())
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "b.example.com"])
+    assert result.exit_code == 0, result.output
+    assert created == [pt.tunnel_name_for("b.example.com")]  # its own tunnel, not A's
+    assert routed == [(pt.tunnel_name_for("b.example.com"), "b.example.com")]  # A's DNS untouched
+
+    a_state = pt.load_tunnel_state(pt.tunnel_state_path_for("a.example.com"))
+    assert a_state is not None and a_state.tunnel_id == "tunnel-a"  # A's state survived B's run
+    b_state = pt.load_tunnel_state(pt.tunnel_state_path_for("b.example.com"))
+    assert b_state is not None and b_state.tunnel_id == "tunnel-b"
+
+
+def test_persistent_oauth_store_is_scoped_per_hostname(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Concurrent connectors must not share one OAuth file: every mutation
+    rewrites the whole file, so a shared store is last-writer-wins."""
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(pt, "is_logged_in", lambda: True)
+    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: None)
+    monkeypatch.setattr(pt, "create_tunnel", lambda binary, name: ("id-x", "/x.json"))
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: None)
+    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda binary, ref, port, cred: _FakeTunnelProc())
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+
+    seen: list[Path] = []
+    import lemoncrow.gateway.cli.commands.chatgpt as chatgpt_mod
+
+    real_create = chatgpt_mod.__dict__.get("create_protected_mcp_app")
+    assert real_create is None  # imported inside the command, so patch at the source module
+    from lemoncrow.gateway.adapters import mcp_oauth
+
+    original = mcp_oauth.create_protected_mcp_app
+
+    def _spy(*, pairing_code: str, state_path: Path) -> Any:
+        seen.append(state_path)
+        return original(pairing_code=pairing_code, state_path=state_path)
+
+    monkeypatch.setattr(mcp_oauth, "create_protected_mcp_app", _spy)
+
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "a.example.com"])
+    assert result.exit_code == 0, result.output
+    assert seen == [tmp_path / ".lemoncrow" / "chatgpt" / "oauth-a-example-com.json"]
+
+
+def test_persistent_without_hostname_errors_when_several_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    for host, tid in (("a.example.com", "id-a"), ("b.example.com", "id-b")):
+        pt.save_tunnel_state(
+            pt.tunnel_state_path_for(host),
+            pt.TunnelState(tunnel_name=pt.tunnel_name_for(host), tunnel_id=tid, hostname=host, credentials_path="/c"),
+        )
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent"])
+    assert result.exit_code != 0
+    assert "several hostnames are configured" in result.output
+    assert "a.example.com" in result.output and "b.example.com" in result.output
+
+
+def test_legacy_shared_state_migrates_to_its_hostname_keeping_the_same_tunnel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    legacy = pt.default_tunnel_state_dir() / "state.json"
+    pt.save_tunnel_state(
+        legacy,
+        pt.TunnelState(
+            tunnel_name=pt.LEGACY_TUNNEL_NAME,
+            tunnel_id="legacy-id",
+            hostname="old.example.com",
+            credentials_path="/legacy.json",
+        ),
+    )
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+
+    def _boom(*a: Any, **kw: Any) -> Any:
+        raise AssertionError("migrated state must be reused, not reconfigured")
+
+    monkeypatch.setattr(pt, "is_logged_in", _boom)
+    monkeypatch.setattr(pt, "find_existing_tunnel", _boom)
+    monkeypatch.setattr(pt, "create_tunnel", _boom)
+    monkeypatch.setattr(pt, "route_dns", _boom)
+    started: list[str] = []
+    monkeypatch.setattr(
+        pt, "start_named_tunnel_process", lambda binary, ref, port, cred: (started.append(ref), _FakeTunnelProc())[1]
+    )
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+
+    # No --hostname: the migrated state is the only one configured.
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent"])
+    assert result.exit_code == 0, result.output
+    assert started == ["legacy-id"]  # same Cloudflare tunnel as before the migration
+    assert not legacy.exists()
+    migrated = pt.load_tunnel_state(pt.tunnel_state_path_for("old.example.com"))
+    assert migrated is not None and migrated.tunnel_name == pt.LEGACY_TUNNEL_NAME
+
+
+def test_reset_tunnel_reconfigures_that_hostname_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    state_path = pt.tunnel_state_path_for("old.example.com")
     pt.save_tunnel_state(
         state_path,
         pt.TunnelState(
-            tunnel_name=pt.TUNNEL_NAME, tunnel_id="old-id", hostname="old.example.com", credentials_path="/c.json"
+            tunnel_name=pt.tunnel_name_for("old.example.com"),
+            tunnel_id="old-id",
+            hostname="old.example.com",
+            credentials_path="/c.json",
         ),
     )
     monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
@@ -534,27 +664,20 @@ def test_persistent_hostname_mismatch_auto_resets(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(pt, "start_named_tunnel_process", lambda binary, ref, port, cred: _FakeTunnelProc())
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
 
-    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "new.example.com"])
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--reset-tunnel"])
     assert result.exit_code == 0, result.output
-    assert "auto-resetting tunnel state" in result.output
-    assert "new.example.com" in result.output
+    assert "Reset persistent-tunnel state" in result.output
+    reconfigured = pt.load_tunnel_state(state_path)
+    assert reconfigured is not None and reconfigured.tunnel_id == "new-id"  # same hostname, fresh tunnel
 
 
-def test_reset_tunnel_clears_state_then_requires_hostname_again(
+def test_reset_tunnel_without_hostname_and_nothing_configured_errors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    state_path = pt.default_tunnel_state_path()
-    pt.save_tunnel_state(
-        state_path,
-        pt.TunnelState(
-            tunnel_name=pt.TUNNEL_NAME, tunnel_id="old-id", hostname="old.example.com", credentials_path="/c.json"
-        ),
-    )
     result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--reset-tunnel"])
-    assert result.exit_code != 0  # no --hostname given -> first-time-needs-hostname, post-reset
+    assert result.exit_code != 0
     assert "needs --hostname" in result.output
-    assert not state_path.exists()  # the reset itself did take effect
 
 
 def test_persistent_banner_shows_stable_hostname_not_quick_tunnel_note(
@@ -594,4 +717,4 @@ def test_persistent_setup_failure_exits_1_with_clear_message_no_half_serving(
     assert result.exit_code == 1
     assert "boom: create failed" in result.output
     assert served == []  # never reaches uvicorn.run — no half-serving
-    assert pt.load_tunnel_state(pt.default_tunnel_state_path()) is None  # nothing persisted on failure
+    assert pt.load_tunnel_state(pt.tunnel_state_path_for("mcp.example.com")) is None  # nothing persisted on failure
