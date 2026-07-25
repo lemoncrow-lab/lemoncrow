@@ -117,7 +117,53 @@ def test_smart_read_minified_projection_banner_for_safe_language(tmp_path: Path,
     # outline-by-default behavior.
     monkeypatch.setenv("LEMONCROW_OUTLINE_THRESHOLD", "200")
 
+    # Big enough (comments + blank-line runs across multiple functions) that
+    # minification's saving survives the gutter's own "N\t" per-line overhead
+    # -- a trivial one-liner does NOT (see
+    # test_smart_read_minified_projection_falls_back_when_gutter_not_worth_it),
+    # so the gutter banner is conditional on actually netting a saving.
     target = tmp_path / "sample.go"
+    target.write_text(
+        "// Package main is the entry point.\n"
+        "package main\n\n"
+        'import "fmt"\n\n'
+        "// greet prints a friendly greeting to stdout.\n"
+        "func greet(name string) {\n"
+        "\t// simple formatting, nothing fancy\n"
+        '\tfmt.Println("Hello, " + name + "!")\n'
+        "}\n\n"
+        "// add returns the sum of two integers.\n"
+        "func add(a int, b int) int {\n"
+        "\t// straightforward addition\n"
+        "\treturn a + b\n"
+        "}\n\n"
+        "func main() {\n"
+        '\tgreet("world")\n'
+        "\tfmt.Println(add(2, 3))\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    rendered = _smart_read({"path": str(target)})
+
+    # Gutter numbers are real disk lines now (safe to use in :Lx-Ly directly),
+    # so the banner no longer warns they "differ from disk" -- it says they're
+    # safe to use as-is instead.
+    assert rendered.startswith("(minified; number = real disk line, safe in :Lx-Ly")
+    assert "package main" in rendered
+    assert "2\tpackage main" in rendered
+
+
+def test_smart_read_minified_projection_falls_back_when_gutter_not_worth_it(tmp_path: Path, monkeypatch: Any) -> None:
+    _seed_store(tmp_path, monkeypatch)
+    monkeypatch.setenv("LEMONCROW_OUTLINE_THRESHOLD", "200")
+
+    # Trivial file: minification's own saving (one dropped blank line, a few
+    # collapsed spaces) is smaller than the gutter's "N\t" prefix cost across
+    # its few lines -- the guttered serve would be net LARGER than raw disk.
+    # Falls back to the plain (ungutted) minified view instead of shipping a
+    # projection that's worse than not minifying at all.
+    target = tmp_path / "tiny.go"
     target.write_text(
         'package   main\n\nfunc   main()   {\n    println("hello")\n}\n',
         encoding="utf-8",
@@ -125,5 +171,7 @@ def test_smart_read_minified_projection_banner_for_safe_language(tmp_path: Path,
 
     rendered = _smart_read({"path": str(target)})
 
-    assert rendered.startswith("(minified; line numbers differ from disk)")
+    assert not rendered.startswith("(minified; number = real disk line")
     assert "package main" in rendered
+    # No disk-line gutter prefix on this fallback path.
+    assert "1\tpackage main" not in rendered

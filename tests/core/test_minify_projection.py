@@ -13,6 +13,7 @@ from lemoncrow.pro.capabilities.source_projection import (
     apply_minified_edit,
     build_minified_projection,
     language_for_minify,
+    minified_line_gutter,
 )
 from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
@@ -207,6 +208,40 @@ def test_edit_fuzzy_ambiguous_in_minified_space_falls_back_not_crashes() -> None
     with pytest.raises(MinifiedEditError) as exc:
         apply_minified_edit(src, "python", old_string, old_string + "  # x")
     assert exc.value.code == "ambiguous"
+
+
+def test_minified_line_gutter_resolves_line_within_multiline_segment() -> None:
+    # A multi-line exact segment (a docstring here) is copied byte-for-byte
+    # into the projection -- each of ITS lines must get its own real disk
+    # line, not the segment's first line repeated. Regression for a bug where
+    # every projected line inside a >1-line exact segment was stamped with
+    # `segment.source.start_line`.
+    src = (
+        "def f():\n"
+        "    '''Line one.\n"
+        "\n"
+        "    Line three.\n"
+        "    Line four.\n"
+        "    '''\n"
+        "    # strip me\n"
+        "    a = 1\n"
+    )
+    result = build_minified_projection(src, "python", include_mapping=True, path="ds.py")
+    assert result.applied and result.mapping is not None
+    gutter = minified_line_gutter(result.content, result.mapping)
+    disk_lines = src.splitlines()
+    for gline in gutter.splitlines():
+        num_str, _, text = gline.partition("\t")
+        disk_line = disk_lines[int(num_str) - 1]
+        # Non-blank projected lines must carry non-empty text; a blank
+        # docstring line (disk line 3 here) legitimately has none.
+        assert text or disk_line.strip() == ""
+        # The gutter number's disk line must actually contain this text.
+        assert disk_line.strip() == text.strip()
+    # And distinct source lines inside the docstring get DISTINCT numbers.
+    numbers = [int(gline.partition("\t")[0]) for gline in gutter.splitlines()]
+    assert numbers == sorted(set(numbers))  # strictly increasing, no repeats
+    assert numbers == [1, 2, 3, 4, 5, 6, 8]  # disk line 7 (dropped comment) absent
 
 
 def test_edit_dropped_interior_fails_closed() -> None:

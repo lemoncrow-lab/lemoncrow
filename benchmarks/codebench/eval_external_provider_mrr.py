@@ -384,6 +384,40 @@ def _extract_paths_text(text: str, ws: Path) -> list[str]:
     return result
 
 
+def _split_candidate_files_line(text: str) -> list[str]:
+    """Split a candidate_files line's comma-joined segments, honoring
+    LemonCrow's dir/{a,b,c} glob-compressed groups: commas inside a `{...}`
+    span don't split (see mcp_server._compress_candidate_files)."""
+    segments: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in text:
+        if ch == "{":
+            depth += 1
+            current.append(ch)
+        elif ch == "}":
+            depth = max(0, depth - 1)
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            segments.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        segments.append("".join(current).strip())
+    return [s for s in segments if s]
+
+
+def _expand_candidate_segment(segment: str) -> list[str]:
+    """Expand one dir/{a,b,c} segment into its real per-file paths, in order;
+    a plain (non-grouped) segment passes through unchanged."""
+    m = re.match(r"^(.*/)\{([^{}]*)\}$", segment)
+    if not m:
+        return [segment] if segment else []
+    prefix, inner = m.group(1), m.group(2)
+    return [prefix + name.strip() for name in inner.split(",") if name.strip()]
+
+
 def _rank(ranked_files: list[str], gold_files: list[str]) -> int | None:
     """Return 1-based rank of first gold file, or None."""
     norm_gold = {g.replace("\\", "/") for g in gold_files if g}
@@ -2156,7 +2190,8 @@ class LemonCrowProvider(Provider):
                     if line.startswith("## "):
                         md_files.append(line[3:].strip())
                     elif line.startswith("candidate_files: "):
-                        md_cands.extend(p.strip() for p in line[len("candidate_files: ") :].split(","))
+                        for seg in _split_candidate_files_line(line[len("candidate_files: ") :]):
+                            md_cands.extend(_expand_candidate_segment(seg))
             if md_files or md_cands:
                 payload = {"files": [{"path": p} for p in md_files], "candidate_files": md_cands}
         files = self._paths_from_payload(payload, ws) if payload else []
