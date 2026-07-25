@@ -3484,9 +3484,9 @@ def test_query_words_normalizes_and_drops_short_tokens() -> None:
 
 def test_check_repeat_query_flags_the_debt_benchmark_regression() -> None:
     # The exact near-duplicate query sequence observed in a real debt-
-    # benchmark rep (2026-07-25, 11 near-identical code_search calls in one
-    # run) -- at least one consecutive pair must trigger the nudge, proving
-    # this would have caught that regression.
+    # benchmark rep (2026-07-25, 11+ near-identical code_search calls in one
+    # run) -- at least one consecutive pair must be flagged, proving this
+    # would have caught that regression.
     mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
     queries = [
         "fail-on-stale stale-days debt_cmd lc-debt",
@@ -3495,22 +3495,48 @@ def test_check_repeat_query_flags_the_debt_benchmark_regression() -> None:
         "_line_age_days git blame annotate stale",
         "line age days git blame last modified",
     ]
-    hints = [mcp_server._check_repeat_query(q) for q in queries]
-    assert hints[0] is None  # nothing recorded yet
-    assert any(h is not None for h in hints[1:]), "expected at least one repeat-query nudge"
+    flags = [mcp_server._check_repeat_query(q) for q in queries]
+    assert all(isinstance(f, bool) for f in flags)
+    assert flags[0] is False  # nothing recorded yet
+    assert any(flags[1:]), "expected at least one repeat-query flag"
 
 
-def test_check_repeat_query_no_hint_for_distinct_topics() -> None:
+def test_check_repeat_query_false_for_distinct_topics() -> None:
     mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
-    assert mcp_server._check_repeat_query("parse yaml config loader") is None
-    assert mcp_server._check_repeat_query("websocket reconnect backoff timer") is None
+    assert mcp_server._check_repeat_query("parse yaml config loader") is False
+    assert mcp_server._check_repeat_query("websocket reconnect backoff timer") is False
+    assert mcp_server._check_repeat_query("database connection pool sizing") is False
 
 
-def test_render_code_search_md_renders_repeat_query_hint() -> None:
-    payload = {"exact_match": True, "files": [], "repeat_query_hint": "query overlaps heavily with X"}
+def test_check_repeat_query_records_into_session_bucket() -> None:
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    mcp_server._check_repeat_query("parse yaml config loader")
+    bucket = mcp_server._recent_code_search_queries()
+    assert len(bucket) == 1
+    assert bucket[0][1] == "parse yaml config loader"
+    assert bucket[0][2] == mcp_server._query_words("parse yaml config loader")
+
+
+def test_check_repeat_query_ignores_entries_outside_time_window() -> None:
+    # A daemon can outlive many separate conversations (confirmed this
+    # session) -- a query from a previous, unrelated chat must not blank a
+    # brand-new conversation's first call just because the words overlap.
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    mcp_server._check_repeat_query("fail-on-stale stale-days debt_cmd")
+    bucket = mcp_server._recent_code_search_queries()
+    ts, text, words = bucket[0]
+    bucket[0] = (ts - mcp_server._RECENT_QUERY_WINDOW_SECONDS - 1, text, words)
+    assert mcp_server._check_repeat_query("stale_days fail_on_stale debt marker age") is False
+
+
+def test_render_code_search_md_renders_blank_result_with_no_hint_text() -> None:
+    # A flagged repeat query returns blank results with NO explanatory text --
+    # renders as just the bare "no exact match" line, nothing more (measured:
+    # the caller skims past prose hints and searches again anyway).
+    payload = {"exact_match": False, "files": []}
     text = mcp_server._render_code_search_md(payload)
-    assert text is not None
-    assert "[lc: query overlaps heavily with X]" in text
+    assert text == "no exact match -- ranked candidates"
+    assert "[lc:" not in text
 
 
 def test_lean_code_search_view_candidate_files_keeps_full_window_when_not_dominant() -> None:

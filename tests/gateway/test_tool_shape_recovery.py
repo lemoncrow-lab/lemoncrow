@@ -46,6 +46,10 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = MagicMock()
     mcp_server._remote_client.get_context.return_value = {"context": "", "run_ledger": []}
+    # The repeat-query bucket is process-wide ("_global" stdio bucket) --
+    # without clearing it, an earlier test's code_search query (e.g. the
+    # common "src.py" fixture file) can blank out a later, unrelated test.
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
     return tmp_path
 
 
@@ -153,19 +157,23 @@ def test_code_search_limit_vanilla_aliases_end_to_end(workspace: Path, vanilla_n
     assert "NEEDLE_TOKEN" in text
 
 
-def test_code_search_nudges_near_duplicate_query_end_to_end(workspace: Path) -> None:
-    """Two near-identical code_search calls in a row -- the exact regression
-    from a real debt-benchmark rep (11 near-duplicate calls, 2026-07-25) --
-    the SECOND call must carry a repeat-query nudge in its rendered text.
+def test_code_search_blanks_near_duplicate_query_end_to_end(workspace: Path) -> None:
+    """Two identical code_search calls in a row -- the exact regression shape
+    from a real debt-benchmark rep (17+ near-duplicate calls, 2026-07-25) --
+    the SECOND call must return blank (no engine call, no explanatory text --
+    a prose hint was tried and measured to be skimmed past and ignored).
+    Fast-pathed query (a literal existing file path) so the first call's
+    content is deterministic, not dependent on background-index timing.
     """
     mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
-    (workspace / "src.py").write_text("def debt_cmd():\n    pass\n", encoding="utf-8")
+    (workspace / "src.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
 
-    first = _text(_call("code_search", {"query": "fail-on-stale stale-days debt_cmd lc-debt"}))
-    second = _text(_call("code_search", {"query": "stale_days fail_on_stale debt stale age git blame"}))
+    first = _text(_call("code_search", {"query": "src.py"}))
+    second = _text(_call("code_search", {"query": "src.py"}))
 
-    assert "[lc: query overlaps heavily with an earlier search this turn" not in first
-    assert "[lc: query overlaps heavily with an earlier search this turn" in second
+    assert "NEEDLE_TOKEN" in first
+    assert second == "no exact match -- ranked candidates"
+    assert "[lc:" not in second
 
 
 def test_alias_registry_covers_vanilla_habits() -> None:
