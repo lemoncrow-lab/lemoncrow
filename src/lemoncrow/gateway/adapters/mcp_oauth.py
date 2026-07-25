@@ -159,6 +159,25 @@ def default_state_path(scope: str | None = None) -> Path:
     return default_store_root() / "chatgpt" / name
 
 
+def migrate_legacy_state(scope: str) -> None:
+    """One-time move of the pre-isolation shared ``chatgpt/oauth.json`` onto
+    the first per-hostname store that asks for it — without it, a connector
+    paired before the split hits ``Unknown client_id`` on its next authorize.
+
+    Moved, never copied: two stores holding the same token hashes would let a
+    token minted for one connector authenticate against the other's server.
+    Whichever hostname serves first inherits the old pairings; any other
+    connector re-pairs once.
+    """
+    legacy = default_state_path()
+    target = default_state_path(scope)
+    if target.exists() or not legacy.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.replace(legacy, target)
+
+
 def reset_state(state_path: Path) -> bool:
     """Delete the persisted state file (revokes all clients + tokens).
 

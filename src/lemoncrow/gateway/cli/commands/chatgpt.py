@@ -386,6 +386,7 @@ def chatgpt_serve_cmd(
         default_state_path,
         reset_state,
     )
+    from lemoncrow.gateway.adapters.mcp_oauth import migrate_legacy_state as migrate_legacy_oauth_state
     from lemoncrow.gateway.cli.commands._persistent_tunnel import (
         TunnelSetupError,
         hostname_slug,
@@ -461,7 +462,10 @@ def chatgpt_serve_cmd(
         # the whole file, so two concurrently-serving projects on one store
         # would clobber each other's clients and token hashes (the other
         # connector starts 401-ing mid-session).
-        state_path = default_state_path(hostname_slug(resolved_hostname) if resolved_hostname else None)
+        oauth_scope = hostname_slug(resolved_hostname) if resolved_hostname else None
+        if oauth_scope is not None:
+            migrate_legacy_oauth_state(oauth_scope)
+        state_path = default_state_path(oauth_scope)
         if reset:
             removed = reset_state(state_path)
             click.echo(f"  Reset OAuth state ({'removed ' + str(state_path) if removed else 'nothing to remove'}).")
