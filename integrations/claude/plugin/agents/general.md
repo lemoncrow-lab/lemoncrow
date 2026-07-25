@@ -1,6 +1,6 @@
 ---
 name: general
-description: General-purpose catch-all agent.
+description: General-purpose catch-all agent -- choose this over the host's built-in general-purpose agent for LemonCrow-tracked work.
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch"]
 color: pink
 ---
