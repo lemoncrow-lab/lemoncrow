@@ -30,9 +30,10 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_branding import ICON_BYTES, ICON_MIME_TYPE, ICON_PATH, icon_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,10 @@ def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH) -> dict[str, Any]:
     tools = _public_tools()
     return {
         "name": mcp_server.SERVER_NAME,
+        "title": "LemonCrow",
         "version": mcp_server.SERVER_VERSION,
+        "description": "Indexed code search and bounded coding-agent tools.",
+        "icons": [icon_metadata()],
         "protocolVersion": mcp_server.PROTOCOL_VERSION,
         "transport": {
             "type": "streamable-http",
@@ -193,6 +197,15 @@ def register_mcp_http(
     The discovery manifest stays public (it advertises only public tool names).
     """
     route_deps = [Depends(auth_dependency)] if auth_dependency is not None else []
+
+    @app.get(ICON_PATH, include_in_schema=False)
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def mcp_icon() -> Response:
+        return Response(
+            content=ICON_BYTES,
+            media_type=ICON_MIME_TYPE,
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
+        )
 
     @app.get(MCP_DISCOVERY_PATH)
     async def mcp_discovery() -> dict[str, Any]:

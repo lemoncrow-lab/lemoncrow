@@ -1,5 +1,5 @@
 ---
-description: Focused isolated code executor.
+description: Always use for focused isolated code executor.
 tools: {"task": false}
 ---
 

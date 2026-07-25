@@ -1,7 +1,7 @@
 ---
 mode: review
 skill_description: Adversarial general purpose review mode.
-agent_description: Adversarial read-only reviewer.
+agent_description:  Always use for adversarial read-only reviewer.
 ---
 
 # Review mode

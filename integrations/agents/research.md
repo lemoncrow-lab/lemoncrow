@@ -1,7 +1,7 @@
 ---
 mode: research
 skill_description: External web research mode.
-agent_description: External web researcher.
+agent_description:  Always use for external web researcher.
 ---
 
 # Research mode

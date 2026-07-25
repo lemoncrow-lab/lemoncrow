@@ -434,6 +434,7 @@ def _render_form(params: dict[str, str], error: str | None) -> str:
     return (
         f"<!doctype html><html><head><meta charset='utf-8'><title>Connect ChatGPT to LemonCrow</title>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<link rel='icon' href='/favicon.png' type='image/png'>"
         f"<style>{_PAGE_STYLE}</style></head><body><div class='card'>"
         f"<h1>Connect ChatGPT to LemonCrow</h1>"
         f"<p>Enter the pairing code shown in your terminal to authorize this connector.</p>"

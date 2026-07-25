@@ -56,17 +56,39 @@ def test_workspace_install_writes_consistent_artifacts(tmp_path: Path) -> None:
     server = mcp["mcpServers"]["lemoncrow"]
     # The create-branch and merge-branch used to disagree (lemoncrow vs lc,
     # shell vs bash); pin the one true shape so it can't drift again.
-    assert server["command"] == "lc"
+    # Resolved to an absolute path (not bare "lc") -- Cursor's MCP subprocess
+    # spawn doesn't reliably inherit the shell PATH lc was installed onto.
+    assert server["command"].endswith("/lc")
+    assert Path(server["command"]).is_absolute()
     assert server["args"] == ["mcp", "--host", "cursor"]
-    allow = server["alwaysAllow"]
-    assert "bash" in allow and "shell" not in allow
+    # Must equal the visible-to-LLM surface exactly (mcp_tool_visible_to_llm()
+    # in src/lemoncrow/core/environment.py) -- not the full tool registry.
+    # Hidden tools (grep, sql, memory, codemod, ...) stay callable by name on
+    # the server side, so over-including them here would silently bypass
+    # Cursor's permission prompt on a call that reaches one directly.
+    assert set(server["autoApprove"]) == {"bash", "code_search", "edit", "read", "web_fetch"}
 
     hooks = json.loads((ws / ".cursor" / "hooks.json").read_text())["hooks"]
     assert any("session_start.py" in e["command"] for e in hooks["sessionStart"])
     assert any("stop.py" in e["command"] for e in hooks["stop"])
+    # beforeShellExecution/beforeReadFile force tool usage through the lc MCP
+    # server -- without them Cursor's agent defaults to its own built-in
+    # Read/Shell and the MCP server's tools never actually get exercised.
+    assert any("before_shell_execution.py" in e["command"] for e in hooks["beforeShellExecution"])
+    assert any("before_read_file.py" in e["command"] for e in hooks["beforeReadFile"])
+    # preToolUse covers the remaining native tools that bypass the two
+    # dedicated hooks above (Grep/Glob/Write/StrReplace/Delete); it must stay
+    # matcher-scoped so it doesn't also fire for Shell/Read.
+    pre_tool_use = [e for e in hooks["preToolUse"] if "before_tool_use.py" in e["command"]]
+    assert pre_tool_use, "before_tool_use.py not registered under preToolUse"
+    assert pre_tool_use[0]["matcher"] == "Grep|Glob|Write|StrReplace|Delete"
     assert (ws / ".cursor" / "hooks" / "session_start.py").is_file()
     assert (ws / ".cursor" / "hooks" / "stop.py").is_file()
+    assert (ws / ".cursor" / "hooks" / "before_shell_execution.py").is_file()
+    assert (ws / ".cursor" / "hooks" / "before_read_file.py").is_file()
+    assert (ws / ".cursor" / "hooks" / "before_tool_use.py").is_file()
     assert list((ws / ".cursor" / "rules").glob("lemoncrow*.mdc"))
+    assert (ws / ".cursor" / "rules" / "lemoncrow.tools.mdc").is_file()
 
 
 def _run_session_start_hook(ws: Path, root: Path, payload: dict) -> None:

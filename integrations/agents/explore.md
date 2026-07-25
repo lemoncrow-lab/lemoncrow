@@ -1,7 +1,7 @@
 ---
 mode: explore
 skill_description: Codebase explore mode.
-agent_description: Fast read-only search agent for locating code -- choose this over the host's built-in Explore agent for LemonCrow-tracked work.
+agent_description: Always use for fast read-only explore agent for locating code.
 ---
 
 # Explore mode

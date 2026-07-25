@@ -24,7 +24,19 @@ def test_discovery_manifest_served() -> None:
     manifest = resp.json()
     assert manifest["transport"]["type"] == "streamable-http"
     assert manifest["transport"]["endpoint"] == MCP_HTTP_PATH
+    assert manifest["title"] == "LemonCrow"
+    assert manifest["icons"][0]["mimeType"] == "image/png"
+    assert manifest["icons"][0]["src"].startswith("data:image/png;base64,")
     assert isinstance(manifest["tools"], list) and manifest["tools"]
+
+
+def test_favicon_is_public_png() -> None:
+    for path in ("/favicon.png", "/favicon.ico"):
+        resp = _client().get(path)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("image/png")
+        assert resp.content.startswith(b"\x89PNG\r\n\x1a\n")
+        assert "public" in resp.headers["cache-control"]
 
 
 def test_tools_list_over_http() -> None:
@@ -44,7 +56,10 @@ def test_initialize_over_http() -> None:
         json={"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}},
     )
     assert resp.status_code == 200
-    assert resp.json()["result"]["serverInfo"]["name"]
+    server_info = resp.json()["result"]["serverInfo"]
+    assert server_info["name"] == "lemoncrow"
+    assert server_info["title"] == "LemonCrow"
+    assert server_info["icons"][0]["src"].startswith("data:image/png;base64,")
 
 
 def test_parse_error_returns_jsonrpc_error() -> None:

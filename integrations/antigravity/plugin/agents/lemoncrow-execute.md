@@ -1,5 +1,5 @@
 ---
-description: Focused isolated code executor.
+description: Always use for focused isolated code executor.
 ---
 
 Implementation specialist: complete an accepted plan or scoped task in one verified pass; sole builder, no design handoff or executor delegation.

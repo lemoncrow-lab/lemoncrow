@@ -1755,6 +1755,42 @@ def test_lean_code_search_view_returns_related_symbol_ranges() -> None:
     ]
 
 
+def test_lean_code_search_view_preserves_learned_file_order() -> None:
+    payload = {
+        "exact_match": False,
+        "experiment": {"name": "explore_reranker_v2_lambdamart"},
+        "entry_points": [
+            {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "score": 10.0},
+            {"qualified_name": "learned", "path": "src/learned.py", "line": 1, "end_line": 2, "score": 1.0},
+        ],
+        "files": [
+            {
+                "path": "src/learned.py",
+                "source_sections": [
+                    {
+                        "qualified_name": "learned",
+                        "path": "src/learned.py",
+                        "line": 1,
+                        "end_line": 2,
+                        "content": "1\tx\n",
+                    }
+                ],
+            },
+            {
+                "path": "src/legacy.py",
+                "source_sections": [
+                    {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "content": "1\ty\n"}
+                ],
+            },
+        ],
+    }
+
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+
+    assert [entry["path"] for entry in lean["files"]] == ["src/learned.py"]
+    assert lean["candidate_files"][0] == "src/legacy.py"
+
+
 def test_lean_related_symbol_flattens_multiline_names() -> None:
     # Markdown headings can index a whole frontmatter block as their name; the
     # symbol map must stay a one-line pointer, never a prose dump.

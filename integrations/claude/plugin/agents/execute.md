@@ -1,6 +1,6 @@
 ---
 name: execute
-description: Focused isolated code executor.
+description: Always use for focused isolated code executor.
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "Agent", "Workflow", "ScheduleWakeup"]
 color: purple
 ---
