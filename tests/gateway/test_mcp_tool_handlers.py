@@ -3469,6 +3469,50 @@ def test_render_code_search_md_hints_hidden_candidate_files_via_limit() -> None:
     assert "max_candidates=" not in text
 
 
+def test_query_words_normalizes_and_drops_short_tokens() -> None:
+    assert mcp_server._query_words("fail-on-stale stale-days debt_cmd lc-debt") == {
+        "fail",
+        "stale",
+        "days",
+        "debt",
+        "cmd",
+    }
+    assert "lc" not in mcp_server._query_words("lc debt stale")  # 2 chars, dropped
+    # "on" (2 chars) dropped; case-insensitive.
+    assert "on" not in mcp_server._query_words("turn ON the fail on stale flag")
+
+
+def test_check_repeat_query_flags_the_debt_benchmark_regression() -> None:
+    # The exact near-duplicate query sequence observed in a real debt-
+    # benchmark rep (2026-07-25, 11 near-identical code_search calls in one
+    # run) -- at least one consecutive pair must trigger the nudge, proving
+    # this would have caught that regression.
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    queries = [
+        "fail-on-stale stale-days debt_cmd lc-debt",
+        "stale_days fail_on_stale debt stale age git blame",
+        "test_debt fail_on_stale stale_days debt_cmd",
+        "_line_age_days git blame annotate stale",
+        "line age days git blame last modified",
+    ]
+    hints = [mcp_server._check_repeat_query(q) for q in queries]
+    assert hints[0] is None  # nothing recorded yet
+    assert any(h is not None for h in hints[1:]), "expected at least one repeat-query nudge"
+
+
+def test_check_repeat_query_no_hint_for_distinct_topics() -> None:
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    assert mcp_server._check_repeat_query("parse yaml config loader") is None
+    assert mcp_server._check_repeat_query("websocket reconnect backoff timer") is None
+
+
+def test_render_code_search_md_renders_repeat_query_hint() -> None:
+    payload = {"exact_match": True, "files": [], "repeat_query_hint": "query overlaps heavily with X"}
+    text = mcp_server._render_code_search_md(payload)
+    assert text is not None
+    assert "[lc: query overlaps heavily with X]" in text
+
+
 def test_lean_code_search_view_candidate_files_keeps_full_window_when_not_dominant() -> None:
     # Same 20-file shape, but exact_match=False -> `dominant` never fires
     # (it requires exact_match). The recall tail stays the full 8-wide net.

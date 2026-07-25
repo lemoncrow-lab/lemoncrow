@@ -153,6 +153,21 @@ def test_code_search_limit_vanilla_aliases_end_to_end(workspace: Path, vanilla_n
     assert "NEEDLE_TOKEN" in text
 
 
+def test_code_search_nudges_near_duplicate_query_end_to_end(workspace: Path) -> None:
+    """Two near-identical code_search calls in a row -- the exact regression
+    from a real debt-benchmark rep (11 near-duplicate calls, 2026-07-25) --
+    the SECOND call must carry a repeat-query nudge in its rendered text.
+    """
+    mcp_server._RECENT_CODE_SEARCH_QUERIES.clear()
+    (workspace / "src.py").write_text("def debt_cmd():\n    pass\n", encoding="utf-8")
+
+    first = _text(_call("code_search", {"query": "fail-on-stale stale-days debt_cmd lc-debt"}))
+    second = _text(_call("code_search", {"query": "stale_days fail_on_stale debt stale age git blame"}))
+
+    assert "[lc: query overlaps heavily with an earlier search this turn" not in first
+    assert "[lc: query overlaps heavily with an earlier search this turn" in second
+
+
 def test_alias_registry_covers_vanilla_habits() -> None:
     tools = mcp_server.TOOLS
     assert tools["read"]["param_aliases"]["file_path"] == "path"
