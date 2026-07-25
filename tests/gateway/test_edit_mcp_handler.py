@@ -928,6 +928,129 @@ def test_blind_range_edit_allowed_after_fresh_read_and_old_anchor_exempt(workspa
     assert f.read_text(encoding="utf-8") == "a1\nX\nZ\n"
 
 
+def test_blind_range_edit_uses_gutter_disk_line_directly(workspace: Path) -> None:
+    """A bare read of a real .py file defaults to the minified view, but each
+    line is prefixed with its REAL disk line number (a gutter) -- so a blind
+    range edit using that shown number is already disk-accurate and needs no
+    translation at all, the same trust level as a normal exact read.
+    """
+    f = workspace / "calc.py"
+    src = "import os\n\n\ndef add(a, b):\n    return a + b\n\n\ndef other():\n    # a trailing comment\n    return 0\n"
+    f.write_text(src, encoding="utf-8")
+    rendered = _call("read", {"path": "calc.py"})["result"]["content"][0]["text"]
+    assert "5\t    return a + b" in rendered  # gutter shows the real disk line
+
+    payload = _edit(
+        {"post_edit_hooks": False, "edits": [{"file_path": "calc.py:L5", "new_string": "    return a + b + 1\n"}]}
+    )
+    assert payload.get("applied"), payload
+    assert f.read_text(encoding="utf-8") == src.replace("return a + b\n", "return a + b + 1\n")
+    assert "# a trailing comment" in f.read_text(encoding="utf-8")  # untouched, not swallowed
+
+
+def test_blind_range_edit_minified_flag_translates_explicitly(workspace: Path) -> None:
+    """The explicit `:minified` suffix declares a range's numbers as MINIFIED-
+    view positions rather than disk-direct ones -- it changes how a FRESH
+    ledger entry is interpreted, for a model referencing an earlier minified
+    view without re-reading. It does NOT bypass the freshness requirement
+    itself (see test_blind_range_edit_minified_flag_rejected_when_stale for
+    that). Disk L3 is blank here, so the flag genuinely changes the target vs.
+    a plain (unflagged) `:L3`.
+    """
+    f = workspace / "calc.py"
+    src = "import os\n\n\ndef add(a, b):\n    return a + b\n\n\ndef other():\n    # a trailing comment\n    return 0\n"
+    f.write_text(src, encoding="utf-8")
+    _read("calc.py")  # ledger now trusts calc.py's gutter-numbered (disk-direct) view
+
+    # Minified view: 1 import os / 2 def add(a, b): / 3     return a + b / ...
+    # Minified L3 is disk L5 -- NOT disk L3 (which is blank).
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "calc.py:L3:minified", "new_string": "    return a + b + 1\n"}],
+        }
+    )
+    assert payload.get("applied"), payload
+    assert f.read_text(encoding="utf-8") == src.replace("return a + b\n", "return a + b + 1\n")
+
+
+def test_blind_range_edit_minified_flag_rejected_when_ambiguous(workspace: Path) -> None:
+    """`:minified` still refuses to guess through a dropped comment -- which
+    side of the removed comment did the edit mean? -- same as `apply_minified_edit`
+    already refuses via old_string. No retry_with is attached when even a
+    single-line probe can't find an honest disk anchor to show (never mislead
+    with content from the wrong lines).
+    """
+    f = workspace / "mod.py"
+    src = "import os\n\n\ndef helper():\n    # a comment worth stripping\n    x = 1\n    return x\n"
+    f.write_text(src, encoding="utf-8")
+    _read("mod.py")
+
+    # Minified view: 1 import os / 2 def helper(): / 3     x = 1 / 4     return x.
+    # Minified L3 sits immediately after the dropped comment -> ambiguous.
+    payload = _edit(
+        {"post_edit_hooks": False, "edits": [{"file_path": "mod.py:L3:minified", "new_string": "    x = 2\n"}]}
+    )
+    assert payload["rolled_back"] is True
+    assert "explicitly flagged :minified" in payload["failed"][0]["error"]
+    assert "retry_with" not in payload["failed"][0]
+    assert f.read_text(encoding="utf-8") == src
+
+    # The real disk line (shown by the gutter on a bare read) is unambiguous.
+    assert "result" in _call("read", {"path": "mod.py"})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "mod.py:L6", "new_string": "    x = 2\n"}]})
+    assert "x = 2" in f.read_text(encoding="utf-8")
+    assert "# a comment worth stripping" in f.read_text(encoding="utf-8")
+
+
+def test_blind_range_edit_minified_flag_rejected_when_stale(workspace: Path) -> None:
+    """`:minified` must NOT be honored against a file whose ledger entry is
+    stale (changed on disk, or never read, since) -- it only picks the
+    INTERPRETATION of an already-fresh serve, not a bypass of freshness.
+
+    Regression: an earlier version translated a `:minified`-flagged range
+    against whatever is on disk NOW regardless of the ledger, so a since-
+    edited file resolved the SAME minified line number against different
+    (but structurally valid) content and silently spliced the wrong function.
+    """
+    f = workspace / "h2.py"
+    f.write_text("def old_func():\n    return 1\n", encoding="utf-8")
+    _read("h2.py")  # minified L2 == 'return 1' (inside old_func) as of THIS read
+
+    # External rewrite: a new function prepended shifts what minified L2 means
+    # -- it now falls inside brand_new(), not old_func(). Ledger's recorded
+    # size no longer matches, so the read above is stale.
+    f.write_text("def brand_new():\n    return 2\n\n\ndef old_func():\n    return 1\n", encoding="utf-8")
+
+    payload = _edit(
+        {"post_edit_hooks": False, "edits": [{"file_path": "h2.py:L2:minified", "new_string": "    return 99\n"}]}
+    )
+    assert payload["rolled_back"] is True
+    assert "wasn't read fresh" in payload["failed"][0]["error"]
+    # Neither function was touched -- no silent wrong-line splice.
+    current = f.read_text(encoding="utf-8")
+    assert "return 2" in current
+    assert "return 1" in current
+    assert "return 99" not in current
+
+
+def test_blind_range_edit_rejection_includes_retry_content(workspace: Path) -> None:
+    """A rejected blind range edit (file changed on disk since last read) ships
+    the exact current content around the requested range as retry_with, so the
+    retry doesn't cost a separate read turn.
+    """
+    f = workspace / "drift.txt"
+    f.write_text("a1\na2\na3\na4\na5\n", encoding="utf-8")
+    _read("drift.txt")
+    f.write_text("NEW\na1\na2\na3\na4\na5\n", encoding="utf-8")  # external change shifts every line
+
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "drift.txt:L2-L2", "new_string": "X\n"}]})
+    assert "changed on disk since" in payload["failed"][0]["error"]
+    retry_with = payload["failed"][0]["retry_with"]
+    assert retry_with["old_string"] == "NEW\na1\na2\na3\n"
+    assert retry_with["path"] == "drift.txt:L1-L4"
+
+
 def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_RANGE_EDIT_GUARD", "0")
     f = workspace / "off.txt"

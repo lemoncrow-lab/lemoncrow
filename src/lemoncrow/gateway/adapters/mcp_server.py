@@ -4815,6 +4815,43 @@ def _sparse_gutter(content: str) -> str:
     return "\n".join(out)
 
 
+def _compress_candidate_files(paths: list[str]) -> str:
+    """Comma-joined candidate_files line, grouping consecutive same-directory
+    entries into ``dir/{a,b,c}`` so a shared prefix isn't repeated per file.
+
+    Only ADJACENT same-directory runs group (never reordered into a group):
+    candidate_files is the ranked recall surface (MRR-scored by position), so
+    grouping non-adjacent entries would shift ranks when a consumer re-splits
+    and expands. A caller that splits on top-level commas (treating a
+    ``{...}`` span as opaque) and expands each ``dir/{a,b,c}`` segment
+    recovers the identical ordered list -- see
+    ``benchmarks/codebench/eval_external_provider_mrr.py``'s
+    ``_split_candidate_files_line``/``_expand_candidate_segment``.
+    """
+    segments: list[str] = []
+    i, n = 0, len(paths)
+    while i < n:
+        path = paths[i]
+        slash = path.rfind("/")
+        if slash == -1:
+            segments.append(path)
+            i += 1
+            continue
+        directory = path[: slash + 1]
+        run = [path[slash + 1 :]]
+        j = i + 1
+        while j < n:
+            next_path = paths[j]
+            next_slash = next_path.rfind("/")
+            if next_slash == -1 or next_path[: next_slash + 1] != directory:
+                break
+            run.append(next_path[next_slash + 1 :])
+            j += 1
+        segments.append(directory + "{" + ",".join(run) + "}" if len(run) >= 2 else path)
+        i = j
+    return ", ".join(segments)
+
+
 def _render_code_search_md(payload: dict[str, Any]) -> str | None:
     """Compact text view of a lean code_search payload.
 
@@ -4880,7 +4917,11 @@ def _render_code_search_md(payload: dict[str, Any]) -> str | None:
         parts.append("\n".join(rel_lines))
     cands = payload.get("candidate_files")
     if isinstance(cands, list) and cands:
-        parts.append("candidate_files: " + ", ".join(str(c) for c in cands))
+        line = "candidate_files: " + _compress_candidate_files([str(c) for c in cands])
+        _more = payload.get("candidate_files_more")
+        if isinstance(_more, int) and _more > 0:
+            line += f" (+{_more} more; pass limit={len(cands) + _more} to see them)"
+        parts.append(line)
     if payload.get("truncated"):
         parts.append("(truncated; narrow with paths=)")
     return "\n\n".join(parts) if parts else None
@@ -5444,12 +5485,17 @@ def _read_summary_response(resolved: Path) -> dict[str, Any]:
 # host window, so that state stays exactly window-scoped. Never refreshed on
 # edit-writes -- an edit shifts lines, so the next blind range edit must
 # re-read (or pass old) by design.
-_RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int]]] = OrderedDict()
+# Third element: whether this serve gave line numbers that match disk exactly
+# (an expand/:full or explicit :Lx-Ly range) vs a lossy projection (bare
+# default read -> minified/compact, or :outline/:summary) whose line numbers
+# do NOT index the same bytes. A blind range edit built from the latter would
+# silently splice the wrong lines.
+_RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int, bool]]] = OrderedDict()
 _range_read_sigs_lock = threading.Lock()
 _MAX_RANGE_READ_SIG_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
 
 
-def _range_read_sigs() -> dict[str, tuple[int, int]]:
+def _range_read_sigs() -> dict[str, tuple[int, int, bool]]:
     """The current request's freshness-signature bucket.
 
     Keyed exactly like _http_session_ledgers: the per-request ledger installed
@@ -5471,12 +5517,20 @@ def _range_read_sigs() -> dict[str, tuple[int, int]]:
         return bucket
 
 
-def _record_read_sig(path: Path | str) -> None:
-    """Best-effort stat-signature capture for a file just served to the model."""
+def _record_read_sig(path: Path | str, *, exact: bool = True) -> None:
+    """Best-effort stat-signature capture for a file just served to the model.
+
+    ``exact`` (default True -- code_search's inline sections and every other
+    caller besides ``_smart_read_single`` always carry real disk line numbers)
+    marks whether THIS serve's line numbers are trustworthy for a later blind
+    :Lx-Ly range edit. A later minified/summary/outline serve of the same path
+    overwrites (downgrades) a prior exact record -- the ledger reflects the
+    MOST RECENT serve, matching what the model most recently saw.
+    """
     try:
         p = Path(path).resolve()
         st = p.stat()
-        _range_read_sigs()[str(p)] = (st.st_mtime_ns, st.st_size)
+        _range_read_sigs()[str(p)] = (st.st_mtime_ns, st.st_size, exact)
     except OSError:
         pass
 
@@ -5542,9 +5596,8 @@ def _smart_read_single(
     # are confined to the workspace (see tool_smart_edit). Relative paths still
     # resolve against the workspace root.
     resolved = _workspace_path(target_path)
-    # Freshness ledger: remember this file's stat signature so tool_smart_edit
-    # can prove a later blind :Lx-Ly edit still indexes the bytes served here.
-    _record_read_sig(resolved)
+    # Freshness ledger: recorded below, once the actual view served (exact vs
+    # a lossy projection) is known -- see _record_read_sig's exact= kwarg.
     # A ranged read is served EXACTLY as requested -- never silently widened.
     # (A "3 partial reads -> serve the whole file" escalation used to live here;
     # it misfired on scattered spot-checks and dumped multi-thousand-line files
@@ -5676,6 +5729,7 @@ def _smart_read_single(
             prefix_bytes = max(0, disconnect_cap - len(notice.encode("utf-8")) - 1024)
             with open(target, "rb") as fh:
                 head = fh.read(prefix_bytes)
+            _record_read_sig(target, exact=True)
             return {
                 "mode": "full",
                 "content": head.decode("utf-8", "replace") + notice,
@@ -5704,6 +5758,7 @@ def _smart_read_single(
             total_lines = len(lines)
             if shown < total_lines:
                 notice = f'\n\n[lines 1-{shown} of {total_lines}; range="L{shown + 1}-" for rest]'
+                _record_read_sig(target, exact=True)
                 return {
                     "mode": "full",
                     "content": "".join(kept) + notice,
@@ -5804,12 +5859,15 @@ def _smart_read_single(
                 payload["truncated"] = True
                 payload["lines_total"] = len(_src_lines)
                 payload["lines_shown"] = _shown
+    _line_refs_trustworthy = exact_read or mode == "outline"
     if isinstance(content, str) and content and mode in ("full", "range") and not exact_read:
+        from lemoncrow.pro.capabilities.prompt_compilation.tokens import count_tokens as _count_gutter_tokens
         from lemoncrow.pro.capabilities.source_projection import (
             ProjectionDelta,
             build_compact_projection,
             build_minified_projection,
             language_for_minify,
+            minified_line_gutter,
         )
 
         language = str(payload.get("language") or "")
@@ -5830,7 +5888,6 @@ def _smart_read_single(
                 projection_result = compact
                 projection = SourceProjection.compact()
         if projection_result is not None:
-            content = projection_result.content
             projection_saved = projection_result.saved_tokens
             projection_delta = ProjectionDelta(
                 path=str(payload.get("path", str(target))),
@@ -5838,8 +5895,56 @@ def _smart_read_single(
                 original_tokens=projection_result.original_tokens,
                 projected_tokens=projection_result.projected_tokens,
             ).to_dict()
+            # Prefix every line with its REAL disk line number so a caller's own
+            # :Lx-Ly range edit, read straight off the gutter, is already
+            # disk-accurate -- no minified<->disk translation needed, and the
+            # model never has to reason about which coordinate space it's in.
+            if projection_result.mapping is not None:
+                guttered = minified_line_gutter(projection_result.content, projection_result.mapping)
+                # The "N\t" prefix on every line has its own token cost, paid
+                # AFTER build_minified_projection already decided minification
+                # was worthwhile on the un-guttered text -- on a repo sweep
+                # (2026-07-25) that overhead alone flipped 321/414 files
+                # net-negative (minify.py itself: -112 tokens vs raw). Compare
+                # the FINAL guttered size against the original, not the
+                # pre-gutter projected size, and only ship the gutter (and
+                # trust its line numbers) when it still nets a saving.
+                guttered_tokens = _count_gutter_tokens(guttered)
+                if guttered_tokens < projection_result.original_tokens:
+                    content = guttered
+                    _line_refs_trustworthy = True
+                    projection_saved = projection_result.original_tokens - guttered_tokens
+                    projection_delta = ProjectionDelta(
+                        path=str(payload.get("path", str(target))),
+                        lang=language,
+                        original_tokens=projection_result.original_tokens,
+                        projected_tokens=guttered_tokens,
+                    ).to_dict()
+                    projection = (
+                        SourceProjection.minified_with_gutter()
+                        if projection.view == "minified"
+                        else SourceProjection.compact_with_gutter()
+                    )
+                else:
+                    # Gutter overhead wipes out the saving for this file -- serve
+                    # the ungutted projection (still smaller than raw per the
+                    # projection_saved/projection_delta set above). Line numbers
+                    # are sequential projected position again, NOT disk lines,
+                    # so `projection`/`_line_refs_trustworthy` stay at their
+                    # pre-gutter (untrustworthy) values -- no :Lx-Ly claim.
+                    content = projection_result.content
+            else:
+                content = projection_result.content
     elif mode == "range":
         projection = SourceProjection.range()
+    # Freshness ledger: whether THIS serve's line numbers are trustworthy for a
+    # later blind :Lx-Ly range edit (see _record_read_sig's exact= kwarg) -- a
+    # minified/compact read counts too when it carries a disk-line gutter; a
+    # bare read that neither transform actually applied to (too trivial to earn
+    # savings) left `projection` at its untouched SourceProjection.exact()
+    # default, which is also trustworthy even without a gutter (content is
+    # verbatim disk bytes).
+    _record_read_sig(resolved, exact=_line_refs_trustworthy or projection.untransformed_text)
     # Omit null fields: outline/range/language are absent for most reads (e.g. a
     # range read carries no outline, a plain text read no language), and a null
     # key is pure wire noise the model must skip over. Only attach them when set.
@@ -5958,8 +6063,8 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
         "Read files or exact symbols. :Lx-Ly = exact range, :full = full source. "
         "Whole file → ONE :full (or ONE wide range) — never successive narrow ranges. "
         "Hunting for one function/test/section in a large file → symbol= or a targeted "
-        "range, not a bare whole-file read; reserve :full for files you're about to "
-        "fully understand or edit. "
+        "range, not a bare whole-file read; the default view's numbers are already "
+        "disk-accurate for editing — :full is for exact formatting/comments only. "
         "Batch all files/ranges into one call's files=[] array: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
         "Images (png/jpg/gif/webp/bmp, up to 4MB) are returned as a real viewable image, not text — "
@@ -6905,7 +7010,8 @@ _EDIT_DIAG_CAP = 20
         "Batch file edits. Use edits=[{path: 'f.py:L10-L14', new}, ...]; "
         "batch many range+new hunks in one call, even same-file hunks "
         "(ranges use the original snapshot). Use {path, old, new} only without "
-        "a fresh range. Whole file: {path, new, replace:true}. "
+        "a fresh range. Whole file: {path, new, replace:true}. Minified-view "
+        "line number, not disk? add :minified, e.g. 'f.py:minified:L10-L14'. "
         "No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
@@ -6985,6 +7091,7 @@ def tool_smart_edit(
     # silently -- old-anchored edits self-verify, blind ranges cannot. Reject
     # with the fix spelled out. LEMONCROW_RANGE_EDIT_GUARD=0 disables.
     if os.environ.get("LEMONCROW_RANGE_EDIT_GUARD", "1") != "0":
+        from lemoncrow.pro.capabilities.source_projection import language_for_minify, translate_minified_line_range
         from lemoncrow.pro.capabilities.tool_supervision.rich_edit import _parse_target
 
         _session_sigs = _range_read_sigs()
@@ -7001,6 +7108,7 @@ def tool_smart_edit(
             _is_range = _spec.start_line is not None and "new_string" in _ed
             if not _is_range:
                 continue
+            _end_line = _spec.end_line or _spec.start_line
             try:
                 _rp = _workspace_path(_spec.path).resolve()
                 _st = _rp.stat()
@@ -7008,24 +7116,122 @@ def tool_smart_edit(
                 continue  # missing file fails downstream with a clearer error
             _sig = _session_sigs.get(str(_rp))
             _cur = (_st.st_mtime_ns, _st.st_size)
-            if _sig == _cur:
+            if _sig is not None and _sig[:2] == _cur and _sig[2] and not _spec.minified:
                 continue
-            _why = (
-                "changed on disk since this window last read it"
-                if _sig is not None
-                else "was not served by read/code_search in this window"
-            )
-            _stale.append(
-                {
-                    "edit_index": _i,
-                    "edit_file": _raw,
-                    "error": (
-                        f"blind range edit rejected: {_spec.path!r} {_why}, so its line "
-                        "numbers may point at different content now -- read the exact "
-                        "range first, or pass old to anchor the edit"
-                    ),
-                }
-            )
+            # A range edit needs translation when the ledger says THIS window
+            # actually served the file fresh (read/code_search, unchanged on
+            # disk since) -- :minified only changes HOW that fresh serve is
+            # interpreted (as minified-view line numbers instead of disk-direct
+            # ones); it is NOT a bypass of freshness itself. A :minified flag
+            # against a file never read this window, or changed since, has no
+            # honest anchor to translate against -- translating it against
+            # whatever is on disk NOW would silently resolve to the wrong
+            # lines if the file drifted (proven: a stale :minified range
+            # survived translation against a since-edited file and renamed the
+            # wrong function). Re-derive the same projection from current disk
+            # content (deterministic when unchanged) and map the range back to
+            # real disk lines -- self-verifying, fails closed (None) on
+            # anything ambiguous (out of bounds, spans a dropped comment, not
+            # minify-eligible); only then does the reject below fire.
+            _ledger_fresh = _sig is not None and _sig[:2] == _cur
+            if _ledger_fresh:
+                _translated: tuple[int, int] | None = None
+                _lang = language_for_minify(str(_spec.path))
+                if _lang is not None and _spec.start_line is not None and _end_line is not None:
+                    try:
+                        _disk_content = _rp.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        _disk_content = None
+                    if _disk_content is not None:
+                        _translated = translate_minified_line_range(
+                            _disk_content, _lang, _spec.start_line, _end_line, path=_spec.path
+                        )
+                if _translated is not None:
+                    _new_start, _new_end = _translated
+                    _new_suffix = f":L{_new_start}" if _new_start == _new_end else f":L{_new_start}-L{_new_end}"
+                    if "file_path" in _ed:
+                        _ed["file_path"] = _spec.path + _new_suffix
+                    else:
+                        _ed["path"] = _spec.path + _new_suffix
+                    continue
+                _why = (
+                    "was explicitly flagged :minified, but that range doesn't resolve unambiguously "
+                    "against current disk content"
+                    if _spec.minified
+                    else "was last served here as a minified/summary view whose line numbers don't match disk"
+                )
+                _fix = "widen the range to include a touched comment explicitly, or pass old to anchor the edit"
+            else:
+                _why = (
+                    "was explicitly flagged :minified, but wasn't read fresh in this window "
+                    "(never served, or the file changed on disk since)"
+                    if _spec.minified
+                    else (
+                        "changed on disk since this window last read it"
+                        if _sig is not None
+                        else "was not served by read/code_search in this window"
+                    )
+                )
+                _fix = "read the exact range first, or pass old to anchor the edit"
+            # Ship the exact current disk content around the requested range so
+            # the retry doesn't cost a separate read turn: the model can supply
+            # old= from this excerpt directly (rewriting a stripped comment back
+            # in if it belongs there), or narrow/widen the range itself. Center
+            # on the real DISK region -- for a :minified-flagged range, _spec's
+            # numbers are minified-space and would point at the wrong lines
+            # here, so resolve each endpoint on its own (a single line rarely
+            # hits the same dropped-comment ambiguity a wider span does) before
+            # falling back to the raw numbers.
+            # _spec.start_line/_end_line are only genuinely disk-space numbers
+            # when the range wasn't :minified-flagged; for a flagged range that
+            # failed to resolve at all below, there's no honest disk anchor to
+            # show context around, so retry_with is omitted rather than shown
+            # against the wrong lines.
+            _ctx_center_start: int | None = _spec.start_line
+            _ctx_center_end: int | None = _end_line
+            if _spec.minified and _spec.start_line is not None and _end_line is not None:
+                _ctx_center_start = _ctx_center_end = None
+                _lang_ctx = language_for_minify(str(_spec.path))
+                if _lang_ctx is not None:
+                    try:
+                        _ctx_disk_content: str | None = _rp.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        _ctx_disk_content = None
+                    if _ctx_disk_content is not None:
+                        _start_resolved = translate_minified_line_range(
+                            _ctx_disk_content, _lang_ctx, _spec.start_line, _spec.start_line, path=_spec.path
+                        )
+                        _end_resolved = translate_minified_line_range(
+                            _ctx_disk_content, _lang_ctx, _end_line, _end_line, path=_spec.path
+                        )
+                        if _start_resolved is not None:
+                            _ctx_center_start = _start_resolved[0]
+                        if _end_resolved is not None:
+                            _ctx_center_end = _end_resolved[1]
+            _retry_with: dict[str, Any] | None = None
+            try:
+                _cur_lines = _rp.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+            except OSError:
+                _cur_lines = None
+            if _cur_lines is not None and _ctx_center_start is not None and _ctx_center_end is not None:
+                _ctx_start = max(1, _ctx_center_start - 2)
+                _ctx_end = min(len(_cur_lines), _ctx_center_end + 2)
+                if _ctx_start <= _ctx_end:
+                    _retry_with = {
+                        "path": f"{_spec.path}:L{_ctx_start}-L{_ctx_end}",
+                        "old_string": "".join(_cur_lines[_ctx_start - 1 : _ctx_end]),
+                        "hint": "exact current disk content for this region -- retry in the same turn with old= set to (part of) this, or a corrected :Lx-Ly range",
+                    }
+            _entry: dict[str, Any] = {
+                "edit_index": _i,
+                "edit_file": _raw,
+                "error": (
+                    f"blind range edit rejected: {_spec.path!r} {_why}, so its line numbers may point at different content now -- {_fix}"
+                ),
+            }
+            if _retry_with is not None:
+                _entry["retry_with"] = _retry_with
+            _stale.append(_entry)
         if _stale:
             return {"applied": [], "failed": _stale, "rolled_back": True}
     # Serialize the snapshot/apply/write critical section per touched file so two
@@ -9202,14 +9408,57 @@ def _grep_badge_provider(rel_path: str, symbol_names: list[str]) -> str | None:
 _LEAN_REL_FLOOR = 0.10
 _LEAN_MAX_SOURCE_FILES = 3
 _LEAN_MAX_CANDIDATES = 8
+# tool_code_search used to expose its own max_files param (hidden from the
+# LLM, default 8, 0 real callers ever needed a different value -- narrowing
+# happens via paths=/query). Display count was ALREADY fixed regardless: any
+# value >=3 gives an identical n_src via min(_LEAN_MAX_SOURCE_FILES, ...)
+# below. Collapsed to a plain constant (2026-07-25) rather than a dead
+# parameter -- still feeds engine.tool_explore's own internal ranking
+# breadth, just no longer externally settable.
+_CODE_SEARCH_ENGINE_MAX_FILES = 8
 # Candidate-file list is a path-only recall aid (navigation targets). 24 costs
-# a measured 0.8-1.5k chars resident per turn -- but trimming it (10, then 6)
+# a measured 0.8-1.5k chars resident per turn -- but a FLAT trim to 10, then 6
 # was part of a measured -0.10 overall retrieval MRR regression (2026-07-06):
-# the tail is where non-top-1 golds live, so it earns its chars. Do not trim
-# this without re-running `lc eval retrieval`. The symbol map
-# (_LEAN_MAX_CANDIDATES) stays tight because each entry carries structure.
-_LEAN_MAX_CANDIDATE_FILES = 24
+# the tail is where non-top-1 golds live, so it earns its chars in the general
+# (ambiguous / multi-candidate) case. Do not flat-trim this constant without
+# re-running `lc eval retrieval`. The symbol map (_LEAN_MAX_CANDIDATES) stays
+# tight because each entry carries structure.
+# 24 -> 16 -> 8 (2026-07-25): re-testing the flat-trim ceiling now that the
+# dominant-case cap, doc-diversity demotion, and inline gating all exist --
+# none of which were present for the 2026-07-06 10/6 regression above. 8 sits
+# INSIDE that historical regression's range (10 then 6 both regressed -0.10
+# MRR combined) -- 16->8 is the real test of whether the old cause still
+# applies under the current architecture; 24->16 alone measured -0.0008 MRR
+# (noise-floor, hit@1 unchanged). Gated by the same `lc eval retrieval`
+# re-run rule; revert to 16 (or 24) if THIS step regresses for real.
+_LEAN_MAX_CANDIDATE_FILES = 8
+# Dynamic exception, not a flat trim: only when `_lean_code_search_view`'s
+# `dominant` signal fires (exact match, no seed scope, one file scoring
+# >=4x its nearest rival, or the only scored file) is the tail this cheap to
+# cut -- the same exact-single-winner case that already collapses `files` to
+# n_src=1. Ambiguous/no-exact-match cases keep the full 8-wide net.
+# Deliberately NOT keyed on any per-candidate score (e.g. epscore==0): that
+# was tried and falsified by
+# test_lean_code_search_view_candidates_keep_symbol_map_paths's fresh.py case
+# (epscore==0 means "no entry_points row", not "irrelevant") -- this instead
+# reuses the already-validated whole-response `dominant` confidence signal.
+# 8 -> 5 (2026-07-25): the dominant case is already the confident
+# single-winner path (files already collapse to n_src=1) -- narrower blast
+# radius than the general cap, so trimmed further first. Gated by the same
+# `lc eval retrieval` re-run rule; revert to 8 if MRR regresses.
+_LEAN_CANDIDATE_FILES_DOMINANT = 5
 _LEAN_DOMINANT_RATIO = 4.0
+# Tried a dynamic quality gate here (drop candidate_files entries with
+# epscore==0.0) and reverted before it reached eval: epscore is populated
+# ONLY from entry_points/symbol-level matches, so a file reaching `files` via
+# a channel that never emits an entry_points row (pure lexical/path match, no
+# symbol pinned) scores 0.0 despite being a real candidate --
+# test_lean_code_search_view_candidates_keep_symbol_map_paths's `fresh.py`
+# case is exactly this, and it's hardened from the same 2026-07-06 MRR
+# regression this whole cand_files block warns about. A sound dynamic gate
+# needs a real per-candidate confidence score unified across every surfacing
+# channel (not just entry_points) -- that's engine-level work, not available
+# at this layer today.
 
 
 def _lean_score(sym: dict[str, Any]) -> float:
@@ -9373,7 +9622,12 @@ def _code_search_section_savings(lean: dict[str, Any], workspace_root: Path) -> 
 
 
 def _lean_code_search_view(
-    result: dict[str, Any], *, max_files: int, seed_files: list[str] | None = None, query: str = ""
+    result: dict[str, Any],
+    *,
+    max_files: int,
+    seed_files: list[str] | None = None,
+    query: str = "",
+    max_candidates: int | None = None,
 ) -> dict[str, Any]:
     """Collapse engine.tool_explore output into a lean, edit-ready view."""
     if not isinstance(result, dict):
@@ -9522,14 +9776,32 @@ def _lean_code_search_view(
         if p and p not in seen_paths and p not in cand_files:
             cand_files.append(p)
 
+    # Dynamic cap: the exact-single-winner case (`dominant`, same signal that
+    # already collapses `files` to one) also shrinks the candidate_files tail
+    # -- see _LEAN_CANDIDATE_FILES_DOMINANT for why this is safe where a flat
+    # trim was not. Ambiguous/multi-candidate cases keep the full 8-wide net.
+    # An explicit max_candidates from the caller overrides both defaults --
+    # the agent knows its own confidence better than either heuristic (e.g.
+    # "just the top hit" after it's already narrowed the file itself).
+    if max_candidates is not None:
+        cand_cap = max(1, max_candidates)
+    else:
+        cand_cap = _LEAN_CANDIDATE_FILES_DOMINANT if dominant else _LEAN_MAX_CANDIDATE_FILES
     if cand_files and not wants_docs:
-        cand_files = demote_doc_overflow(cand_files, window=min(_LEAN_MAX_CANDIDATE_FILES, len(cand_files)))
+        cand_files = demote_doc_overflow(cand_files, window=min(cand_cap, len(cand_files)))
 
     lean: dict[str, Any] = {"exact_match": exact, "files": out_files}
     if candidates:
         lean["related_symbols"] = candidates
     if cand_files:
-        lean["candidate_files"] = cand_files[:_LEAN_MAX_CANDIDATE_FILES]
+        lean["candidate_files"] = cand_files[:cand_cap]
+        # The cap silently cutting the ranked tail would look identical to
+        # "nothing else matched" -- name the count still hidden and how to
+        # raise the cap, so the agent can ask for more instead of assuming
+        # recall stopped here.
+        _hidden = len(cand_files) - cand_cap
+        if _hidden > 0:
+            lean["candidate_files_more"] = _hidden
     if result.get("truncated"):
         lean["truncated"] = True
     return lean
@@ -9572,9 +9844,10 @@ def _attach_code_search_savings(view: dict[str, Any], workspace_root: Path | Non
         "rarely surfaces anything new."
     ),
     param_aliases={
-        "maxFiles": "max_files",
-        "max_results": "max_files",
-        "limit": "max_files",
+        "maxFiles": "limit",
+        "max_results": "limit",
+        "max_files": "limit",
+        "max_candidates": "limit",
         "projectPath": "paths",
         "path": "paths",
         "include_paths": "paths",
@@ -9584,19 +9857,22 @@ def _attach_code_search_savings(view: dict[str, Any], workspace_root: Path | Non
     # include_source hidden from the schema: an un-nudged model reaches for it
     # "to be safe" and pulls thousands of resident chars it then re-reads anyway.
     # One extra precise read beats a speculative full-source dump. Hidden callers
-    # (tests, power use) still pass it by name. max_files hidden too: 0 uses in a
-    # full SWE rep -- narrowing happens via paths=/query, the default (8) is policy.
-    hidden_params=("include_source", "max_files"),
+    # (tests, power use) still pass it by name.
+    # There used to be a SEPARATE max_files param here (hidden, default 8) that
+    # looked like it did the same job as this cap -- it didn't: it fed engine
+    # breadth + an inline-source count already fixed at 3 regardless of its
+    # value (0 real callers ever moved it). Removed as a public/tool-level
+    # concept entirely (see _CODE_SEARCH_ENGINE_MAX_FILES) so there is exactly
+    # ONE agent-visible count knob. Every vanilla-habit spelling for "how many
+    # results" (maxFiles, max_results, max_files, max_candidates) now lands on
+    # `limit`, the real parameter.
+    hidden_params=("include_source",),
 )
 def tool_code_search(
     query: Annotated[
         str,
         Field(description="Question, symbol/file names, code terms, or regex."),
     ],
-    max_files: Annotated[
-        int,
-        Field(ge=1, description="Maximum source files to return."),
-    ] = 8,
     paths: Annotated[
         str | list[str] | None,
         Field(description="Optional file or directory scope."),
@@ -9605,6 +9881,10 @@ def tool_code_search(
         bool,
         Field(description="Hidden: keep the top-2 matches' source inline (bounded)."),
     ] = False,
+    limit: Annotated[
+        int | None,
+        Field(ge=1, le=32, description="Cap candidate_files entries (default 8, or 5 when one file dominates)."),
+    ] = None,
 ) -> dict[str, Any]:
     """Relevant symbols' source grouped by file + call-graph relations, in one capped call.
 
@@ -9630,7 +9910,9 @@ def tool_code_search(
     # didn't already supply an explicit paths= scope, which takes precedence.
     resolved_path = None if seed_files else _resolve_query_as_existing_file(workspace_root, query, engine)
     explore_seeds = [resolved_path] if resolved_path else seed_files
-    result = cast(dict[str, Any], engine.tool_explore(query, max_files=max_files, seed_files=explore_seeds))
+    result = cast(
+        dict[str, Any], engine.tool_explore(query, max_files=_CODE_SEARCH_ENGINE_MAX_FILES, seed_files=explore_seeds)
+    )
     # paths= is a SOFT scope at every shape (single file, directory, multi-path):
     # the engine reserves only the top-2 spots for in-scope files and lets the
     # neighbouring files its whole-repo channels surfaced race in below, so there is
@@ -9641,7 +9923,13 @@ def tool_code_search(
     # Project the engine's rich candidate set to a lean, exact view so the agent
     # can go code_search -> edit without grep/read round-trips (seed files are
     # boosted to the top inside the view).
-    lean = _lean_code_search_view(result, max_files=max_files, seed_files=explore_seeds, query=query)
+    lean = _lean_code_search_view(
+        result,
+        max_files=_CODE_SEARCH_ENGINE_MAX_FILES,
+        seed_files=explore_seeds,
+        query=query,
+        max_candidates=limit,
+    )
     if resolved_path and not any(
         isinstance(e, dict) and e.get("path") == resolved_path and e.get("sections") for e in (lean.get("files") or [])
     ):
@@ -11502,15 +11790,23 @@ def _outline_lean_view(lean: dict[str, Any], *, keep_top2: bool) -> dict[str, An
 
     Dict-level (applied in tool_code_search before rendering). ALWAYS: a section
     past _CODESEARCH_TOP2_MAX_CHARS keeps its head plus a precise L<start>-L<end>
-    pointer. With LEMONCROW_CODESEARCH_OUTLINE=1, sections past
-    _CODESEARCH_OUTLINE_MAX_CHARS additionally collapse to a pointer-only
-    outline; keep_top2 (the hidden include_source arg) keeps the top-2 matches'
-    source inline (still head-capped).
+    pointer.
+
+    top2 (a confident call's top-ranked 1-2 sections; `files` is already
+    relevance-ordered) keeps keep_top2's existing width and gate -- exact_match
+    or the hidden include_source arg. A low-confidence "ranked candidates" call
+    (keep_top2=False) instead protects only its SINGLE top-ranked section --
+    a genuine top pick is still worth showing even on a gamble, but a
+    low-confidence match ranked 2nd or later no longer earns a free pass just
+    for being short: the outline collapse below applies to it UNCONDITIONALLY
+    regardless of size, closing a gap where size alone (never a confidence
+    signal) decided whether a low-rank guess shipped its source for free.
     """
     files = lean.get("files")
     if not isinstance(files, list):
         return lean
     match = 0  # rank across all matched sections (files are relevance-ordered)
+    top_n = 2 if keep_top2 else 1
     for entry in files:
         if not isinstance(entry, dict):
             continue
@@ -11518,12 +11814,17 @@ def _outline_lean_view(lean: dict[str, Any], *, keep_top2: bool) -> dict[str, An
         for sec in entry.get("sections") or []:
             if not (isinstance(sec, dict) and "content" in sec):
                 continue
-            top2 = keep_top2 and match < 2
+            top2 = match < top_n
             match += 1
             start, end = sec.get("line"), sec.get("end_line")
-            # Outline mode first: a large non-top2 section collapses to a
-            # pointer-only outline (cheaper than any head cut).
-            if _CODESEARCH_OUTLINE and not top2 and len(sec["content"]) > _CODESEARCH_OUTLINE_MAX_CHARS:
+            # Outline mode first: a large non-top2 section always collapses to a
+            # pointer-only outline (cheaper than any head cut); a small one only
+            # collapses when the call isn't confident enough to earn the free pass.
+            if (
+                _CODESEARCH_OUTLINE
+                and not top2
+                and (not keep_top2 or len(sec["content"]) > _CODESEARCH_OUTLINE_MAX_CHARS)
+            ):
                 sym = sec.get("qualified_name") or path or "symbol"
                 sec.pop("content", None)
                 sec["outline"] = f"{sym} — read {path or sec.get('path', '')}:L{start}-L{end}"

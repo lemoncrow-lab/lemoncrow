@@ -126,9 +126,9 @@ def test_grep_pattern_alias_end_to_end(workspace: Path) -> None:
     assert "NEEDLE_TOKEN" in text
 
 
-def test_code_search_limit_alias_end_to_end(workspace: Path) -> None:
-    """code_search(..., limit=N) -- the common search-API kwarg name, not one of
-    ours -- resolves to max_files instead of an unknown-argument MCP error."""
+def test_code_search_limit_param_end_to_end(workspace: Path) -> None:
+    """code_search(..., limit=N) -- the common search-API kwarg name -- is the
+    real parameter now (candidate_files cap), not an alias to anything."""
     (workspace / "src.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
 
     # Fast-path on a literal existing file path -- pinned directly, no
@@ -138,6 +138,18 @@ def test_code_search_limit_alias_end_to_end(workspace: Path) -> None:
 
     assert "unknown argument" not in text
     assert "NEEDLE_TOKEN" in text
+
+
+@pytest.mark.parametrize("vanilla_name", ["max_files", "maxFiles", "max_results", "max_candidates"])
+def test_code_search_limit_vanilla_aliases_end_to_end(workspace: Path, vanilla_name: str) -> None:
+    """Every legacy/vanilla-habit spelling for "how many results" resolves to
+    the single real `limit` param instead of an unknown-argument MCP error --
+    there is exactly one agent-visible count knob on code_search now."""
+    (workspace / "src.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
+
+    text = _text(_call("code_search", {"query": "src.py", vanilla_name: 2}))
+
+    assert "unknown argument" not in text
     assert "NEEDLE_TOKEN" in text
 
 
@@ -147,8 +159,14 @@ def test_alias_registry_covers_vanilla_habits() -> None:
     assert tools["grep"]["param_aliases"]["pattern"] == "regex"
     assert tools["grep"]["param_aliases"]["-i"] == "i"
     assert tools["code_search"]["param_aliases"]["pattern"] == "query"
-    assert tools["code_search"]["param_aliases"]["max_results"] == "max_files"
-    assert tools["code_search"]["param_aliases"]["limit"] == "max_files"
+    # code_search has exactly one agent-visible count knob (`limit`, a real
+    # param, not aliased) -- every vanilla/legacy spelling for it redirects
+    # here instead of landing on a separate, confusing second parameter.
+    assert tools["code_search"]["param_aliases"]["max_results"] == "limit"
+    assert tools["code_search"]["param_aliases"]["max_files"] == "limit"
+    assert tools["code_search"]["param_aliases"]["maxFiles"] == "limit"
+    assert tools["code_search"]["param_aliases"]["max_candidates"] == "limit"
+    assert "limit" not in tools["code_search"]["param_aliases"]  # real param, not an alias
     assert tools["web_fetch"]["param_aliases"]["format"] == "type"
 
 

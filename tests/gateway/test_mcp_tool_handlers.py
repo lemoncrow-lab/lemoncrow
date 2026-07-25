@@ -1791,6 +1791,53 @@ def test_lean_code_search_view_preserves_learned_file_order() -> None:
     assert lean["candidate_files"][0] == "src/legacy.py"
 
 
+def test_outline_lean_view_low_confidence_outlines_small_non_top_section() -> None:
+    # A "ranked candidates" (no exact match, no include_source -> keep_top2=False)
+    # call is a gamble: only the single top-ranked section stays inline. Rank 1+
+    # outlines to a pointer even when tiny -- size alone must not be a free pass
+    # past low confidence.
+    lean = {
+        "exact_match": False,
+        "files": [
+            {
+                "path": "a.py",
+                "sections": [
+                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
+                    {"path": "a.py", "qualified_name": "tiny", "line": 3, "end_line": 4, "content": "x = 1\n"},
+                ],
+            }
+        ],
+    }
+    shaped = mcp_server._outline_lean_view(lean, keep_top2=False)
+    secs = shaped["files"][0]["sections"]
+    assert secs[0]["content"] == "rank 0\n"
+    assert "outline" not in secs[0]
+    assert "content" not in secs[1]
+    assert secs[1]["outline"] == "tiny — read a.py:L3-L4"
+
+
+def test_outline_lean_view_confident_call_keeps_small_non_top2_inline() -> None:
+    # Unchanged prior behavior: a confident call (exact_match/include_source ->
+    # keep_top2=True) still ships a small non-top2 section inline.
+    lean = {
+        "exact_match": True,
+        "files": [
+            {
+                "path": "a.py",
+                "sections": [
+                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
+                    {"path": "a.py", "qualified_name": "second", "line": 3, "end_line": 4, "content": "rank 1\n"},
+                    {"path": "a.py", "qualified_name": "tiny", "line": 5, "end_line": 6, "content": "x = 1\n"},
+                ],
+            }
+        ],
+    }
+    shaped = mcp_server._outline_lean_view(lean, keep_top2=True)
+    secs = shaped["files"][0]["sections"]
+    assert secs[2]["content"] == "x = 1\n"
+    assert "outline" not in secs[2]
+
+
 def test_lean_related_symbol_flattens_multiline_names() -> None:
     # Markdown headings can index a whole frontmatter block as their name; the
     # symbol map must stay a one-line pointer, never a prose dump.
@@ -3197,12 +3244,81 @@ def test_render_code_search_md_is_compact() -> None:
     # majority kind "function" is untagged; non-function kinds keep theirs
     assert "src/util.py:L5-L40 helper" in text
     assert "function" not in text.split("related_symbols:")[1]
-    # candidates: single comma-joined line; bookkeeping never rendered
-    assert "candidate_files: src/a.py, src/b.py" in text
+    # candidates: single comma-joined line, adjacent same-dir entries grouped;
+    # bookkeeping never rendered
+    assert "candidate_files: src/{a.py,b.py}" in text
     assert "999" not in text
     assert "exact match" not in text  # exact hits carry no banner
     # the render is line-shaped, not JSON
     assert '"related_symbols"' not in text
+
+
+def test_compress_candidate_files_groups_adjacent_same_directory() -> None:
+    paths = [
+        "src/a/one.py",
+        "src/a/two.py",
+        "src/b/three.py",
+        "src/a/four.py",
+        "README.md",
+    ]
+    text = mcp_server._compress_candidate_files(paths)
+    # a/one.py + a/two.py are ADJACENT -> grouped. src/b/three.py breaks the
+    # run, so the later src/a/four.py is a separate single-file segment (never
+    # reordered into the earlier group -- that would shift MRR-scored rank).
+    assert text == "src/a/{one.py,two.py}, src/b/three.py, src/a/four.py, README.md"
+
+
+@pytest.mark.slow  # importing eval_external_provider_mrr loads the full gold-pairs
+# corpus at module level (~7k pairs) -- correct, just too slow for the default run.
+def test_compress_candidate_files_round_trips_through_eval_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Cross-module contract: LemonCrow's compressor and the retrieval eval's
+    # parser must agree, or every LemonCrow-channel MRR run silently corrupts
+    # candidate_files ranks (the eval has no structuredContent to fall back to
+    # -- this compact-markdown path is the ONLY one it ever exercises).
+    import importlib
+    import sys
+    import types
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[2]
+    import benchmarks
+
+    benchmark_paths = list(getattr(benchmarks, "__path__", []))
+    for path in (str(root / "benchmarks"), str(root / "src" / "benchmarks")):
+        if path not in benchmark_paths:
+            benchmark_paths.append(path)
+    benchmarks.__path__ = benchmark_paths
+    codebench_pkg = sys.modules.get("benchmarks.codebench")
+    if codebench_pkg is None:
+        codebench_pkg = types.ModuleType("benchmarks.codebench")
+        sys.modules["benchmarks.codebench"] = codebench_pkg
+    codebench_paths = list(getattr(codebench_pkg, "__path__", []))
+    root_codebench_path = str(root / "benchmarks" / "codebench")
+    if root_codebench_path not in codebench_paths:
+        codebench_paths.append(root_codebench_path)
+    codebench_pkg.__path__ = codebench_paths
+    sys.modules.pop("benchmarks.codebench.eval_external_provider_mrr", None)
+    # The script does module-level `_parser.parse_known_args()` (it's a CLI
+    # entry point, not a library) with a required --provider -- give it a
+    # valid argv for the duration of the import.
+    monkeypatch.setattr(sys, "argv", ["eval_external_provider_mrr.py", "--provider", "lemoncrow"])
+    _eval_mrr = importlib.import_module("benchmarks.codebench.eval_external_provider_mrr")
+
+    paths = [
+        "src/a/one.py",
+        "src/a/two.py",
+        "src/a/three.py",
+        "src/b/four.py",
+        "src/c/five.py",
+        "src/c/six.py",
+        "README.md",
+        "lib/seven.py",
+    ]
+    line = mcp_server._compress_candidate_files(paths)
+    recovered: list[str] = []
+    for seg in _eval_mrr._split_candidate_files_line(line):
+        recovered.extend(_eval_mrr._expand_candidate_segment(seg))
+    assert recovered == paths
 
 
 def test_render_code_search_md_flags_inexact_and_truncated() -> None:
@@ -3291,6 +3407,101 @@ def test_lean_code_search_view_candidates_keep_symbol_map_paths() -> None:
     # main.py: source returned -> excluded. covered.py: symbol-map pointer AND
     # ranked candidate -> kept. fresh.py: plain ranked candidate -> kept.
     assert lean["candidate_files"] == ["src/covered.py", "src/fresh.py"]
+
+
+def test_lean_code_search_view_candidate_files_capped_tighter_when_dominant() -> None:
+    # The exact-single-winner case (`dominant`: exact match, no seed scope,
+    # one file scoring far above any rival) is the SAME signal that already
+    # collapses `files` to n_src=1 -- it also shrinks the candidate_files
+    # tail to _LEAN_CANDIDATE_FILES_DOMINANT (5) instead of the general 8.
+    # This is deliberately NOT keyed on any per-candidate score: that was
+    # tried and falsified by
+    # test_lean_code_search_view_candidates_keep_symbol_map_paths's fresh.py
+    # case. Reusing the whole-response `dominant` signal instead avoids that
+    # trap.
+    payload = {
+        "exact_match": True,
+        "entry_points": [
+            {
+                "qualified_name": "f",
+                "path": "src/winner.py",
+                "line": 1,
+                "end_line": 9,
+                "kind": "function",
+                "score": 9.0,
+            }
+        ],
+        "files": [{"path": "src/winner.py", "source_sections": []}]
+        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(10)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 5
+    # 11 total candidates, 5 shown -> 6 hidden, named explicitly.
+    assert lean["candidate_files_more"] == 6
+
+
+def test_lean_code_search_view_candidate_files_more_absent_when_nothing_hidden() -> None:
+    # No cap was actually hit -> no candidate_files_more key at all (its mere
+    # presence, even at 0, would read as "something is being withheld").
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(3)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 3
+    assert "candidate_files_more" not in lean
+
+
+def test_render_code_search_md_hints_hidden_candidate_files_via_limit() -> None:
+    # `limit` is code_search's one real, visible count param (candidate_files
+    # cap, collapsed from the old separate max_candidates/max_files split) --
+    # the hint must point at it directly, not the retired name.
+    payload = {
+        "exact_match": False,
+        "files": [],
+        "candidate_files": ["src/a.py", "src/b.py", "src/c.py"],
+        "candidate_files_more": 4,
+    }
+    text = mcp_server._render_code_search_md(payload)
+    assert text is not None
+    assert "(+4 more; pass limit=7 to see them)" in text
+    assert "max_candidates=" not in text
+
+
+def test_lean_code_search_view_candidate_files_keeps_full_window_when_not_dominant() -> None:
+    # Same 20-file shape, but exact_match=False -> `dominant` never fires
+    # (it requires exact_match). The recall tail stays the full 8-wide net.
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 8
+
+
+def test_lean_code_search_view_max_candidates_overrides_both_defaults() -> None:
+    # An explicit max_candidates wins over BOTH the dominant (5) and general
+    # (8) defaults -- the caller's own confidence, not a heuristic, decides.
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1, max_candidates=3)
+    assert len(lean["candidate_files"]) == 3
+    # A dominant response asking for MORE than its own 5-default also gets it.
+    dominant_payload = {
+        "exact_match": True,
+        "entry_points": [
+            {"qualified_name": "f", "path": "src/winner.py", "line": 1, "end_line": 9, "kind": "function", "score": 9.0}
+        ],
+        "files": [{"path": "src/winner.py", "source_sections": []}]
+        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean_dominant = mcp_server._lean_code_search_view(dominant_payload, max_files=1, max_candidates=12)
+    assert len(lean_dominant["candidate_files"]) == 12
 
 
 def _doc_heavy_payload() -> dict[str, object]:

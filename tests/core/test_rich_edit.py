@@ -4,7 +4,20 @@ import json
 from pathlib import Path
 
 from lemoncrow.pro.capabilities.source_projection import build_compact_projection
-from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
+from lemoncrow.pro.capabilities.tool_supervision.rich_edit import _parse_target, apply_rich_edits
+
+
+def test_parse_target_minified_suffix_is_order_independent() -> None:
+    # The suffix loop consumes tokens from the right regardless of which
+    # recognized suffix appears closer to the path -- :minified before or
+    # after the range must parse identically.
+    before = _parse_target("f.py:minified:L10-L20")
+    after = _parse_target("f.py:L10-L20:minified")
+    assert before == after
+    assert before.path == "f.py"
+    assert before.start_line == 10
+    assert before.end_line == 20
+    assert before.minified is True
 
 
 def test_rich_edit_sequential_same_file_and_line_range(tmp_path: Path) -> None:
