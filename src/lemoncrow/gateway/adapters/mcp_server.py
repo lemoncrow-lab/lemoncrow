@@ -6136,6 +6136,7 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
         "filePath",
         "offset",
         "limit",
+        "force",
     ),
     description=(
         "Read files or exact symbols. :Lx-Ly = exact range, :full = full source. "
@@ -6178,6 +6179,15 @@ def tool_smart_read(
     filePath: str = "",
     offset: int | None = None,
     limit: int | None = None,
+    force: Annotated[
+        bool,
+        Field(
+            description=(
+                "Hidden: bypass within-session content dedup and re-emit the full "
+                "body even if byte-identical to an earlier read this session."
+            )
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Read a file (or batch of files) by path, or a single symbol by name.
 
@@ -6203,6 +6213,7 @@ def tool_smart_read(
     holds something, use `grep` with mode="with_content" to
     discover and read in one step instead of grep-then-read.
     """
+    _ = force  # consumed by the dedup dispatcher wrapper (mcp_server._handle), not here
     if files is not None and symbol is not None:
         # Recovery (don't reject): both given means 'this symbol AS DEFINED IN this
         # file' -- the most precise read the model can ask for. Resolve the symbol
@@ -9944,7 +9955,7 @@ def _attach_code_search_savings(view: dict[str, Any], workspace_root: Path | Non
     # ONE agent-visible count knob. Every vanilla-habit spelling for "how many
     # results" (maxFiles, max_results, max_files, max_candidates) now lands on
     # `limit`, the real parameter.
-    hidden_params=("include_source",),
+    hidden_params=("include_source", "force"),
 )
 def tool_code_search(
     query: Annotated[
@@ -9963,6 +9974,15 @@ def tool_code_search(
         int | None,
         Field(ge=1, le=32, description="Cap candidate_files entries (default 8, or 5 when one file dominates)."),
     ] = None,
+    force: Annotated[
+        bool,
+        Field(
+            description=(
+                "Hidden: bypass within-session content dedup and re-emit the full "
+                "result even if byte-identical to an earlier call this session."
+            )
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Relevant symbols' source grouped by file + call-graph relations, in one capped call.
 
@@ -9970,6 +9990,7 @@ def tool_code_search(
     and renders budgeted, line-numbered, skeletonized source. Treat the returned source
     as already read -- do not re-open those files with `read`.
     """
+    _ = force  # consumed by the dedup dispatcher wrapper (mcp_server._handle), not here
     workspace_root = _workspace_root()
     # Check BEFORE doing any search work: a flagged repeat query skips the
     # engine entirely and returns blank -- no explanatory text (measured: the
