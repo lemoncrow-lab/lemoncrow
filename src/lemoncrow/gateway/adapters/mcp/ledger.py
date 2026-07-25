@@ -120,6 +120,20 @@ def _request_bridge_id() -> str:
     return str(ctx["bridge"]) if ctx and ctx.get("bridge") else ""
 
 
+def _request_session_identity() -> tuple[str, str]:
+    """``(session_id, host)`` stamped on this thread by the daemon dispatcher.
+
+    ``("", "")`` on the stdio path (no header context). Every session-scoped
+    writer must consult this FIRST: the singleton daemon is not a child of any
+    ``claude`` window, so its own window/env resolution names whichever session
+    happened to start it and would credit every other window's work there.
+    """
+    ctx = getattr(_request_session, "value", None)
+    if not ctx:
+        return "", ""
+    return str(ctx.get("session_id") or "").strip(), str(ctx.get("host") or "").strip()
+
+
 def _set_request_ledger(session_id: str | None) -> Any:
     """Scope _get_ledger() to a per-session ledger on the CURRENT thread; returns
     the prior value to restore. A falsy session_id is a no-op (stdio / no session
