@@ -323,6 +323,12 @@ build_dist/
 .planning
 /reports/
 
+# Per-clone attribution hook. core.hooksPath points at the TRACKED .githooks/,
+# so `lc init`/install_*.sh write prepare-commit-msg straight into the work tree
+# and uninstall.sh deletes it again -- churning git status. Machine-generated
+# per clone, never shared: keep it untracked.
+/.githooks/prepare-commit-msg
+
 # LibreOffice/soffice lock files (created while a CSV is open in a spreadsheet app)
 .~lock.*#
 docs/assets/screenshots/session-replay.gif
