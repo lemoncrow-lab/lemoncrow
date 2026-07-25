@@ -618,6 +618,43 @@ def test_legacy_oauth_store_migrates_to_the_first_persistent_hostname(
     assert not legacy.exists()  # moved, not copied — no token bleed into a second connector's store
 
 
+def test_tunnel_is_named_after_the_subdomain_label(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert pt.tunnel_name_for("lc-lc.beseam.com") == "lc-lc"
+    assert pt.tunnel_name_for("LC-Ecom.beseam.com") == "lc-ecom"
+
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.chatgpt._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(pt, "is_logged_in", lambda: True)
+    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: None)
+    created: list[str] = []
+    monkeypatch.setattr(pt, "create_tunnel", lambda binary, name: (created.append(name), ("id-1", "/c.json"))[1])
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: None)
+    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda binary, ref, port, cred: _FakeTunnelProc())
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "lc-lc.beseam.com"])
+    assert result.exit_code == 0, result.output
+    assert created == ["lc-lc"]
+
+
+def test_same_label_in_another_zone_is_refused_not_silently_shared(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    pt.save_tunnel_state(
+        pt.tunnel_state_path_for("lc-lc.beseam.com"),
+        pt.TunnelState(tunnel_name="lc-lc", tunnel_id="id-a", hostname="lc-lc.beseam.com", credentials_path="/a.json"),
+    )
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: calls.append(a))
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: calls.append(a))
+
+    result = CliRunner().invoke(chatgpt_group, ["serve", "--persistent", "--hostname", "lc-lc.other.com"])
+    assert result.exit_code != 0
+    assert "already used by lc-lc.beseam.com" in result.output
+    assert calls == []  # refused before touching cloudflared
+
+
 def test_persistent_without_hostname_errors_when_several_configured(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
