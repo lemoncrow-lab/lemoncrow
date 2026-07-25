@@ -4924,9 +4924,6 @@ def _render_code_search_md(payload: dict[str, Any]) -> str | None:
         parts.append(line)
     if payload.get("truncated"):
         parts.append("(truncated; narrow with paths=)")
-    _repeat_hint = payload.get("repeat_query_hint")
-    if isinstance(_repeat_hint, str) and _repeat_hint:
-        parts.append(f"[lc: {_repeat_hint}]")
     return "\n\n".join(parts) if parts else None
 
 
@@ -5505,11 +5502,20 @@ _MAX_RANGE_READ_SIG_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
 # "stale_days fail_on_stale debt stale age git blame", "_line_age_days git
 # blame annotate stale", ... -- each re-phrasing re-sent on every later turn's
 # resent history, compounding for the rest of the run.
-_RECENT_CODE_SEARCH_QUERIES: OrderedDict[str, deque[tuple[str, frozenset[str]]]] = OrderedDict()
+# Timestamped (not just a bare deque): the stdio "_global" bucket is process-
+# wide, so it spans EVERY conversation a long-lived daemon happens to serve
+# (a daemon can outlive many separate Cursor/Claude chats -- confirmed this
+# session). Without a time bound, a brand-new, unrelated conversation whose
+# first query happens to share words with the LAST daemon-wide query (from a
+# previous, unrelated chat, possibly hours earlier) would be wrongly blanked.
+# Bounding to _RECENT_QUERY_WINDOW_SECONDS keeps the check scoped to "this
+# same burst of searching", not "this process's entire lifetime".
+_RECENT_CODE_SEARCH_QUERIES: OrderedDict[str, deque[tuple[float, str, frozenset[str]]]] = OrderedDict()
 _recent_code_search_queries_lock = threading.Lock()
 _MAX_RECENT_QUERY_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
 _RECENT_QUERY_HISTORY = 3
 _REPEAT_QUERY_SIMILARITY_FLOOR = 0.35
+_RECENT_QUERY_WINDOW_SECONDS = 180.0
 _QUERY_WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -5540,7 +5546,7 @@ def _query_words(query: str) -> frozenset[str]:
     return frozenset(w for w in _QUERY_WORD_RE.findall(query.lower()) if len(w) >= 3)
 
 
-def _recent_code_search_queries() -> deque[tuple[str, frozenset[str]]]:
+def _recent_code_search_queries() -> deque[tuple[float, str, frozenset[str]]]:
     """The current session's recent-query bucket (see _RECENT_CODE_SEARCH_QUERIES)."""
     led = getattr(_request_ledger, "value", None)
     sid = led.session_id if isinstance(led, RunLedger) and led.session_id else "_global"
@@ -5556,37 +5562,34 @@ def _recent_code_search_queries() -> deque[tuple[str, frozenset[str]]]:
         return bucket
 
 
-def _check_repeat_query(query: str) -> str | None:
-    """Nudge when *query* overlaps heavily (Jaccard >= floor) with a query this
-    session already ran in the last _RECENT_QUERY_HISTORY calls -- re-phrasing
-    the same investigation rarely surfaces anything new, and each extra call
-    gets resent on every later turn's history regardless. Soft signal only:
-    never blocks the call, just names the closest prior query so the caller
-    can choose to read the file directly instead of searching again. Always
-    records *query* into the bucket, hint or not.
+def _check_repeat_query(query: str) -> bool:
+    """True when *query* overlaps heavily (Jaccard >= floor) with a query this
+    session ran within the last _RECENT_QUERY_WINDOW_SECONDS -- re-phrasing the
+    same investigation rarely surfaces anything new. A hard signal, not a
+    hint: an explanatory sentence here just adds tokens to a response the
+    caller has already shown it skims past and searches again anyway (measured
+    across debt-benchmark reps). The caller returns blank results instead --
+    always records *query* into the bucket either way. Time-bounded (not just
+    the last _RECENT_QUERY_HISTORY calls) so a brand-new, unrelated
+    conversation on the same long-lived daemon never gets blanked because of a
+    coincidental word overlap with a stale query from a previous chat.
     """
     words = _query_words(query)
     bucket = _recent_code_search_queries()
-    hint: str | None = None
+    now = time.monotonic()
+    is_repeat = False
     if words:
-        best_ratio = 0.0
-        best_prior = ""
-        for prior_text, prior_words in bucket:
+        for ts, _prior_text, prior_words in bucket:
+            if now - ts > _RECENT_QUERY_WINDOW_SECONDS:
+                continue
             union = words | prior_words
             if not union:
                 continue
-            ratio = len(words & prior_words) / len(union)
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_prior = prior_text
-        if best_ratio >= _REPEAT_QUERY_SIMILARITY_FLOOR:
-            hint = (
-                f'query overlaps heavily with an earlier search this turn ("{best_prior}") -- '
-                "if that result didn't have what you needed, re-phrasing rarely helps; read the "
-                "specific file/symbol directly instead, or broaden paths= in one call"
-            )
-    bucket.append((query, words))
-    return hint
+            if len(words & prior_words) / len(union) >= _REPEAT_QUERY_SIMILARITY_FLOOR:
+                is_repeat = True
+                break
+    bucket.append((now, query, words))
+    return is_repeat
 
 
 def _record_read_sig(path: Path | str, *, exact: bool = True) -> None:
@@ -9965,6 +9968,12 @@ def tool_code_search(
     as already read -- do not re-open those files with `read`.
     """
     workspace_root = _workspace_root()
+    # Check BEFORE doing any search work: a flagged repeat query skips the
+    # engine entirely and returns blank -- no explanatory text (measured: the
+    # caller skims past prose hints and searches again anyway; blank results
+    # cost nothing and say the same thing).
+    if _check_repeat_query(query):
+        return _attach_code_search_savings({"exact_match": False, "files": []}, workspace_root)
     # Normalise: paths param accepts list, comma-sep string, or single path
     # (the legacy `path` kwarg is folded into `paths` by param_aliases).
     raw = paths
@@ -10023,9 +10032,6 @@ def tool_code_search(
     # the agent reads only what it picks. Content-only shaping -- the ranked
     # file/candidate surface (and retrieval MRR) is untouched either way.
     shaped = _outline_lean_view(lean, keep_top2=include_source or bool(lean.get("exact_match")))
-    _repeat_hint = _check_repeat_query(query)
-    if _repeat_hint:
-        shaped["repeat_query_hint"] = _repeat_hint
     return _attach_code_search_savings(shaped, workspace_root)
 
 
