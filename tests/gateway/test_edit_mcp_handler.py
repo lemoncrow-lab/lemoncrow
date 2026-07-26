@@ -1095,6 +1095,26 @@ def test_full_rewrite_with_elision_marker_still_rejected(workspace: Path) -> Non
     assert f.read_text(encoding="utf-8") == original  # untouched
 
 
+def test_new_file_missing_names_actual_path_and_inline_fallback(workspace: Path) -> None:
+    """A hallucinated new_file path fails with the real path + the inline-new fallback.
+
+    Regression: the daemon boundary redacted absolute paths, so the model saw
+    "new_file <path> could not be read: ... '<path>'" and could not tell which
+    path was wrong or how to recover.
+    """
+    resp = _call(
+        "edit",
+        {
+            "path": "tests/new_test.py",
+            "new_file": "/tmp/lemoncrow-spill/does-not-exist-xyz.py",
+            "hooks": False,
+        },
+    )
+    message = str(resp["error"]["message"])
+    assert "/tmp/lemoncrow-spill/does-not-exist-xyz.py" in message, resp
+    assert "pass the content inline via new" in message, resp
+
+
 def test_tiny_fragment_without_old_still_rejected(workspace: Path) -> None:
     f = workspace / "frag.py"
     original = "X = 1\n" * 40

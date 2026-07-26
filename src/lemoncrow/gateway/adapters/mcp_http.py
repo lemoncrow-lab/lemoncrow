@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import uuid
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -92,23 +91,11 @@ def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH) -> dict[str, Any]:
     }
 
 
-# Strip server filesystem paths from error text while preserving relative paths
-# and URLs (which a remote agent needs to self-correct). Match POSIX absolute
-# paths only at a boundary (not preceded by a word char or ``/``, so ``https://``
-# and ``src/lemoncrow/foo.py`` are left intact) plus Windows drive paths.
-_ABS_PATH_RE = re.compile(r"(?<![\w/])(?:/[\w.+\-]+)+/?|[A-Za-z]:\\[^\s:*?\"<>|]+")
-
-
-def _redact_error_paths(response: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Strip absolute filesystem paths from a JSON-RPC error message before it
-    crosses the HTTP boundary. _handle returns tool errors as ``str(exc)``, which
-    can embed server paths; keep the error code + human-readable reason, drop the
-    leaked paths (so a remote agent can still self-correct on the reason)."""
-    if isinstance(response, dict):
-        error = response.get("error")
-        if isinstance(error, dict) and isinstance(error.get("message"), str):
-            error["message"] = _ABS_PATH_RE.sub("<path>", error["message"])
-    return response
+# NOTE: error messages intentionally keep absolute filesystem paths. The daemon
+# serves loopback/Unix-socket clients on the same machine, and self-correction
+# hints (spill files, ``new_file`` retry paths) ARE absolute paths -- redacting
+# them turned actionable errors into dead ends ("new_file <path> could not be
+# read: ... '<path>'") while normal tool results already carry the same paths.
 
 
 def _dispatch(
@@ -236,8 +223,6 @@ def register_mcp_http(
         host = request.headers.get("x-lemoncrow-agent")
         bridge_id = request.headers.get("x-lemoncrow-bridge")
         response = await run_in_threadpool(_dispatch, body, session_id, host, bridge_id)
-        # F2 — strip leaked server paths from any error message at the boundary.
-        response = _redact_error_paths(response)
         accept = request.headers.get("accept", "")
         wants_sse = "text/event-stream" in accept.lower()
 
