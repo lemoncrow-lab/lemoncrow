@@ -275,59 +275,28 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
     )
 
 
-def render_cursor_coding_rules() -> str:
-    """Cursor's one guaranteed-always-loaded rule file.
-
-    Cursor has no equivalent of Claude Code's MCP-server-instructions fold-in
-    (see _CLAUDE_TOOL_DISCIPLINE's comment above), so a persona-agnostic
-    baseline only reaches Cursor if something ships with ``alwaysApply: true``.
-    Bundles every shared partial that's persona-agnostic (near-universal across
-    integrations/agents/*.md -- core/change/destructive-guard/coding/reply-
-    register). Tool-discipline is deliberately excluded: it names a specific
-    tool contract (read-only vs write-capable) that only makes sense inside an
-    actual invoked lemoncrow.* mode rule, not as a global default.
-    """
-    sections = [
-        ("Core Discipline", core_discipline_body(CORE_DISCIPLINE_PATH.parent)),
-        ("Change Discipline", _markdown_body(CHANGE_DISCIPLINE_PATH)),
-        (
-            "Safety & Delegation",
-            _markdown_body(DESTRUCTIVE_GUARD_PATH) + "\n" + _markdown_body(AGENT_RULE_PATH),
-        ),
-        ("Coding Guidelines", _markdown_body(CODING_GUIDELINES_PATH)),
-        ("Reply Register", markdown_section(REPLY_REGISTER_PATH, "ultra")),
-    ]
-    body = "\n\n".join(f"## {title}\n\n{text.strip()}" for title, text in sections)
-    return (
-        "\n".join(
-            [
-                "---",
-                "description: Always-on LemonCrow baseline for Cursor -- core/change/"
-                "destructive-guard/coding/reply-register discipline that applies"
-                " regardless of which (if any) lemoncrow mode rule is also active.",
-                "alwaysApply: true",
-                "---",
-                "",
-                body,
-            ]
-        ).rstrip()
-        + "\n"
-    )
+# The ONE mode rule Cursor loads on every request. Override with
+# LEMONCROW_CURSOR_MODE=<role> before `make sync-agent-context` (e.g. auto).
+#
+# Exactly one, never two. There is no persona-agnostic baseline file any more: a
+# mode rule already composes core, change, coding, tool and reply-register
+# discipline, so a second always-on rule alongside it re-billed the same bullets
+# on every round-trip. The same trap applies to invoking a second mode by name
+# while one is stamped always-on -- both personas would ship together. Treat the
+# mode rules as pick-one: stamp the mode you actually run, leave the rest
+# description-only so Cursor can surface them on demand at no standing cost.
+CURSOR_ALWAYS_ON_ROLE = os.environ.get("LEMONCROW_CURSOR_MODE", "code").strip() or "code"
 
 
 def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
-    return (
-        "\n".join(
-            [
-                "---",
-                f"description: LemonCrow {role.role_id} mode reference for Cursor.",
-                "---",
-                "",
-                render_mode_body(mode_doc),
-            ]
-        ).rstrip()
-        + "\n"
-    )
+    header = [
+        "---",
+        f"description: LemonCrow {role.role_id} mode reference for Cursor.",
+    ]
+    if role.role_id == CURSOR_ALWAYS_ON_ROLE:
+        header.append("alwaysApply: true")
+    header.append("---")
+    return "\n".join([*header, "", render_mode_body(mode_doc)]).rstrip() + "\n"
 
 
 def _already_active_guard(skill_name: str) -> str:
@@ -586,7 +555,6 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
         agents_path: render_managed_context(existing_agents),
         copilot_path: render_managed_context(existing_copilot),
         ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
-        ROOT / "integrations/cursor/rules/lemoncrow.mdc": render_cursor_coding_rules(),
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):
         projection = registry.projection(role_id, "copilot_agent")

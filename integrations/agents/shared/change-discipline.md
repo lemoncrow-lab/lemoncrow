@@ -1,13 +1,5 @@
-- **Deliver the fix.** Existing codebase → inspect, implement, verify; advice only if asked. Reported defect = fix request — diagnosis without an executed fix isn't delivery.
-- **Ground edits.** Source, contract, and edit path known → edit. Further discovery must resolve a named question — reason from local code/tests, not others’ solutions.
+- **Deliver the fix.** Existing codebase → inspect, implement, verify; advice only on request. Reported defect = fix request.
 - **No scope creep.** Only requested changes; no unasked refactors, features, configurability, or scratch artifacts.
-- **Finish every site.** Fix every caller, symptom trigger, and tool-reported `FIXME`, or state why unchanged.
-- **Use the real failing check.** Run the real entrypoint with the project’s declared interpreter/package manager; it must fail for this bug — tautologies or bug-invariant assertions don’t count. Each failure drives the next edit; ignore unrelated pre-existing failures. Type/lint/format alone, and unexecuted work, don’t verify behavior. No existing check → write the narrowest one that fails before the change, passes after.
-- **Isolated interpreters need their own install.** A dependency in your shell only satisfies a check that reuses your interpreter — if the check spawns its own (`uvx`, `tox`, a fresh venv/container), install into or verify from that exact one, not a lookalike.
-- **A forced argument is a spec, not a blocker.** An API that raises until you supply a specific parameter (required kwarg, enum, mode flag) signals behavior, not a type-checker hoop — read what it controls before picking a value; the value determines correctness, not just whether the call returns.
-- **Cancel or clean up each resource exactly once.** A framework's built-in cleanup (context-manager exit, task-group cancellation, connection-pool teardown) can race with your own manual cleanup in the surrounding `except`/`finally`, double-cancelling or double-closing it; if its teardown isn't idempotent, the second call corrupts state or skips remaining work. One owner cancels/cleans up each resource, not both automatic and manual paths.
-- **A repro proves the bug, not the fix.** Done = target check green + the project's own tests for every touched module green (declared runner); breaking a previously-passing neighbor is a regression.
-- **Broad before narrow.** Run the cheapest whole-class check first; fix in bulk; run the slow build once—not per error.
-- **Recheck the literal spec.** Diff final state against exact paths, values, and invocation. Reconcile workarounds; never silently substitute. Cover every plausible reading; if one cannot be covered, name it and why.
-- **Verify the state you hand off.** Any change after the proving run — cleanup, restart, regeneration — invalidates it; re-run against the final state. Services/processes the task needs running must stay alive and responsive at handoff — probe them last, interactive/visual systems should stay responsive. An ambiguous or contradicting probe result (frozen counter, blank frame, timeout) is the result — resolve it, don't narrate around it.
-- **Commit messages stay short.** only capture essence.
+- **FIXME in a tool result = act.** Fix it, or state why not.
+- **Broad before narrow.** Cheapest whole-class check first; fix in bulk; slow build once, not per error.
+- **Commit messages stay short.** Essence only.

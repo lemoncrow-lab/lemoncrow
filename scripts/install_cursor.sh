@@ -4,7 +4,8 @@
 # What it does:
 #   Global mode: adds LemonCrow to ~/.cursor/mcp.json.
 #   Workspace mode (--workspace DIR): adds LemonCrow to DIR/.cursor/mcp.json
-#   and writes a rules file at DIR/.cursor/rules/lemoncrow.mdc.
+#   and writes the named mode rules to DIR/.cursor/rules/lemoncrow.<mode>.mdc.
+#   Exactly one carries `alwaysApply: true` (stamped at sync time; default: code).
 #
 # Options:
 #   --dry-run      Print what would happen, touch nothing

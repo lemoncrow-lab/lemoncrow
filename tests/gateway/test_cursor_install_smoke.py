@@ -88,7 +88,19 @@ def test_workspace_install_writes_consistent_artifacts(tmp_path: Path) -> None:
     assert (ws / ".cursor" / "hooks" / "before_read_file.py").is_file()
     assert (ws / ".cursor" / "hooks" / "before_tool_use.py").is_file()
     assert list((ws / ".cursor" / "rules").glob("lemoncrow*.mdc"))
-    assert (ws / ".cursor" / "rules" / "lemoncrow.tools.mdc").is_file()
+    # Exactly one rule is always-on -- the --mode one (default: code). There is
+    # no generic lemoncrow.mdc / lemoncrow.tools.mdc baseline: a mode rule
+    # already composes core/change/coding/tool/reply-register discipline, so a
+    # second always-on file re-billed the same bullets every round-trip.
+    active = ws / ".cursor" / "rules" / "lemoncrow.code.mdc"
+    assert active.is_file()
+    assert "alwaysApply: true" in active.read_text(encoding="utf-8")
+    assert not (ws / ".cursor" / "rules" / "lemoncrow.mdc").exists()
+    assert not (ws / ".cursor" / "rules" / "lemoncrow.tools.mdc").exists()
+    always_on = [
+        p for p in (ws / ".cursor" / "rules").glob("*.mdc") if "alwaysApply: true" in p.read_text(encoding="utf-8")
+    ]
+    assert always_on == [active], f"expected exactly one always-on rule, got {always_on}"
 
 
 def _run_session_start_hook(ws: Path, root: Path, payload: dict) -> None:

@@ -34,7 +34,7 @@ def tool_web_fetch(
     url: Annotated[str, Field(description="Public HTTP/HTTPS URL to fetch.")],
     type: Annotated[
         Literal["auto", "markdown", "text", "html"],
-        Field(description="Return format. auto prefers Markdown and converts HTML to Markdown."),
+        Field(description="Return format; auto prefers Markdown and converts HTML to it."),
     ] = "auto",
     max_chars: Annotated[
         int | None,
@@ -56,10 +56,9 @@ def tool_web_fetch(
         str | None,
         Field(
             description=(
-                "Optional search term. Long page → keep the sections/table-rows most "
-                "relevant to the term (embedding rank when a local embedder is configured, "
-                "else keyword coverage), not a blind head cut — jump straight to one "
-                "row/section of a long table or doc. Omit = head truncation."
+                "Search term. Long page → keep the most relevant sections/table-rows "
+                "(embedding rank if a local embedder is configured, else keyword coverage) "
+                "instead of a blind head cut. Omit = head truncation."
             )
         ),
     ] = None,
@@ -67,10 +66,9 @@ def tool_web_fetch(
         bool,
         Field(
             description=(
-                "true = bounded gist instead of the rendered page: internal-LLM summary when "
-                "configured, else type-aware extractive gist. Full page always spilled first; "
-                "the footer names the spill path — recover via `read`. Ignored when `query` "
-                "or `type='html'` is given — the more specific request wins."
+                "Bounded gist instead of the rendered page (LLM summary if configured, else "
+                "extractive). Full page spilled first; the footer names the path — recover "
+                "via `read`. Ignored when `query` or `type='html'` is set."
             )
         ),
     ] = False,
