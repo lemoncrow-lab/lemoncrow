@@ -1067,3 +1067,38 @@ def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.
 
     _edit({"post_edit_hooks": False, "edits": [{"file_path": "off.txt:L1-L1", "new_string": "X\n"}]})
     assert f.read_text(encoding="utf-8") == "X\na2\n"
+
+
+# ---------------------------------------------------------------------------
+# Native full-file rewrite: edit(path, new) on an EXISTING file with no
+# old/replace -- the shape a host-native model sends for "write this file".
+# A plausible complete body applies as replace; fragments still error.
+# ---------------------------------------------------------------------------
+
+
+def test_full_rewrite_of_existing_file_without_replace_applies(workspace: Path) -> None:
+    f = workspace / "rw.py"
+    f.write_text("A = 1\nB = 2\nC = 3\n", encoding="utf-8")
+    body = "A = 10\nB = 20\nC = 30\nD = 40\n"
+    payload = _edit({"path": "rw.py", "new": body, "hooks": False})
+    assert "failed" not in payload, payload
+    assert f.read_text(encoding="utf-8") == body
+
+
+def test_full_rewrite_with_elision_marker_still_rejected(workspace: Path) -> None:
+    f = workspace / "el.py"
+    original = "A = 1\nB = 2\nC = 3\n"
+    f.write_text(original, encoding="utf-8")
+    body = "A = 10\n# ... existing code ...\nZ = 99\n"
+    payload = _edit({"path": "el.py", "new": body, "hooks": False})
+    assert "failed" in payload, payload
+    assert f.read_text(encoding="utf-8") == original  # untouched
+
+
+def test_tiny_fragment_without_old_still_rejected(workspace: Path) -> None:
+    f = workspace / "frag.py"
+    original = "X = 1\n" * 40
+    f.write_text(original, encoding="utf-8")
+    payload = _edit({"path": "frag.py", "new": "Y = 2\n", "hooks": False})
+    assert "failed" in payload, payload
+    assert f.read_text(encoding="utf-8") == original
