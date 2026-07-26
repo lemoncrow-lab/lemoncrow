@@ -816,7 +816,9 @@ def _run_bash_tool(
             _forget_mcp_managed_bash(managed_id)
             polled.pop("session_id", None)
             polled.pop("status", None)
-            chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
+            # Read without dropping: the renderer needs chars_omitted to tell
+            # a trivial trim (no footer) from a real one.
+            chars_omitted = int(polled.get("chars_omitted", 0) or 0)
             ts = _bash_omitted_tokens_saved(polled, chars_omitted)
             if ts > 0:
                 _tool_call_tokens_saved.value = ts
@@ -903,7 +905,8 @@ def _run_bash_tool(
     _forget_mcp_managed_bash(managed_id)
     polled.pop("session_id", None)
     polled.pop("status", None)
-    chars_omitted = int(polled.pop("chars_omitted", 0) or 0)
+    # Read without dropping: the renderer needs chars_omitted (see above).
+    chars_omitted = int(polled.get("chars_omitted", 0) or 0)
     ts = _bash_omitted_tokens_saved(polled, chars_omitted)
     if ts > 0:
         _tool_call_tokens_saved.value = ts
@@ -1013,12 +1016,16 @@ def _render_bash_text(result: dict[str, Any]) -> str:
         if exit_code in (None, 0) and not blocked:
             parts.append("stderr:")
         parts.append(stderr)
-    if truncated:
+    _chars_omitted = result.get("chars_omitted")
+    _trivial_trim = isinstance(_chars_omitted, int) and 0 <= _chars_omitted < 300
+    if truncated and not (_trivial_trim and not spill_hint):
         if stdout or stderr:
             parts.append("")
         # Character-only and structured-data sampling can be lossy without a
         # meaningful line count. Surface recovery whenever the result says it
         # was compacted, not only when lines_omitted happens to be positive.
+        # Trivial trims (a few progress/blank lines) get no notice at all --
+        # the footer would outweigh what it accounts for.
         if spill_hint:
             parts.append(spill_hint)
         elif isinstance(lines_omitted, int) and lines_omitted > 0:
@@ -1033,12 +1040,26 @@ def _render_bash_text(result: dict[str, Any]) -> str:
     return ""
 
 
+def _lift_bash_command_list(args: dict[str, Any], known_params: frozenset[str]) -> dict[str, Any]:
+    """Recover list-for-string args: command=[...] -> commands, id=[...] -> ids."""
+    cmd = args.get("command")
+    if isinstance(cmd, list) and "commands" not in args and all(isinstance(c, str) for c in cmd):
+        args = dict(args)
+        args["commands"] = args.pop("command")
+    sid = args.get("id")
+    if isinstance(sid, list) and "ids" not in args and all(isinstance(s, str) for s in sid):
+        args = dict(args)
+        args["ids"] = args.pop("id")
+    return args
+
+
 BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "command": {
-            "type": "string",
-            "description": "Shell command to run. Read-only lookups are auto-rewritten to the faster indexed tools (cat→read, rg/grep→internal grep).",
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Shell command to run; read-only lookups are auto-rewritten to the faster indexed tools (cat→read, rg/grep→internal grep). Array = several commands in ONE call: each runs sequentially in its own subshell, ALL run even if one fails; blocks come back under `## lc:cmd i/n` headers, failures flagged inline — beats && chains that hide failures after the first.",
         },
         "cwd": {
             "type": "string",
@@ -1055,8 +1076,9 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "description": "Start detached and return id immediately. The only mode that survives this MCP session's exit — use for servers/daemons the task needs left running.",
         },
         "id": {
-            "type": "string",
-            "description": "Session id from an earlier call. bash(id=X) alone blocks until that run finishes — the right way to wait, never sleep-poll.",
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Session id from an earlier call. bash(id=X) alone blocks until that run finishes — the right way to wait, never sleep-poll. Array = handle several sessions in ONE call (poll/status/kill applies to each; results come back per id).",
         },
         "action": {
             "type": "string",
@@ -1088,13 +1110,17 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "killed by it); expect long work → set timeout high up front and finish in "
         "one call; a run past it returns `still running id=X` and keeps going — "
         "bash(id=X) waits it out; never poll with sleep. Servers/daemons → bg=true. "
-        "REPLs → interactive=true."
+        "REPLs → interactive=true. Several checks → command=[...]: all run, each "
+        "reports its own exit — beats && chains that hide failures after the first."
     ),
-    hidden_params=("max_lines", "max_output_tokens", "idle_ttl"),
+    hidden_params=("max_lines", "max_output_tokens", "idle_ttl", "commands", "ids"),
     param_aliases={"session_id": "id", "background": "bg", "is_background": "bg"},
+    recover_args=_lift_bash_command_list,
 )
 def tool_bash(
     command: str = "",
+    commands: list[str] | None = None,
+    ids: list[str] | None = None,
     timeout: int | None = None,
     cwd: str | None = None,
     max_lines: int = 200,
@@ -1131,6 +1157,70 @@ def tool_bash(
         # A wait budget past 24h is a milliseconds value from a host whose
         # native convention is ms (e.g. 120000 meaning 120s), not a real wait.
         timeout = max(1, timeout // 1000)
+    if ids and not id and not command and not commands and not interactive:
+        # Multi-id: apply poll/status/kill to each session in one call, one
+        # block per id — sessions run concurrently, so total wait ≈ slowest.
+        act = "poll" if action == "run" else action
+        blocks: list[str] = []
+        for sid in ids:
+            res = _run_bash_tool(
+                "",
+                timeout=timeout,
+                cwd=cwd,
+                max_lines=max_lines,
+                max_output_tokens=max_output_tokens,
+                background=False,
+                session_id=sid,
+                action=act,
+                interactive=False,
+                input_text=None,
+                idle_ttl=idle_ttl,
+            )
+            rendered = _render_bash_text(res) if isinstance(res, dict) else str(res)
+            blocks.append(f"## lc:id={sid}\n{rendered}")
+        return "\n\n".join(blocks)
+    if commands and not command and action == "run" and bg and not interactive and not id:
+        # bg batch: start each detached, return one compact indexed id list —
+        # the caller already knows its own commands, so no echo.
+        lines: list[str] = []
+        for i, cmd in enumerate(commands, 1):
+            res = _run_bash_tool(
+                cmd,
+                timeout=timeout,
+                cwd=cwd,
+                max_lines=max_lines,
+                max_output_tokens=max_output_tokens,
+                background=True,
+                session_id=None,
+                action="run",
+                interactive=False,
+                input_text=None,
+                idle_ttl=idle_ttl,
+            )
+            sid = str(res.get("session_id") or "?") if isinstance(res, dict) else "?"
+            lines.append(f"{i}: id={sid} running")
+        return "\n".join(lines) + "\nbash(id=[...]) waits for all; action='status' peeks; action='kill' stops"
+    if commands and not command and action == "run" and not bg and not interactive and not id:
+        # Batch: run every command sequentially in its own subshell (matching
+        # the no-cd-persistence contract between separate calls), never stop on
+        # failure, and mark each command's exit inline so one call surfaces
+        # every failing gate at once instead of an && chain hiding the rest.
+        n = len(commands)
+        script_parts = ["__lc_worst=0"]
+        for i, cmd in enumerate(commands, 1):
+            # `## lc:cmd i/n` heads each block (same convention as read's
+            # `## path` headers); exit is only called out on failure -- a
+            # passing gate needs no per-command noise.
+            script_parts.append(f"printf '\\n## lc:cmd {i}/{n}\\n'")
+            # 2>&1 per subshell: each command's errors stay inside its own
+            # block instead of pooling detached in one trailing stderr.
+            script_parts.append("(\n" + cmd + "\n) 2>&1")
+            script_parts.append(
+                f"__lc_rc=$?; if [ $__lc_rc -gt $__lc_worst ]; then __lc_worst=$__lc_rc; fi; "
+                f"if [ $__lc_rc -ne 0 ]; then printf '[lc:cmd {i}/{n} FAILED exit=%d]\\n' $__lc_rc; fi"
+            )
+        script_parts.append("exit $__lc_worst")
+        command = "\n".join(script_parts)
     if id and input is not None and action == "run":
         # bash(id=x, input=...) with no explicit action = feed the session.
         action = "send"

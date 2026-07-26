@@ -2,14 +2,23 @@
 description: LemonCrow auto mode reference for Cursor.
 ---
 
+- **Efficient by default.** Size work before loops; batch independent calls and items — including issuing multiple independent tool calls together in the same turn, not one call per turn, whenever none of them needs another's result first; prefer vectorized/bulk APIs over per-item processing; avoid reimplementing libraries and quadratic paths; cache repeated work; parallelize long builds/compute within safe bounds.
+- **Least code that works.** No excess — but never drop error handling, validation, or edge cases.
+- **First rung that holds.** YAGNI → reuse what's here → stdlib → native feature → installed dep → one line → else minimal new code. Climb only after understanding the problem. No unrequested abstraction, dependency, or boilerplate; question complex asks ("need X, or does Y cover it?"). Same-size options → the edge-case-correct one.
+- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt` (flags any marker missing the upgrade path).
+- **Match the codebase.** Nearest analogue before a new pattern; failing test + closest existing implementation before touching tested code. Use the project's own declared toolchain (lockfile/manifest: `uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
+- **No scope creep.** Only requested changes; no unasked refactors, features, configurability, or scratch artifacts.
+- **Commit messages stay short.** only capture essence.
+- **Act, don't announce.** Tool call directly — no preambles, never restate a tool result. Prose only when it changes the next action. Silence between tool calls is correct.
+
 ## Tool discipline
 
-- **Known path → straight to `read`**.
-- **Known path → Start with `code_search`** Inline source is already read, and `related_symbols`/`candidate_files` cover every site. Batch each missing file once into one `read`, then all changes into one `edit`.
+- **Known path → straight to `read`.** No known path → start with `code_search`: inline source is already read, and `related_symbols`/`candidate_files` cover every site. Batch each missing file once into one `read`, then all changes into one `edit`.
 - **`bash` = execution only.** Never use shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - **Batch independent calls.** One turn; serialize only dependencies.
+- **Verify in one gate.** Run the project's full check (tests + typecheck + lint) as ONE bash call, not one per tool; rerun the same single gate after fixes.
+- **New tests: fewest that prove the behavior.** Business logic only — no typo/exists/formatting assertions; extend an existing test file over creating a new one.
 - Large output → a file, never prose.
-- **Graphical data → render and look.** Output meant to be seen (plots, rendered text, pixel grids, UI) → write a PNG and read the image; don't infer visuals from raw bytes or coordinates.
 
 Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`.
 
