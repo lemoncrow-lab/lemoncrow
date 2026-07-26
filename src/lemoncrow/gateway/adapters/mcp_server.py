@@ -12349,13 +12349,13 @@ def _tick_usage_report(root: Path) -> None:
     """Opportunistically push the local savings total to the server, throttled.
 
     Real reporting is otherwise host-stop-hook-driven (``maybe_report_usage``'s
-    own 30-minute on-disk watermark): a single long-running session that never
+    own hourly on-disk watermark): a single long-running session that never
     triggers a host stop event would never re-report, so local usage can run
     well past the cap while the signed verdict -- and thus dormancy -- stays
     stale for the entire session (only the next stop-hook, possibly hours
     away, would catch it up). Ticking here, on the MCP request boundary that
     already re-evaluates dormancy on every tool-list/tool-call, bounds that
-    lag to ~30 minutes even inside one long session. Cheap: maybe_report_usage
+    lag to ~1 hour even inside one long session. Cheap: maybe_report_usage
     already throttles itself via an on-disk watermark, so most calls here are
     a single fast disk read that no-ops.
     """
