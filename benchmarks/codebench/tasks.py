@@ -500,6 +500,21 @@ TASKS: list[Task] = [
         1,
         "task8_RenameAcrossCallSites",
     ),
+    # --- multi-turn edit/fix (objective pytest gate) ---
+    # Self-contained `jobrunner` lib shipped with a half-done cross-cutting
+    # `deadline` feature; the agent must thread it through api/context/pipeline/
+    # report to turn the 14 failing deadline tests green without regressing the
+    # 17 baseline tests. Graded objectively by `uv run pytest -q` (config.yaml),
+    # so no LLM judge -- correctness == tests pass. Exercises large-file editing
+    # (pipeline.py/report.py ~300 LOC) + multi-site iteration.
+    Task(
+        "edit_deadline",
+        "python",
+        ("workspace", "workspace"),
+        1,
+        "edit_deadline",
+        setup_cmds=_CG_TASK_SETUP_CMDS,
+    ),
 ]
 
 BY_ID = {t.id: t for t in TASKS}
