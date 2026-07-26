@@ -626,13 +626,34 @@ def _start_idle_reaper(
     idle_grace_seconds: float,
     stop: threading.Event,
 ) -> None:
-    if idle_grace_seconds <= 0:
-        return  # 0/negative disables self-reap (daemon lives until signalled).
+    # 0/negative disables idle self-reap (daemon lives until signalled), but
+    # the loop still runs for the stale-code check below.
+    idle_reap = idle_grace_seconds > 0
 
     def _loop() -> None:
-        interval = max(5.0, min(30.0, idle_grace_seconds / 2))
+        interval = max(5.0, min(30.0, idle_grace_seconds / 2)) if idle_reap else 30.0
         zero_since: float | None = None
         while not stop.wait(interval):
+            # A reinstall replaced the code on disk: exit so the bridge's
+            # transparent respawn brings up a daemon running the new code.
+            # Without this, a long-lived bridge never rechecks a healthy
+            # daemon and every attached host keeps stale behavior.
+            current = _code_fingerprint()
+            startup = _startup_code_fingerprint()
+            if current is not None and startup is not None and current != startup:
+                _log.info("MCP daemon: installed code changed on disk; restarting to pick it up")
+                server.should_exit = True
+                # Skip uvicorn's graceful-drain wait: a lingering keep-alive
+                # connection must not pin a stale-code daemon alive.
+                server.force_exit = True
+                # Interpreter shutdown can hang on lingering non-daemon
+                # threads (warmups, telemetry). A stale-code daemon must
+                # actually die so the bridge respawns new code -- give
+                # uvicorn a short drain, then exit hard.
+                time.sleep(10.0)
+                os._exit(0)
+            if not idle_reap:
+                continue
             if live.count(_SESSION_TTL_SECONDS) == 0:
                 # No bridge attached: start (or continue) the grace countdown.
                 if zero_since is None:
