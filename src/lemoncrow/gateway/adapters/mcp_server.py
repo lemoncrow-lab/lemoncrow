@@ -5115,16 +5115,21 @@ def render_tool_result_text(name: str, result: Any) -> str | None:
             if isinstance(files, list):
                 parts: list[str] = []
                 cwd = str(Path.cwd())
-                for entry in files:
-                    if not isinstance(entry, dict):
-                        continue
+                dict_entries = [entry for entry in files if isinstance(entry, dict)]
+                # A single-entry read needs no `## path` header -- the caller
+                # just named the file (and range); headers only earn their
+                # tokens when several entries must be told apart.
+                lone_entry = len(dict_entries) == 1
+                for entry in dict_entries:
                     entry_path = str(entry.get("path") or "?")
                     if entry_path.startswith(cwd + os.sep):
                         entry_path = entry_path[len(cwd) + 1 :]
                     entry_text = _render_read_md(entry)
                     if entry_text is None:
                         entry_text = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
-                    if entry.get("mode") == "range":
+                    if lone_entry:
+                        parts.append(entry_text)
+                    elif entry.get("mode") == "range":
                         raw_range = str(entry.get("range") or "")
                         range_tag = ":L" + raw_range.replace("-", "-L") if raw_range else ""
                         parts.append(f"## {entry_path}{range_tag}\n{entry_text}")
@@ -11569,11 +11574,16 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                         _dedup_sid = ""
                         with contextlib.suppress(Exception):
                             _dedup_sid = _get_ledger().session_id or ""
+                        _dedup_salt = ""
+                        if name == "read":
+                            with contextlib.suppress(Exception):
+                                _dedup_salt = _read_dedup_resource(_args)
                         _dedup_outcome = _cdedup.registry().stub_for(
                             session_id=_dedup_sid,
                             content=response_text,
                             epoch=_cdedup.current_epoch(),
                             force=bool(_args.get("force")),
+                            salt=_dedup_salt,
                         )
                         if _dedup_outcome is None and name == "read":
                             _dedup_resource = _read_dedup_resource(_args)

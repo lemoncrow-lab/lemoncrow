@@ -304,3 +304,72 @@ def test_bash_millisecond_timeout_treated_as_ms(workspace: Path) -> None:
     out = _text(_call("bash", {"command": "echo fast", "timeout": 120000}))
     assert "unknown argument" not in out
     assert "fast" in out
+
+
+# ---------------------------------------------------------------------------
+# bash commands=[...]: one call, every command runs (no &&-style short-circuit),
+# each with its own exit marker; a list passed as `command` recovers too.
+# ---------------------------------------------------------------------------
+
+
+def test_bash_commands_batch_runs_all_and_marks_exits(workspace: Path) -> None:
+    out = _text(_call("bash", {"commands": ["echo one", "false", "echo three"]}))
+    assert "one" in out and "three" in out  # ran past the failure
+    assert "## lc:cmd 1/3" in out and "## lc:cmd 3/3" in out
+    assert "[lc:cmd 2/3 FAILED exit=1]" in out
+    assert "[lc:cmd 1/3 FAILED" not in out  # pass = no per-command exit noise
+    assert "exit_code=1" in out  # overall = worst
+
+
+def test_bash_command_as_list_recovers_to_batch(workspace: Path) -> None:
+    out = _text(_call("bash", {"command": ["echo alpha", "echo beta"]}))
+    assert "unknown argument" not in out
+    assert "alpha" in out and "beta" in out
+    assert "## lc:cmd 2/2" in out
+
+
+def test_bash_bg_batch_returns_indexed_id_list(workspace: Path) -> None:
+    out = _text(_call("bash", {"command": ["echo bg1", "echo bg2"], "bg": True}))
+    assert "1: id=" in out and "2: id=" in out
+    assert "echo bg1" not in out  # no command echo — caller knows its own list
+
+
+def test_bash_single_command_has_no_batch_markers(workspace: Path) -> None:
+    out = _text(_call("bash", {"command": "echo solo"}))
+    assert "solo" in out
+    assert "[lc:cmd" not in out
+
+
+def test_read_single_entry_has_no_path_header(workspace: Path) -> None:
+    (workspace / "solo.py").write_text("SOLO = 1\n", encoding="utf-8")
+    out = _text(_call("read", {"files": ["solo.py"]}))
+    assert "SOLO = 1" in out
+    assert not out.startswith("## ")
+
+
+def test_read_multi_entry_keeps_path_headers(workspace: Path) -> None:
+    (workspace / "m1.py").write_text("M1 = 1\n", encoding="utf-8")
+    (workspace / "m2.py").write_text("M2 = 2\n", encoding="utf-8")
+    out = _text(_call("read", {"files": ["m1.py", "m2.py"]}))
+    assert "## m1.py" in out and "## m2.py" in out
+
+
+def test_read_identical_content_different_files_not_cross_deduped(workspace: Path) -> None:
+    body = "TWIN = 1\n" * 800
+    (workspace / "twin_a.py").write_text(body, encoding="utf-8")
+    (workspace / "twin_b.py").write_text(body, encoding="utf-8")
+    first = _text(_call("read", {"files": ["twin_a.py:full"]}))
+    second = _text(_call("read", {"files": ["twin_b.py:full"]}))
+    assert "TWIN = 1" in first
+    assert "[dedup]" not in second and "TWIN = 1" in second
+
+
+def test_bash_multi_id_poll_returns_block_per_id(workspace: Path) -> None:
+    import re
+
+    start = _text(_call("bash", {"command": ["echo P1", "echo P2"], "bg": True}))
+    ids = re.findall(r"\d+: id=(\w+)", start)
+    assert len(ids) == 2
+    out = _text(_call("bash", {"id": ids}))
+    assert f"## lc:id={ids[0]}" in out and f"## lc:id={ids[1]}" in out
+    assert "P1" in out and "P2" in out
