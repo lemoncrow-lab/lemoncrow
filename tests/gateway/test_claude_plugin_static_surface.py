@@ -129,9 +129,12 @@ def test_auto_agent_keeps_bounded_delegation_and_treats_bug_reports_as_code_work
 
 def test_execute_agent_includes_shared_coding_guidelines() -> None:
     body = (PLUGIN / "agents" / "execute.md").read_text(encoding="utf-8")
-    # Guidelines are inlined as bullets now (no "## Coding Guidelines" heading
-    # after the discipline-partial refactor).
-    assert "Match the codebase" in body
+    # Guidelines are inlined as bullets (no "## Coding Guidelines" heading after
+    # the discipline-partial refactor). "Match the codebase" was dropped from the
+    # guidelines: pattern-matching advice invites extra exploration, and every
+    # persona token is re-billed on every round-trip. Anchor on a rule that earns
+    # its tokens instead.
+    assert "Efficient by default" in body
 
 
 def test_generated_claude_agents_project_turn_defaults_without_pinning_model() -> None:

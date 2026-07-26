@@ -6175,19 +6175,15 @@ def _recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str]
         "force",
     ),
     description=(
-        "Read files or exact symbols. :Lx-Ly = exact range, :full = full source. "
-        "Whole file → ONE :full (or ONE wide range) — never successive narrow ranges. "
-        "Hunting for one function/test/section in a large file → symbol= or a targeted "
-        "range, not a bare whole-file read; the default view's numbers are already "
-        "disk-accurate for editing — :full is for exact formatting/comments only. "
-        "Batch all files/ranges into one call's files=[] array: "
+        "Read files or exact symbols. Batch ALL paths/ranges into ONE call: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
-        "Images (png/jpg/gif/webp/bmp, up to 4MB) are returned as a real viewable image, not text — "
-        "read(files=['board.png']) to SEE it directly instead of writing pixel/OCR/CV extraction code. "
-        "Other binary types (video, audio, pdf, archives) return a message with the concrete next step "
-        "(e.g. extract a video frame or PDF page to PNG, then read() that image). "
-        ":summary = bounded gist, any file. :outline = force structural outline at any size. "
-        ":summary/:outline/:full mutually exclusive. symbol='name' or ['a', 'b']."
+        ":Lx-Ly exact range; :full full source; :summary gist; :outline structure at any "
+        "size (mutually exclusive). Whole file → ONE :full or wide range, never "
+        "successive narrow ones. One function/test → symbol=, not a whole-file read; "
+        "default line numbers are already disk-accurate for editing, so :full is for "
+        "exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back viewable — "
+        "read to SEE them, don't write OCR/pixel code. Other binaries return the next "
+        "step. symbol='name' or ['a', 'b']."
     ),
     param_aliases={
         "max_lines": "lines",
@@ -7180,13 +7176,11 @@ _EDIT_DIAG_CAP = 20
     name="edit",
     input_schema=EDIT_TOOL_INPUT_SCHEMA,
     description=(
-        "Batch file edits. Use edits=[{path: 'f.py:L10-L14', new}, ...]; "
-        "batch many range+new hunks in one call, even same-file hunks "
-        "(ranges use the original snapshot). Use {path, old, new} only without "
-        "a fresh range. Whole file, including creating a brand-new one: "
-        "{path, new, replace:true}. Minified-view "
-        "line number, not disk? add :minified, e.g. 'f.py:minified:L10-L14'. "
-        "No re-read after success."
+        "Batch file edits: edits=[{path: 'f.py:L10-L14', new}, ...] — many hunks per "
+        "call, even same-file (ranges use the original snapshot). {path, old, new} "
+        "only without a fresh range. Whole or brand-new file: {path, new, "
+        "replace:true}. Minified-view line numbers → add :minified "
+        "('f.py:minified:L10-L14'). No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but
@@ -10008,14 +10002,12 @@ def _attach_code_search_savings(view: dict[str, Any], workspace_root: Path | Non
 @mcp_tool(
     name="code_search",
     description=(
-        "Search the indexed codebase. One call returns top matches' source "
-        "inline (bounded), lower-ranked or oversized matches as precise "
-        "path:Lx-Ly pointers (`read` exactly that range), a related-symbols "
-        "map (path:Lx-Ly kind name), and candidate_files. Use instead of "
-        "grep/find. Inline source = already read. One broad query beats several "
-        "narrow rephrasings — combine every term/pattern you're hunting for into "
-        "a single call before calling again; re-querying the same investigation "
-        "rarely surfaces anything new."
+        "Search the indexed codebase. One call returns top matches' source inline "
+        "(bounded), lower-ranked or oversized ones as precise path:Lx-Ly pointers "
+        "(`read` exactly that range), a related-symbols map (path:Lx-Ly kind name), "
+        "and candidate_files. Use instead of grep/find. Inline source = already read. "
+        "One broad query beats several narrow rephrasings — combine every term into "
+        "a single call; re-querying rarely surfaces anything new."
     ),
     param_aliases={
         "maxFiles": "limit",

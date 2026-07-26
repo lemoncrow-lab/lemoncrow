@@ -1059,40 +1059,40 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "command": {
             "type": ["string", "array"],
             "items": {"type": "string"},
-            "description": "Shell command to run; read-only lookups are auto-rewritten to the faster indexed tools (cat→read, rg/grep→internal grep). Array = several commands in ONE call: each runs sequentially in its own subshell, ALL run even if one fails; blocks come back under `## lc:cmd i/n` headers, failures flagged inline — beats && chains that hide failures after the first.",
+            "description": "Command, or array run sequentially — own subshell each, all run even if one fails, `## lc:cmd i/n` headers.",
         },
         "cwd": {
             "type": "string",
-            "description": "Working directory for this command. cd does not persist between calls — pass cwd or absolute paths.",
+            "description": "Working directory; cd never persists.",
         },
         "timeout": {
             "type": "integer",
             "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Seconds this call WAITS for the result. if < 1hr a handle is returned while the command keeps running -- or earlier if it stalls (no output/CPU/IO progress); read the returned message to tell 'still working' from 'stuck'. if > 1hr the command is killed at the deadline. To kill a long-running command use action=kill or action=update with a new timeout. Pass longer timeouts(e.g. 21600) to wait and execute in one call for long-running work (builds, tests, installs).",
+            "description": "Seconds to WAIT. <1hr → handle returned, run continues (also on stall). >1hr → killed. Long builds → 21600.",
         },
         "bg": {
             "type": "boolean",
             "default": False,
-            "description": "Start detached and return id immediately. The only mode that survives this MCP session's exit — use for servers/daemons the task needs left running.",
+            "description": "Detached, returns id now; only mode outliving this MCP session.",
         },
         "id": {
             "type": ["string", "array"],
             "items": {"type": "string"},
-            "description": "Session id from an earlier call. bash(id=X) alone blocks until that run finishes — the right way to wait, never sleep-poll. Array = handle several sessions in ONE call (poll/status/kill applies to each; results come back per id).",
+            "description": "Session id; bash(id=X) blocks till done — never sleep-poll. Array = several per call.",
         },
         "action": {
             "type": "string",
             "enum": ["poll", "status", "kill", "update", "send"],
-            "description": "with id: poll = wait until finished (default if bash(id=X)); status = peek without waiting; kill = terminate now; update = install an exact kill deadline timeout= seconds from now; send = write input to an interactive session and return the new output.",
+            "description": "poll = wait (default); status = peek; kill = terminate; update = new deadline via timeout=; send = write input, return output.",
         },
         "interactive": {
             "type": "boolean",
             "default": False,
-            "description": "Keep stdin open as a REPL session (e.g. one `python -i` keeps imports loaded across sends). Drive it with action=send + input. Dies after 300s without a send; every send resets the clock.",
+            "description": "stdin open as a REPL; drive with action=send + input. Dies after 300s idle.",
         },
         "input": {
             "type": "string",
-            "description": "Text for action=send, written to the session's stdin with a newline appended. Empty string = send nothing, just wait for and drain new output.",
+            "description": "Text for action=send; newline appended. Empty = drain only.",
         },
     },
     "additionalProperties": False,
@@ -1103,15 +1103,11 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     name="bash",
     input_schema=BASH_TOOL_INPUT_SCHEMA,
     description=(
-        "Run a shell command, return compact output. Bash is for EXECUTION — git, "
-        "make, builds, tests, installs; prefer the indexed read/grep/search tools "
-        "for looking at code. cd doesn't persist — pass cwd= or absolute paths. "
-        "Lifecycle: the call waits up to `timeout` (a wait budget — nothing is "
-        "killed by it); expect long work → set timeout high up front and finish in "
-        "one call; a run past it returns `still running id=X` and keeps going — "
-        "bash(id=X) waits it out; never poll with sleep. Servers/daemons → bg=true. "
-        "REPLs → interactive=true. Several checks → command=[...]: all run, each "
-        "reports its own exit — beats && chains that hide failures after the first."
+        "Run a shell command. EXECUTION only — git, make, builds, tests, installs; "
+        "read/search code with the indexed tools. cd doesn't persist → cwd= or "
+        "absolute paths. `timeout` WAITS, never kills: set it high up front and "
+        "finish in one call. Servers/daemons → bg=true. REPLs → interactive=true. "
+        "Several checks → command=[...] beats && chains hiding failures."
     ),
     hidden_params=("max_lines", "max_output_tokens", "idle_ttl", "commands", "ids"),
     param_aliases={"session_id": "id", "background": "bg", "is_background": "bg"},
