@@ -292,6 +292,41 @@ def test_read_explanation_metadata_key_is_dropped(workspace: Path) -> None:
     assert "META = 1" in out
 
 
+def test_read_stray_query_key_dropped_with_files(workspace: Path) -> None:
+    """read(files=[...], query=...) -- a model re-using code_search's `query`
+    on the follow-up read -- drops the stray key and reads the file instead of
+    costing an unknown-argument round-trip."""
+    (workspace / "q.py").write_text("QVAL = 1\n", encoding="utf-8")
+    out = _text(_call("read", {"files": ["q.py"], "query": "how does q work"}))
+    assert "unknown argument" not in out
+    assert "QVAL = 1" in out
+
+
+def test_read_stray_query_key_dropped_with_path(workspace: Path) -> None:
+    (workspace / "qp.py").write_text("QPVAL = 1\n", encoding="utf-8")
+    out = _text(_call("read", {"path": "qp.py", "q": "anything"}))
+    assert "unknown argument" not in out
+    assert "QPVAL = 1" in out
+
+
+def test_recover_read_stray_query_unit() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _recover_read_stray_query
+
+    known = frozenset({"path", "files", "symbol", "range", "start_line", "offset", "filePath"})
+    # Stray query with a real target -> dropped, target untouched.
+    assert _recover_read_stray_query({"files": ["a.py"], "query": "x"}, known) == {"files": ["a.py"]}
+    assert _recover_read_stray_query({"path": "a.py", "q": "x"}, known) == {"path": "a.py"}
+    # Query-only + identifier -> promoted to a symbol read.
+    assert _recover_read_stray_query({"query": "MyClass.method"}, known) == {"symbol": "MyClass.method"}
+    # Query-only + phrase (not identifier-like) -> just dropped, no bogus symbol.
+    assert _recover_read_stray_query({"query": "how does this work"}, known) == {}
+    # No stray key -> untouched (identity).
+    src = {"files": ["a.py"]}
+    assert _recover_read_stray_query(src, known) == {"files": ["a.py"]}
+    # A real `query` param (were read ever to gain one) is never treated as stray.
+    assert _recover_read_stray_query({"query": "x"}, frozenset({"query"})) == {"query": "x"}
+
+
 def test_bash_is_background_native_alias(workspace: Path) -> None:
     out = _text(_call("bash", {"command": "echo bgtest", "is_background": False}))
     assert "unknown argument" not in out

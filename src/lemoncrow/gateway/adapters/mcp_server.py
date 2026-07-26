@@ -6073,6 +6073,9 @@ def _smart_read_single(
 
 # Matches range tokens like L10-L20, 10-20, L10-, 10-, L10, 10
 _RANGE_TOKEN_RE = re.compile(r"^L?\d+(-L?\d*)?$", re.IGNORECASE)
+# A bare identifier or dotted symbol path (Foo, pkg.Class.method) -- used to
+# decide whether a stray `query` on read can be promoted to a symbol lookup.
+_SYMBOL_LIKE_RE = re.compile(r"^[A-Za-z_][\w.]*$")
 
 
 def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | None, bool, bool]:
@@ -6126,6 +6129,34 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
     return ":".join(parts), range_out, expand_out, head_out, tail_out, summary_out, outline_out
 
 
+def _recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str]) -> dict[str, Any]:
+    """Fold a stray ``query``/``q`` on ``read`` into a usable shape.
+
+    ``read`` has no ``query`` param -- but models that just called ``code_search``
+    habitually re-send ``query`` on the follow-up read, which would cost a full
+    unknown-argument round-trip that throws away the whole call. If the call
+    already names a real target (files/symbol/path/range/...), the query is a
+    stray label -> drop it and read the target. If the query is the ONLY locator
+    and looks like an identifier, promote it to a symbol read (best-effort
+    "show me this named thing"); otherwise just drop it.
+    """
+    if not isinstance(args, dict):
+        return args
+    stray_keys = [k for k in ("query", "q") if k in args and k not in known_params]
+    if not stray_keys:
+        return args
+    out = {k: v for k, v in args.items() if k not in stray_keys}
+    has_target = any(
+        out.get(k) not in (None, "", [])
+        for k in ("files", "symbol", "path", "filePath", "file_path", "range", "start_line", "offset")
+    )
+    if not has_target:
+        val = args[stray_keys[0]]
+        if isinstance(val, str) and _SYMBOL_LIKE_RE.match(val.strip()):
+            out["symbol"] = val.strip()
+    return out
+
+
 @mcp_tool(
     name="read",
     hidden_params=(
@@ -6163,6 +6194,7 @@ def _split_file_opts(s: str) -> tuple[str, str | None, bool, int | None, int | N
         "filePath": "path",
         "file_path": "path",
     },
+    recover_args=_recover_read_stray_query,
 )
 def tool_smart_read(
     path: str = "",
