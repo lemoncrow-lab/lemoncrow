@@ -384,3 +384,33 @@ def test_ensure_daemon_restarts_stale_code_daemon(repo_and_root: tuple[Path, Pat
     assert reg2["pid"] != reg["pid"]
     assert reg2["code_fingerprint"] == md._code_fingerprint()
     assert len(md.list_daemons(root)) == 1
+
+
+@pytest.mark.slow
+def test_daemon_exits_when_code_fingerprint_changes(repo_and_root: tuple[Path, Path]) -> None:
+    """A running daemon notices a reinstall (fingerprint change) and exits."""
+    work, root = repo_and_root
+    reg = md.ensure_daemon(str(work), root, idle_grace_seconds=300.0)
+    pid = int(reg["pid"])
+    assert md._pid_alive(pid)
+    # Simulate a reinstall: bump the sentinel file's mtime so the daemon's
+    # reaper sees a different on-disk fingerprint than it loaded at start.
+    import lemoncrow.gateway.adapters.mcp_server as ms
+
+    sentinel = ms.__file__
+    st = os.stat(sentinel)
+    os.utime(sentinel, ns=(st.st_atime_ns, st.st_mtime_ns + 1))
+    try:
+        deadline = time.time() + 120
+        exited = False
+        while time.time() < deadline:
+            # The daemon is a child of this test process, so after it exits it
+            # lingers as a zombie and _pid_alive stays True -- probe the actual
+            # served socket instead (the contract the bridge relies on).
+            if not md._probe_healthy(reg, timeout=1.0):
+                exited = True
+                break
+            time.sleep(1.0)
+        assert exited, "daemon kept serving after code fingerprint changed"
+    finally:
+        os.utime(sentinel, ns=(st.st_atime_ns, st.st_mtime_ns))
