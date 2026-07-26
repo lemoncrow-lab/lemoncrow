@@ -423,9 +423,14 @@ def _clone_repo(url: str, commit: str | None, ws: Path) -> None:
     mirror = _repo_cache_mirror(url)
     source = str(mirror) if mirror is not None and mirror.is_dir() else url
     timeout = 300 if source != url else 900
-    subprocess.run(["git", "clone", "--quiet", source, str(ws)], check=True, timeout=timeout)
+    # Skip git-LFS smudge: benchmark workspaces never need LFS blobs (e.g.
+    # vscode's multi-MB test caches), and fetching them is slow -- worse, a
+    # bare `--mirror` cache has no LFS objects at all, so a smudge on checkout
+    # would abort the whole clone. Pointer files are fine for exploration/edit.
+    git_env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
+    subprocess.run(["git", "clone", "--quiet", source, str(ws)], check=True, timeout=timeout, env=git_env)
     if commit:
-        subprocess.run(["git", "-C", str(ws), "checkout", "--quiet", commit], check=True, timeout=120)
+        subprocess.run(["git", "-C", str(ws), "checkout", "--quiet", commit], check=True, timeout=120, env=git_env)
 
 
 def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
