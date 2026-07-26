@@ -6599,7 +6599,11 @@ def _normalize_edit_aliases(edit: dict[str, Any]) -> dict[str, Any]:
         try:
             edit = {**edit, "new_string": _nf.read_text(encoding="utf-8", errors="replace")}
         except OSError as exc:
-            raise _ToolArgumentError(f"new_file {_nf} could not be read: {exc}") from exc
+            raise _ToolArgumentError(
+                f"new_file '{edit['new_file']}' could not be read: {exc}. "
+                "new_file only re-sends content a prior failed edit preserved at the exact "
+                "path it reported; to create or rewrite a file, pass the content inline via new"
+            ) from exc
     return edit
 
 

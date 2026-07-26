@@ -61,6 +61,25 @@ def test_apply_fuzzy_replace_refuses_identical_block_tie() -> None:
         apply_fuzzy_replace(content, old, "REPLACED\n")
 
 
+def test_apply_fuzzy_replace_overlapping_windows_pick_best_not_ambiguous() -> None:
+    """Overlapping boundary-variant windows are ONE target, not ambiguity.
+
+    Regression: a near-whole-file old_string preceded by a few similar lines
+    produced overlapping candidates (11-92 / 14-92 / 18-92 in the wild) within
+    the ambiguity margin and hard-failed. Overlap = same target; apply best.
+    """
+    body_lines = [f"value_{i:03d} = {i}" for i in range(40)]
+    content = "value_900 = 900\nvalue_901 = 901\nvalue_902 = 902\n" + "\n".join(body_lines) + "\n"
+    # drift: old omits one mid line -> not an exact substring, forces the fuzzy ladder
+    old = "\n".join(body_lines[:20] + body_lines[21:]) + "\n"
+
+    updated, line_start, line_end = apply_fuzzy_replace(content, old, "NEW\n")
+
+    assert line_start == 4
+    assert line_end == 43
+    assert updated.startswith("value_900 = 900\nvalue_901 = 901\nvalue_902 = 902\nNEW\n")
+
+
 def test_apply_fuzzy_replace_handles_trailing_whitespace_drift() -> None:
     content = "SELECT id, name   \nFROM users\n"
     old = "SELECT id, name\nFROM users\n"
