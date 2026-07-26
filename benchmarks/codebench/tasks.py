@@ -36,8 +36,16 @@ def codebench_tasks_dir() -> Path:
 # cg_* cost/time comparison against it.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LEMONCROW_BIN = _REPO_ROOT / ".venv" / "bin" / "lemoncrow"
+# Pre-index for EVERY lc-family arm (lemoncrow/auto/solve/execute), not just the
+# arm literally named "lemoncrow". Running e.g. `-a baseline auto` names the
+# workspace ``..._auto_rep0``; a gate that only matched ``*_lemoncrow_rep*`` left
+# the auto arm with a COLD index, so its first code_search built the whole index
+# inside the timed window -- biasing the cost/time comparison against it.
+_LC_INDEX_ARMS: tuple[str, ...] = ("lemoncrow", "auto", "solve", "execute")
 _INDEX_ON_LEMONCROW_REP: tuple[str, ...] = (
-    f'case "$(pwd)" in *_lemoncrow_rep*) {_LEMONCROW_BIN} code index --repo-root "$(pwd)" || true ;; esac',
+    'case "$(pwd)" in '
+    + "|".join(f"*_{_arm}_rep*" for _arm in _LC_INDEX_ARMS)
+    + f') {_LEMONCROW_BIN} code index --repo-root "$(pwd)" || true ;; esac',
 )
 # Same trick for the codegraph competitor arm: build CodeGraph's local
 # knowledge-graph index (`.codegraph/`) only in that arm's workspace, before
