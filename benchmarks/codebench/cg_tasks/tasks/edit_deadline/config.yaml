@@ -1,0 +1,3 @@
+verify:
+  command: "uv run pytest -q"
+  mode: binary

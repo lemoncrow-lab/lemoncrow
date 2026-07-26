@@ -1,0 +1,22 @@
+[project]
+name = "jobrunner"
+version = "0.1.0"
+description = "A small, testable job-pipeline runner."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jobrunner"]
+
+[dependency-groups]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
