@@ -39,6 +39,7 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     received: dict[str, str]
     shutdown_event: threading.Event
     expected_state: str
+    account_url: str
 
     def __init__(
         self,
@@ -49,10 +50,12 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         received: dict[str, str],
         shutdown_event: threading.Event,
         expected_state: str,
+        account_url: str,
     ) -> None:
         self.received = received
         self.shutdown_event = shutdown_event
         self.expected_state = expected_state
+        self.account_url = account_url
         super().__init__(request, client_address, server)
 
     def do_GET(self) -> None:
@@ -69,9 +72,29 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(
-                b"<html><body><p>Logged in. You can close this tab.</p><script>window.close()</script></body></html>"
-            )
+            # window.close() only works if the tab was script-opened; this one
+            # was opened via the OS's webbrowser.open(), so most browsers
+            # silently ignore it. Fall back to a 3s countdown redirect to the
+            # account page so the tab never dead-ends on localhost.
+            account_url_js = json.dumps(self.account_url)
+            self.wfile.write(f"""<html><body style="font-family:sans-serif;text-align:center;margin-top:15vh">
+<p>Logged in. You can close this tab.</p>
+<p>Redirecting to your account in <span id="c">3</span>s…
+<a href="{self.account_url}">Go now</a></p>
+<script>
+window.close();
+var s = 3;
+var el = document.getElementById('c');
+var t = setInterval(function () {{
+  s -= 1;
+  if (el) el.textContent = s;
+  if (s <= 0) {{
+    clearInterval(t);
+    window.location.href = {account_url_js};
+  }}
+}}, 1000);
+</script>
+</body></html>""".encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -119,6 +142,7 @@ def run_oauth_login(
             _log.info(message)
 
     base = "http://localhost:4321" if dev_mode else "https://lemoncrow.com"
+    account_url = f"{base}/account"
 
     # Do not leak the real hostname; the optional account only needs a label.
     hostname = "lemoncrow-cli"
@@ -140,6 +164,7 @@ def run_oauth_login(
             received=received,
             shutdown_event=shutdown_event,
             expected_state=callback_state,
+            account_url=account_url,
         ),
     )
     port = int(httpd.server_address[1])
@@ -168,7 +193,7 @@ def run_oauth_login(
     opened = False
     try:
         opened = webbrowser.open(oauth_url)
-    except Exception:  # noqa: BLE001
+    except Exception:
         opened = False
     if not opened:
         _notify(f"Could not open a browser automatically -- open manually: {oauth_url}")
@@ -201,7 +226,7 @@ def run_oauth_login(
         device_id = str(data.get("device_id") or device_id)
         save_auth_user({**data, "_base": base})
         save_auth_base(base)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     return OAuthLoginResult(

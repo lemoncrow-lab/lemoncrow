@@ -24,7 +24,7 @@ from typing import Any
 from lemoncrow.core.capabilities.licensing import store
 from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
 
-REPORT_INTERVAL_SECONDS = 30 * 60
+REPORT_INTERVAL_SECONDS = 60 * 60
 VERDICT_REFRESH_SECONDS = 2 * 60 * 60
 _LIFETIME_DAYS = 36_500
 
@@ -63,7 +63,7 @@ def _machine_hash() -> str:
     """Hash the stable OS-backed device id; the raw id never leaves the client."""
     try:
         return hashlib.sha256(store.load_or_create_device_id().encode("utf-8")).hexdigest()
-    except Exception:  # noqa: BLE001 — without a stable identity the server must reject the report
+    except Exception:
         return ""
 
 
@@ -138,7 +138,7 @@ def _default_post(url: str, payload: dict[str, Any], token: str) -> dict[str, An
                 return None
             parsed = json.loads(response.read())
             return parsed if isinstance(parsed, dict) else None
-    except Exception:  # noqa: BLE001 — leave the watermark unmoved for retry
+    except Exception:
         return None
 
 
@@ -203,7 +203,7 @@ def report_usage_once(
         # fresh usage -- a runaway account-inflation loop -- and backfilled
         # estimates would consume the plan's real cap for savings never delivered.
         saved_usd = round(max(0.0, saved_usd - synthetic_backfill_saved_usd(root)), 4)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
     prior_saved = float(wm.get("reported_saved_usd") or 0.0)
