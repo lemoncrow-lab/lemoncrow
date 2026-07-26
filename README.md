@@ -32,14 +32,11 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 
 ## Why I built this
 
-I kept burning my weekly credits before the week was out. Every
-"token-saving" tool I tried claimed wins but none measured what I actually
-paid — real dollars, end to end, on real tasks. Token counts aren't a bill.
+I am a solo builder and I kept burning my weekly credits before the week was out. Every
+"token-saving" claimed tools only every shows me a curated list of tasks where they save. Only showing partial wins. Claiming 50-60-70% wins infact they never shows on all varaties of tasks. In reality they either same so little to justify complexity or they don't save at all because they add fat system prompts on their own that the savings are offset.
 
-So I built LemonCrow: a runtime that lives *inside* your existing agent
-host, changes nothing about your workflow, and squeezes out the maximum
-saving it can. Every number below is an absolute-dollar measurement
-([BENCHMARKS.md](BENCHMARKS.md)) — not a token-count hand-wave.
+So I built LemonCrow. Every number below is an absolute-dollar measurement
+([BENCHMARKS.md](BENCHMARKS.md)) — on swe, terminalbench and infact some of the claimed tools task themselves. Result? lemoncrow beat them all.
 
 ## Quick start
 

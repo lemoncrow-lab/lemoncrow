@@ -1060,6 +1060,28 @@ def test_blind_range_edit_rejection_includes_retry_content(workspace: Path) -> N
     assert retry_with["path"] == "drift.txt:L1-L4"
 
 
+def test_blind_range_edit_retry_anchor_is_bounded(workspace: Path) -> None:
+    """The retry anchor is an exact-substring hint, not a content channel.
+
+    A batch of rejected range edits used to echo each target region back
+    verbatim -- an 11,433-char rejection payload was measured against Cursor,
+    versus 204 chars for the native edit result, and every later turn re-pays
+    for it. The anchor is now capped to whole leading lines, which keeps it a
+    valid substring of the region so it still anchors a retry passed as ``old=``.
+    """
+    f = workspace / "big.txt"
+    body = "".join(f"line {i:03d} " + "x" * 40 + "\n" for i in range(1, 61))
+    f.write_text(body, encoding="utf-8")
+
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "big.txt:L10-L40", "new_string": "X\n"}]})
+    retry_with = payload["failed"][0]["retry_with"]
+    anchor = retry_with["old_string"]
+
+    assert 0 < len(anchor) <= 400, "anchor must stay bounded"
+    assert anchor in body, "anchor must remain an exact substring so it works as old="
+    assert anchor.endswith("\n"), "anchor must cut on a line boundary"
+
+
 def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_RANGE_EDIT_GUARD", "0")
     f = workspace / "off.txt"

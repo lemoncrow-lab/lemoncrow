@@ -7143,7 +7143,36 @@ def _reindex_edited_files(repo_root: Path, touched_paths: list[str]) -> None:
 
 
 # Max lint/type diagnostics folded into an edit result's FIXME block; the rest
-# collapse to a "+K more" line (they are one linter run away, not lost).
+_EDIT_DIAG_CAP = 20
+
+# Retry anchors exist to let the agent re-issue a rejected range edit with an
+# `old=` that matches disk -- they are NOT a content channel. Unbounded, a batch
+# of rejected edits echoes every target region back verbatim: one measured Cursor
+# run returned an 11,433-char rejection payload (28x the 204-char native edit
+# result) because four failed edits each carried their full region. A whole-line
+# prefix is still an exact substring of the region, so a bounded anchor stays
+# directly usable as `old=`.
+_RETRY_ANCHOR_CHARS = 400
+
+
+def _anchor_snippet(text: str, limit: int = _RETRY_ANCHOR_CHARS) -> str:
+    """Bound a retry anchor to whole leading lines within ``limit`` chars.
+
+    Truncating on a line boundary keeps the result a valid substring of the
+    region, so passing it straight back as ``old=`` still anchors the retry.
+    """
+    if len(text) <= limit:
+        return text
+    kept: list[str] = []
+    used = 0
+    for line in text.splitlines(keepends=True):
+        if kept and used + len(line) > limit:
+            break
+        kept.append(line)
+        used += len(line)
+    return "".join(kept) if kept else text[:limit]
+
+
 _EDIT_DIAG_CAP = 20
 
 
@@ -7364,7 +7393,7 @@ def tool_smart_edit(
                 if _ctx_start <= _ctx_end:
                     _retry_with = {
                         "path": f"{_spec.path}:L{_ctx_start}-L{_ctx_end}",
-                        "old_string": "".join(_cur_lines[_ctx_start - 1 : _ctx_end]),
+                        "old_string": _anchor_snippet("".join(_cur_lines[_ctx_start - 1 : _ctx_end])),
                         "hint": "exact current disk content for this region -- retry in the same turn with old= set to (part of) this, or a corrected :Lx-Ly range",
                     }
             _entry: dict[str, Any] = {

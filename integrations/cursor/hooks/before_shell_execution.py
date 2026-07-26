@@ -52,6 +52,26 @@ def _state_path() -> Path:
     return _lemoncrow_root() / "cursor-hooks" / "shell_deny_state.json"
 
 
+def _enforcement_enabled() -> bool:
+    """Deny-and-redirect is opt-in; default OFF. Enable with LEMONCROW_CURSOR_ENFORCE=1.
+
+    Measured on Cursor (multi-turn edit task, 3 runs per arm, billed-token
+    accounting): denying the natives does not actually route the agent onto the
+    lc MCP tools. The loop guard lets the very next retry through, so the native
+    call runs anyway seconds later and the routing benefit is zero. What the
+    denied turns do change is which tool the agent reaches for while blocked --
+    it falls back to `glob_file_search **/*`, the one orientation tool Cursor
+    exposes no hook matcher for (valid matchers are Shell/Read/Write/Grep/
+    Delete/Task/MCP:<tool>; there is no Glob). That listed `.venv` and
+    `.pytest_cache` and returned ~38K characters in 2 of 3 runs, which every
+    later turn re-pays for as cache_read. The run with no denies landed at or
+    below the vanilla baseline; the runs with denies cost ~1.8x it.
+
+    So the hooks stay installed but inert unless explicitly switched on.
+    """
+    return os.environ.get("LEMONCROW_CURSOR_ENFORCE", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _decide() -> str:
     """Return "deny" or "allow" per the loop-guard state machine above.
 
@@ -92,7 +112,7 @@ def main() -> int:
     except json.JSONDecodeError:
         pass
 
-    if _decide() == "allow":
+    if not _enforcement_enabled() or _decide() == "allow":
         sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
         return 0
 
