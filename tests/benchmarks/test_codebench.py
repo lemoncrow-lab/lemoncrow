@@ -79,6 +79,55 @@ def test_lemoncrow_mcp_is_written_to_isolated_user_config(tmp_path: Path) -> Non
     assert data["mcpServers"]["lc"]["args"] == ["mcp", "--host", "claude"]
     assert data["mcpServers"]["lc"]["alwaysLoad"] is True
 
+    assert data["mcpServers"]["lc"]["alwaysLoad"] is True
+
+
+def test_repo_cache_mirror_env_gate(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.delenv("CODEBENCH_REPO_CACHE", raising=False)
+    assert CODEBENCH._repo_cache_mirror("https://github.com/gin-gonic/gin") is None
+    monkeypatch.setenv("CODEBENCH_REPO_CACHE", "/tmp/cache")
+    assert CODEBENCH._repo_cache_mirror("https://github.com/gin-gonic/gin") == Path("/tmp/cache/gin.git")
+    # trailing slash + .git suffix both normalise to the bare last segment.
+    assert CODEBENCH._repo_cache_mirror("https://github.com/django/django.git") == Path("/tmp/cache/django.git")
+    assert CODEBENCH._repo_cache_mirror("https://github.com/Alamofire/Alamofire/") == Path("/tmp/cache/Alamofire.git")
+
+
+def test_clone_repo_reuses_local_mirror_without_network(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """With a cache mirror present, _clone_repo clones from the local bare mirror
+    (no network) and checks out the pinned commit. On a shared filesystem git
+    hardlinks the object store, so the clone reuses fetched objects."""
+    # Build a tiny origin repo with two commits.
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    run = lambda *a: subprocess.run(["git", "-C", str(origin), *a], check=True, capture_output=True)  # noqa: E731
+    subprocess.run(["git", "init", "-q", str(origin)], check=True)
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (origin / "a.txt").write_text("one\n")
+    run("add", "-A")
+    run("commit", "-q", "-m", "c1")
+    pinned = subprocess.check_output(["git", "-C", str(origin), "rev-parse", "HEAD"]).decode().strip()
+    (origin / "a.txt").write_text("two\n")
+    run("add", "-A")
+    run("commit", "-q", "-m", "c2")
+
+    # Mirror it into the cache under the URL's last-segment name.
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    url = "https://example.test/acme/origin"
+    subprocess.run(["git", "clone", "-q", "--mirror", str(origin), str(cache / "origin.git")], check=True)
+    monkeypatch.setenv("CODEBENCH_REPO_CACHE", str(cache))
+
+    ws = tmp_path / "ws"
+    CODEBENCH._clone_repo(url, pinned, ws)
+
+    assert (ws / "a.txt").read_text() == "one\n"  # pinned to c1, not HEAD (c2)
+    head = subprocess.check_output(["git", "-C", str(ws), "rev-parse", "HEAD"]).decode().strip()
+    assert head == pinned
+    # Cloned from the local mirror -> its origin remote is the cache path, not the URL.
+    remote = subprocess.check_output(["git", "-C", str(ws), "remote", "get-url", "origin"]).decode().strip()
+    assert remote == str(cache / "origin.git")
+
 
 def test_swe_entrypoint_fails_closed_on_mcp_preflight() -> None:
     entrypoint = (ROOT / "benchmarks" / "codebench" / "incontainer_entry.sh").read_text()

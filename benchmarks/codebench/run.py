@@ -394,6 +394,38 @@ def _mktemp(prefix: str) -> str:
     import tempfile
 
     return tempfile.mkdtemp(prefix=f"codebench-{prefix}")
+    return tempfile.mkdtemp(prefix=f"codebench-{prefix}")
+
+
+def _repo_cache_mirror(url: str) -> Path | None:
+    """Local bare-mirror path for *url* under ``$CODEBENCH_REPO_CACHE``, or None.
+
+    Set ``CODEBENCH_REPO_CACHE=/some/dir`` and pre-seed it with
+    ``<name>.git`` bare mirrors (name = the repo's last URL segment) to make
+    every per-rep clone reuse already-fetched objects instead of re-downloading
+    the whole repo from GitHub 70 times. Opt-in: unset -> unchanged behaviour.
+    """
+    cache_root = os.environ.get("CODEBENCH_REPO_CACHE")
+    if not cache_root:
+        return None
+    name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    return Path(cache_root) / f"{name}.git"
+
+
+def _clone_repo(url: str, commit: str | None, ws: Path) -> None:
+    """Clone *url* into *ws* and pin to *commit*, reusing a local mirror cache.
+
+    When a cache mirror exists we clone from it (a local path): git hardlinks
+    the shared object store on the same filesystem, so each rep costs about one
+    working tree and hits the network for nothing. Falls back to a direct
+    network clone when no mirror is present.
+    """
+    mirror = _repo_cache_mirror(url)
+    source = str(mirror) if mirror is not None and mirror.is_dir() else url
+    timeout = 300 if source != url else 900
+    subprocess.run(["git", "clone", "--quiet", source, str(ws)], check=True, timeout=timeout)
+    if commit:
+        subprocess.run(["git", "-C", str(ws), "checkout", "--quiet", commit], check=True, timeout=120)
 
 
 def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
@@ -430,9 +462,7 @@ def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
         if len(task.source) < 3:
             raise ValueError(f"repo source missing url/commit for {task.id}: {task.source}")
         url, commit = task.source[1], task.source[2]
-        subprocess.run(["git", "clone", "--quiet", url, str(ws)], check=True, timeout=900)
-        if commit:
-            subprocess.run(["git", "-C", str(ws), "checkout", "--quiet", commit], check=True, timeout=120)
+        _clone_repo(url, commit, ws)
     else:
         raise ValueError(f"unknown source kind {kind}")
 
