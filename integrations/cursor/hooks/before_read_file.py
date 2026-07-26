@@ -46,6 +46,18 @@ def _state_path() -> Path:
     return _lemoncrow_root() / "cursor-hooks" / "read_deny_state.json"
 
 
+def _enforcement_enabled() -> bool:
+    """Deny-and-redirect is opt-in; default OFF. Enable with LEMONCROW_CURSOR_ENFORCE=1.
+
+    See before_shell_execution.py for the measurement this default comes from:
+    denying natives buys no routing (the loop guard lets the retry through) but
+    pushes the agent onto `glob_file_search **/*` -- the one orientation tool
+    Cursor has no hook matcher for -- which dumped ~38K chars of `.venv` listing
+    into context and roughly doubled the re-billed tokens.
+    """
+    return os.environ.get("LEMONCROW_CURSOR_ENFORCE", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _decide() -> str:
     """Return "deny" or "allow" per the loop-guard state machine above.
 
@@ -86,7 +98,7 @@ def main() -> int:
     except json.JSONDecodeError:
         pass
 
-    if _decide() == "allow":
+    if not _enforcement_enabled() or _decide() == "allow":
         sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
         return 0
 
