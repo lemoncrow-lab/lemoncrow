@@ -6601,9 +6601,21 @@ def _normalize_edit_aliases(edit: dict[str, Any]) -> dict[str, Any]:
         except OSError as exc:
             raise _ToolArgumentError(
                 f"new_file '{edit['new_file']}' could not be read: {exc}. "
-                "new_file only re-sends content a prior failed edit preserved at the exact "
-                "path it reported; to create or rewrite a file, pass the content inline via new"
+                "new_file names a readable file whose FULL content becomes path's new "
+                "content; to send content directly, pass it inline via new"
             ) from exc
+        # {path: x, new_file: y} with no anchor: y's full content becomes x.
+        # An explicit file reference is a deliberate whole-file source, so it
+        # gets replace semantics (create or overwrite) instead of the fuzzy
+        # old/new ladder or the inline-rewrite size/elision heuristics. An
+        # old anchor or a :Lx-Ly path suffix still means a targeted splice.
+        if (
+            "old_string" not in edit
+            and "replace" not in edit
+            and "overwrite" not in edit
+            and re.search(r":(?:L?\d+)(?:-L?\d*)?$", str(edit.get("path", "")), re.IGNORECASE) is None
+        ):
+            edit = {**edit, "replace": True}
     return edit
 
 

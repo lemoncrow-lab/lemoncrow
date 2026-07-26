@@ -1112,7 +1112,39 @@ def test_new_file_missing_names_actual_path_and_inline_fallback(workspace: Path)
     )
     message = str(resp["error"]["message"])
     assert "/tmp/lemoncrow-spill/does-not-exist-xyz.py" in message, resp
-    assert "pass the content inline via new" in message, resp
+    assert "inline via new" in message, resp
+
+
+def test_new_file_creates_target_with_full_content(workspace: Path, tmp_path: Path) -> None:
+    """{path: x, new_file: y} = x gets y's FULL content -- create when x is new."""
+    src = tmp_path / "payload.py"
+    body = "def created():\n    return 42\n"
+    src.write_text(body, encoding="utf-8")
+    payload = _edit({"path": "made_from_file.py", "new_file": str(src), "hooks": False})
+    assert "failed" not in payload, payload
+    assert (workspace / "made_from_file.py").read_text(encoding="utf-8") == body
+
+
+def test_new_file_overwrites_existing_whole_file(workspace: Path, tmp_path: Path) -> None:
+    f = workspace / "ow.py"
+    f.write_text("OLD = 1\n" * 30, encoding="utf-8")
+    src = tmp_path / "payload2.py"
+    body = "NEW = 2\n"
+    src.write_text(body, encoding="utf-8")
+    payload = _edit({"path": "ow.py", "new_file": str(src), "hooks": False})
+    assert "failed" not in payload, payload
+    assert f.read_text(encoding="utf-8") == body
+
+
+def test_new_file_with_old_anchor_still_targets_splice(workspace: Path, tmp_path: Path) -> None:
+    """An old anchor alongside new_file keeps targeted-replace semantics."""
+    f = workspace / "anchor.py"
+    f.write_text("KEEP = 0\nTARGET = 1\nKEEP2 = 2\n", encoding="utf-8")
+    src = tmp_path / "payload3.py"
+    src.write_text("TARGET = 99\n", encoding="utf-8")
+    payload = _edit({"path": "anchor.py", "old": "TARGET = 1\n", "new_file": str(src), "hooks": False})
+    assert "failed" not in payload, payload
+    assert f.read_text(encoding="utf-8") == "KEEP = 0\nTARGET = 99\nKEEP2 = 2\n"
 
 
 def test_tiny_fragment_without_old_still_rejected(workspace: Path) -> None:
