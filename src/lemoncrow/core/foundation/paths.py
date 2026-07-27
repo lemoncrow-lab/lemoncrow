@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import MutableMapping
 from datetime import date as _date
 from datetime import timedelta as _timedelta
 from hashlib import sha256 as _sha256
@@ -60,23 +61,51 @@ def default_store_root() -> Path:
     return (Path.home() / DEFAULT_STORE_DIRNAME).resolve()
 
 
+# Ordered MOST-specific first. The rule, because getting it wrong has now caused
+# the same defect under three different variable names: a value set by the host
+# per *invocation* names the workspace this process actually serves; a value that
+# merely happens to be in the environment was usually inherited from whatever
+# shell launched the editor and names a different project entirely. Specific
+# always beats inherited -- when adding a var, place it by that rule, not by
+# convenience.
+#
+# Observed failures from getting this wrong:
+#   - a window on /tmp/ide-bench/L1 served reads from /tmp/ide-bench/t3
+#   - 20 benchmark workspaces all collapsed onto one scratch repo and serialised
+#     on its index-write lock (41 min per prompt against a 3 min baseline)
 _HOST_WORKSPACE_ENV_VARS = (
+    # Cursor, per-invocation
+    "CURSOR_WORKSPACE_ROOT",
+    # our own pin (see pin_workspace_env) -- authoritative once set
     "LEMONCROW_WORKSPACE_ROOT",
     # Claude Code / Claude Desktop
     "CLAUDE_WORKSPACE_ROOT",
-    # Cursor
-    "CURSOR_WORKSPACE_ROOT",
-    # VS Code / generic
+    # VS Code / generic; the editor's cwd, not a workspace -- last resort
     "VSCODE_CWD",
 )
 
 # Cursor/VS Code set this on every MCP server launch with the folders of THAT
-# window. The generic *_WORKSPACE_ROOT vars above are frequently *inherited*
-# from whatever shell started the editor, so under a global (all-windows)
-# install they name the wrong project for every window but one -- which silently
-# routes reads and daemon selection into an unrelated repo. Per-window beats
-# inherited, so this is consulted first.
+# window -- the most specific signal available, so it is consulted before any
+# of the single-value vars above.
 _HOST_WORKSPACE_FOLDERS_VAR = "WORKSPACE_FOLDER_PATHS"
+
+
+def pin_workspace_env(workspace: str | Path, env: MutableMapping[str, str] | None = None) -> None:
+    """Make *workspace* the only answer this process can give.
+
+    A process that serves exactly one workspace (a per-workspace daemon, a
+    benchmark arm running in a copied tree) must not let an inherited value win.
+    Setting one or two vars is not enough -- whichever var was NOT set still
+    outranks or shadows the pin depending on lookup order, which is precisely how
+    the same bug recurred under ``CLAUDE_WORKSPACE_ROOT``, ``WORKSPACE_FOLDER_PATHS``
+    and ``CURSOR_WORKSPACE_ROOT``. So pin every var this lookup consults, and drop
+    the multi-folder one outright: a single-workspace process has no second folder.
+    """
+    target = str(Path(workspace).expanduser().resolve())
+    environ = os.environ if env is None else env
+    for var in _HOST_WORKSPACE_ENV_VARS:
+        environ[var] = target
+    environ.pop(_HOST_WORKSPACE_FOLDERS_VAR, None)
 
 
 def _split_folder_list(raw: str) -> list[str]:

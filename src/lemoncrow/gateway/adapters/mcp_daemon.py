@@ -39,7 +39,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.paths import default_store_root
+from lemoncrow.core.foundation.paths import default_store_root, pin_workspace_env
 from lemoncrow.core.foundation.session_window import workspace_hash
 
 _log = logging.getLogger("lemoncrow.mcp")
@@ -446,15 +446,11 @@ def run_daemon(
 
     root = default_store_root() if root is None else Path(root)
     os.environ["LEMONCROW_ROOT"] = str(root)
-    os.environ["LEMONCROW_WORKSPACE_ROOT"] = workspace
-    # NOT setdefault: this daemon serves exactly one workspace, and
-    # ``_workspace_path`` consults CLAUDE_WORKSPACE_ROOT *first*. An inherited
-    # value -- the editor was launched from another repo, or another window's
-    # root leaked in -- would otherwise survive here and silently resolve every
-    # relative read into a different tree. Observed: a window on /tmp/ide-bench/L1
-    # served reads from /tmp/ide-bench/t3, which then keyed the freshness ledger
-    # to the wrong paths and made every ranged edit fail as "not served".
-    os.environ["CLAUDE_WORKSPACE_ROOT"] = workspace
+    # This daemon serves exactly one workspace. Pin EVERY workspace variable, not
+    # the one or two that happen to be consulted today -- an unpinned var either
+    # outranks the pin or shadows it depending on lookup order, which is how the
+    # same defect recurred three times under different names.
+    pin_workspace_env(workspace)
     ws_hash = workspace_hash(workspace)
 
     mcp_server._setup_file_logging(str(root))
