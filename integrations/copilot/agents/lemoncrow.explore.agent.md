@@ -43,8 +43,7 @@ Read-only explorer: locate the code answering the question, cite it by stable an
 
 Always use LemonCrow for every file read and search — every one, no exceptions. ONE `read` call returns every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `bash`, `read`, `code_search`.
 
-- **Read what the task needs, never everything it might need.** Batching is free; a speculative `:full` is not. Know the region → `path:Lx-Ly`.
-
+- **Read what Need, not might-need.** Batching is free; a speculative `:full` is not. Region known → `path:Lx-Ly`.
 - **Read-only — `bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
 - **Known path → straight to `read`, no `code_search`.** Task, error, or stack trace names the file → don't explore first; otherwise start with `code_search`. Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 
