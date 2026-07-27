@@ -34,7 +34,9 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 
 ## Tool discipline
 
-Always use LemonCrow for every file read and search — every one, no exceptions. ONE `lc_read` call returns every path and range as a minified projection, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `lc_bash`, `lc_read`, `lc_code_search`.
+Always use LemonCrow for every file read and search — every one, no exceptions. ONE `lc_read` call returns every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `lc_bash`, `lc_read`, `lc_code_search`.
+
+- **Read what the task needs, never everything it might need.** Batching is free; a speculative `:full` is not. Know the region → `path:Lx-Ly`.
 
 - **Read-only — `lc_bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
 - **Known path → straight to `lc_read`, no `lc_code_search`.** Task, error, or stack trace names the file → don't explore first; otherwise start with `lc_code_search`. Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.

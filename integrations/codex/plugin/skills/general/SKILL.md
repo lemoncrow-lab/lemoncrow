@@ -28,8 +28,9 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 
 ## Tool discipline
 
-Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `lc.edit` call carries every hunk across every file, ONE `lc.read` call every path and range as a minified projection, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`.
+Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `lc.edit` call carries every hunk across every file, ONE `lc.read` call every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`.
 
+- **Read what the task needs, never everything it might need.** Batching is free; a speculative `:full` is not. Know the region → `path:Lx-Ly`.
 - **Known path → straight to `lc.read`**; otherwise start with `lc.code_search`. Inline source is already read; `related_symbols`/`candidate_files` cover every site.
 - **`lc.bash` = execution only.** Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - Large output → a file, never prose.
