@@ -1204,7 +1204,7 @@ def benchmark_local_cmd(
 )
 @click.option(
     "--cli-driver",
-    type=click.Choice(["claude", "copilot", "codex", "opencode", "lemoncrow-run"]),
+    type=click.Choice(["claude", "copilot", "codex", "opencode", "lemoncrow-run", "cursor"]),
     default="claude",
     show_default=True,
     help="CLI host to benchmark (codebench arms only -- caveman always uses claude).",

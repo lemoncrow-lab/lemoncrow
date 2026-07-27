@@ -9,7 +9,6 @@ every subsequent ranged edit fail as "not served by read/code_search".
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -20,22 +19,21 @@ _WORKSPACE_ENV = ("CLAUDE_WORKSPACE_ROOT", "LEMONCROW_WORKSPACE_ROOT")
 
 
 def _pin_workspace(workspace: str) -> None:
-    """Replay `run_daemon`'s own startup assignment, read from the source.
+    """Apply the same pin `run_daemon` applies, without copying its body.
 
-    Copying the two lines here would make the test pass against a `setdefault`
-    regression, so extract the real statements instead.
+    Asserting the delegation first is the point: if `run_daemon` ever stops
+    routing through `pin_workspace_env` and hand-rolls the assignments again,
+    this fails here rather than silently testing a helper the daemon no longer
+    uses -- which is how the per-variable version of this bug kept coming back.
     """
     import inspect
 
+    from lemoncrow.core.foundation.paths import pin_workspace_env
     from lemoncrow.gateway.adapters import mcp_daemon
 
     src = inspect.getsource(mcp_daemon.run_daemon)
-    stmts = [
-        line.strip() for line in src.splitlines() if line.strip().startswith("os.environ") and "WORKSPACE_ROOT" in line
-    ]
-    assert stmts, "run_daemon no longer assigns a workspace root"
-    for stmt in stmts:
-        exec(stmt, {"os": os, "workspace": workspace})
+    assert "pin_workspace_env(workspace)" in src, "run_daemon no longer pins its workspace centrally"
+    pin_workspace_env(workspace)
 
 
 def test_inherited_workspace_does_not_survive_daemon_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
