@@ -6169,8 +6169,11 @@ def _recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str]
         "force",
     ),
     description=(
-        "Read files or exact symbols. Batch ALL paths/ranges into ONE call: "
+        "Read files or exact symbols. Batch the paths/ranges you ALREADY need into ONE call: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
+        "Read what the task needs, never everything it might need — a speculative :full costs "
+        "far more than the turn it saves, and an oversized batch is served as outlines anyway. "
+        "Know the region → :Lx-Ly, not :full. "
         ":Lx-Ly exact range; :full full source; :summary gist; :outline structure at any "
         "size (mutually exclusive). Whole file → ONE :full or wide range, never "
         "successive narrow ones. One function/test → symbol='name' or ['a','b'], not a "
@@ -6230,9 +6233,13 @@ def tool_smart_read(
     outline mode typically saves 50-90% of tokens on large files. Re-read with
     full=true (or a range) before editing against an outline/compact view.
 
-    BATCH: when reading 2+ independent files, use files=[{path, range?}, ...]
-    in a single call rather than separate calls — each extra turn re-reads the
-    entire conversation history at ~$0.49/turn on large context windows.
+    BATCH: when reading 2+ independent files you already know you need, use
+    files=[{path, range?}, ...] in a single call rather than separate calls —
+    each extra turn re-reads the entire conversation history at ~$0.49/turn on
+    large context windows. Batch what the task needs, never everything it might
+    need: a speculative whole-file read costs more than the turn it saves, and a
+    batch over the budget is served as outlines regardless. Prefer {path, range}
+    over :full whenever the region is known.
 
     Cross-tool: after editing a file via `edit`, don't re-read it — the edit
     response already confirms the change. When you don't yet know which file
@@ -13208,10 +13215,15 @@ def _shutdown_managed_bash_commands() -> None:
 def main() -> None:
     # Phase 1: Absorb wrapper logic into `lc mcp` (zero-config)
     os.environ.setdefault("LEMONCROW_SERVICE_URL", "http://127.0.0.1:8787")
-    # If no host has injected a workspace env var, detect the git repo root so
-    # global-mode installs on any host always point at the project root.
-    _HOST_WORKSPACE_VARS = ("CLAUDE_WORKSPACE_ROOT", "LEMONCROW_WORKSPACE_ROOT", "VSCODE_CWD")
-    if not any(os.environ.get(v) for v in _HOST_WORKSPACE_VARS):
+    # The host's own per-window folder wins; only when it says nothing do we
+    # detect the git repo root, so global-mode installs on any host still point
+    # at a project root rather than the editor's cwd.
+    from lemoncrow.core.foundation.paths import host_workspace_root as _host_workspace_root
+
+    _declared_workspace = _host_workspace_root()
+    if _declared_workspace is not None:
+        os.environ["LEMONCROW_WORKSPACE_ROOT"] = str(_declared_workspace)
+    else:
         try:
             import subprocess as _subprocess
 

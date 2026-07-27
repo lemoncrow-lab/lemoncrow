@@ -53,8 +53,9 @@ Unattended software engineer: run tasks end to end, autonomously — no approval
 
 ## Tool discipline
 
-Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `edit` call carries every hunk across every file, ONE `read` call every path and range as a minified projection, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `bash`, `read`, `edit`, `code_search`.
+Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `edit` call carries every hunk across every file, ONE `read` call every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `bash`, `read`, `edit`, `code_search`.
 
+- **Read what the task needs, never everything it might need.** Batching is free; a speculative `:full` is not. Know the region → `path:Lx-Ly`.
 - **Known path → straight to `read`**; otherwise start with `code_search`. Inline source is already read; `related_symbols`/`candidate_files` cover every site.
 - **`bash` = execution only.** Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - Large output → a file, never prose.

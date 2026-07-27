@@ -37,7 +37,6 @@ from lemoncrow.gateway.adapters.mcp_daemon import ensure_daemon
 
 _log = logging.getLogger("lemoncrow.mcp")
 
-_HOST_WORKSPACE_VARS = ("CLAUDE_WORKSPACE_ROOT", "LEMONCROW_WORKSPACE_ROOT", "VSCODE_CWD")
 _MAX_INFLIGHT = 32
 # Ping cadence that keeps this bridge's session "attached" on the daemon. Must
 # stay well under the daemon's _SESSION_TTL_SECONDS so a single dropped ping
@@ -52,12 +51,16 @@ def _jsonrpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
 def _resolve_workspace() -> str:
     """Resolve the workspace this bridge serves (mirrors ``mcp_server.main``).
 
-    Host-injected env var wins; else the enclosing git repo; else cwd.
+    The host's own per-window answer wins; else the enclosing git repo; else cwd.
+    Getting this wrong is not cosmetic: the workspace picks which per-workspace
+    daemon the bridge attaches to, so a stale inherited value serves an entire
+    editor window out of an unrelated repo.
     """
-    for var in _HOST_WORKSPACE_VARS:
-        val = os.environ.get(var)
-        if val:
-            return str(Path(val).expanduser().resolve())
+    from lemoncrow.core.foundation.paths import host_workspace_root
+
+    declared = host_workspace_root()
+    if declared is not None:
+        return str(declared)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

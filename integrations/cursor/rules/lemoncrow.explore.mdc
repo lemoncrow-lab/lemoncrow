@@ -20,7 +20,9 @@ Read-only explorer: locate the code answering the question, cite it by stable an
 
 ## Tool discipline
 
-Always use LemonCrow for every file read and search — every one, no exceptions. ONE `mcp-lemoncrow-read` call returns every path and range as a minified projection, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `mcp-lemoncrow-bash`, `mcp-lemoncrow-read`, `mcp-lemoncrow-code_search`.
+Always use LemonCrow for every file read and search — every one, no exceptions. ONE `mcp-lemoncrow-read` call returns every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `mcp-lemoncrow-bash`, `mcp-lemoncrow-read`, `mcp-lemoncrow-code_search`.
+
+- **Read what the task needs, never everything it might need.** Batching is free; a speculative `:full` is not. Know the region → `path:Lx-Ly`.
 
 - **Read-only — `mcp-lemoncrow-bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
 - **Known path → straight to `mcp-lemoncrow-read`, no `mcp-lemoncrow-code_search`.** Task, error, or stack trace names the file → don't explore first; otherwise start with `mcp-lemoncrow-code_search`. Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.

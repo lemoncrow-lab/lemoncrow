@@ -70,6 +70,43 @@ _HOST_WORKSPACE_ENV_VARS = (
     "VSCODE_CWD",
 )
 
+# Cursor/VS Code set this on every MCP server launch with the folders of THAT
+# window. The generic *_WORKSPACE_ROOT vars above are frequently *inherited*
+# from whatever shell started the editor, so under a global (all-windows)
+# install they name the wrong project for every window but one -- which silently
+# routes reads and daemon selection into an unrelated repo. Per-window beats
+# inherited, so this is consulted first.
+_HOST_WORKSPACE_FOLDERS_VAR = "WORKSPACE_FOLDER_PATHS"
+
+
+def _split_folder_list(raw: str) -> list[str]:
+    """Split a host folder list without guessing its separator."""
+    parts = [raw]
+    for sep in (os.pathsep, ","):
+        parts = [chunk for part in parts for chunk in part.split(sep)]
+    return [part.strip() for part in parts if part.strip()]
+
+
+def host_workspace_root() -> Path | None:
+    """Workspace the host says this process serves, or None when it says nothing.
+
+    None means "fall back to detection" (git toplevel, then cwd) -- it is not an
+    error. Callers must not substitute cwd for a host answer without saying so.
+    """
+    raw = os.environ.get(_HOST_WORKSPACE_FOLDERS_VAR, "").strip()
+    if raw:
+        # Multi-root windows list every folder; take the first that still exists
+        # rather than trusting a separator guess.
+        for candidate in _split_folder_list(raw):
+            path = Path(candidate).expanduser()
+            if path.is_dir():
+                return path.resolve()
+    for var in _HOST_WORKSPACE_ENV_VARS:
+        value = os.environ.get(var, "").strip()
+        if value:
+            return Path(value).expanduser().resolve()
+    return None
+
 
 def _git_toplevel(start: Path | None = None) -> Path | None:
     """Return the git worktree root containing ``start`` (default: cwd), or None.
