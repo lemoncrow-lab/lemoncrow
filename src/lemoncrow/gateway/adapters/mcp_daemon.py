@@ -57,6 +57,13 @@ _HEARTBEAT_INTERVAL_SECONDS = 30.0
 # an ungraceful bridge death that never sent /session/close). Must exceed the
 # bridge ping interval (see mcp_bridge._PING_INTERVAL_SECONDS) with margin.
 _SESSION_TTL_SECONDS = 90.0
+# How long a stale-code daemon waits for its last bridge to detach before
+# restarting anyway. Exiting under a live bridge drops that host's in-flight
+# calls, and on Cursor one failed call ends LemonCrow for the whole window --
+# the host falls back to built-ins and never routes back. Waiting is therefore
+# far cheaper than restarting; but a session that never detaches must not pin
+# stale code forever, hence the cap.
+_STALE_CODE_DRAIN_SECONDS = float(os.environ.get("LEMONCROW_MCP_STALE_DRAIN_SECONDS", "1800"))
 _HEALTHZ_PATH = "/healthz"
 _SESSION_PING_PATH = "/session/ping"
 _SESSION_CLOSE_PATH = "/session/close"
@@ -633,6 +640,7 @@ def _start_idle_reaper(
     def _loop() -> None:
         interval = max(5.0, min(30.0, idle_grace_seconds / 2)) if idle_reap else 30.0
         zero_since: float | None = None
+        stale_since: float | None = None
         while not stop.wait(interval):
             # A reinstall replaced the code on disk: exit so the bridge's
             # transparent respawn brings up a daemon running the new code.
@@ -641,7 +649,22 @@ def _start_idle_reaper(
             current = _code_fingerprint()
             startup = _startup_code_fingerprint()
             if current is not None and startup is not None and current != startup:
-                _log.info("MCP daemon: installed code changed on disk; restarting to pick it up")
+                if stale_since is None:
+                    stale_since = time.monotonic()
+                    _log.info("MCP daemon: installed code changed on disk; restarting once idle")
+                attached = live.count(_SESSION_TTL_SECONDS)
+                waited = time.monotonic() - stale_since
+                if attached > 0 and waited < _STALE_CODE_DRAIN_SECONDS:
+                    # Live bridges are mid-conversation. Killing them now costs
+                    # far more than running stale code a little longer.
+                    continue
+                if attached > 0:
+                    _log.warning(
+                        "MCP daemon: %d session(s) still attached after %.0fs of stale code; restarting anyway",
+                        attached,
+                        waited,
+                    )
+                _log.info("MCP daemon: restarting to pick up installed code")
                 server.should_exit = True
                 # Skip uvicorn's graceful-drain wait: a lingering keep-alive
                 # connection must not pin a stale-code daemon alive.
@@ -652,6 +675,10 @@ def _start_idle_reaper(
                 # uvicorn a short drain, then exit hard.
                 time.sleep(10.0)
                 os._exit(0)
+            else:
+                # Fingerprint matches again (restored mtime / reverted install):
+                # drop the pending restart instead of carrying a stale deadline.
+                stale_since = None
             if not idle_reap:
                 continue
             if live.count(_SESSION_TTL_SECONDS) == 0:

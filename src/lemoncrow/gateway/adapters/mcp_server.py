@@ -242,7 +242,8 @@ SERVER_INSTRUCTIONS = (
     "rest as path:Lx-Ly pointers) + related_symbols + candidate_files. Inline "
     "source = already read; never shell-grep or re-verify indexed results.\n"
     "- Known path/symbols → `read`: ONE call, files=[...], exact :Lx-Ly ranges, "
-    "never the same file twice. Never cat/sed/head/tail.\n"
+    "never the same file twice. Need, not might-need: a speculative :full costs "
+    "more than the turn it saves. Never cat/sed/head/tail.\n"
     "- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.\n"
     "- Independent calls (any tools) → ONE message.\n"
     "- `bash` = execution only (tests, git, builds). Large output → a file, never inline prose.\n"
@@ -6171,9 +6172,7 @@ def _recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str]
     description=(
         "Read files or exact symbols. Batch the paths/ranges you ALREADY need into ONE call: "
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
-        "Read what the task needs, never everything it might need — a speculative :full costs "
-        "far more than the turn it saves, and an oversized batch is served as outlines anyway. "
-        "Know the region → :Lx-Ly, not :full. "
+        "Need, not might-need — a speculative :full costs more than the turn it saves. "
         ":Lx-Ly exact range; :full full source; :summary gist; :outline structure at any "
         "size (mutually exclusive). Whole file → ONE :full or wide range, never "
         "successive narrow ones. One function/test → symbol='name' or ['a','b'], not a "
@@ -6233,13 +6232,10 @@ def tool_smart_read(
     outline mode typically saves 50-90% of tokens on large files. Re-read with
     full=true (or a range) before editing against an outline/compact view.
 
-    BATCH: when reading 2+ independent files you already know you need, use
-    files=[{path, range?}, ...] in a single call rather than separate calls —
-    each extra turn re-reads the entire conversation history at ~$0.49/turn on
-    large context windows. Batch what the task needs, never everything it might
-    need: a speculative whole-file read costs more than the turn it saves, and a
-    batch over the budget is served as outlines regardless. Prefer {path, range}
-    over :full whenever the region is known.
+    BATCH: 2+ files you already know you need → one files=[{path, range?}, ...]
+    call, not separate turns (each turn re-reads the whole conversation, ~$0.49
+    on large context windows). Need, not might-need: a speculative :full costs
+    more than the turn it saves, and an over-budget batch ships as outlines.
 
     Cross-tool: after editing a file via `edit`, don't re-read it — the edit
     response already confirms the change. When you don't yet know which file
