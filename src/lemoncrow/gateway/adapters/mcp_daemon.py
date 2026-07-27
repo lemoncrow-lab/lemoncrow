@@ -447,7 +447,14 @@ def run_daemon(
     root = default_store_root() if root is None else Path(root)
     os.environ["LEMONCROW_ROOT"] = str(root)
     os.environ["LEMONCROW_WORKSPACE_ROOT"] = workspace
-    os.environ.setdefault("CLAUDE_WORKSPACE_ROOT", workspace)
+    # NOT setdefault: this daemon serves exactly one workspace, and
+    # ``_workspace_path`` consults CLAUDE_WORKSPACE_ROOT *first*. An inherited
+    # value -- the editor was launched from another repo, or another window's
+    # root leaked in -- would otherwise survive here and silently resolve every
+    # relative read into a different tree. Observed: a window on /tmp/ide-bench/L1
+    # served reads from /tmp/ide-bench/t3, which then keyed the freshness ledger
+    # to the wrong paths and made every ranged edit fail as "not served".
+    os.environ["CLAUDE_WORKSPACE_ROOT"] = workspace
     ws_hash = workspace_hash(workspace)
 
     mcp_server._setup_file_logging(str(root))
