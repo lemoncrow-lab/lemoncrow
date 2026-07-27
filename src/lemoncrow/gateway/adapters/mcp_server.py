@@ -606,6 +606,7 @@ _SPILL_RESULT_CHARS_BY_TOOL = {
 # to a temp file and force the agent to re-read the file in blind ranges. Keep it
 # below the host limit (~50KB). Set LEMONCROW_READ_INLINE_BUDGET_BYTES=0 to disable.
 _DEFAULT_READ_INLINE_BUDGET_BYTES = 40 * 1024
+_DEFAULT_READ_BATCH_BUDGET_BYTES = 24 * 1024
 
 # Per-session count of partial (range) reads per resolved path. Paging one file
 # by hand 3+ times wastes a turn per chunk (and the chunks pile up in context
@@ -3526,7 +3527,7 @@ def _binary_read_message(media_type: str, size_bytes: int, suffix: str = "") -> 
     if media_type.startswith("audio/"):
         return base + " Audio is not transcribed by this tool; no transcript path is available here."
     if media_type == "application/pdf":
-        return base + " PDF not extracted. `pdftotext` for text, or `pdftoppm -png` a page " "and read() the PNG."
+        return base + " PDF not extracted. `pdftotext` for text, or `pdftoppm -png` a page and read() the PNG."
     if media_type in _ARCHIVE_MEDIA_TYPES or suffix in _ARCHIVE_SUFFIXES:
         return (
             base + " Archive contents are not listed by this tool; use bash (e.g. `unzip -l`, `tar -tf`) to inspect it."
@@ -6282,6 +6283,9 @@ def tool_smart_read(
     # Batch mode: process each file spec and return aggregated results.
     if files is not None:
         results = []
+        # Parallel to `results`: the path when the entry is a whole-file body
+        # eligible for budget downgrade, None when the caller already narrowed it.
+        entry_specs: list[str | None] = []
         batch_saved = 0
         for item in files:
             if isinstance(item, str):
@@ -6306,7 +6310,20 @@ def tool_smart_read(
             spec_path = str(spec.get("path") or spec.get("file_path") or spec.get("filePath") or "")
             if not spec_path:
                 results.append({"error": "path is required in each files entry"})
+                entry_specs.append(None)
                 continue
+            entry_specs.append(
+                None
+                if (
+                    spec.get("range") is not None
+                    or spec.get("outline")
+                    or spec.get("summary")
+                    or spec.get("lines") is not None
+                    or spec.get("max_lines") is not None
+                    or spec.get("tail") is not None
+                )
+                else spec_path
+            )
             # _smart_read_single writes each file's saving to the thread-local
             # (last write wins). Capture it per file, stamp it on the entry so
             # per-entry baseline de-dup can zero an already-credited file, and
@@ -6332,8 +6349,15 @@ def tool_smart_read(
                 results.append(single)
             except Exception as exc:
                 results.append({"path": spec_path, "error": str(exc)})
+        downgraded = _apply_batch_read_budget(results, entry_specs, include_meta)
         _tool_call_tokens_saved.value = batch_saved
         batch_result: dict[str, Any] = {"files": results}
+        if downgraded:
+            batch_result["budget_downgraded"] = downgraded
+            batch_result["notice"] = (
+                f"{len(downgraded)} file(s) exceeded the batch read budget and were served as "
+                "outlines. Re-read any of them with an explicit :Lx-Ly range (or :full) for the body."
+            )
         # Batched reads collapse N would-be single-file read calls into 1 -- the
         # same honest cross-call credit the edit (distinct files) and sql
         # (batched queries) surfaces already get. Errored entries earned nothing.
@@ -12147,6 +12171,85 @@ def _read_inline_budget_bytes() -> int:
     if configured <= 0:
         return 0
     return max(8 * 1024, configured)
+
+
+def _read_batch_budget_bytes() -> int:
+    """Total byte budget for one batched ``read`` call before outline downgrade.
+
+    Distinct from ``_read_inline_budget_bytes`` (a *single* file's ceiling): a
+    batch whose members each clear the per-file bar still lands as one very large
+    result. Measured against Cursor: eight ``:full`` files in one call returned
+    ~8.8k tokens, where the same files read individually and on demand cost ~950
+    each -- and several were never needed at all. The per-file guard cannot see
+    the aggregate; only the assembled call can. 0 disables the downgrade.
+    """
+    raw = os.environ.get("LEMONCROW_READ_BATCH_BUDGET_BYTES", str(_DEFAULT_READ_BATCH_BUDGET_BYTES))
+    try:
+        configured = int(raw)
+    except ValueError:
+        return _DEFAULT_READ_BATCH_BUDGET_BYTES
+    if configured <= 0:
+        return 0
+    return max(8 * 1024, configured)
+
+
+def _batch_entry_bytes(entry: object) -> int:
+    """Serialized size of one batch entry, used as the budget unit."""
+    try:
+        return len(json.dumps(entry, default=str))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _apply_batch_read_budget(
+    results: list[dict[str, Any]],
+    entry_specs: list[str | None],
+    include_meta: bool,
+) -> list[str]:
+    """Cap a batch read's total size by downgrading its largest whole-file bodies.
+
+    Downgrades biggest-first until the call fits, so the fewest files lose their
+    bodies. Entries the caller narrowed (range/outline/summary/head/tail) are
+    never touched -- those were asked for precisely and are already cheap.
+
+    Returns the paths that were downgraded, for the caller to disclose.
+    """
+    budget = _read_batch_budget_bytes()
+    if budget <= 0:
+        return []
+    total = sum(_batch_entry_bytes(entry) for entry in results)
+    if total <= budget:
+        return []
+    candidates = sorted(
+        (
+            idx
+            for idx, spec_path in enumerate(entry_specs)
+            if spec_path is not None and isinstance(results[idx], dict) and not results[idx].get("error")
+        ),
+        key=lambda idx: _batch_entry_bytes(results[idx]),
+        reverse=True,
+    )
+    downgraded: list[str] = []
+    for idx in candidates:
+        if total <= budget:
+            break
+        spec_path = entry_specs[idx]
+        if spec_path is None:
+            continue
+        before = _batch_entry_bytes(results[idx])
+        try:
+            outlined = _smart_read_single(path=spec_path, outline=True, include_meta=include_meta)
+        except Exception:
+            continue
+        after = _batch_entry_bytes(outlined)
+        # An outline that is not actually smaller (tiny file, no extractable
+        # structure) would cost tokens now AND a re-read round-trip later.
+        if after >= before:
+            continue
+        results[idx] = outlined
+        total -= before - after
+        downgraded.append(spec_path)
+    return downgraded
 
 
 def _truncate_result_text(text: str | bytes, limit: int, tool_name: str | None = None) -> str:
