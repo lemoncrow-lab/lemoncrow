@@ -305,10 +305,9 @@ def mcp_tool(
                         # didn't serialise. Surface an actionable hint instead of a
                         # bare "field required".
                         raise _ToolArgumentError(
-                            f"{tool_name}: received empty arguments. If this was a large batch "
-                            "(e.g. many edits) with non-ASCII characters, the MCP client likely "
-                            "dropped the arguments in transit -- retry with fewer items per call "
-                            "and \\uXXXX escapes for any non-ASCII characters."
+                            f"{tool_name}: empty arguments -- the client likely dropped them in "
+                            "transit. Retry with fewer items per call and \\uXXXX escapes for "
+                            "non-ASCII."
                         ) from exc
                     raise
                 return func(**validated.model_dump())

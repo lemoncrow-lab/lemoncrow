@@ -99,36 +99,67 @@ def test_opencode_agent_has_host_specific_tool_policy() -> None:
     # OpenCode keeps the same core workflow bullets as Codex/Copilot/Cursor
     # (tool-discipline.md) -- only Claude drops them (its equivalent arrives via
     # the MCP server's `instructions` field instead).
-    assert "One search → one bulk edit." in content
-    assert "Known path → `lc_read`; `lc_bash` = execution only." in content
-    assert "Batch independent calls." in content
+    assert "Known path → straight to `lc_read`" in content
+    assert "`lc_bash` = execution only." in content
+    assert "independent calls go in ONE message" in content
     assert "Large output → a file, never prose." in content
     # The old "use lc_code_search/read/edit/bash instead" bullet was dropped
     # as pure duplication of the shared workflow bullets above.
     assert "OpenCode host" not in content
-    assert "Native OpenCode `read`, `grep`, `bash`, `edit`, and `patch` are fallback-only" in content
-    # Regression: native OpenCode tool names must stay bare (they name OpenCode's
-    # own tools, not LemonCrow's) while the "use lc: ..." clause right after
-    # them must be prefixed -- both directions have broken before.
-    assert "`lc_read`, `grep`, `lc_bash`" not in content
+    # Regression: the "use lc: ..." clause must carry this host's prefix.
     assert "— use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
+    # The directive is unconditional and names only lc tools (see
+    # test_no_host_surface_names_its_own_native_tools).
+    assert "Always use LemonCrow for every file read, search, edit and shell command" in content
+    assert "fallback-only" not in content
 
 
-def test_codex_skill_names_its_own_native_tools_as_disallowed() -> None:
-    # Codex's real native tool-call names (apply_patch/exec_command) must be
-    # named explicitly -- the generic "Host tools disabled" phrasing every
-    # fully-disabled host keeps doesn't apply to Codex (no permission-deny
-    # mechanism exists; see plugin_runtime._codex_native_tool_replacement).
+# Phrases that reason about, or name, the host's own built-in tools.
+#
+# Two earlier phrasings both backfired. "Host tools disabled" was a factual claim
+# on hosts that disable nothing (Codex and OpenCode have no permission-deny
+# mechanism; Cursor's hooks are inert unless LEMONCROW_CURSOR_ENFORCE=1) -- an
+# agent that checks it and finds it false discounts the whole block. "Native X
+# are fallback-only" was accurate but advertised the fallback, which is an
+# invitation to take it. The closing line is now an unconditional directive
+# naming only the lc tools.
+_BANNED_NATIVE_PHRASES = (
+    "Host tools disabled",
+    "fallback-only",
+    "Native Codex",
+    "Native OpenCode",
+    "built-ins stay",
+    "apply_patch",
+    "exec_command",
+)
+
+
+def _assert_no_native_names(rel: str) -> None:
+    content = (ROOT / rel).read_text(encoding="utf-8")
+    for phrase in _BANNED_NATIVE_PHRASES:
+        assert phrase not in content, f"{rel} names a host built-in: {phrase!r}"
+    assert "Always use lc" in content or "Always use LemonCrow" in content, f"{rel}: missing always-use-lc directive"
+
+
+def test_no_host_surface_names_its_own_native_tools() -> None:
+    _assert_no_native_names("integrations/opencode/agents/code.md")
+    _assert_no_native_names("integrations/codex/plugin/skills/code/SKILL.md")
+    _assert_no_native_names("integrations/codex/plugin/skills/explore/SKILL.md")
+    _assert_no_native_names("integrations/cursor/rules/lemoncrow.code.mdc")
+    _assert_no_native_names("integrations/claude/plugin/agents/code.md")
+    _assert_no_native_names("integrations/copilot/agents/lemoncrow.code.agent.md")
+    _assert_no_native_names("integrations/agents/bare.md")
+
+
+def test_codex_skill_directive_is_unconditional_and_lc_prefixed() -> None:
     code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
-    assert (
-        "Native Codex `apply_patch` and `exec_command` are disallowed — use lc: "
-        "`lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`."
-    ) in code_skill
-    # Read-only roles have no edit tool to name apply_patch as a fallback from --
-    # only exec_command applies, singular verb.
+    assert "Always use LemonCrow for every file read, search, edit and shell command" in code_skill
+    assert "— use lc: `lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`." in code_skill
+    # Read-only roles advertise no edit tool.
     explore_skill = (ROOT / "integrations/codex/plugin/skills/explore/SKILL.md").read_text(encoding="utf-8")
-    assert "Native Codex `exec_command` is disallowed" in explore_skill
-    assert "apply_patch" not in explore_skill
+    assert "Always use LemonCrow for every file read and search" in explore_skill
+    assert "— use lc: `lc.bash`, `lc.read`, `lc.code_search`." in explore_skill
+    assert "`lc.edit`" not in explore_skill
 
 
 def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:

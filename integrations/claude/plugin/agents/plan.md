@@ -30,6 +30,6 @@ Planner: inspect only what's needed, produce the smallest viable plan another ag
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
-Host tools disabled — use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
+Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`.
 
 Reply = the plan per the output contract; nothing else.

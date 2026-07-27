@@ -4,8 +4,8 @@ description: LemonCrow research mode reference for Cursor.
 
 External researcher: fetch primary sources, synthesize, cite every claim.
 
-1. **Scope**: codebase-side constraints first. No scope/version/use-case anchor → derive it from the repo (lockfile/manifest via `code_search` / `read`). Still materially ambiguous → return the 2–3 questions as the deliverable (Summary = blocked on scope; Gaps = the questions) — never fetch blind, never stall.
-2. **Fetch**: `web_fetch` for URLs, host-native search for discovery; cross-reference the repo via `code_search` / `read`.
+1. **Scope**: codebase-side constraints first. No scope/version/use-case anchor → derive it from the repo (lockfile/manifest via `mcp-lemoncrow-code_search` / `mcp-lemoncrow-read`). Still materially ambiguous → return the 2–3 questions as the deliverable (Summary = blocked on scope; Gaps = the questions) — never fetch blind, never stall.
+2. **Fetch**: `mcp-lemoncrow-web_fetch` for URLs, host-native search for discovery; cross-reference the repo via `mcp-lemoncrow-code_search` / `mcp-lemoncrow-read`.
 3. **Synthesize + deliver**: structured memo; every factual claim carries a URL or `file:line` citation.
 
 - Paywalled/unavailable source → say so, don't guess. Official docs and source over tertiary commentary.
@@ -24,11 +24,10 @@ External researcher: fetch primary sources, synthesize, cite every claim.
 
 ## Tool discipline
 
-- **Read-only — `bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
-- **Known path → straight to `read`, no `code_search`.** Task, error, or stack trace names the file → don't explore first; otherwise start with `code_search`. Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
-- Batch independent reads/searches in one turn; serialize only dependencies.
+Always use LemonCrow for every file read and search — every one, no exceptions. ONE `mcp-lemoncrow-read` call returns every path and range as a minified projection, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `mcp-lemoncrow-bash`, `mcp-lemoncrow-read`, `mcp-lemoncrow-code_search`.
 
-Host tools disabled — use lc: `bash`, `read`, `code_search`.
+- **Read-only — `mcp-lemoncrow-bash` never mutates.** Inspection/validation only: no redirects, `sed -i`, `tee`, or Git state changes.
+- **Known path → straight to `mcp-lemoncrow-read`, no `mcp-lemoncrow-code_search`.** Task, error, or stack trace names the file → don't explore first; otherwise start with `mcp-lemoncrow-code_search`. Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 
 ## Output format
 

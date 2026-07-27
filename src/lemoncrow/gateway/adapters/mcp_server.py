@@ -239,17 +239,15 @@ SERVER_VERSION = lemoncrow_version
 SERVER_INSTRUCTIONS = (
     "LemonCrow replaces the grep→read→re-read loop.\n"
     "- Lead with `code_search`: one call = ranked matches (top source inline, "
-    "the rest as precise path:Lx-Ly pointers) + related_symbols + "
-    "candidate_files. Inline source = already read. Never shell-grep workspace "
-    "code or re-verify indexed results.\n"
-    "- Known path/symbols →  batch `read`: ONE call, files=[...], exact :Lx-Ly ranges, "
+    "rest as path:Lx-Ly pointers) + related_symbols + candidate_files. Inline "
+    "source = already read; never shell-grep or re-verify indexed results.\n"
+    "- Known path/symbols → `read`: ONE call, files=[...], exact :Lx-Ly ranges, "
     "never the same file twice. Never cat/sed/head/tail.\n"
     "- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.\n"
-    "- Independent calls (any tools) → ONE message, not one per turn.\n"
-    "- `bash` = execution only (tests, git, builds).\n"
-    "- Large output → a file, never inline prose.\n"
-    "- Graphical data (plots, rendered text, pixel grids, UI) → write a PNG and read the "
-    "image; don't infer visuals from raw bytes or coordinates."
+    "- Independent calls (any tools) → ONE message.\n"
+    "- `bash` = execution only (tests, git, builds). Large output → a file, never inline prose.\n"
+    "- Graphical data (plots, pixel grids, UI) → write a PNG and `read` it; "
+    "don't infer visuals from raw bytes."
 )
 CONTEXT_WINDOW_TOKENS = 200_000
 COMPACT_ADVISORY_THRESHOLD = 60.0
@@ -3522,18 +3520,13 @@ def _binary_read_message(media_type: str, size_bytes: int, suffix: str = "") -> 
         return base + f" Image too large to inline (> {_MAX_INLINE_IMAGE_BYTES} bytes)."
     if media_type.startswith("video/"):
         return (
-            base + " Video is not viewable directly by this tool. Extract a representative "
-            "frame with ffmpeg (e.g. `ffmpeg -ss <time> -i <file> -frames:v 1 frame.png`) "
-            "and read() that frame instead -- images ARE viewable directly."
+            base + " Video not viewable. Extract a frame -- "
+            "`ffmpeg -ss <time> -i <file> -frames:v 1 frame.png` -- then read() it."
         )
     if media_type.startswith("audio/"):
         return base + " Audio is not transcribed by this tool; no transcript path is available here."
     if media_type == "application/pdf":
-        return (
-            base + " PDF text/images are not extracted by this tool. Use `pdftotext` "
-            "(poppler-utils) for text, or `pdftoppm -png` to render a page and read() "
-            "the resulting PNG instead -- images ARE viewable directly."
-        )
+        return base + " PDF not extracted. `pdftotext` for text, or `pdftoppm -png` a page " "and read() the PNG."
     if media_type in _ARCHIVE_MEDIA_TYPES or suffix in _ARCHIVE_SUFFIXES:
         return (
             base + " Archive contents are not listed by this tool; use bash (e.g. `unzip -l`, `tar -tf`) to inspect it."
@@ -6179,11 +6172,10 @@ def _recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str]
         "files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. "
         ":Lx-Ly exact range; :full full source; :summary gist; :outline structure at any "
         "size (mutually exclusive). Whole file → ONE :full or wide range, never "
-        "successive narrow ones. One function/test → symbol=, not a whole-file read; "
-        "default line numbers are already disk-accurate for editing, so :full is for "
-        "exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back viewable — "
-        "read to SEE them, don't write OCR/pixel code. Other binaries return the next "
-        "step. symbol='name' or ['a', 'b']."
+        "successive narrow ones. One function/test → symbol='name' or ['a','b'], not a "
+        "whole-file read. Default line numbers are disk-accurate for editing; :full is "
+        "for exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back "
+        "viewable — read to SEE them, don't write OCR/pixel code."
     ),
     param_aliases={
         "max_lines": "lines",
@@ -7139,7 +7131,14 @@ def _reindex_edited_files(repo_root: Path, touched_paths: list[str]) -> None:
 
 
 # Max lint/type diagnostics folded into an edit result's FIXME block; the rest
-_EDIT_DIAG_CAP = 20
+# collapse to a "+K more" line (they are one linter run away, not lost).
+#
+# Kept deliberately small. This block is appended to EVERY edit result, so it is
+# re-billed on every later round-trip of the session -- a 20-line lint dump after
+# each of 8 edits is a wall of text the agent pays for repeatedly. A handful is
+# enough to signal "this file has findings, act on them"; the tail is one linter
+# run away.
+_EDIT_DIAG_CAP = 5
 
 # Retry anchors exist to let the agent re-issue a rejected range edit with an
 # `old=` that matches disk -- they are NOT a content channel. Unbounded, a batch
@@ -7167,9 +7166,6 @@ def _anchor_snippet(text: str, limit: int = _RETRY_ANCHOR_CHARS) -> str:
         kept.append(line)
         used += len(line)
     return "".join(kept) if kept else text[:limit]
-
-
-_EDIT_DIAG_CAP = 20
 
 
 @mcp_tool(
@@ -7388,7 +7384,7 @@ def tool_smart_edit(
                     _retry_with = {
                         "path": f"{_spec.path}:L{_ctx_start}-L{_ctx_end}",
                         "old_string": _anchor_snippet("".join(_cur_lines[_ctx_start - 1 : _ctx_end])),
-                        "hint": "exact current disk content for this region -- retry in the same turn with old= set to (part of) this, or a corrected :Lx-Ly range",
+                        "hint": "disk content now -- retry with old= set to (part of) this, or a corrected :Lx-Ly range",
                     }
             _entry: dict[str, Any] = {
                 "edit_index": _i,

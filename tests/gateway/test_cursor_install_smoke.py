@@ -32,11 +32,15 @@ INSTALL = REPO / "scripts" / "install_cursor.sh"
 HOOK_SESSION_START = REPO / "integrations" / "cursor" / "hooks" / "session_start.py"
 
 
-def _run_install(ws: Path) -> subprocess.CompletedProcess:
+def _run_install(ws: Path, home: Path) -> subprocess.CompletedProcess:
     # Files are written before the script's own post-install verification, so a
     # nonzero exit (e.g. `lc` not on the runner PATH) still leaves the artifacts
     # to assert on. Bounded timeout guards the best-effort `cursor-agent mcp
     # enable` call from ever hanging the suite.
+    # HOME is redirected: the server registration is global in every scope now,
+    # so an un-sandboxed run would rewrite the developer's own
+    # ~/.cursor/mcp.json every time the suite runs.
+    env = {**os.environ, "HOME": str(home)}
     return subprocess.run(
         ["bash", str(INSTALL), "--workspace", str(ws)],
         cwd=str(REPO),
@@ -44,15 +48,23 @@ def _run_install(ws: Path) -> subprocess.CompletedProcess:
         text=True,
         timeout=180,
         check=False,
+        env=env,
     )
 
 
 def test_workspace_install_writes_consistent_artifacts(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
-    _run_install(ws)
+    home = tmp_path / "home"
+    home.mkdir()
+    _run_install(ws, home)
 
-    mcp = json.loads((ws / ".cursor" / "mcp.json").read_text())
+    # The server is registered GLOBALLY even for a --workspace install. A second
+    # project-scoped entry under the same `lemoncrow` key makes Cursor empty the
+    # project file mid-session and drop the live client ("Not connected"), after
+    # which the agent falls back to built-ins and never returns to LemonCrow.
+    assert not (ws / ".cursor" / "mcp.json").exists(), "workspace install must not create a server registration"
+    mcp = json.loads((home / ".cursor" / "mcp.json").read_text())
     server = mcp["mcpServers"]["lemoncrow"]
     # The create-branch and merge-branch used to disagree (lemoncrow vs lc,
     # shell vs bash); pin the one true shape so it can't drift again.
@@ -101,6 +113,48 @@ def test_workspace_install_writes_consistent_artifacts(tmp_path: Path) -> None:
         p for p in (ws / ".cursor" / "rules").glob("*.mdc") if "alwaysApply: true" in p.read_text(encoding="utf-8")
     ]
     assert always_on == [active], f"expected exactly one always-on rule, got {always_on}"
+
+
+def test_always_on_rule_leads_with_mcp_discovery() -> None:
+    """The always-on rule must open (and close) on the `get_mcp_tools` step.
+
+    Cursor loads MCP schemas lazily, and measured over its own transcript store
+    the first tool call is an absorbing state: native->LemonCrow transitions were
+    0 of 845. Sessions that opened on a LemonCrow tool had almost always run
+    discovery first; sessions that opened native mostly never ran it at all. So
+    the directive has to reach the model before its first tool call, which only
+    the always-on rule does -- a description-only rule is pulled in later, after
+    the moment that decides the session has already passed.
+    """
+    rules = REPO / "integrations" / "cursor" / "rules"
+    always_on = [p for p in sorted(rules.glob("*.mdc")) if "alwaysApply: true" in p.read_text(encoding="utf-8")]
+    assert len(always_on) == 1, f"expected exactly one always-on rule, got {always_on}"
+
+    body = always_on[0].read_text(encoding="utf-8")
+    _, _, after_frontmatter = body.partition("---\n\n")
+    assert after_frontmatter.lstrip().startswith(
+        "**Before anything else, in order:**"
+    ), "opening-sequence directive must be the first thing after the frontmatter"
+    # Discovery alone is not enough: sessions that discovered the tools and then
+    # opened on edit_file_v2 still made ~0 LemonCrow calls. The rule has to
+    # mandate a LemonCrow call as the first working action too.
+    assert "First working call must be LemonCrow" in body
+    # Discover by server, never by `pattern`: measured 63/63 success for
+    # `server=` vs 4/22 for `pattern=` across Cursor's own transcript store.
+    assert '`get_mcp_tools` with `server: "user-lemoncrow"`' in body
+    assert "Never search by `pattern`" in body
+    assert body.rstrip().endswith(
+        "then LemonCrow `code_search`/`bash` before any edit."
+    ), "end-anchor reminder missing -- a lead-only directive gets skimmed past"
+    assert "pattern `lemoncrow" not in body, "pattern-mode discovery fails 82% of the time"
+
+    for other in sorted(rules.glob("*.mdc")):
+        if other == always_on[0]:
+            continue
+        assert "get_mcp_tools" not in other.read_text(encoding="utf-8"), (
+            f"{other.name}: description-only rules must not carry the discovery lead -- "
+            "they load too late to matter and cost tokens whenever surfaced"
+        )
 
 
 def _run_session_start_hook(ws: Path, root: Path, payload: dict) -> None:
