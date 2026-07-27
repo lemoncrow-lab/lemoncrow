@@ -19,18 +19,19 @@ from lemoncrow.pro.capabilities.repo_map.budget import count_tokens
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Measured 2026-07 after the telegraphic rewrite: bash=387, code_search=246,
-# edit=294, read=296, web_fetch=284 (core total 1507); personas 4919 tokens
-# over 16 files. Ceilings = measured + ~10% headroom.
-# SERVER_INSTRUCTIONS measured 235 after absorbing the TOOL-ROUTING half of
-# the shared tool discipline (claude personas ship only the host-specific
-# remainder against it — see _CLAUDE_TOOL_DISCIPLINE in
-# scripts/sync_agent_context.py). Agent methodology (don't-thrash, batching)
-# deliberately stays OUT — personas + runtime nudges own that.
+# Measured 2026-07 after the second trim pass: bash=448, code_search=218,
+# edit=255, read=280, web_fetch=247 (core total 1448); SERVER_INSTRUCTIONS 196;
+# personas 4089 tokens over 17 files. Ceilings = measured + ~5-10% headroom.
+#
+# SERVER_INSTRUCTIONS absorbs the TOOL-ROUTING half of the shared tool
+# discipline (claude personas ship only the host-specific remainder against it
+# — see _CLAUDE_TOOL_DISCIPLINE in scripts/sync_agent_context.py). Agent
+# methodology (don't-thrash, batching) deliberately stays OUT — personas +
+# runtime nudges own that.
 PER_TOOL_CEILING = 450
-CORE_SCHEMA_TOTAL_CEILING = 1_700
-SERVER_INSTRUCTIONS_CEILING = 260
-PERSONA_TOTAL_CEILING = 5_500
+CORE_SCHEMA_TOTAL_CEILING = 1_550
+SERVER_INSTRUCTIONS_CEILING = 215
+PERSONA_TOTAL_CEILING = 4_400
 
 # The always-advertised 5-tool surface (other tools are hidden or
 # conditionally visible, e.g. `search` behind an embedding backend).

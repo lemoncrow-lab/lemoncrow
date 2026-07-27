@@ -48,14 +48,29 @@ if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 fi
 
+# The MCP server is ALWAYS registered globally, in every scope. --workspace
+# scopes the rules and hooks; it does not scope the server registration.
+#
+# Registering per-workspace as well puts a second entry under the same key
+# `lemoncrow` the global config already uses. Cursor resolves that collision by
+# emptying the project file mid-session, which tears down the live client --
+# observed in one run as:
+#
+#   10:16:09  createClient user-lemoncrow  connected=true
+#   10:16:20  mcpToolCall  code_search     ALLOWED
+#   10:17:16  <workspace>/.cursor/mcp.json rewritten to an empty mcpServers map
+#   10:17:27  mcpToolCall  code_search     error: Not connected
+#
+# after which the agent falls back to Cursor's built-ins for the rest of the
+# session and never comes back (native->LemonCrow transitions measured 0 of 845
+# across the whole transcript store). The same duplicate registration is behind
+# the `serverStatus: error` discoveries seen in day-to-day sessions.
+INSTALL_SCOPE="global"
+MCP_FILE="${HOME}/.cursor/mcp.json"
+RULES_DIR=""
 if $WORKSPACE_SET; then
     INSTALL_SCOPE="workspace"
-    MCP_FILE="${WORKSPACE}/.cursor/mcp.json"
     RULES_DIR="${WORKSPACE}/.cursor/rules"
-else
-    INSTALL_SCOPE="global"
-    MCP_FILE="${HOME}/.cursor/mcp.json"
-    RULES_DIR=""
 fi
 
 CURSOR_RULES_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/rules"
@@ -65,9 +80,8 @@ warn()  { echo "[lemoncrow:cursor] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
-    if $WORKSPACE_SET; then
-        return
-    fi
+    # No workspace short-circuit: MCP_FILE is the user's global config in every
+    # scope now, so a --workspace install edits a real file worth backing up.
     if [ -f "$f" ]; then
         local bk="${f}.lemoncrow-backup.$(date +%Y%m%dT%H%M%S)"
         run "cp $(printf %q "$f") $(printf %q "$bk")"
@@ -271,6 +285,12 @@ PYEOF
         fi
     done
 fi
+
+# A pre-existing <workspace>/.cursor/mcp.json is left exactly as it is. It may
+# carry settings the global entry does not (an `env` block pinning
+# CLAUDE_WORKSPACE_ROOT, say), and sessions against such workspaces are on
+# record routing almost every call through LemonCrow -- so deleting it is not a
+# cleanup, it is a regression. We simply stop adding new ones.
 
 # ---- write rules files (workspace only) -------------------------------------
 if $WORKSPACE_SET; then

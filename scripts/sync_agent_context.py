@@ -33,13 +33,10 @@ from lemoncrow.core.capabilities.model_settings import (
     resolve_host_model,
 )
 from lemoncrow.core.capabilities.workspace_host_overrides import (
-    CODEX_NATIVE_FALLBACK_NAMES_READ,
-    codex_tool_discipline_body,
     core_discipline_body,
     format_native_names_and_verb,
     replace_inline_tool_names,
     rewrite_agent_model,
-    swap_tool_discipline_lead_in,
 )
 from lemoncrow.core.environment import skill_installed_by_default
 from lemoncrow.core.persona_partials import markdown_section
@@ -105,6 +102,16 @@ _CLAUDE_TOOL_PREFIX = "mcp__lc__"
 _OPENCODE_TOOL_PREFIX = "lc_"
 _CODEX_TOOL_PREFIX = "lc."
 
+# Cursor registers MCP tools as `mcp-<server>-<tool>` -- observed verbatim in
+# its own transcript store (cursorDiskKV `toolFormerData.name`), e.g.
+# "mcp-lemoncrow-read" alongside the natives "read_file_v2"/"edit_file_v2".
+#
+# Without this prefix the rule said "use `read`" -- which in Cursor names its
+# OWN read tool, so the directive meant to route work to LemonCrow was read as
+# an endorsement of the built-in. The prefix is what makes the instruction name
+# a tool the model can actually call.
+_CURSOR_TOOL_PREFIX = "mcp-lemoncrow-"
+
 # Claude Code folds the MCP server's `instructions` field (SERVER_INSTRUCTIONS
 # in mcp_server.py, which carries the full generic tool discipline) into every
 # context — main agent and subagents alike. So claude personas ship only what
@@ -112,50 +119,30 @@ _CODEX_TOOL_PREFIX = "lc."
 # Every other surface (codex — openai/codex#6148 closed not-planned — opencode,
 # copilot, cursor, and owned lanes, none of which receive MCP instructions)
 # keeps the full shared block.
-_CLAUDE_TOOL_DISCIPLINE = "Host tools disabled — use lc: `bash`, `read`, `edit`, `code_search`."
+# Claude Code folds the MCP server's `instructions` field (SERVER_INSTRUCTIONS
+# in mcp_server.py, which carries the full generic tool discipline) into every
+# context -- main agent and subagents alike. So claude personas ship only what
+# that host-agnostic server string cannot carry: the host tool-name mapping.
+# Every other surface (codex, opencode, copilot, cursor, and owned lanes, none
+# of which receive MCP instructions) keeps the full shared block.
+#
+# No host names its own built-ins any more. Earlier revisions did, two ways, and
+# both backfired: "Host tools disabled" on hosts that disable nothing is a claim
+# the agent can check and find false, which discounts the whole block; and
+# "native X are fallback-only" on Codex/OpenCode advertises a fallback, which is
+# an invitation to take it. The closing line in tool-discipline.md is now an
+# unconditional directive that names only the lc tools, so the per-host
+# rewrites (and their native-name lists) are gone.
+_CLAUDE_TOOL_DISCIPLINE = "Always use lc: `bash`, `read`, `edit`, `code_search`."
 _CLAUDE_TOOL_DISCIPLINE_READ = (
-    "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
+    "- **Read-only role \u2014 `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Host tools disabled — use lc: `bash`, `read`, `code_search`."
+    "Always use lc: `bash`, `read`, `code_search`."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
     "{{TOOL_DISCIPLINE_READ}}": _CLAUDE_TOOL_DISCIPLINE_READ,
-}
-
-
-# OpenCode's own native tools (read/grep/bash/edit/patch) stay fully enabled --
-# no permission-deny for them (see scripts/install_opencode.sh's opencode.json,
-# only "lc_*": "allow" is ever set) -- so "Host tools disabled" is as
-# inaccurate for OpenCode as it is for Codex. Same swap-the-lead-in fix,
-# keeping the "use lc: ..." clause (same shared helper Codex uses).
-#
-# Unlike Codex's apply_patch/exec_command, these names (read/bash/edit) DO
-# collide with INLINE_TOOL_NAMES -- render_agent's replace_inline_tool_names
-# pass would mangle them into lc_read/lc_bash/lc_edit (they'd
-# read as OpenCode's own native tools, not LemonCrow's). So the {{NATIVE_FALLBACK_NAMES}}
-# marker below is deliberately left unresolved here and filled in by render_agent
-# *after* that rewrite pass runs (see profile.native_fallback_names).
-_OPENCODE_NATIVE_FALLBACK_NAMES: tuple[str, ...] = ("read", "grep", "bash", "edit", "patch")
-_OPENCODE_TOOL_DISCIPLINE = swap_tool_discipline_lead_in(
-    markdown_section(TOOL_DISCIPLINE_PATH, "write"),
-    "Native OpenCode {{NATIVE_FALLBACK_NAMES}} are fallback-only "
-    "(use them only when the LemonCrow equivalent is hidden, unavailable, or returns noop)",
-)
-_OPENCODE_SHARED_OVERRIDES = {"{{TOOL_DISCIPLINE}}": _OPENCODE_TOOL_DISCIPLINE}
-# Codex has no tool-permission-deny mechanism either (native apply_patch/
-# exec_command stay fully callable; only a reactive PostToolUse nudge exists --
-# see plugin_runtime._codex_native_tool_replacement), so the generic "Host
-# tools disabled" closing line is inaccurate for Codex the same way it was for
-# OpenCode. codex_tool_discipline_body names Codex's real native tools instead.
-_CODEX_SHARED_OVERRIDES = {
-    "{{TOOL_DISCIPLINE}}": codex_tool_discipline_body(TOOL_DISCIPLINE_PATH.parent),
-    "{{TOOL_DISCIPLINE_READ}}": codex_tool_discipline_body(
-        TOOL_DISCIPLINE_PATH.parent,
-        section="read-only",
-        native_fallback_names=CODEX_NATIVE_FALLBACK_NAMES_READ,
-    ),
 }
 
 
@@ -288,15 +275,87 @@ def render_copilot_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostP
 CURSOR_ALWAYS_ON_ROLE = os.environ.get("LEMONCROW_CURSOR_MODE", "code").strip() or "code"
 
 
+# Cursor loads MCP tool schemas LAZILY: until the model calls `get_mcp_tools`,
+# the LemonCrow tools are not in its context at all, so "use `read`" can only
+# resolve to Cursor's own built-in. Measured over 61 composer-2.5 sessions in
+# Cursor's own transcript store (cursorDiskKV `toolFormerData`):
+#
+#   * whichever family the FIRST tool call belongs to decides the whole
+#     session -- native->LemonCrow transitions were 0 out of 845, while
+#     LemonCrow->LemonCrow ran 97.8%. It is an absorbing state, not a
+#     preference, and no amount of later rule text recovers from it.
+#   * of 19 sessions that opened on a LemonCrow tool, 17 had called
+#     `get_mcp_tools` first; of 38 that opened native, 28 never called it at
+#     all. Discovery is the fork in the road.
+#
+# So the one instruction that can change the outcome has to fire BEFORE the
+# first tool call, and it has to name the discovery step rather than the tools
+# (which cannot be referenced until discovery has run). Repeated at the end as
+# well: lost-in-the-middle means a lead-only directive is the one most likely
+# to be skimmed past.
+# Discover by SERVER, never by `pattern`. Measured over the 87 `get_mcp_tools`
+# calls in Cursor's own transcript store, success is entirely a function of
+# which argument is used:
+#
+#   server=      63 calls, 0 empty     (modes single_tool / server)
+#   no args      11 calls, 0 empty     (mode catalog)
+#   pattern=     22 calls, 18 empty    (mode search)
+#
+# `pattern` fails 82% of the time -- including searches that spelled out every
+# LemonCrow tool name -- so a rule that tells the model to grep for us mostly
+# teaches it we do not exist, and a native first call locks the session out.
+# `user-lemoncrow` is the name a user-scope ~/.cursor/mcp.json install gets (35
+# calls, 0 failures); workspace and plugin installs land on
+# `project-0-<workspace>-lemoncrow` / `plugin-lemoncrow-lemoncrow`, which is
+# what the argument-less catalog fallback is for.
+# The opening move is the whole ballgame. Same transcript store, grouped by
+# which tool a session called first:
+#
+#   opened on mcp-lemoncrow-bash   -> 10..52 LemonCrow calls,  0..3 native
+#   opened on edit_file_v2         ->  0..6  LemonCrow calls, 18..315 native
+#
+# There is no middle. Native->LemonCrow transitions were 0 of 845 across the
+# whole store, so the first call does not express a preference, it sets one
+# permanently. A task that begins by editing therefore never uses LemonCrow at
+# all, which is exactly the shape of an "apply this fix" prompt.
+#
+# So the rule cannot merely rank tools -- it has to put a LemonCrow call before
+# the model's first instinct. Hence a mandated orientation call, which is also
+# what lean-ctx does with its "ctx_compose, call FIRST" rule: the point is not
+# what that call returns, it is that the session starts on the MCP side.
+_CURSOR_DISCOVERY_LEAD = (
+    "**Before anything else, in order:**\n"
+    '1. `get_mcp_tools` with `server: "user-lemoncrow"`. Not listed → call it with no '
+    "arguments, take the name ending in `lemoncrow`. Never search by `pattern` — "
+    "returns empty most of the time.\n"
+    "2. First working call must be LemonCrow: `code_search` on the subject, or `bash`. "
+    "Even when the task names the file and an edit looks obvious.\n\n"
+    "Whichever family you call first is the one you keep — open on a built-in and "
+    "LemonCrow goes unused all session. No recovery mid-session. "
+    "`serverStatus: error` → say so, continue with built-ins."
+)
+
+_CURSOR_DISCOVERY_TAIL = (
+    "Reminder: `get_mcp_tools` server `user-lemoncrow`, then LemonCrow `code_search`/`bash` " "before any edit."
+)
+
+
 def render_cursor_role_rule(role: DefaultRole, mode_doc: ModeDoc) -> str:
     header = [
         "---",
         f"description: LemonCrow {role.role_id} mode reference for Cursor.",
     ]
-    if role.role_id == CURSOR_ALWAYS_ON_ROLE:
+    always_on = role.role_id == CURSOR_ALWAYS_ON_ROLE
+    if always_on:
         header.append("alwaysApply: true")
     header.append("---")
-    return "\n".join([*header, "", render_mode_body(mode_doc)]).rstrip() + "\n"
+    body = replace_inline_tool_names(render_mode_body(mode_doc), _CURSOR_TOOL_PREFIX)
+    # Only the always-on rule can be trusted to arrive before the first tool
+    # call; a description-only rule the agent pulls in later has already missed
+    # the moment this directive exists to catch.
+    if always_on:
+        body = f"{_CURSOR_DISCOVERY_LEAD}\n\n{body}\n\n{_CURSOR_DISCOVERY_TAIL}"
+    return "\n".join([*header, "", body]).rstrip() + "\n"
 
 
 def _already_active_guard(skill_name: str) -> str:
@@ -328,7 +387,7 @@ def _inject_active_guard(content: str, skill_name: str) -> str:
 
 
 def render_shared_skill(role: DefaultRole, mode_doc: ModeDoc) -> str:
-    body = replace_inline_tool_names(render_mode_body(mode_doc, _CODEX_SHARED_OVERRIDES), _CODEX_TOOL_PREFIX)
+    body = replace_inline_tool_names(render_mode_body(mode_doc), _CODEX_TOOL_PREFIX)
     return (
         "\n".join(
             [
@@ -513,11 +572,7 @@ def build_mode_outputs(
             role,
             mode_doc,
             opencode_projection,
-            profile=HostInstructionProfile(
-                tool_prefix=_OPENCODE_TOOL_PREFIX,
-                overrides=_OPENCODE_SHARED_OVERRIDES,
-                native_fallback_names=_OPENCODE_NATIVE_FALLBACK_NAMES,
-            ),
+            profile=HostInstructionProfile(tool_prefix=_OPENCODE_TOOL_PREFIX),
         )
 
         copilot_projection = registry.projection(role_id, "copilot_agent")
