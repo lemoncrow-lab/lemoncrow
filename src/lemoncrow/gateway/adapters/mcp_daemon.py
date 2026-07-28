@@ -107,14 +107,22 @@ def _daemon_socket_path(root: Path, ws_hash: str) -> Path:
     AF_UNIX paths are capped at ~108 bytes, and ``<root>/mcp_daemons/<ws_hash>``
     can blow past that (deep store roots + up to 120-char workspace slugs). Anchor
     the socket in a short per-user runtime dir keyed by a digest of the identity
-    instead. The registration file records the absolute path, so discovery and
-    cleanup read it back and never recompute (which would drift if XDG_RUNTIME_DIR
-    differed between the daemon and a later pruner).
+    instead.
+
+    Derived from on-disk facts only, never from the ambient environment: reading
+    ``XDG_RUNTIME_DIR``/``TMPDIR`` here made the path differ between a daemon
+    started from a login shell and its own successor respawned by a bridge that
+    inherited a bare env -- one workspace, two socket paths, and every bridge
+    pinned to the vacated one answered "MCP daemon unreachable" until the host
+    restarted it. ``/run/user/<uid>`` is the same directory for every process of
+    that user; only when it does not exist (macOS, containers) does the temp dir
+    decide, and the bridge re-dials whatever path the registration reports.
     """
     digest = hashlib.sha256(ws_hash.encode("utf-8")).hexdigest()[:16]
-    base = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    return Path(base) / f"lemoncrow-mcp-{uid}" / f"{digest}.sock"
+    runtime_dir = Path(f"/run/user/{uid}")
+    base = runtime_dir if runtime_dir.is_dir() else Path(tempfile.gettempdir())
+    return base / f"lemoncrow-mcp-{uid}" / f"{digest}.sock"
 
 
 # ── liveness helpers ─────────────────────────────────────────────────────────

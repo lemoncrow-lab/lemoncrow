@@ -143,6 +143,51 @@ def test_registration_roundtrip_perms_and_prune(tmp_path: Path) -> None:
     assert md.daemon_registration_path(root, "ws-x").exists()  # live pid survives
 
 
+def test_socket_path_ignores_ambient_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """One workspace = one socket path, whatever env the process was launched with.
+
+    A daemon started from a login shell and its successor respawned by a bridge
+    with a bare env must land on the same socket; when they diverged, every
+    already-attached bridge kept dialing the vacated path forever.
+    """
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    with_env = md._daemon_socket_path(tmp_path, "ws-x")
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("TMPDIR", raising=False)
+    assert md._daemon_socket_path(tmp_path, "ws-x") == with_env
+
+
+def test_client_pool_rebinds_when_socket_moves() -> None:
+    built: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, socket: str) -> None:
+            self.socket = socket
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    def _factory(reg: dict[str, Any], *, timeout: Any) -> _FakeClient:
+        built.append(str(reg["socket"]))
+        return _FakeClient(str(reg["socket"]))
+
+    first = {"socket": "/run/user/1000/a.sock"}
+    pool = mb._ClientPool(first, _factory, timeout=None)
+    assert pool.for_registration(first) is pool.for_registration(dict(first))  # same path -> same client
+    assert built == ["/run/user/1000/a.sock"]
+
+    moved = {"socket": "/tmp/a.sock"}
+    rebound = pool.for_registration(moved)
+    assert rebound.socket == "/tmp/a.sock"
+    assert built == ["/run/user/1000/a.sock", "/tmp/a.sock"]
+    assert not rebound.closed  # retired client stays open for in-flight calls
+
+    pool.close()
+    assert rebound.closed
+
+
 def test_started_at_preserved_across_rewrites(tmp_path: Path) -> None:
     md._write_registration(tmp_path, "ws", socket_path="/x.sock", token="t", workspace=str(tmp_path))
     first = md.read_daemon_registration(tmp_path, "ws")
