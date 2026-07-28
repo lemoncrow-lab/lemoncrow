@@ -104,6 +104,44 @@ class _DaemonHandle:
             return self._reg
 
 
+class _ClientPool:
+    """Keeps the daemon client pointed at the socket the registration reports.
+
+    A respawned daemon can bind a different socket path than the one this bridge
+    started against. A client pinned for the session's lifetime then dials a
+    vacated socket forever -- every call fails with "daemon unreachable" though a
+    healthy daemon is running -- so the client is rebuilt whenever the path moves.
+    Retired clients are closed at shutdown, not on swap: other threads may still
+    be mid-request on them.
+    """
+
+    def __init__(self, reg: dict[str, Any], factory: Any, timeout: Any) -> None:
+        self._factory = factory
+        self._timeout = timeout
+        self._lock = threading.Lock()
+        self._socket = str(reg["socket"])
+        self._client = factory(reg, timeout=timeout)
+        self._retired: list[Any] = []
+
+    def for_registration(self, reg: dict[str, Any]) -> Any:
+        socket_path = str(reg["socket"])
+        with self._lock:
+            if socket_path != self._socket:
+                self._retired.append(self._client)
+                self._client = self._factory(reg, timeout=self._timeout)
+                self._socket = socket_path
+            return self._client
+
+    def close(self) -> None:
+        with self._lock:
+            clients, self._retired = [self._client, *self._retired], []
+        for client in clients:
+            try:
+                client.close()
+            except Exception:
+                _log.debug("daemon client close failed", exc_info=True)
+
+
 def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
     """Run the stdio bridge until the host closes stdin (blocks)."""
     import httpx
@@ -123,10 +161,10 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
 
     # No overall timeout: tool calls (bash, web_fetch) can run long, exactly as
     # they did on the stdio server. A short connect timeout still fails fast when
-    # the daemon is gone, triggering a single respawn+retry. The client is pinned
-    # to the daemon's Unix socket: loopback IPC no HTTP proxy can hijack, and the
-    # socket path is stable across respawns so one client serves the whole session.
-    client = daemon_client(handle.current(), timeout=httpx.Timeout(None, connect=10.0))
+    # the daemon is gone, triggering a single respawn+retry. Clients bind the
+    # daemon's Unix socket: loopback IPC no HTTP proxy can hijack. The pool
+    # re-binds if a respawned daemon comes up on a different socket path.
+    clients = _ClientPool(handle.current(), daemon_client, httpx.Timeout(None, connect=10.0))
     stdout_lock = threading.Lock()
 
     def _write(message: dict[str, Any]) -> None:
@@ -155,7 +193,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
             if host:
                 headers["X-LemonCrow-Agent"] = host
             try:
-                resp = client.post(_UDS_BASE_URL + "/mcp", headers=headers, content=body)
+                resp = clients.for_registration(reg).post(_UDS_BASE_URL + "/mcp", headers=headers, content=body)
             except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError, httpx.ConnectTimeout):
                 if attempt == 0:
                     handle.respawn(reg)  # daemon died/reaped -> respawn and retry once
@@ -201,7 +239,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
         while not stop.wait(_PING_INTERVAL_SECONDS):
             reg = handle.current()
             try:
-                client.post(
+                clients.for_registration(reg).post(
                     _UDS_BASE_URL + "/session/ping",
                     headers={"Authorization": f"Bearer {reg['token']}", "X-LemonCrow-Bridge": bridge_id},
                     timeout=5.0,
@@ -223,7 +261,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
         stop.set()
         reg = handle.current()
         try:
-            client.post(
+            clients.for_registration(reg).post(
                 _UDS_BASE_URL + "/session/close",
                 headers={"Authorization": f"Bearer {reg['token']}", "X-LemonCrow-Bridge": bridge_id},
                 timeout=5.0,
@@ -231,7 +269,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
         except Exception:
             _log.debug("bridge close failed", exc_info=True)
         pool.shutdown(wait=True, cancel_futures=False)
-        client.close()
+        clients.close()
 
 
 def singleton_enabled() -> bool:
