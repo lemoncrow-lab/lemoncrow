@@ -1057,8 +1057,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "command": {
-            "type": ["string", "array"],
-            "items": {"type": "string"},
+            "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
             "description": "Command, or array run sequentially — own subshell each, all run even if one fails, `## lc:cmd i/n` headers.",
         },
         "cwd": {
@@ -1076,8 +1075,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "description": "Detached, returns id now; only mode outliving this MCP session.",
         },
         "id": {
-            "type": ["string", "array"],
-            "items": {"type": "string"},
+            "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
             "description": "Session id; bash(id=X) blocks till done — never sleep-poll. Array = several per call.",
         },
         "action": {
