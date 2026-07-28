@@ -1038,7 +1038,13 @@ def benchmark_codebench_cmd(
         "your ~/.codex/config.toml, else Codex's own default."
     ),
 )
-@click.option("--reps", type=int, default=1, show_default=True)
+@click.option(
+    "--reps",
+    type=click.IntRange(1, 5),
+    default=1,
+    show_default=True,
+    help="Runs per prompt per arm; more reps average out per-run noise and multiply spend (max 5).",
+)
 @click.option("--max-turns", type=int, default=50, show_default=True, help="Turn cap per run.")
 @click.option(
     "--arm",

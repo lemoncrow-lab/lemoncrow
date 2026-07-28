@@ -73,6 +73,11 @@ skill") say so and point at this file — don't silently swap in a free-form exp
   Codex, the model pinned in `~/.codex/config.toml`, else Codex's default, priced from the id its
   rollout records). Pass one only if the user names it, and only an id that driver's vendor serves;
   a Claude id under `--cli-driver codex` is rejected before any spend.
+- **Reps**: always ask, before the estimate, via `AskUserQuestion` — **"How many reps per prompt?
+  (each rep = one run of every arm)"** with options **1 (Recommended)** / **3** / **5**. **5 is the
+  maximum** — never pass more, whatever the user asks for; more reps only average out per-run noise
+  and multiply spend (`prompts × arms × reps` runs). Pass the answer as `--reps <n>` in BOTH phases,
+  so the estimate prices the run the user confirmed.
 - **Setup**: omit `--setup` entirely. The benchmark runner handles workspace setup.
 - **Prompts**: `/benchmark <prompt>` — the text after `/benchmark` IS the prompt, verbatim, even
   if it reads like a question. Non-empty argument → use it as prompt 1 (split additional
@@ -92,7 +97,7 @@ through to the terminal (the Stop hook will intercept it).**
 ```bash
 uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
-  [--cli-driver codex] \
+  --reps <n> [--cli-driver codex] \
   --estimate-only
 ```
 
@@ -110,7 +115,7 @@ Run as a background job so it doesn't hit the bash tool's 30-minute timeout:
 LOG="/tmp/lemoncrow-bench-$$.log"
 nohup uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
-  [--cli-driver codex] \
+  --reps <n> [--cli-driver codex] \
   -y > "$LOG" 2>&1 &
 echo "PID=$! log=$LOG"
 ```
