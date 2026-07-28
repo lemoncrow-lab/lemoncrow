@@ -13,6 +13,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from pytest import MonkeyPatch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +128,44 @@ def test_clone_repo_reuses_local_mirror_without_network(tmp_path: Path, monkeypa
     # Cloned from the local mirror -> its origin remote is the cache path, not the URL.
     remote = subprocess.check_output(["git", "-C", str(ws), "remote", "get-url", "origin"]).decode().strip()
     assert remote == str(cache / "origin.git")
+
+
+def test_prepare_workspace_honors_gitignore_without_copying_its_destination(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".gitignore").write_text("ignored/\nreports/\n")
+    (repo / "tracked.txt").write_text("tracked\n")
+    (repo / "visible.txt").write_text("visible\n")
+    (repo / "ignored").mkdir()
+    (repo / "ignored" / "tracked.txt").write_text("forced\n")
+    (repo / "ignored" / "junk.bin").write_text("ignored\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "add", ".gitignore", "tracked.txt", "-f", "ignored/tracked.txt"],
+        check=True,
+    )
+    workspace = repo / "reports" / "benchmark" / "local" / "run" / "workspaces" / "local1_baseline_rep0"
+    task = TASKS.Task("local1", "generic", ("path", str(repo)), 1, "local1")
+
+    assert CODEBENCH.prepare_workspace(task, workspace) == workspace
+
+    assert (workspace / "tracked.txt").read_text() == "tracked\n"
+    assert (workspace / "visible.txt").read_text() == "visible\n"
+    assert (workspace / "ignored" / "tracked.txt").read_text() == "forced\n"
+    assert not (workspace / "ignored" / "junk.bin").exists()
+    assert not (workspace / "reports").exists()
+    assert not (workspace / ".git").exists()
+
+
+def test_prepare_workspace_rejects_descendant_for_non_git_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_text("content\n")
+    workspace = source / "nested" / "workspace"
+    task = TASKS.Task("local1", "generic", ("path", str(source)), 1, "local1")
+
+    with pytest.raises(ValueError, match="workspace must not be inside non-git source"):
+        CODEBENCH.prepare_workspace(task, workspace)
 
 
 def test_swe_entrypoint_fails_closed_on_mcp_preflight() -> None:

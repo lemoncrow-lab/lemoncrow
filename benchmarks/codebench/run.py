@@ -489,6 +489,38 @@ def _clone_repo(url: str, commit: str | None, ws: Path) -> None:
         subprocess.run(["git", "-C", str(ws), "checkout", "--quiet", commit], check=True, timeout=120, env=git_env)
 
 
+def _git_worktree_ignore(src: Path, ws: Path) -> Callable[[str, list[str]], list[str]] | None:
+    """Copy only tracked and non-ignored working-tree files.
+
+    The allowed path set is captured before ``copytree`` starts, so a workspace
+    below ``src`` can never become input to its own copy.
+    """
+    result = subprocess.run(
+        ["git", "-C", str(src), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    src_resolved = src.resolve()
+    ws_resolved = ws.resolve()
+    excluded_root = ws_resolved.relative_to(src_resolved) if ws_resolved.is_relative_to(src_resolved) else None
+    files = {Path(os.fsdecode(raw)) for raw in result.stdout.split(b"\0") if raw}
+    if excluded_root is not None:
+        files = {path for path in files if path != excluded_root and excluded_root not in path.parents}
+    directories = {parent for path in files for parent in path.parents if parent != Path(".")}
+
+    def ignore(directory: str, names: list[str]) -> list[str]:
+        relative_dir = Path(directory).resolve().relative_to(src_resolved)
+        return [
+            name for name in names if (relative_dir / name) not in files and (relative_dir / name) not in directories
+        ]
+
+    return ignore
+
+
 def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
     ws = workspace or Path(_mktemp(f"ws-{task.id}-"))
     if ws.exists() and any(ws.iterdir()):
@@ -501,8 +533,13 @@ def prepare_workspace(task: Task, workspace: Path | None = None) -> Path:
         src = Path(task.source[1])
         if not src.is_dir():
             raise FileNotFoundError(f"repo path missing for {task.id}: {src}")
+        ignore = _git_worktree_ignore(src, ws)
+        if ignore is None:
+            if ws.resolve().is_relative_to(src.resolve()):
+                raise ValueError(f"workspace must not be inside non-git source: {ws}")
+            ignore = shutil.ignore_patterns(".git")
         try:
-            shutil.copytree(src, ws, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+            shutil.copytree(src, ws, dirs_exist_ok=True, symlinks=True, ignore=ignore)
         except shutil.Error as exc:
             # copytree collects per-file errors (e.g. permission-denied on stray
             # root-owned artifacts from prior containerized runs) but still
