@@ -16,7 +16,7 @@ RUNNER_PROFILES: tuple[dict[str, Any], ...] = (
         "id": "codex",
         "label": "Codex CLI",
         "supports_model": True,
-        "model_placeholder": "gpt-5",
+        "model_placeholder": "gpt-5.6-sol",
         "options_help": "Extra `codex exec` flags appended before the generated swarm prompt.",
     },
     {

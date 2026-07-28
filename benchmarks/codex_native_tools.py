@@ -111,6 +111,26 @@ def codex_config_toml(persona: str, lemoncrow_bin: str, repo_root: Path | None =
     return "\n".join(lines)
 
 
+def codex_session_model(sessions_root: Path) -> str:
+    """Model id recorded in *sessions_root*'s rollouts, or ``""`` when absent.
+
+    ``codex exec --json`` never names the model on stdout, so a run started
+    without ``--model`` (Codex picking its own default) would otherwise be
+    priced at a guessed rate. The rollout's ``turn_context`` payload carries the
+    id Codex actually served, which is the one to price against.
+    """
+    for path in sorted(sessions_root.rglob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if '"model"' not in line:
+                continue
+            with contextlib.suppress(Exception):
+                payload = json.loads(line).get("payload", {})
+                model = str(payload.get("model") or "").strip()
+                if model:
+                    return model
+    return ""
+
+
 def codex_native_calls(sessions_root: Path) -> collections.Counter[str]:
     """Count native (non-LemonCrow) tool invocations in Codex session rollouts.
 

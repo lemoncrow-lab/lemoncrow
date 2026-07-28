@@ -6,22 +6,23 @@ description: "Cost benchmark."
 
 # LemonCrow benchmark
 
-Measures what LemonCrow actually saves on **your** repo and prompts — offline from session history (free) or online as a real A/B run vs vanilla Claude Code (real API spend). Does **not** benchmark LemonCrow internals — dev suite commands at the bottom for that.
+Measures what LemonCrow actually saves on **your** repo and prompts — offline from session history (free) or online as a real A/B run against the host you are in, vanilla vs LemonCrow (real API spend). Does **not** benchmark LemonCrow internals — dev suite commands at the bottom for that.
 
 Three modes:
 
 | Mode                                   | What it measures                                                            | Cost                             |
 | -------------------------------------- | --------------------------------------------------------------------------- | -------------------------------- |
-| **Offline** (`lc eval sessions`)  | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
+| **Offline** (`lc eval fitness`)   | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
 | **Online** (`lc benchmark local`) | Side-by-side A/B cost + quality delta on YOUR prompts                       | Real API spend                   |
-| **Competitor** (`--competitor`)   | 3-way: baseline vs LemonCrow vs **any GitHub tool** you point it at, on YOUR prompts | Real API spend                   |
+| **Competitor** (`--competitor`)   | 3-way: baseline vs LemonCrow vs **any GitHub tool** you point it at, on YOUR prompts | Real API spend (Claude Code host only) |
 
 ---
 
 ## Offline mode — session history analysis
 
-Reads Claude Code session files from `~/.claude/projects/`, extracts every
-`mcp__lc__grep`, `mcp__lc__code_search`, and `ToolSearch` call, groups
+Reads Claude Code session files from `~/.claude/projects/` **and Codex rollouts from
+`~/.codex/sessions/`** (both are scanned on every run, whatever host you are in),
+extracts every `mcp__lc__grep`, `mcp__lc__code_search`, and `ToolSearch` call, groups
 them into "search episodes" between prompts, shows:
 
 - Individual `grep` calls per episode
@@ -32,36 +33,46 @@ them into "search episodes" between prompts, shows:
 
 ```bash
 # Analyze your LemonCrow sessions and show savings
-uv run lemoncrow eval sessions --repo-filter lemoncrow
+uv run lemoncrow eval fitness --repo-filter lemoncrow
 
-# Also run the retrieval benchmark on mined grep patterns
-uv run lemoncrow eval sessions --repo-filter lemoncrow --run-eval --channel lexical
+# Mine only, skip the retrieval benchmark
+uv run lemoncrow eval fitness --repo-filter lemoncrow --no-eval
 
-# Analyze all session files (no filter)
-uv run lemoncrow eval sessions --run-eval --channel cg --full
+# Analyze all session files (no filter), CodeGraph channel, no sampling
+uv run lemoncrow eval fitness --channel cg --full
+```
 ```
 
 ---
 
-## Online mode — side-by-side A/B (BYO repo, vs vanilla Claude Code)
+## Online mode — side-by-side A/B (BYO repo, vanilla host vs LemonCrow)
 
 Side-by-side A/B: LemonCrow vs a no-LemonCrow baseline on the user's **own
-repository** with the user's **own coding prompts** — same model and driver
-both arms, so the delta is attributable to LemonCrow (tools, agents, routing),
-not noise.
+repository** with the user's **own coding prompts** — **same host CLI, same
+model on both arms**, so the delta is attributable to LemonCrow (tools, agents,
+routing), not noise.
 
 **`/benchmark <anything>` always runs a command — never just an explanation.** The argument is
 the prompt to run through step 2, no matter how it's phrased — a task ("refactor X"), a
 question ("how do you compute token savings"), or a meta-question about LemonCrow itself ("is
 this worth it"). Do **not** answer it yourself by reading source/docs and replying in prose;
-that is never a substitute for actually invoking `lc eval sessions` or
+that is never a substitute for actually invoking `lc eval fitness` or
 `lc benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
 skill") say so and point at this file — don't silently swap in a free-form explanation.
 
 ### 1. Gather inputs
 
 - **Repo**: always the current working directory. Never ask.
-- **Model**: inherit from the current session model. Never ask.
+- **Host / driver**: whichever CLI you are running inside — never ask, infer it.
+  - Claude Code → omit `--cli-driver` (default `claude`): vanilla Claude Code vs Claude Code + LemonCrow.
+  - **Codex → `--cli-driver codex`**: baseline is Codex on its own native tools; the LemonCrow arm is the
+    same `codex exec` with the `lc` MCP toolset + role persona substituted for those natives. Both arms run
+    under a private `$CODEX_HOME` seeded only with your `~/.codex/auth.json`, so ambient config /
+    `AGENTS.md` cannot leak into either side.
+- **Model**: omit `--model` — the runner picks the driver's own default (`sonnet` for Claude Code; for
+  Codex, the model pinned in `~/.codex/config.toml`, else Codex's default, priced from the id its
+  rollout records). Pass one only if the user names it, and only an id that driver's vendor serves;
+  a Claude id under `--cli-driver codex` is rejected before any spend.
 - **Setup**: omit `--setup` entirely. The benchmark runner handles workspace setup.
 - **Prompts**: `/benchmark <prompt>` — the text after `/benchmark` IS the prompt, verbatim, even
   if it reads like a question. Non-empty argument → use it as prompt 1 (split additional
@@ -74,11 +85,14 @@ skill") say so and point at this file — don't silently swap in a free-form exp
 **Always run in two phases — never pass the CLI's interactive confirmation prompt
 through to the terminal (the Stop hook will intercept it).**
 
+`[--cli-driver codex]` below means: include it when running under Codex, drop it under Claude Code.
+
 **Phase A — estimate only:**
 
 ```bash
 uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
+  [--cli-driver codex] \
   --estimate-only
 ```
 
@@ -96,6 +110,7 @@ Run as a background job so it doesn't hit the bash tool's 30-minute timeout:
 LOG="/tmp/lemoncrow-bench-$$.log"
 nohup uv run lemoncrow benchmark local --repo . \
   --prompt "<prompt 1>" [--prompt "<prompt 2>" ...] \
+  [--cli-driver codex] \
   -y > "$LOG" 2>&1 &
 echo "PID=$! log=$LOG"
 ```
@@ -108,9 +123,10 @@ After launching:
 4. Poll the log every ~2 min (`tail -20 <log>`), report progress until the run finishes or the user asks to stop.
 
 Each prompt runs **both arms** (vanilla baseline + LemonCrow) → real spend ≈
-`prompts × 2 × reps` runs. Repo copied per run, never mutated. Spend uses
-**provider API credentials** (e.g. `ANTHROPIC_API_KEY`, or a `--provider`
-preset), not a Claude subscription.
+`prompts × 2 × reps` runs. Repo copied per run, never mutated. Spend uses the
+driver's own credentials — **provider API keys** (e.g. `ANTHROPIC_API_KEY`, or a
+`--provider` preset) for the Claude driver, your **Codex login** (`~/.codex/auth.json`)
+for `--cli-driver codex`.
 
 ### 3. Relay + interpret
 
@@ -132,6 +148,10 @@ price. Use it to answer "is LemonCrow actually cheaper than X on my repo?".
 
 Triggered whenever the argument names a GitHub repo/URL to compare against
 ("vs `<repo>`", "is `<repo>` better than lemoncrow", "benchmark against `<repo>`").
+
+**Claude Code host only** — a competitor arm is wired through Claude Code's `--mcp-config` /
+`--plugin-dir` / `--append-system-prompt` / `--agent`. Combining `--competitor` with
+`--cli-driver codex` is rejected up front; under Codex, run the 2-arm Online mode instead.
 
 ### 1. Learn the tool from its repo
 
@@ -239,8 +259,13 @@ uv run lemoncrow eval retrieval --channel semantic
 
 - Wire capture **OFF by default** (no mitmproxy or CA-cert setup); cost comes
   from CLI receipts. `--capture` = opt into mitmproxy wire-level verification.
-- Both arms share the same model and `--cli-driver` (default `claude`); the
-  only A/B difference = LemonCrow's toolset and agents.
+- Both arms share the same model and `--cli-driver` (default `claude`, `codex` when
+  running under Codex); the only A/B difference = LemonCrow's toolset and agents.
+- Under `--cli-driver codex` the LemonCrow arm also switches Codex's native tools off
+  (`shell`, `unified_exec`, browser/computer/image/goals/apps/plugins/skills, web search)
+  so the model is offered LemonCrow's toolset instead of both. The three natives Codex
+  0.145.0 cannot disable (`apply_patch`, `update_plan`, `view_image`) are checked after
+  the run — any use marks that run contaminated in the report.
 - **Internal/dev** benchmarking of LemonCrow itself → the suite commands:
   `lc benchmark {codebench,lemoncrowbench,mcp,providers}`.
 - Where savings came from on **recent sessions** (not a fresh run) → `/savings`
