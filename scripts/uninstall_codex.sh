@@ -148,6 +148,47 @@ print(removed)
     info "Removed LemonCrow plugin config from $CODEX_CONFIG"
 fi
 
+# Restore the Codex natives the installer disabled. Only lines carrying the
+# installer's marker are removed, so a value the user set themselves survives.
+CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
+if [ -f "$CODEX_CONFIG" ] && grep -qF "$CODEX_TOOL_MARKER" "$CODEX_CONFIG" 2>/dev/null; then
+    if $DRY_RUN; then
+        echo "  [dry-run] restore Codex native tools in $CODEX_CONFIG"
+    else
+        CODEX_CONFIG_PATH="$CODEX_CONFIG" CODEX_TOOL_MARKER="$CODEX_TOOL_MARKER" python3 - <<'PYEOF'
+import os
+import re
+from pathlib import Path
+
+path = Path(os.environ["CODEX_CONFIG_PATH"])
+marker = os.environ["CODEX_TOOL_MARKER"]
+restore_prefix = f"{marker}:restore "
+# A parked line is the value the user had set before install -- put it back.
+# Everything else the installer tagged is ours alone, so it just goes away.
+lines = []
+for line in path.read_text(encoding="utf-8").splitlines():
+    if line.startswith(restore_prefix):
+        lines.append(line[len(restore_prefix) :])
+    elif marker not in line:
+        lines.append(line)
+kept = []
+for i, line in enumerate(lines):
+    if line.strip() in ("[features]", "[tools]"):
+        rest = (l for l in lines[i + 1 :] if l.strip())
+        following = next(rest, "")
+        if not following or following.lstrip().startswith("["):
+            continue
+    kept.append(line)
+text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+if text:
+    path.write_text(text + "\n", encoding="utf-8")
+else:
+    path.unlink()
+PYEOF
+    fi
+    info "Restored Codex native tools in $CODEX_CONFIG"
+fi
+
 for staging_dir in "${STAGING_DIRS[@]}"; do
     if [ -d "$staging_dir" ]; then
         run "rm -rf $(printf %q "$staging_dir")"

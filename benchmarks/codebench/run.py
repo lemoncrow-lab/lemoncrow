@@ -72,6 +72,11 @@ from lemoncrow.core.capabilities.pricing import usage_cost_breakdown_usd, usage_
 from benchmarks.codebench import competitor as competitor_mod
 from benchmarks.codebench import local as local_mode
 from benchmarks.codebench.tasks import BY_ID, TASKS, Task
+from benchmarks.codex_native_tools import (
+    CODEX_CONFIG_OVERRIDES,
+    codex_native_calls,
+    codex_persona_instructions,
+)
 from benchmarks.flowlib.report import aggregate, flow_records
 from benchmarks.flowlib.usage_parser import extract_usage
 
@@ -322,6 +327,28 @@ def _wait_port(port: int, timeout: float = 15.0) -> bool:
 
 def _trust_entry(existing: dict[str, Any] | None = None) -> dict[str, Any]:
     return {**(existing or {}), "hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True}
+
+
+# Codex-native tool substitution lives in benchmarks/codex_native_tools.py so the
+# codebench driver and the Harbor arms cannot drift apart. Three natives survive
+# there (`apply_patch`, `update_plan`, `view_image` have no off switch on
+# 0.145.0), which is why every run is checked afterwards with codex_native_calls.
+
+
+def _make_codex_home(dest: Path) -> Path:
+    """Isolated CODEX_HOME: real auth, none of the host's Codex state.
+
+    Codex resolves config.toml, AGENTS.md, installed plugins and MCP servers out
+    of ``$CODEX_HOME``. Pointed at the developer's own ``~/.codex`` both arms
+    would inherit whatever is installed there (LemonCrow included), so the A/B
+    would measure nothing. Only ``auth.json`` is carried across.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    src_auth = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
+    dst_auth = dest / "auth.json"
+    if src_auth.exists() and not dst_auth.exists():
+        shutil.copy2(src_auth, dst_auth)
+    return dest
 
 
 def _make_baseline_config(
@@ -1579,7 +1606,11 @@ def run_arm(
         ws = prepare_workspace(task, workspace_path)
         persistent_workspace = True
     elif cli_driver == "codex":
-        ws = prepare_workspace(task)
+        # Persistent so the clone + pre-built lc index survive across reps, and
+        # so the workspace name carries the arm (the cg_* setup_cmds gate their
+        # pre-index on a ``*_lemoncrow_rep*`` path).
+        ws = prepare_workspace(task, out_dir / "workspaces" / f"{task.id}_{arm}_rep{rep}")
+        persistent_workspace = True
     elif cli_driver == "cursor":
         # Persistent so `cursor-agent mcp enable` (per-workspace approval) and
         # the pre-built lc index survive across reps.
@@ -1712,11 +1743,51 @@ def run_arm(
                 cmd += ["--model", model]
             cmd += list(cli_extra_args)
         elif cli_driver == "codex":
+            # Codex CLI arm: codex-native (baseline) vs codex + LemonCrow.
+            # Both arms run under a private CODEX_HOME seeded only with the
+            # host's auth, so ambient plugins/AGENTS.md/config on the developer
+            # machine cannot leak into either side; the A/B difference is only
+            # what the lemoncrow arm adds below.
+            spec = ARM_SPECS[arm]
+            lemoncrow_arm = spec.plugin or not spec.strip_mcp
+            # Per task/arm/rep: the leak check below reads this CODEX_HOME's
+            # session rollouts, so a home shared across tasks would pin one
+            # task's native call on every other run in the same arm.
+            codex_home = _make_codex_home(out_dir / "codex-homes" / f"{task.id}_{arm}_rep{rep}")
+            env["CODEX_HOME"] = str(codex_home)
             # Codex non-interactive execution arm.
             # Using -- as a separator is safer for passing the prompt.
-            cmd = ["codex", "exec", "--json"]
+            # Both arms: non-interactive exec auto-DENIES every approval prompt,
+            # which silently starves MCP tool calls ("user cancelled MCP tool
+            # call") and sandboxes shell writes -- the arm would score 0 turns
+            # for reasons that have nothing to do with the toolset. The
+            # workspace is a throwaway clone, so bypassing is safe here.
+            cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
             if model:
                 cmd += ["--model", model]
+            agents_md = ws / "AGENTS.md"
+            if lemoncrow_arm:
+                # Register the lc MCP server, carry the arm's role persona as
+                # developer_instructions, and strip every native Codex tool that
+                # can be stripped -- so the only toolset on offer is LemonCrow's.
+                persona = spec.persona_by_capability.get(task.capability) or "lemoncrow:auto"
+                cmd += [
+                    "-c",
+                    "mcp_servers.lc.command=lemoncrow",
+                    "-c",
+                    'mcp_servers.lc.args=["mcp","--host","codex"]',
+                    "-c",
+                    f"developer_instructions={json.dumps(codex_persona_instructions(persona))}",
+                ]
+                env["LEMONCROW_WORKSPACE_ROOT"] = str(ws)
+                cmd += [arg for key, value in CODEX_CONFIG_OVERRIDES for arg in ("-c", f"{key}={value}")]
+                if agents_md.exists():
+                    # The persona rides in developer_instructions; a stale
+                    # AGENTS.md from an earlier run would double it up.
+                    agents_md.unlink()
+            elif agents_md.exists():
+                # Baseline: no LemonCrow persona, even on a reused workspace.
+                agents_md.unlink()
             # codex needs to run in the workspace.
             cmd += ["-C", str(ws), "--", task.prompt()]
             cmd += list(cli_extra_args)
@@ -1805,6 +1876,14 @@ def run_arm(
             return _apply_result_validity(task, res)
         wall_duration_ms = int((time.time() - started) * 1000)
         res = _parse_cli_result(proc.stdout, flow_path, task.id, arm, rep, cli_driver, wall_duration_ms)
+        if cli_driver == "codex" and ARM_SPECS[arm].plugin:
+            # Proof, not assumption: the three natives Codex 0.145.0 will not let
+            # us switch off must go UNUSED for "LemonCrow only" to be true.
+            leaked = dict(codex_native_calls(codex_home))
+            if leaked:
+                print(f"  [contaminated:{task.id}/{arm}] native tool calls leaked: {leaked}", flush=True)
+                res.validity_reason = f"native codex tools used: {leaked}"
+                res.valid = False
         if not res.ok and proc.stderr.strip():
             diagnostics = proc.stderr.strip()
             if res.result_excerpt:

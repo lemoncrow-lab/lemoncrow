@@ -10,6 +10,7 @@
 #   --print-only     Print manual install steps, touch nothing
 #   --workspace DIR  Install project-local artifacts into DIR
 #   --strict         Exit nonzero if 'codex' CLI is not on PATH
+#   --keep-native-tools  Do not disable the Codex natives LemonCrow's tools replace
 
 set -euo pipefail
 
@@ -39,12 +40,14 @@ MARKETPLACE_NAME="lemoncrow-local"
 PLUGIN_ID="lemoncrow@lemoncrow-local"
 ROLES="code"            # comma-separated role ids to install (--roles=code,explore,...)
 INCLUDE_SKILLS=""       # comma-separated public skill names to ship (--include-skills=benchmark,...)
+KEEP_NATIVE_TOOLS=false # --keep-native-tools: leave Codex's duplicated natives enabled
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)    DRY_RUN=true ;;
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
+        --keep-native-tools) KEEP_NATIVE_TOOLS=true ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -398,6 +401,137 @@ if text != original:
 PYEOF
 }
 
+# Codex has no "substitute my toolset" switch: MCP tools are purely additive, so
+# without this the model is offered BOTH Codex's natives and the LemonCrow tools
+# that duplicate them, and picks whichever it likes -- measured on 0.145.0 that
+# meant 65 native `exec` calls alongside 74 LemonCrow calls on the same 7 tasks.
+# Every key below was verified against the real request prefix (the tool catalog
+# Codex ships inside its code-mode `exec` tool): with them set, the native
+# catalog drops from ~32KB to ~12KB and no shell/web/browser tool is offered.
+# Limits worth knowing, none of them fixable from config on 0.145.0:
+#   * `apply_patch`, `update_plan`, `view_image` have no off switch and stay.
+#   * Codex's own ~7.7KB system prompt cannot be replaced, only appended to.
+#   * `plugins`/`skill_search` stay ON -- LemonCrow itself ships as a Codex
+#     plugin, and disabling them would unload our own MCP server and skills.
+# Turning `unified_exec` off leaves the session with NO native shell: if
+# LemonCrow ever goes dormant, AGENTS.md's "fall back to your native tools"
+# escape hatch has nothing to fall back to. Run with --keep-native-tools if you
+# would rather keep that fallback than the savings.
+# Each key is tagged so uninstall_codex.sh removes exactly what we set.
+CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
+CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
+write_codex_tool_config() {
+    if $KEEP_NATIVE_TOOLS; then
+        info "--keep-native-tools: leaving Codex native tools enabled"
+        return
+    fi
+    if $DRY_RUN; then
+        echo "  [dry-run] disable Codex natives replaced by LemonCrow tools in ${CODEX_CONFIG}"
+        return
+    fi
+    backup_file "$CODEX_CONFIG"
+    mkdir -p "$(dirname "$CODEX_CONFIG")"
+    CODEX_CONFIG_PATH="$CODEX_CONFIG" CODEX_TOOL_MARKER="$CODEX_TOOL_MARKER" python3 - <<'PYEOF'
+import os
+import re
+from pathlib import Path
+
+path = Path(os.environ["CODEX_CONFIG_PATH"])
+marker = os.environ["CODEX_TOOL_MARKER"]
+# table -> key -> (value, why-it-is-safe-to-drop); "" = top-level key
+DESIRED = {
+    "features": {
+        "shell_tool": ("false", "lc.bash replaces it"),
+        "unified_exec": ("false", "the other half of native exec; lc.bash replaces it"),
+        "multi_agent": ("false", "LemonCrow role agents replace the spawn_agent family"),
+        "browser_use": ("false", "not part of the LemonCrow tool loop"),
+        "computer_use": ("false", "not part of the LemonCrow tool loop"),
+        "in_app_browser": ("false", "not part of the LemonCrow tool loop"),
+        "image_generation": ("false", "not part of the LemonCrow tool loop"),
+        "goals": ("false", "LemonCrow tracks task state itself"),
+    },
+    "": {
+        "web_search": ('"disabled"', "lc.web_fetch replaces it"),
+    },
+}
+
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+changed = False
+
+
+def header_index(table):
+    pat = re.compile(rf"^\s*\[{re.escape(table)}\]\s*$")
+    return next((i for i, line in enumerate(lines) if pat.match(line)), None)
+
+
+def section_end(start):
+    return next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
+
+
+def replace_line(index, rendered):
+    """Overwrite lines[index], parking the value the user had set above it.
+
+    Without the parked copy, uninstall could only delete our line -- silently
+    discarding an explicit setting the user made before installing LemonCrow.
+    """
+    if lines[index] == rendered:
+        return False
+    if marker not in lines[index]:
+        lines.insert(index, f"{marker}:restore {lines[index]}")
+        index += 1
+    lines[index] = rendered
+    return True
+
+
+def first_header_index():
+    return next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+
+
+for table, keys in DESIRED.items():
+    for key, (value, why) in keys.items():
+        rendered = f"{key} = {value}  {marker}: {why}"
+        if not table:
+            # Top-level key: it must sit above the first [table] header, or TOML
+            # reads it as a member of whatever table happens to be open there.
+            kpat = re.compile(rf"^\s*{re.escape(key)}\s*=")
+            top = first_header_index()
+            hit = next((i for i in range(top) if kpat.match(lines[i])), None)
+            if hit is None:
+                lines.insert(top, rendered)
+                changed = True
+            else:
+                changed = replace_line(hit, rendered) or changed
+            continue
+        idx = header_index(table)
+        if idx is None:
+            # No [table] header. A dotted top-level key (features.shell_tool = x)
+            # is the other legal spelling -- rewrite it in place rather than
+            # declaring the same table twice, which is a TOML error.
+            dotted = re.compile(rf"^\s*{re.escape(table)}\.{re.escape(key)}\s*=")
+            hit = next((i for i, line in enumerate(lines) if dotted.match(line)), None)
+            if hit is not None:
+                changed = replace_line(hit, f"{table}.{rendered}") or changed
+                continue
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += ([""] if lines else []) + [f"[{table}]", rendered]
+            changed = True
+            continue
+        end = section_end(idx)
+        kpat = re.compile(rf"^\s*{re.escape(key)}\s*=")
+        hit = next((i for i in range(idx + 1, end) if kpat.match(lines[i])), None)
+        if hit is None:
+            while end - 1 > idx and not lines[end - 1].strip():
+                end -= 1
+            lines.insert(end, rendered)
+            changed = True
+        else:
+            changed = replace_line(hit, rendered) or changed
+if changed:
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    print(f"[lemoncrow:codex] disabled Codex natives replaced by LemonCrow tools in {path}")
+PYEOF
+}
 write_marketplace() {
     if $DRY_RUN; then
         echo "  [dry-run] register LemonCrow in ${CODEX_MARKETPLACE} with INSTALLED_BY_DEFAULT"
@@ -561,7 +695,8 @@ patch_plugin_mcp
 write_marketplace
 install_codex_plugin
 merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
-
+merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
+write_codex_tool_config
 
 TASKS_SRC_DIR="${LEMONCROW_REPO}/integrations/codex/tasks"
 if $WORKSPACE_SET && [ -d "$TASKS_SRC_DIR" ]; then
@@ -642,6 +777,15 @@ done
 [ "${#MISSING_AGENTS[@]}" -eq 0 ] && vpass "all seven standalone Codex agents installed: ${AGENTS_DIR}" || vfail "missing or invalid Codex agents: ${MISSING_AGENTS[*]}"
 
 if grep -q '^\[agents\.lemoncrow_' "$CODEX_CONFIG" 2>/dev/null; then vfail "obsolete per-agent registration blocks remain in $CODEX_CONFIG"; else vpass "Codex agents use the current standalone-file discovery format"; fi
+if $KEEP_NATIVE_TOOLS; then
+    vpass "--keep-native-tools: Codex natives left enabled by request"
+else
+    MISSING_TOOL_KEYS=()
+    for tool_key in shell_tool unified_exec multi_agent browser_use computer_use in_app_browser image_generation goals web_search; do
+        grep -qE "^(features\.)?${tool_key} = (false|\"disabled\")  ${CODEX_TOOL_MARKER}" "$CODEX_CONFIG" 2>/dev/null || MISSING_TOOL_KEYS+=("$tool_key")
+    done
+    [ "${#MISSING_TOOL_KEYS[@]}" -eq 0 ] && vpass "Codex natives replaced by LemonCrow tools are disabled in $CODEX_CONFIG" || vfail "native-tool substitution missing in $CODEX_CONFIG: ${MISSING_TOOL_KEYS[*]}"
+fi
 if $WORKSPACE_SET; then [ -d "$TASKS_DEST_DIR" ] && [ -f "$TASKS_DEST_DIR/preflight.md" ] && vpass "Codex task templates installed" || vfail "Codex task templates missing"; fi
 command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1 && vpass "lemoncrow status command is available" || vfail "lemoncrow status command unavailable"
 
