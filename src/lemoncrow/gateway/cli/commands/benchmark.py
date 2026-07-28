@@ -673,7 +673,7 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
     multiple=True,
     default=("baseline", "lemoncrow"),
     show_default=True,
-    type=click.Choice(["baseline", "lemoncrow"]),
+    type=click.Choice(["baseline", "lemoncrow", "auto"]),
 )
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option("--model", default="sonnet", show_default=True)
