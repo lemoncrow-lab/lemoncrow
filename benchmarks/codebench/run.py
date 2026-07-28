@@ -55,6 +55,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import tomllib
 import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -76,6 +77,7 @@ from benchmarks.codex_native_tools import (
     CODEX_CONFIG_OVERRIDES,
     codex_native_calls,
     codex_persona_instructions,
+    codex_session_model,
 )
 from benchmarks.flowlib.report import aggregate, flow_records
 from benchmarks.flowlib.usage_parser import extract_usage
@@ -158,6 +160,11 @@ CLI_DRIVERS = ("claude", "lemoncrow-run", "codex", "cursor")
 # composer-2.5, cursor-grok-*). Anything else -> omit --model so cursor-agent
 # runs its server-chosen "auto" model (the only option without a paid plan).
 _CURSOR_MODEL_PREFIXES = ("claude-", "gpt-", "composer", "cursor-grok")
+_CLAUDE_MODEL_HINTS = ("sonnet", "opus", "haiku", "claude")
+# Only for pricing an estimate before the run: what a Codex arm most likely
+# lands on when nobody pinned a model. The realised cost is always re-priced
+# from the model the rollout records (see codex_session_model).
+_CODEX_MODEL_FALLBACK = "gpt-5.6-sol"
 
 
 def _cursor_model(model: str) -> str | None:
@@ -165,6 +172,28 @@ def _cursor_model(model: str) -> str | None:
     if m.startswith(_CURSOR_MODEL_PREFIXES):
         return m
     return None
+
+
+def _codex_host_model() -> str:
+    """``model`` pinned in the developer's own ``$CODEX_HOME/config.toml``, if any."""
+    config = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+    with contextlib.suppress(Exception):
+        return str(tomllib.loads(config.read_text(encoding="utf-8")).get("model") or "").strip()
+    return ""
+
+
+def _codex_model(model: str) -> str:
+    """Model a Codex arm should run; ``""`` means "let Codex pick its default".
+
+    codebench's default model is a Claude shorthand, and a ChatGPT-account Codex
+    rejects every Claude id outright (HTTP 400, zero turns). So a Claude-looking
+    value means "nobody chose a Codex model": fall back to whatever the developer
+    pinned in their own Codex config, else to Codex's own default.
+    """
+    m = (model or "").strip()
+    if m and not any(hint in m.lower() for hint in _CLAUDE_MODEL_HINTS):
+        return m
+    return _codex_host_model()
 
 
 # Arms that drive many model + tool round-trips and so dominate wall time.
@@ -1876,6 +1905,20 @@ def run_arm(
             return _apply_result_validity(task, res)
         wall_duration_ms = int((time.time() - started) * 1000)
         res = _parse_cli_result(proc.stdout, flow_path, task.id, arm, rep, cli_driver, wall_duration_ms)
+        if cli_driver == "codex" and not res.models:
+            # `codex exec --json` never echoes the model, so price the run at the
+            # id its own rollout recorded rather than at a Claude fallback rate.
+            served = codex_session_model(codex_home)
+            if served:
+                res.models = [served]
+                with contextlib.suppress(Exception):
+                    res.cost_usd = usage_cost_usd(
+                        served,
+                        input_tokens=res.input_tokens,
+                        output_tokens=res.output_tokens,
+                        cache_read_tokens=res.cache_read_tokens,
+                        cache_write_tokens=res.cache_creation_tokens,
+                    )
         if cli_driver == "codex" and ARM_SPECS[arm].plugin:
             # Proof, not assumption: the three natives Codex 0.145.0 will not let
             # us switch off must go UNUSED for "LemonCrow only" to be true.
@@ -3608,7 +3651,15 @@ def main() -> int:
     # BYO-competitor arms: load manifests (cheap, no clone) and add their names to
     # the arm list so the cost estimate below counts them. The actual clone+install
     # is deferred until we know we are really spending (past --estimate-only).
+    if args.cli_driver == "codex":
+        args.model = _codex_model(args.model)
     competitor_specs = [competitor_mod.load_competitor_spec(path) for path in args.competitor]
+    if competitor_specs and args.cli_driver != "claude":
+        # A competitor arm is wired through Claude Code only (--mcp-config,
+        # --plugin-dir, --append-system-prompt, --agent). Under any other driver
+        # its wiring is dropped and the arm would run as a second baseline --
+        # a silently meaningless comparison, so refuse it instead.
+        p.error(f"--competitor requires --cli-driver claude (got {args.cli_driver})")
     for spec in competitor_specs:
         if spec.name not in args.arms:
             args.arms = [*args.arms, spec.name]
@@ -3693,7 +3744,7 @@ def main() -> int:
             n_prompts=len(args.prompt),
             arms=len(args.arms),
             reps=args.reps,
-            model=args.model,
+            model=((args.model or _CODEX_MODEL_FALLBACK) if args.cli_driver == "codex" else args.model),
             max_turns=args.max_turns,
         )
         print("", flush=True)
@@ -3766,14 +3817,18 @@ def main() -> int:
     unknown_arms = [arm for arm in args.arms if arm not in VALID_ARMS]
     if unknown_arms:
         p.error(f"unknown arm(s): {', '.join(unknown_arms)}")
-    if args.cli_driver == "claude" and any(ARM_SPECS[arm].plugin for arm in args.arms):
+    # Both hosts reach LemonCrow through the same `lemoncrow mcp --host <host>`
+    # stdio server, so a missing binary or a server that cannot start is the same
+    # failure on either -- catch it here rather than after paying for workspace
+    # copies, index builds and half a run's tokens.
+    if args.cli_driver in {"claude", "codex"} and any(ARM_SPECS[arm].plugin for arm in args.arms):
         executable = shutil.which("lemoncrow")
         if executable is None:
             print("LemonCrow MCP preflight failed: lemoncrow executable not found on PATH", flush=True)
             return 1
         preflight_env = {**os.environ, **agent_env, "LEMONCROW_WORKSPACE_ROOT": str(Path(args.repo).resolve())}
         preflight = subprocess.run(
-            [executable, "mcp", "--host", "claude", "check"],
+            [executable, "mcp", "--host", args.cli_driver, "check"],
             capture_output=True,
             text=True,
             env=preflight_env,

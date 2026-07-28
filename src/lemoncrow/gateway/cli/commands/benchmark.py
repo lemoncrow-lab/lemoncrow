@@ -195,6 +195,26 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "openrouter": "openrouter-claude",
 }
 
+# Each CLI driver only resolves its own vendor's model ids: `codex exec --model
+# sonnet` is not a Claude shorthand Codex understands, it is an unknown OpenAI
+# model that a ChatGPT-account Codex rejects with HTTP 400 -- after the workspace
+# copy and the LemonCrow index build were already paid for. So refuse a Claude id
+# under the codex driver before anything is spent, and leave codex's own default
+# to the runner (it reads $CODEX_HOME/config.toml, else lets Codex choose).
+_CLAUDE_MODEL_HINTS = ("sonnet", "opus", "haiku", "claude")
+
+
+def _resolve_driver_model(cli_driver: str, model: str | None) -> str:
+    """Model to run for *cli_driver*; ``""`` = let the runner pick the driver's own."""
+    if not model:
+        return "" if cli_driver == "codex" else "sonnet"
+    if cli_driver == "codex" and any(hint in model.lower() for hint in _CLAUDE_MODEL_HINTS):
+        raise click.ClickException(
+            f"--cli-driver codex cannot run Claude model {model!r}; pass an OpenAI/Codex "
+            "id (e.g. gpt-5.6-sol) or omit --model."
+        )
+    return model
+
 
 @click.group("benchmark")
 def benchmark_group() -> None:
@@ -1009,7 +1029,15 @@ def benchmark_codebench_cmd(
     metavar="TEXT",
     help="A real coding prompt to run on the repo; repeat for up to 10.",
 )
-@click.option("--model", default="sonnet", show_default=True)
+@click.option(
+    "--model",
+    default=None,
+    help=(
+        "Model id for the chosen --cli-driver. Default: 'sonnet' for the "
+        "Claude-family drivers; for --cli-driver codex, the model pinned in "
+        "your ~/.codex/config.toml, else Codex's own default."
+    ),
+)
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option("--max-turns", type=int, default=50, show_default=True, help="Turn cap per run.")
 @click.option(
@@ -1025,7 +1053,10 @@ def benchmark_codebench_cmd(
     type=click.Choice(["claude", "copilot", "codex", "opencode", "lemoncrow-run"]),
     default="claude",
     show_default=True,
-    help="CLI host to benchmark.",
+    help=(
+        "CLI host to benchmark; BOTH arms run it. codex = codex-native baseline "
+        "vs codex driven by LemonCrow's MCP toolset + persona."
+    ),
 )
 @click.option(
     "--setup",
@@ -1069,7 +1100,7 @@ def benchmark_codebench_cmd(
 def benchmark_local_cmd(
     repo: Path,
     prompts: tuple[str, ...],
-    model: str,
+    model: str | None,
     reps: int,
     max_turns: int,
     arms: tuple[str, ...],
@@ -1087,7 +1118,12 @@ def benchmark_local_cmd(
     cost / turn / time deltas. Prints an up-front cost estimate and asks to
     confirm before spending. Uses provider API credentials, not a Claude
     subscription.
+
+    ``--cli-driver`` picks the host both arms run: ``claude`` (vanilla Claude
+    Code vs Claude Code + LemonCrow) or ``codex`` (codex-native vs codex with
+    LemonCrow's MCP toolset + persona substituted for Codex's own tools).
     """
+    model = _resolve_driver_model(cli_driver, model)
     repo_abs = repo.expanduser().resolve()
     if not repo_abs.is_dir():
         raise click.ClickException(f"--repo is not a directory: {repo_abs}")
@@ -1130,8 +1166,6 @@ def benchmark_local_cmd(
             *arms,
             "--reps",
             str(reps),
-            "--model",
-            model,
             "--max-turns",
             str(max_turns),
             "--cli-driver",
@@ -1139,6 +1173,8 @@ def benchmark_local_cmd(
             "--out",
             str(run_dir),
         ]
+        if model:
+            cmd.extend(["--model", model])
         for prompt in prompts:
             cmd.extend(["--prompt", prompt])
         for cmd_str in setup:

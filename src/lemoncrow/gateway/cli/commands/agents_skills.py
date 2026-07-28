@@ -290,6 +290,13 @@ def _apply_skill_name_set(host: str, workspace: Path | None, names: tuple[str, .
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as exc:
         raise click.ClickException(f"build_host_skills.sh failed with exit code {exc.returncode}") from exc
+    # The builder only ever copies, so a name dropped from *names* would survive
+    # on disk -- still loaded by the host, and still counted as installed, which
+    # also turns a later install (the way to refresh it) into a no-op. Prune what
+    # the requested set no longer contains; public skills only, never the role
+    # skills or the default `lemoncrow` one that ship with every bundle.
+    for stale in set(PUBLIC_SKILL_NAMES) - set(names):
+        shutil.rmtree(dest / stale, ignore_errors=True)
 
 
 def reapply_installed_agents(repo_root: Path | None = None) -> int:
