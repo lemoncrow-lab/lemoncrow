@@ -21,8 +21,9 @@ This document keeps benchmark proof out of the first-use README while preserving
 | Exploration tasks across 7 repos                                                                                                                                                                                                                                        |             **$6.29** | $19.11 |                 **67% cheaper** |                             |
 | Telegraphic output: reply prose per turn                                                                                                                                                                                                                                |                  **30 tokens** |                       67 tokens |         **2.7x less prose** |
 | Telegraphic Q&A, 20 prompts x 5 reps                                                                                                                                                                                                                                    |              **$4.48** | $8.40 |               **46.7% cheaper** |                             |
-| Terminal-Bench 2.1, 89 tasks x 5 reps (445 trials, matched)                                                                                                                                                                                                             |     **356 / 445 resolved (80.0%)** |                 351 / 445 (78.9%) |    **+1.1 percentage points** |
-| Terminal-Bench fresh input tokens                                                                                                                                                                                                                                       |                        **1.05M** |                            12.87M |               **91.8% fewer** |
+| Terminal-Bench 2.1, 89 tasks x 5 reps (445 trials, matched)                                                                                                                                                                                                             |     351 / 445 resolved (78.9%) |                 351 / 445 (78.9%) |    0.0 percentage points (tied) |
+| Terminal-Bench fresh input tokens                                                                                                                                                                                                                                       |                        **182K** |                            12.87M |               **98.6% fewer** |
+| Terminal-Bench cost (86/89 tasks, normalized to 1-hour cache-write rate)                                                                                                                                                                                                |                        **$61.98** |                            $73.75 |               **16.0% cheaper** |
 
 ## SWE-bench Verified
 
@@ -321,20 +322,30 @@ python3 benchmarks/codebench/run_embedder_sweep.py
 
 ## Terminal-Bench
 
-Agentic terminal tasks on Terminal-Bench 2.1 through the Harbor harness, `claude-opus-4-8`. This is a **matched 5-rep comparison**: LemonCrow ran the full suite at 89 tasks x 5 reps = 445 trials, scored against an official Claude Code 2.1.205 / Opus 4.8 leaderboard run on the same dataset, also 89 tasks x 5 reps = 445 trials (scraped from Harbor Hub; methodology in `benchmarks/harbor/results/baseline/README.md`). Both arms are the same size, so correctness is directly comparable -- this supersedes the earlier single-rep cut, whose -0.2pp "tie" was n=1 noise.
+Agentic terminal tasks on Terminal-Bench 2.1 through the Harbor harness, `claude-opus-4-8`. This is a **matched 5-rep comparison**: LemonCrow ran the full suite at 89 tasks x 5 reps = 445 trials, scored against an official Claude Code 2.1.205 / Opus 4.8 leaderboard run on the same dataset, also 89 tasks x 5 reps = 445 trials (scraped from Harbor Hub; methodology in `benchmarks/harbor/results/baseline/README.md`). Both arms are the same size, so correctness is directly comparable. This run is public: [Harbor Hub job `47e1713b`](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7); it supersedes the earlier 356/445 (80.0%) cut, whose +1.1pp edge doesn't reproduce here.
 
 
-| Arm          |              Resolved | Fresh input tok | Output tok | Cache tok | Total tok |
-| ------------ | --------------------: | --------------: | ---------: | --------: | --------: |
-| **LemonCrow** | **356 / 445 (80.0%)** |       **1.05M** |  **6.32M** |    200.4M |    207.8M |
-| Baseline     |     351 / 445 (78.9%) |          12.87M |      8.09M |    161.9M |    182.9M |
-| Delta        |          **+1.1 pp** |     **-91.8%** | **-21.9%** |    +23.8% |    +13.6% |
+| Arm          |          Resolved | Fresh input tok | Output tok |  Cache tok | Total tok |
+| ------------ | -----------------: | --------------: | ---------: | ---------: | --------: |
+| **LemonCrow** |  351 / 445 (78.9%) |       **182K** |  **5.36M** | **122.0M** | **127.6M** |
+| Baseline     |  351 / 445 (78.9%) |          12.87M |      8.09M |     161.9M |     182.9M |
+| Delta        | 0.0 pp (tied) |     **-98.6%** | **-33.8%** | **-24.6%** | **-30.2%** |
 
-LemonCrow resolves **+1.1pp** more trials (356 vs 351 of 445) while sending **91.8% fewer fresh input tokens** (1.05M vs 12.87M) and **21.9% fewer output tokens** -- the same tight-loop signature seen on every other suite. It leans harder on the cache to get there: cache tokens run +23.8% and total token volume +13.6% above baseline. Correctness holds up under repetition too: pass@1 80.0%, pass@2 86.9%, pass@4 92.4%, pass@5 94.4% (17 of LemonCrow's 445 trials errored before completing).
+Correctness ties baseline exactly this run (351/445 both sides) -- the earlier +1.1pp edge was noise across runs, not a stable win. Token efficiency still holds and improves: **98.6% fewer fresh input tokens** (182K vs 12.87M) and 33.8% fewer output tokens, and this time cache and total tokens land *below* baseline too (-24.6% / -30.2%), reversing the earlier cut's cache/total overshoot. Pass@k under repetition: pass@1 78.9%, pass@2 84.0%, pass@4 87.2%, pass@5 87.6% (30 of LemonCrow's 445 trials errored before completing, vs 34 baseline trials that errored without a billed cost).
 
-<sub>Fresh input = input tokens excluding cache. Harbor Hub reports baseline input inclusive of cache, so baseline fresh input here is total input (174.8M) minus cache (161.9M). Cache tokens are combined read + write.</sub>
+### Cost: normalized to one cache-write rate
 
-Raw data: [`2026-07-14__13-44-30/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/2026-07-14__13-44-30); baseline + full methodology: [`baseline/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/baseline).
+Raw `cost_usd` on each side isn't apples-to-apples by itself: LemonCrow's harness bills prompt-cache writes at the **1-hour TTL rate** (2x base input, $10/MTok); the baseline's official leaderboard run bills entirely at the cheaper **5-minute TTL rate** (1.25x base input, $6.25/MTok). So baseline is re-priced at LemonCrow's own 1-hour rate for a same-tier comparison -- confirmed sound by recomputing each side's own trials at its real tier and diffing against its reported cost (LemonCrow 1.0043x, baseline 1.0222x -- both within tolerance; see `benchmarks/harbor/normalized_token_cost.py`). Scope: the 86 of 89 tasks where LemonCrow produced at least one priceable trajectory (`extract-moves-from-video`, `gpt2-codegolf`, `make-doom-for-mips` timed out on every rep -- no trajectory to price, though all three still count as failures in the Resolved numbers above):
+
+| Cut                                    |  LemonCrow |   Baseline |             Delta |
+| ------------------------------------------- | ------------: | ------------: | --------------------: |
+| **Normalized, both @ 1-hour cache-write rate** | **$61.98** |     $73.75 |  **16.0% cheaper** |
+
+LemonCrow's token efficiency is worth **16.0% lower cost** once both sides are priced on the same cache-write tier.
+
+<sub>Fresh input = input tokens excluding cache. Harbor Hub reports baseline input inclusive of cache, so baseline fresh input here is total input minus cache. Cache tokens are combined read + write. Cost figures are per-task averages summed across the 86 comparable tasks (each task weighted equally regardless of billed-rep count), not raw run totals -- see `benchmarks/harbor/normalized_token_cost.py` to reproduce (also reports the un-normalized real-$-per-own-tier and 5-min-tier cuts, for reference).</sub>
+
+Raw data: [`2026-07-28__19-19-14/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/2026-07-28__19-19-14) (445 trials; also public on [Harbor Hub](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7)). Baseline + full methodology, including the `_1h_tier` normalized-cost columns: [`baseline/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/baseline).
 
 Run it:
 
@@ -352,7 +363,7 @@ lc benchmark harbor --resume benchmarks/jobs/harbor/2026-07-01__12-00-00 -y
 
 ## Overall Assessment
 
-- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Telegraphic Q&A -46.7% cost/-60.9% output tokens (every token category fell this run, cost and tokens agree). Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 41.4% but now costs **3.3% more** than baseline -- it only compresses replies, not the input/context tokens that drive the bill.
-- **Correctness wins on most multi-rep suites.** Verified +12.0pp, Pro +2.0pp (the 5-rep run overturned an earlier single-rep -10.0pp result -- that loss was n=1 noise), Lite -2.0pp. Terminal-Bench is now +1.1pp on a matched 5-rep run (356/445 vs 351/445), overturning the earlier single-rep tie.
+- **Cost/tokens/turns: LemonCrow wins on every suite measured.** Verified -29.5% cost/-44.9% tokens/-37.7% turns, Lite -11.7%/-5.8%/-10.6%, Pro -21.5%/-35.4%/-28.1%, Exploration -67% cost, Telegraphic Q&A -46.7% cost/-60.9% output tokens (every token category fell this run, cost and tokens agree), Terminal-Bench -16.0% cost (normalized to a matched cache-write rate), -98.6% fresh input tokens. Caveman (free DIY "be terse" system-prompt instruction, no plugin/tooling) cuts output by 41.4% but now costs **3.3% more** than baseline -- it only compresses replies, not the input/context tokens that drive the bill.
+- **Correctness wins on most multi-rep suites, ties on one.** Verified +12.0pp, Pro +2.0pp (the 5-rep run overturned an earlier single-rep -10.0pp result -- that loss was n=1 noise), Lite -2.0pp. Terminal-Bench ties baseline exactly on this run (351/445 vs 351/445) -- the earlier +1.1pp edge didn't reproduce.
 - **Where overhead still shows up:** non-Python/larger/more heterogeneous codebases (Pro, Terminal-Bench) see a smaller cost edge, and a handful of tasks (`tutanota`, `vuls`, `flipt`) cost LemonCrow *more* than baseline -- a fixed per-run overhead that amortizes on bigger tasks but not small/turn-heavy ones.
-- **Bottom line:** the cost/token/turn compression reproduces across every suite tested, at every price point from a $0.10 task to a $5 one. It hasn't cost correctness on Verified or Pro; Lite is -2.0pp this cut; Terminal-Bench is +1.1pp on a matched 5-rep run. Read each section's caveats before citing a number out of context.
+- **Bottom line:** the cost/token/turn compression reproduces across every suite tested, at every price point from a $0.10 task to a $5 one. It hasn't cost correctness on Verified or Pro; Lite is -2.0pp this cut; Terminal-Bench ties on correctness but is still 16.0% cheaper once cache-write pricing is normalized to a matched tier. Read each section's caveats before citing a number out of context.

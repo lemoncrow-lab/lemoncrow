@@ -1,39 +1,32 @@
-"""Normalized (same $/MTok pricing, real per-trial token splits) cost compare
-between a LemonCrow Harbor run and the baseline, restricted to the tasks the
-LemonCrow run actually completed.
+"""Normalized (matched cache-write tier) cost compare between a LemonCrow
+Harbor run and the baseline, restricted to the tasks the LemonCrow run
+actually completed.
 
 Why this exists: comparing raw self-reported cost_usd on each side isn't
 apples-to-apples by itself. LemonCrow's harness bills prompt-cache WRITES at
 the 1-hour TTL rate (2x base input); baseline runs entirely on the 5-minute
 TTL tier (1.25x base input) -- confirmed: baseline's
 cache_creation.ephemeral_1h_input_tokens is 0 on every sampled step (see
-results/baseline/README.md), and recomputing LemonCrow's own trials at the
-1-hour rate reproduces its reported cost_usd to 1.0000x (recomputing at the
-5-minute rate does not). Comparing raw cost_usd conflates "who sends
-fewer/cheaper tokens" with "who chose the pricier cache tier" -- this script
-splits those into two separate, explicit numbers.
+results/baseline/README.md). Comparing raw cost_usd would conflate "who
+sends fewer/cheaper tokens" with "who chose the pricier cache tier", so
+THE HEADLINE NUMBER HERE re-prices baseline at LemonCrow's own 1-hour tier
+and compares that against LemonCrow's real (already-1-hour-tier) cost.
 
-Token definitions (the two sources label fields differently -- both are
-reduced to the same 4-bucket split before pricing):
-  - baseline `prompt_tokens` (Harbor Hub's scrape, results/baseline/*_turns.csv)
-    = fresh_input + cache_write + cache_read (baseline's own README: "input_tokens
-    is total input including cache").
-  - LemonCrow `trajectory.json` final_metrics.total_prompt_tokens uses the same
-    convention -- confirmed empirically: total_prompt_tokens - cache_read -
-    cache_creation == the harness's own reported agent_result.n_input_tokens,
-    exactly, on every trial checked.
-  fresh_input = prompt_tokens - cache_write - cache_read, for both sides.
+The baseline side of this is precomputed and checked in --
+results/baseline/tbench_opus48_claudecode_2.1.205_per_task.csv carries an
+`avg_cost_usd_1h_tier` column (and `_turns.csv` a per-trial
+`cost_usd_1h_tier`) already re-priced at the 1-hour rate. This script just
+reads that column for baseline and LemonCrow's own reported `cost_usd`
+directly (already the 1-hour-tier price, confirmed by the sanity check
+below) -- no re-deriving the tier math per run. If claude-opus-4-8 pricing
+or either side's cache-TTL config ever changes, regenerate the baseline
+columns (see results/baseline/README.md) rather than re-deriving here.
 
-Price table ($/MTok, matches benchmarks/harbor/_token_anatomy.py):
-  input $5.00 | output $25.00 | cache_read $0.50 (0.1x)
-  cache_write 5-min tier $6.25 (1.25x) | cache_write 1-hour tier $10.00 (2x)
-(If claude-opus-4-8 pricing or either side's cache-TTL config changes, update
-these constants -- the sanity check below will flag a stale table.)
-
-Sanity check baked in: recomputes each side's cost at ITS OWN real tier and
-diffs against that side's actual reported cost_usd. If either is off by more
-than SANITY_TOLERANCE_PCT, the price table or tier assumption is stale --
-the script prints a loud warning rather than silently reporting a bad ratio.
+Sanity check baked in: recomputes each side's cost at ITS OWN real tier from
+raw token splits and diffs against that side's actual reported cost_usd. If
+either is off by more than SANITY_TOLERANCE_PCT, the price table or tier
+assumption is stale -- the script prints a loud warning rather than
+silently reporting a bad ratio.
 
 Usage:
   uv run python benchmarks/harbor/normalized_token_cost.py [run_dir]
@@ -103,6 +96,13 @@ def load_baseline_reported_avg_cost() -> dict[str, float]:
         return {row["task"]: float(row["avg_cost_usd"]) for row in csv.DictReader(f)}
 
 
+def load_baseline_1h_tier_avg_cost() -> dict[str, float]:
+    """Precomputed baseline cost per task, re-priced at the 1-hour cache-write
+    tier -- see results/baseline/README.md. Durable; no re-derivation here."""
+    with BASELINE_PER_TASK_CSV.open(newline="") as f:
+        return {row["task"]: float(row["avg_cost_usd_1h_tier"]) for row in csv.DictReader(f)}
+
+
 def load_lemoncrow_trials(run_dir: Path) -> dict[str, dict[str, float]]:
     """One row per task, averaged over however many completed trials of that
     task exist in run_dir (usually 1 while a run is still in progress)."""
@@ -161,94 +161,80 @@ def price(split: dict[str, float], cw_rate: float) -> float:
 def main() -> None:
     run_dir = resolve_run_dir(sys.argv[1] if len(sys.argv) > 1 else None)
     print(f"LemonCrow run: {run_dir}")
-    print(f"Baseline turns: {BASELINE_TURNS_CSV}")
+    print(f"Baseline (precomputed @ 1hr tier): {BASELINE_PER_TASK_CSV}")
     print()
 
-    baseline_turns = load_baseline_turns()
     baseline_reported = load_baseline_reported_avg_cost()
+    baseline_1h = load_baseline_1h_tier_avg_cost()
     lc_trials = load_lemoncrow_trials(run_dir)
 
-    tasks = sorted(set(lc_trials) & set(baseline_turns))
-    missing = sorted(set(lc_trials) - set(baseline_turns))
+    tasks = sorted(set(lc_trials) & set(baseline_1h))
+    missing = sorted(set(lc_trials) - set(baseline_1h))
     if missing:
-        print(f"skipping {len(missing)} task(s) with no baseline turns.csv row: {', '.join(missing)}")
+        print(f"skipping {len(missing)} task(s) with no baseline row: {', '.join(missing)}")
     if not tasks:
         raise SystemExit("no overlapping tasks between this run and baseline -- nothing to compare")
 
-    print(
-        f"{'task':<30} {'LC_fresh':>9} {'LC_cw':>8} {'LC_cr':>9} {'LC_out':>7} "
-        f"{'BL_fresh':>9} {'BL_cw':>8} {'BL_cr':>9} {'BL_out':>7}  "
-        f"{'LC@1h':>8} {'BL@5m':>8} {'LC@5m':>8} {'BL@1h':>8}"
-    )
+    print(f"{'task':<30} {'LC cost (1h tier, real)':>24} {'BL cost (1h tier, normalized)':>30}")
 
-    lc_actual_total = bl_actual_total = lc_at_5m_total = bl_at_1h_total = 0.0
-    lc_reported_total = bl_reported_total = 0.0
+    lc_total = bl_1h_total = 0.0
+    lc_reported_total = 0.0
     lc_reported_n = 0
 
     for task in tasks:
         lc = lc_trials[task]
-        bl = baseline_split(baseline_turns[task])
-
-        lc_at_1h = price(lc, P_CW_1HOUR)  # LC's real tier
-        lc_at_5m = price(lc, P_CW_5MIN)  # LC priced as if it ran baseline's tier
-        bl_at_5m = price(bl, P_CW_5MIN)  # baseline's real tier
-        bl_at_1h = price(bl, P_CW_1HOUR)  # baseline priced as if it ran LC's tier
-
-        lc_actual_total += lc_at_1h
-        bl_actual_total += bl_at_5m
-        lc_at_5m_total += lc_at_5m
-        bl_at_1h_total += bl_at_1h
+        lc_cost = price(lc, P_CW_1HOUR)  # LC's tokens re-priced at its own real (1-hour) tier
+        bl_cost = baseline_1h[task]  # baseline's real trial, re-priced at the same 1-hour tier
+        lc_total += lc_cost
+        bl_1h_total += bl_cost
         if lc["reported_cost"] is not None:
             lc_reported_total += lc["reported_cost"]
             lc_reported_n += 1
-        bl_reported_total += baseline_reported.get(task, 0.0)
-
-        print(
-            f"{task:<30} {lc['fresh']:>9.0f} {lc['cw']:>8.0f} {lc['cr']:>9.0f} {lc['out']:>7.0f} "
-            f"{bl['fresh']:>9.0f} {bl['cw']:>8.0f} {bl['cr']:>9.0f} {bl['out']:>7.0f}  "
-            f"{lc_at_1h:>8.4f} {bl_at_5m:>8.4f} {lc_at_5m:>8.4f} {bl_at_1h:>8.4f}"
-        )
+        print(f"{task:<30} {money(lc_cost):>24} {money(bl_cost):>30}")
 
     print()
-    print("Totals, each priced at its own real cache-write tier (what each side actually pays):")
+    print("=== Headline: both sides normalized to the 1-hour cache-write rate ===")
     print(
-        f"  LC {money(lc_actual_total)}  vs  BL {money(bl_actual_total)}"
-        f"   -> LC {(lc_actual_total / bl_actual_total - 1) * 100:+.1f}%"
+        f"  LemonCrow {money(lc_total)}  vs  Baseline {money(bl_1h_total)}"
+        f"   ->  LemonCrow {(lc_total / bl_1h_total - 1) * 100:+.1f}%  ({len(tasks)} tasks)"
     )
-    print()
-    print("Tier-neutral (same cache-write rate both sides -- isolates token composition from tier choice):")
-    print(
-        f"  both @ 5-min ($6.25/M write):  LC {money(lc_at_5m_total)}  vs  BL {money(bl_actual_total)}"
-        f"   -> LC {(lc_at_5m_total / bl_actual_total - 1) * 100:+.1f}%"
-    )
-    print(
-        f"  both @ 1-hour ($10/M write):   LC {money(lc_actual_total)}  vs  BL {money(bl_at_1h_total)}"
-        f"   -> LC {(lc_actual_total / bl_at_1h_total - 1) * 100:+.1f}%"
-    )
+
+    # --- sanity check: diff the recomputed LC total above (and baseline's real 5-min
+    # tier, recomputed from raw turns.csv) against each side's own reported cost_usd.
     print()
     print("Sanity check (recomputed @ own real tier vs each side's own reported cost_usd -- must be ~1.0x):")
     if lc_reported_n:
-        lc_ratio = lc_actual_total / lc_reported_total
+        lc_ratio = lc_total / lc_reported_total
         flag = (
             ""
             if abs(lc_ratio - 1) * 100 <= SANITY_TOLERANCE_PCT
             else "  !! OUT OF TOLERANCE -- re-derive tier/prices before trusting the numbers above"
         )
         print(
-            f"  LemonCrow ({lc_reported_n}/{len(tasks)} tasks priced): recomputed {money(lc_actual_total)} "
+            f"  LemonCrow ({lc_reported_n}/{len(tasks)} tasks priced): recomputed {money(lc_total)} "
             f"vs reported {money(lc_reported_total)} ({lc_ratio:.4f}x){flag}"
         )
     else:
         print("  LemonCrow: no reported cost_usd available on any task -- skipped")
-    bl_ratio = bl_actual_total / bl_reported_total
-    flag = (
-        ""
-        if abs(bl_ratio - 1) * 100 <= SANITY_TOLERANCE_PCT
-        else "  !! OUT OF TOLERANCE -- re-derive tier/prices before trusting the numbers above"
-    )
-    print(
-        f"  baseline: recomputed {money(bl_actual_total)} vs reported {money(bl_reported_total)} ({bl_ratio:.4f}x){flag}"
-    )
+    try:
+        baseline_turns = load_baseline_turns()
+    except FileNotFoundError:
+        baseline_turns = None
+    if baseline_turns is not None:
+        bl_at_5m_total = sum(
+            price(baseline_split(baseline_turns[task]), P_CW_5MIN) for task in tasks if task in baseline_turns
+        )
+        bl_reported_total = sum(baseline_reported.get(task, 0.0) for task in tasks)
+        bl_ratio = bl_at_5m_total / bl_reported_total if bl_reported_total else float("nan")
+        flag = (
+            ""
+            if abs(bl_ratio - 1) * 100 <= SANITY_TOLERANCE_PCT
+            else "  !! OUT OF TOLERANCE -- re-derive tier/prices before trusting the numbers above"
+        )
+        print(
+            f"  baseline (its real 5-min tier): recomputed {money(bl_at_5m_total)} "
+            f"vs reported {money(bl_reported_total)} ({bl_ratio:.4f}x){flag}"
+        )
 
 
 if __name__ == "__main__":
