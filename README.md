@@ -32,11 +32,11 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 
 ## Why I built this
 
-I am a solo builder and I kept burning my weekly credits before the week was out. Every
+I am a solo builder, previously at Google doing performance optimizations and cost savings. I kept burning my weekly credits before the week was out. Every
 "token-saving" claimed tools only every shows me a curated list of tasks where they save. Only showing partial wins. Claiming 50-60-70% wins infact they never shows on all varaties of tasks. In reality they either same so little to justify complexity or they don't save at all because they add fat system prompts on their own that the savings are offset.
 
 So I built LemonCrow. Every number below is an absolute-dollar measurement
-([BENCHMARKS.md](BENCHMARKS.md)) — on swe, terminalbench and infact some of the claimed tools task themselves. Result? lemoncrow beat them all.
+([BENCHMARKS.md](BENCHMARKS.md)) — on swe, terminalbench and infact some of the claimed tools task themselves. Result? **lemoncrow beat them all**.
 
 ## Quick start
 
@@ -56,11 +56,10 @@ no network:
 
 ### Or code from ChatGPT instead — free
 
-ChatGPT chat usage doesn't burn API/agent-plan credits the way a coding
-agent's own usage-based billing does. So LemonCrow's tools (search, read,
-edit, bash) can be exposed through a tunnel and driven straight from a
-ChatGPT conversation instead — same grounded tool surface, no separate
-agent bill:
+ChatGPT chat usage aren't counted towards credits unlike codex which has weekly limit.
+LemonCrow's tools (search, read, edit, bash) can be exposed through a tunnel and agent
+can do coding right from the chatgpt. I recommend using persistent tunnel to not drop
+connection in between the conversation.
 
 ```bash
 lc chatgpt serve
@@ -138,6 +137,19 @@ strongest equivalent controls they expose.
 What's unchanged: the host, the model, your workflow. Full internals:
 [Architecture](docs/architecture.md).
 
+**Caveat — hosts that can't hide their built-ins (Cursor).** Substitution is
+what makes the swap free.
+Cursor ships ~7,900 tok of native tool definitions
+Lemoncrow ships 1,899 tok on every request is a pure addition on cursor.
+Claude Code and Codex can displace most of the built-in toolset,
+so this does not apply there.
+
+NOTE: One inference, flagged: that Cursor selectively chooses server-side what to cache-write
+is derived from implied hit rates, not confirmed in their docs.
+Cursor stores no local cache counters, so every hit
+rate is computed as 1 − billed/integral. Treat the caching mechanism as
+unproven; the additive prefix is the part that is actually measured.
+
 ### Agents
 
 Packaged in [integrations/agents/](integrations/agents/) — each a distinct
@@ -176,7 +188,7 @@ ladder before writing anything, stopping at the first rung that holds:
 | 6 | **One line?** | If it collapses to one line, make it one line. |
 | 7 | **Otherwise** | Write the minimum new code that works. |
 
-The ladder runs *after* the agent understands the problem, not instead of it, and
+The ladder runs _after_ the agent understands the problem, not instead of it, and
 it never trades away validation, error handling, security, or accessibility. Lazy
 about the solution, never about reading the code first.
 
@@ -281,6 +293,28 @@ full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
 
 Reproduce any of this from committed raw data: see [BENCHMARKS.md](BENCHMARKS.md)
 and [docs/benchmarks/results.md](docs/benchmarks/results.md).
+
+### Future cost optimizations
+
+The numbers above are what ships today. Three levers are identified and not yet
+implemented:
+
+1. **Smart routing.** Every turn currently runs on whatever model the session
+   was started with. Most steps in a task are mechanical — retrieval,
+   formatting, patch application, verification reads — and do not need a
+   frontier model. Routing each step to the cheapest model that can actually do
+   it, escalating only for reasoning, is the largest remaining line item.
+2. **Cache-tier selection (5-minute vs 1-hour).** The harness writes prompt
+   cache entries at the 1-hour tier unconditionally, the more expensive write
+   rate — the Terminal-Bench row above is normalized to that tier on both sides
+   for exactly this reason. Most sessions never need a 1-hour TTL. Picking the
+   tier from the observed reuse gap (5-minute by default, 1-hour only for
+   long-lived prefixes) is a direct write-cost cut with no behavior change.
+3. **Selective cache writes.** Not every tool output or model output deserves
+   to be cached. Large one-shot payloads — build logs, a file dumped once, a
+   dead-end search — are written into the cached prefix and paid for even when
+   they are never read again. Deciding what enters the cached prefix, instead
+   of caching everything, removes writes that never earn themselves back.
 
 ## Learn more
 
