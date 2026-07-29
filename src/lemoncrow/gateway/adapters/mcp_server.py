@@ -12,10 +12,12 @@ import json
 import logging
 import os
 import re
+import struct
 import sys
 import tempfile
 import threading
 import time
+import zlib
 from collections import OrderedDict, deque
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -5484,14 +5486,19 @@ def _read_summary_response(resolved: Path) -> dict[str, Any]:
 # staleness check on client A's read). The stdio transport has no request
 # ledger and keeps one process-wide "_global" bucket -- one MCP server per
 # host window, so that state stays exactly window-scoped. Never refreshed on
-# edit-writes -- an edit shifts lines, so the next blind range edit must
-# re-read (or pass old) by design.
+# edit-writes -- the entry stays pinned to the serve the model actually read,
+# which is exactly the snapshot a later range edit must be relocated against.
 # Third element: whether this serve gave line numbers that match disk exactly
 # (an expand/:full or explicit :Lx-Ly range) vs a lossy projection (bare
 # default read -> minified/compact, or :outline/:summary) whose line numbers
 # do NOT index the same bytes. A blind range edit built from the latter would
 # silently splice the wrong lines.
-_RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int, bool]]] = OrderedDict()
+# Fourth element: a per-line digest snapshot of the file AS SERVED (empty when
+# not captured -- lossy serve, oversized file, unreadable). It turns the guard
+# from "did this file change at all" into "did the lines this edit names
+# change": drift somewhere else in the file no longer rejects the edit, and a
+# pure line SHIFT is repaired by locating the served block at its new offset.
+_RANGE_READ_SIGS: OrderedDict[str, dict[str, tuple[int, int, bool, bytes]]] = OrderedDict()
 _range_read_sigs_lock = threading.Lock()
 _MAX_RANGE_READ_SIG_SESSIONS = _MAX_HTTP_SESSION_LEDGERS
 
@@ -5520,7 +5527,7 @@ _RECENT_QUERY_WINDOW_SECONDS = 180.0
 _QUERY_WORD_RE = re.compile(r"[a-z0-9]+")
 
 
-def _range_read_sigs() -> dict[str, tuple[int, int, bool]]:
+def _range_read_sigs() -> dict[str, tuple[int, int, bool, bytes]]:
     """The current request's freshness-signature bucket.
 
     Keyed exactly like _http_session_ledgers: the per-request ledger installed
@@ -5593,8 +5600,108 @@ def _check_repeat_query(query: str) -> bool:
     return is_repeat
 
 
+# Per-line digest: crc32 + byte length, 8 bytes a line. Both halves must match
+# for a line to count as unchanged, so a crc collision alone can never pass a
+# changed line off as identical.
+_LINE_DIGEST = struct.Struct("<II")
+_DIGEST_WIDTH = _LINE_DIGEST.size
+# Files above this are stat-tracked but not digest-snapshotted: the snapshot is
+# held for the whole session, and a 4 MB file is already ~100k lines / 800 KB of
+# digests. Oversized files simply fall back to the old stat-only behaviour.
+_MAX_SIG_DIGEST_BYTES = 4_000_000
+# Lines of served context demanded around a block that MOVED, tried outermost
+# first: the wider window is the stronger evidence, the narrower one still
+# works when the drift landed immediately above the target.
+_RELOCATE_CONTEXT_RADII = (3, 1)
+# Most recently served files that keep a signature (and its digest snapshot).
+# The stdio bucket is process-wide and a daemon outlives many chats, so this
+# caps what a long session can accumulate; evicting only costs a re-read.
+_MAX_RANGE_READ_SIG_PATHS = 512
+
+
+def _line_digests(text: str) -> bytes:
+    """Fixed-width per-line fingerprint of *text*, one 8-byte slot per line.
+
+    Split with ``str.splitlines`` so slot N is line N under exactly the same
+    rules the range splice in ``rich_edit`` indexes with (which splits with
+    ``splitlines(keepends=True)`` -- same boundaries, terminators kept). A
+    bytes-level ``split(b"\\n")`` would disagree on form feeds and U+2028 and
+    silently shift every later slot.
+    """
+    pack = _LINE_DIGEST.pack
+    crc = zlib.crc32
+    out = bytearray()
+    for line in text.splitlines():
+        raw = line.encode("utf-8", "surrogatepass")
+        out += pack(crc(raw), len(raw) & 0xFFFF_FFFF)
+    return bytes(out)
+
+
+def _aligned_occurrences(haystack: bytes, needle: bytes, limit: int = 8) -> list[int]:
+    """Line indices where *needle* (a digest run) occurs in *haystack*.
+
+    ``bytes.find`` can land mid-slot on digest bytes that happen to line up, so
+    unaligned hits are skipped rather than reported as a line match.
+    """
+    hits: list[int] = []
+    pos = 0
+    while len(hits) < limit:
+        found = haystack.find(needle, pos)
+        if found < 0:
+            break
+        if found % _DIGEST_WIDTH == 0:
+            hits.append(found // _DIGEST_WIDTH)
+            pos = found + _DIGEST_WIDTH
+        else:
+            pos = found + 1
+    return hits
+
+
+def _relocate_served_range(served: bytes, current: bytes, start_line: int, end_line: int) -> tuple[int, int] | None:
+    """Where the lines served as L*start*-L*end* live in the file NOW.
+
+    Returns the same range when those lines are byte-identical on disk (the
+    file drifted somewhere the edit doesn't touch -- not a reason to reject),
+    the shifted range when the block MOVED and its served neighbours moved
+    with it, or None when it is gone or ambiguous -- the only case that still
+    has to fail.
+
+    A bare content match is deliberately NOT enough to move an edit. A lone
+    ``    return None`` deleted from where it was served and coincidentally
+    present somewhere else would be "unique" in the file and relocate the
+    splice into unrelated code -- silently, which is the exact failure this
+    guard exists to prevent. Requiring the surrounding served lines to travel
+    with the block makes a move self-evidencing; radii shrink because an edit
+    landing just above the target eats the outer context first.
+    """
+    n_served = len(served) // _DIGEST_WIDTH
+    s0 = start_line - 1
+    e0 = end_line
+    if s0 < 0 or e0 > n_served or s0 >= e0:
+        return None
+    block = served[s0 * _DIGEST_WIDTH : e0 * _DIGEST_WIDTH]
+    if current[s0 * _DIGEST_WIDTH : e0 * _DIGEST_WIDTH] == block:
+        return (start_line, end_line)
+    for radius in _RELOCATE_CONTEXT_RADII:
+        lo = max(0, s0 - radius)
+        hi = min(n_served, e0 + radius)
+        if lo == s0 and hi == e0:
+            continue  # no served context at this radius -- a bare block match
+        hits = _aligned_occurrences(current, served[lo * _DIGEST_WIDTH : hi * _DIGEST_WIDTH])
+        if len(hits) == 1:
+            new_start = hits[0] + (s0 - lo) + 1
+            return (new_start, new_start + (e0 - s0) - 1)
+    return None
+
+
+def _retarget_range_edit(edit: dict[str, Any], path: str, start: int, end: int) -> None:
+    """Repoint *edit* at L*start*-L*end*, keeping whichever path key it used."""
+    suffix = f":L{start}" if start == end else f":L{start}-L{end}"
+    edit["file_path" if "file_path" in edit else "path"] = path + suffix
+
+
 def _record_read_sig(path: Path | str, *, exact: bool = True) -> None:
-    """Best-effort stat-signature capture for a file just served to the model.
+    """Best-effort content-signature capture for a file just served to the model.
 
     ``exact`` (default True -- code_search's inline sections and every other
     caller besides ``_smart_read_single`` always carry real disk line numbers)
@@ -5602,11 +5709,26 @@ def _record_read_sig(path: Path | str, *, exact: bool = True) -> None:
     :Lx-Ly range edit. A later minified/summary/outline serve of the same path
     overwrites (downgrades) a prior exact record -- the ledger reflects the
     MOST RECENT serve, matching what the model most recently saw.
+
+    An exact serve also snapshots per-line digests, so the guard can later ask
+    whether the *edited lines* changed instead of whether the file did. Those
+    snapshots are ~8 bytes a line and the stdio bucket is process-wide (one
+    daemon outlives many chats), so the bucket is kept to the most recently
+    served _MAX_RANGE_READ_SIG_PATHS files -- re-serving a path moves it back
+    to the young end rather than leaving it to age out under its first read.
     """
     try:
         p = Path(path).resolve()
         st = p.stat()
-        _range_read_sigs()[str(p)] = (st.st_mtime_ns, st.st_size, exact)
+        digests = b""
+        if exact and st.st_size <= _MAX_SIG_DIGEST_BYTES:
+            with contextlib.suppress(OSError):
+                digests = _line_digests(p.read_text(encoding="utf-8", errors="replace"))
+        bucket = _range_read_sigs()
+        bucket.pop(str(p), None)
+        bucket[str(p)] = (st.st_mtime_ns, st.st_size, exact, digests)
+        while len(bucket) > _MAX_RANGE_READ_SIG_PATHS:
+            bucket.pop(next(iter(bucket)), None)
     except OSError:
         pass
 
@@ -7277,10 +7399,13 @@ def tool_smart_edit(
     # Freshness guard for blind range edits (:Lx-Ly / replace_range with no old
     # anchor): the line numbers were copied from an earlier read/code_search,
     # so they index the file AS SERVED then. If this window's server never
-    # served the file, or it changed on disk since (formatter, another agent,
-    # our own earlier edit call), a blind splice would replace the WRONG lines
-    # silently -- old-anchored edits self-verify, blind ranges cannot. Reject
-    # with the fix spelled out. LEMONCROW_RANGE_EDIT_GUARD=0 disables.
+    # served the file, or the lines it names no longer hold what was served
+    # (formatter, another agent, our own earlier edit call), a blind splice
+    # would replace the WRONG lines silently -- old-anchored edits self-verify,
+    # blind ranges cannot. A file that merely CHANGED is not stale: the guard
+    # relocates the served block first and only rejects what it cannot place
+    # unambiguously, with the fix spelled out. LEMONCROW_RANGE_EDIT_GUARD=0
+    # disables.
     if os.environ.get("LEMONCROW_RANGE_EDIT_GUARD", "1") != "0":
         from lemoncrow.pro.capabilities.source_projection import language_for_minify, translate_minified_line_range
         from lemoncrow.pro.capabilities.tool_supervision.rich_edit import _parse_target
@@ -7307,43 +7432,70 @@ def tool_smart_edit(
                 continue  # missing file fails downstream with a clearer error
             _sig = _session_sigs.get(str(_rp))
             _cur = (_st.st_mtime_ns, _st.st_size)
-            if _sig is not None and _sig[:2] == _cur and _sig[2] and not _spec.minified:
+            _stat_fresh = _sig is not None and _sig[:2] == _cur
+            if _stat_fresh and _sig is not None and _sig[2] and not _spec.minified:
                 continue
+            # Everything below works off current disk content: read it ONCE and
+            # share it between the relocation check, the :minified translation
+            # and the retry anchor (each used to re-read the file itself).
+            try:
+                _disk_content: str | None = _rp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                _disk_content = None
+            _served_digests = _sig[3] if _sig is not None else b""
+            _cur_digests = _line_digests(_disk_content) if _disk_content is not None and _served_digests else b""
+            # Drift is not staleness. That the file changed says nothing about
+            # the lines THIS edit names: when they are still byte-identical to
+            # what was served, the splice lands on exactly the content the
+            # model saw, and when the whole block merely MOVED (an insertion
+            # above it -- most often this session's own earlier edit), locating
+            # it repairs the range instead of costing a re-read turn -- but a
+            # move must carry the served neighbours with it, so a block that
+            # is gone (or whose neighbourhood can't be found exactly once)
+            # still fails rather than guessing. Requires an exact serve (a
+            # lossy view's line numbers were never disk lines) and a snapshot.
+            if (
+                not _spec.minified
+                and _sig is not None
+                and _sig[2]
+                and _served_digests
+                and _cur_digests
+                and _spec.start_line is not None
+                and _end_line is not None
+            ):
+                _relocated = _relocate_served_range(_served_digests, _cur_digests, _spec.start_line, _end_line)
+                if _relocated is not None:
+                    if _relocated != (_spec.start_line, _end_line):
+                        _retarget_range_edit(_ed, _spec.path, _relocated[0], _relocated[1])
+                    continue
             # A range edit needs translation when the ledger says THIS window
-            # actually served the file fresh (read/code_search, unchanged on
-            # disk since) -- :minified only changes HOW that fresh serve is
-            # interpreted (as minified-view line numbers instead of disk-direct
-            # ones); it is NOT a bypass of freshness itself. A :minified flag
-            # against a file never read this window, or changed since, has no
-            # honest anchor to translate against -- translating it against
-            # whatever is on disk NOW would silently resolve to the wrong
-            # lines if the file drifted (proven: a stale :minified range
+            # actually served the file fresh (read/code_search, and the served
+            # bytes are still on disk) -- :minified only changes HOW that fresh
+            # serve is interpreted (as minified-view line numbers instead of
+            # disk-direct ones); it is NOT a bypass of freshness itself. A
+            # :minified flag against a file never read this window, or changed
+            # since, has no honest anchor to translate against -- translating
+            # it against whatever is on disk NOW would silently resolve to the
+            # wrong lines if the file drifted (proven: a stale :minified range
             # survived translation against a since-edited file and renamed the
             # wrong function). Re-derive the same projection from current disk
             # content (deterministic when unchanged) and map the range back to
             # real disk lines -- self-verifying, fails closed (None) on
             # anything ambiguous (out of bounds, spans a dropped comment, not
             # minify-eligible); only then does the reject below fire.
-            _ledger_fresh = _sig is not None and _sig[:2] == _cur
+            # Content-identical counts as fresh even when mtime/size moved (a
+            # touch, or a rewrite of the same bytes): the projection re-derives
+            # identically, so the translation is exactly the one the serve had.
+            _ledger_fresh = _stat_fresh or (bool(_served_digests) and _served_digests == _cur_digests)
             if _ledger_fresh:
                 _translated: tuple[int, int] | None = None
                 _lang = language_for_minify(str(_spec.path))
-                if _lang is not None and _spec.start_line is not None and _end_line is not None:
-                    try:
-                        _disk_content = _rp.read_text(encoding="utf-8", errors="replace")
-                    except OSError:
-                        _disk_content = None
-                    if _disk_content is not None:
-                        _translated = translate_minified_line_range(
-                            _disk_content, _lang, _spec.start_line, _end_line, path=_spec.path
-                        )
+                if _lang is not None and _spec.start_line is not None and _end_line is not None and _disk_content:
+                    _translated = translate_minified_line_range(
+                        _disk_content, _lang, _spec.start_line, _end_line, path=_spec.path
+                    )
                 if _translated is not None:
-                    _new_start, _new_end = _translated
-                    _new_suffix = f":L{_new_start}" if _new_start == _new_end else f":L{_new_start}-L{_new_end}"
-                    if "file_path" in _ed:
-                        _ed["file_path"] = _spec.path + _new_suffix
-                    else:
-                        _ed["path"] = _spec.path + _new_suffix
+                    _retarget_range_edit(_ed, _spec.path, _translated[0], _translated[1])
                     continue
                 _why = (
                     "was explicitly flagged :minified, but that range doesn't resolve unambiguously "
@@ -7358,7 +7510,13 @@ def tool_smart_edit(
                     "(never served, or the file changed on disk since)"
                     if _spec.minified
                     else (
-                        "changed on disk since this window last read it"
+                        (
+                            "changed on disk since this window last read it, and the lines it names no "
+                            "longer hold what was served there (that content is gone, or now sits in "
+                            "more than one place)"
+                            if _served_digests
+                            else "changed on disk since this window last read it"
+                        )
                         if _sig is not None
                         else "was not served by read/code_search in this window"
                     )
@@ -7383,27 +7541,19 @@ def tool_smart_edit(
             if _spec.minified and _spec.start_line is not None and _end_line is not None:
                 _ctx_center_start = _ctx_center_end = None
                 _lang_ctx = language_for_minify(str(_spec.path))
-                if _lang_ctx is not None:
-                    try:
-                        _ctx_disk_content: str | None = _rp.read_text(encoding="utf-8", errors="replace")
-                    except OSError:
-                        _ctx_disk_content = None
-                    if _ctx_disk_content is not None:
-                        _start_resolved = translate_minified_line_range(
-                            _ctx_disk_content, _lang_ctx, _spec.start_line, _spec.start_line, path=_spec.path
-                        )
-                        _end_resolved = translate_minified_line_range(
-                            _ctx_disk_content, _lang_ctx, _end_line, _end_line, path=_spec.path
-                        )
-                        if _start_resolved is not None:
-                            _ctx_center_start = _start_resolved[0]
-                        if _end_resolved is not None:
-                            _ctx_center_end = _end_resolved[1]
+                if _lang_ctx is not None and _disk_content:
+                    _start_resolved = translate_minified_line_range(
+                        _disk_content, _lang_ctx, _spec.start_line, _spec.start_line, path=_spec.path
+                    )
+                    _end_resolved = translate_minified_line_range(
+                        _disk_content, _lang_ctx, _end_line, _end_line, path=_spec.path
+                    )
+                    if _start_resolved is not None:
+                        _ctx_center_start = _start_resolved[0]
+                    if _end_resolved is not None:
+                        _ctx_center_end = _end_resolved[1]
             _retry_with: dict[str, Any] | None = None
-            try:
-                _cur_lines = _rp.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-            except OSError:
-                _cur_lines = None
+            _cur_lines = _disk_content.splitlines(keepends=True) if _disk_content is not None else None
             if _cur_lines is not None and _ctx_center_start is not None and _ctx_center_end is not None:
                 _ctx_start = max(1, _ctx_center_start - 2)
                 _ctx_end = min(len(_cur_lines), _ctx_center_end + 2)
