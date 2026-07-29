@@ -24,85 +24,65 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 [![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
 
-[Quick start](#quick-start) · [What it does](#what-lemoncrow-does) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Results](#results) · [Removal](#removal)
+[Results](#results) · [What it does](#what-lemoncrow-does) · [Quick start](#quick-start) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Removal](#removal)
 
 </div>
 
 ---
 
-## Why I built this
+## Results
 
-I am a solo builder, previously at Google doing performance optimizations and cost savings. I kept burning my weekly credits before the week was out. Every
-"token-saving" claimed tools only every shows me a curated list of tasks where they save. Only showing partial wins. Claiming 50-60-70% wins infact they never shows on all varaties of tasks. In reality they either same so little to justify complexity or they don't save at all because they add fat system prompts on their own that the savings are offset.
+These are fixed results from pinned benchmark runs — not a live counter. Every
+headline number links back to committed raw runs and methodology in
+[BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
+verification harness were held constant. Results are mixed by design and include
+a regression (SWE-bench Lite below).
 
-So I built LemonCrow. Every number below is an absolute-dollar measurement
-([BENCHMARKS.md](BENCHMARKS.md)) — on swe, terminalbench and infact some of the claimed tools task themselves. Result? **lemoncrow beat them all**.
+| Benchmark                                         | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |    LemonCrow cost | Cost delta |
+| --------------------------------------------------- | -----------------: | ------------------: | --------------: | ---------------------: | ------------------: | -----------: |
+| SWE-bench Verified, 50 tasks x 5 reps             |            80.8% |         **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** | **29.5% cheaper** |            |
+| SWE-bench Lite, 10 tasks x 5 reps                 |            98.0% |             96.0% |       -2.0 pp |   $19.83 |**$17.51** | **11.7% cheaper** |            |
+| SWE-bench Pro, 10 tasks x 5 reps                  |            88.0% |         **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** | **21.5% cheaper** |            |
+| Exploration tasks across 7 large repos x 5 reps   |                - |                 - |             - |    $19.11 |**$6.29** |   **67% cheaper** |            |
+| Telegraphic Q&A, 20 prompts x 5 reps              |                - |                 - |             - |     $8.40 |**$4.48** | **46.7% cheaper** |            |
+| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* |            78.9% |             78.9% |  0.0 pp (tied) |               $73.75 |          **$61.98** | **16.0% cheaper** |
 
-## Quick start
-
-Install from a checksummed GitHub release:
-
-```
-curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
-```
-
-Then initialize it inside the project where you use your coding agent — no login,
-no network:
-
-```
-    cd your-project
-    lc init  # Initializes your repo and index it.
-```
-
-### Or code from ChatGPT instead — free
-
-ChatGPT chat usage aren't counted towards credits unlike codex which has weekly limit.
-LemonCrow's tools (search, read, edit, bash) can be exposed through a tunnel and agent
-can do coding right from the chatgpt. I recommend using persistent tunnel to not drop
-connection in between the conversation.
-
-```bash
-lc chatgpt serve
-```
-
-Prints a pairing code and, by default, an auto-launched cloudflared tunnel
-URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
-Plugins → Browse Plugins → (next to search) + → Create**, paste the
-printed MCP server URL, set Authentication to **OAuth**, and approve the
-browser prompt with the pairing code.
-
-| Flag                        | Effect                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
-| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. Each hostname gets its own tunnel, state and OAuth store, so several projects can serve at once. |
-| `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
-
-Full request/response traffic is logged locally per run (path printed at
-startup; credentials and tokens are redacted) so you can audit exactly what
-ChatGPT sent and got back.
-
-**Known ChatGPT-side quirk:** Persistent connection is much more reliable. Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
-**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
-
-> ⚠ The pairing code is a password — don't share the tunnel URL. This
-> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
-> server runs. Stop it (Ctrl-C) when you're done.
-
-### Or Inspect your past sessions (Offline Replay, dry mode) before trying
-
-LemonCrow records all sessions locally so you can inspect, audit, and debug exactly what your agent did.
-
-```bash
-lc session stats     # read-only report of wasted tool calls and round-trips
-lc session replay    # replay a recorded session through the real LemonCrow tools
-```
-
-Both are local and read-only — no model re-run, nothing transmitted.
+<sub> Both arms 89 tasks x 5 reps = 445 trials on the same dataset — LemonCrow's Harbor run, public at [Harbor Hub job `47e1713b`](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7), vs the Claude Code 2.1.205 leaderboard run — so correctness is directly comparable; this run ties baseline exactly (351/445 both sides). LemonCrow sends 98.6% fewer fresh input tokens (182K vs 12.87M). Cost is normalized to the 1-hour cache-write rate on both sides (LemonCrow's harness bills prompt-cache writes at that tier; baseline's real run used the cheaper 5-minute tier, so it's re-priced at 1-hour for a same-rate comparison) on the 86 of 89 tasks with a priceable trajectory both sides — see [BENCHMARKS.md](BENCHMARKS.md#terminal-bench).</sub>
 
 <p align="center">
-  <img src="docs/assets/screenshots/session-replay.gif" alt="LemonCrow session replay demonstration" width="720">
+  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
 </p>
-<p align="center"><sub>Replay recorded agent sessions locally with full tool visibility and resource usage breakdown.</sub></p>
+
+SWE-bench Verified detail (250 runs a side) — one-shot search collapses the
+grep-and-read loop, so turns, wall-clock, and tool calls drop together:
+
+| Metric           | Baseline | LemonCrow |            Delta |
+| ------------------ | ---------: | ----------: | -----------------: |
+| Turns            |    6,962 |     4,336 |  **37.7% fewer** |
+| Wall-clock       |    14.3h |     10.9h | **23.7% faster** |
+| Total tool calls |    6,700 |     4,167 |       **-37.8%** |
+| Output tokens    |    3.04M |     2.19M |  **27.9% fewer** |
+
+### Scale
+
+Indexing throughput and search quality hold up at repository sizes agents
+actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
+4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
+pairs across 14 repos:
+
+| Metric                                    |                          LemonCrow | Grep-class baseline |
+| ------------------------------------------- | -----------------------------------: | --------------------: |
+| Linux cold index, lexical (1.24M symbols) |                  **179s** (~3 min) |                  — |
+| Linux cold index, zoekt trigram           |                          **13.7s** |                  — |
+| Retrieval MRR (higher = better)           | **0.727** semantic / 0.676 lexical |     0.376 (ripgrep) |
+| Query latency, p95                        |     134ms lexical / 390ms semantic |  **66ms** (ripgrep) |
+
+Ranked search is ~1.9x more accurate than ripgrep at a still-interactive p95;
+ripgrep wins raw latency but not what it finds. Per-repo indexing table and the
+full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
+
+Reproduce any of this from committed raw data: see [BENCHMARKS.md](BENCHMARKS.md)
+and [docs/benchmarks/results.md](docs/benchmarks/results.md).
 
 ## What LemonCrow does
 
@@ -149,6 +129,76 @@ is derived from implied hit rates, not confirmed in their docs.
 Cursor stores no local cache counters, so every hit
 rate is computed as 1 − billed/integral. Treat the caching mechanism as
 unproven; the additive prefix is the part that is actually measured.
+
+## Quick start
+
+Install from a checksummed GitHub release:
+
+```
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+```
+
+Then initialize it inside the project where you use your coding agent — no login,
+no network:
+
+```
+    cd your-project
+    lc init  # Initializes your repo and index it.
+```
+
+## More ways to run
+
+### Code from ChatGPT instead — free
+
+ChatGPT chat usage aren't counted towards credits unlike codex which has weekly limit.
+LemonCrow's tools (search, read, edit, bash) can be exposed through a tunnel and agent
+can do coding right from the chatgpt. I recommend using persistent tunnel to not drop
+connection in between the conversation.
+
+```bash
+lc chatgpt serve
+```
+
+Prints a pairing code and, by default, an auto-launched cloudflared tunnel
+URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
+Plugins → Browse Plugins → (next to search) + → Create**, paste the
+printed MCP server URL, set Authentication to **OAuth**, and approve the
+browser prompt with the pairing code.
+
+| Flag                        | Effect                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
+| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. Each hostname gets its own tunnel, state and OAuth store, so several projects can serve at once. |
+| `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
+
+Full request/response traffic is logged locally per run (path printed at
+startup; credentials and tokens are redacted) so you can audit exactly what
+ChatGPT sent and got back.
+
+**Known ChatGPT-side quirk:** Persistent connection is much more reliable. Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
+**Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
+
+> ⚠ The pairing code is a password — don't share the tunnel URL. This
+> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
+> server runs. Stop it (Ctrl-C) when you're done.
+
+### Inspect your past sessions (Offline Replay, dry mode)
+
+LemonCrow records all sessions locally so you can inspect, audit, and debug exactly what your agent did.
+
+```bash
+lc session stats     # read-only report of wasted tool calls and round-trips
+lc session replay    # replay a recorded session through the real LemonCrow tools
+```
+
+Both are local and read-only — no model re-run, nothing transmitted.
+
+<p align="center">
+  <img src="docs/assets/screenshots/session-replay.gif" alt="LemonCrow session replay demonstration" width="720">
+</p>
+<p align="center"><sub>Replay recorded agent sessions locally with full tool visibility and resource usage breakdown.</sub></p>
+
+## Agents and skills
 
 ### Agents
 
@@ -211,7 +261,7 @@ that returns a concrete delete-list — code to remove, not rewrite.
   or team collaboration server.
 - It does **not** run your model for you — you bring and configure your own
   provider/API key (Anthropic, OpenAI, Ollama, …).
-- It does **not** guarantee the benchmark deltas below on your repository;
+- It does **not** guarantee the benchmark deltas above on your repository;
   results vary by task, codebase, and model.
 - Some integrations are early or in progress; behavior varies by host (e.g.
   session-close verification is enforced on Claude Code, advisory elsewhere).
@@ -240,61 +290,7 @@ that returns a concrete delete-list — code to remove, not rewrite.
 - **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
   and [Troubleshooting](docs/troubleshooting.md).
 
-## Results
-
-These are fixed results from pinned benchmark runs — not a live counter. Every
-headline number links back to committed raw runs and methodology in
-[BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
-verification harness were held constant. Results are mixed by design and include
-a regression (SWE-bench Lite below).
-
-| Benchmark                                         | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |    LemonCrow cost | Cost delta |
-| --------------------------------------------------- | -----------------: | ------------------: | --------------: | ---------------------: | ------------------: | -----------: |
-| SWE-bench Verified, 50 tasks x 5 reps             |            80.8% |         **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** | **29.5% cheaper** |            |
-| SWE-bench Lite, 10 tasks x 5 reps                 |            98.0% |             96.0% |       -2.0 pp |   $19.83 |**$17.51** | **11.7% cheaper** |            |
-| SWE-bench Pro, 10 tasks x 5 reps                  |            88.0% |         **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** | **21.5% cheaper** |            |
-| Exploration tasks across 7 large repos x 5 reps   |                - |                 - |             - |    $19.11 |**$6.29** |   **67% cheaper** |            |
-| Telegraphic Q&A, 20 prompts x 5 reps              |                - |                 - |             - |     $8.40 |**$4.48** | **46.7% cheaper** |            |
-| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* |            78.9% |             78.9% |  0.0 pp (tied) |               $73.75 |          **$61.98** | **16.0% cheaper** |
-
-<sub> Both arms 89 tasks x 5 reps = 445 trials on the same dataset — LemonCrow's Harbor run, public at [Harbor Hub job `47e1713b`](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7), vs the Claude Code 2.1.205 leaderboard run — so correctness is directly comparable; this run ties baseline exactly (351/445 both sides). LemonCrow sends 98.6% fewer fresh input tokens (182K vs 12.87M). Cost is normalized to the 1-hour cache-write rate on both sides (LemonCrow's harness bills prompt-cache writes at that tier; baseline's real run used the cheaper 5-minute tier, so it's re-priced at 1-hour for a same-rate comparison) on the 86 of 89 tasks with a priceable trajectory both sides — see [BENCHMARKS.md](BENCHMARKS.md#terminal-bench).</sub>
-
-<p align="center">
-  <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
-</p>
-
-SWE-bench Verified detail (250 runs a side) — one-shot search collapses the
-grep-and-read loop, so turns, wall-clock, and tool calls drop together:
-
-| Metric           | Baseline | LemonCrow |            Delta |
-| ------------------ | ---------: | ----------: | -----------------: |
-| Turns            |    6,962 |     4,336 |  **37.7% fewer** |
-| Wall-clock       |    14.3h |     10.9h | **23.7% faster** |
-| Total tool calls |    6,700 |     4,167 |       **-37.8%** |
-| Output tokens    |    3.04M |     2.19M |  **27.9% fewer** |
-
-### Scale
-
-Indexing throughput and search quality hold up at repository sizes agents
-actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
-4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
-pairs across 14 repos:
-
-| Metric                                    |                          LemonCrow | Grep-class baseline |
-| ------------------------------------------- | -----------------------------------: | --------------------: |
-| Linux cold index, lexical (1.24M symbols) |                  **179s** (~3 min) |                  — |
-| Linux cold index, zoekt trigram           |                          **13.7s** |                  — |
-| Retrieval MRR (higher = better)           | **0.727** semantic / 0.676 lexical |     0.376 (ripgrep) |
-| Query latency, p95                        |     134ms lexical / 390ms semantic |  **66ms** (ripgrep) |
-
-Ranked search is ~1.9x more accurate than ripgrep at a still-interactive p95;
-ripgrep wins raw latency but not what it finds. Per-repo indexing table and the
-full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
-
-Reproduce any of this from committed raw data: see [BENCHMARKS.md](BENCHMARKS.md)
-and [docs/benchmarks/results.md](docs/benchmarks/results.md).
-
-### Future cost optimizations
+## Roadmap — future cost optimizations
 
 The numbers above are what ships today. Three levers are identified and not yet
 implemented:
@@ -345,6 +341,14 @@ The uninstaller stops background services, removes user-level systemd/launchd
 units, removes LemonCrow-owned host-integration entries (without touching
 unrelated agent-host configuration), reverts LemonCrow's PATH changes, and prints
 exactly what was removed and preserved. Preview with `--dry-run`.
+
+## Why I built this
+
+I am a solo builder, previously at Google doing performance optimizations and cost savings. I kept burning my weekly credits before the week was out. Every
+"token-saving" claimed tools only every shows me a curated list of tasks where they save. Only showing partial wins. Claiming 50-60-70% wins infact they never shows on all varaties of tasks. In reality they either same so little to justify complexity or they don't save at all because they add fat system prompts on their own that the savings are offset.
+
+So I built LemonCrow. Every number below is an absolute-dollar measurement
+([BENCHMARKS.md](BENCHMARKS.md)) — on swe, terminalbench and infact some of the claimed tools task themselves. Result? **lemoncrow beat them all**.
 
 ## Development & Building from Source
 
