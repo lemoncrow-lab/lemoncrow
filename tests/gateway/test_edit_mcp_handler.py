@@ -8,6 +8,7 @@ cases that were previously untested.
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -905,8 +906,11 @@ def test_blind_range_edit_rejected_without_prior_read(workspace: Path) -> None:
     assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"
 
 
-def test_blind_range_edit_rejected_when_file_changed_since_read(workspace: Path) -> None:
-    """Read, then the file changes on disk → the range's line numbers are stale."""
+def test_blind_range_edit_follows_lines_shifted_by_unrelated_drift(workspace: Path) -> None:
+    """Drift is not staleness: an external change ABOVE the target shifts the
+    line numbers but not the content the edit was written against, so the guard
+    relocates the range instead of rejecting a perfectly well-defined edit.
+    """
     f = workspace / "drift.txt"
     f.write_text("a1\na2\na3\n", encoding="utf-8")
     _read("drift.txt")
@@ -914,9 +918,26 @@ def test_blind_range_edit_rejected_when_file_changed_since_read(workspace: Path)
 
     payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "drift.txt:L2-L2", "new_string": "X\n"}]})
 
+    # a2 was served as L2 and now sits at L3 -- the splice follows it, and the
+    # echoed line is where it LANDED so the model stays oriented.
+    assert payload.get("applied") == ["drift.txt:3"], payload
+    assert f.read_text(encoding="utf-8") == "NEW\na1\nX\na3\n"
+
+
+def test_blind_range_edit_rejected_when_the_target_lines_themselves_changed(workspace: Path) -> None:
+    """The one case that must still fail: the served lines are gone, so there is
+    no honest place to put the replacement.
+    """
+    f = workspace / "drift.txt"
+    f.write_text("a1\na2\na3\n", encoding="utf-8")
+    _read("drift.txt")
+    f.write_text("a1\nsomething else entirely\na3\n", encoding="utf-8")
+
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "drift.txt:L2-L2", "new_string": "X\n"}]})
+
     assert payload["rolled_back"] is True
-    assert "changed on disk since" in payload["failed"][0]["error"]
-    assert f.read_text(encoding="utf-8") == "NEW\na1\na2\na3\n"
+    assert "no longer hold what was served" in payload["failed"][0]["error"]
+    assert f.read_text(encoding="utf-8") == "a1\nsomething else entirely\na3\n"
 
 
 def test_blind_range_edit_allowed_after_fresh_read_and_old_anchor_exempt(workspace: Path) -> None:
@@ -927,14 +948,67 @@ def test_blind_range_edit_allowed_after_fresh_read_and_old_anchor_exempt(workspa
     _edit({"post_edit_hooks": False, "edits": [{"file_path": "fresh.txt:L2-L2", "new_string": "X\n"}]})
     assert f.read_text(encoding="utf-8") == "a1\nX\na3\n"
 
-    # After OUR OWN write the signature is stale on purpose (lines may have
-    # shifted) — a second blind range edit must re-read…
-    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "fresh.txt:L3-L3", "new_string": "Y\n"}]})
-    assert "changed on disk since" in payload["failed"][0]["error"]
+    # Our own write staled the stat signature, but it changed L2 only -- L3 is
+    # still the a3 that was served, so a second blind range edit from the SAME
+    # read applies without a re-read turn.
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "fresh.txt:L3-L3", "new_string": "Y\n"}]})
+    assert f.read_text(encoding="utf-8") == "a1\nX\nY\n"
 
     # …while an old-anchored edit needs no freshness at all: it self-verifies.
-    _edit({"post_edit_hooks": False, "edits": [{"file_path": "fresh.txt", "old_string": "a3\n", "new_string": "Z\n"}]})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "fresh.txt", "old_string": "Y\n", "new_string": "Z\n"}]})
     assert f.read_text(encoding="utf-8") == "a1\nX\nZ\n"
+
+
+def test_blind_range_edits_survive_our_own_line_shifting_edits(workspace: Path) -> None:
+    """The common real sequence: one read, then several edits that each shift the
+    lines below them. Every later range still refers to the ORIGINAL read, and
+    each one is relocated to where its content actually lives now.
+    """
+    f = workspace / "shift.txt"
+    f.write_text("a1\na2\na3\na4\n", encoding="utf-8")
+    _read("shift.txt")
+
+    # Grow L1 into three lines -- everything below moves down by two.
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "shift.txt:L1-L1", "new_string": "b1\nb2\nb3\n"}]})
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "shift.txt:L3-L3", "new_string": "C\n"}]})
+
+    assert payload.get("applied") == ["shift.txt:5"], payload
+    assert f.read_text(encoding="utf-8") == "b1\nb2\nb3\na2\nC\na4\n"
+
+
+def test_blind_range_edit_rejected_when_relocation_is_ambiguous(workspace: Path) -> None:
+    """A served block that now occurs in several places (even with its context)
+    is not relocatable -- guessing one would splice the wrong copy.
+    """
+    f = workspace / "dup.txt"
+    f.write_text("a\nDUP\nb\n", encoding="utf-8")
+    _read("dup.txt")
+    # L2's content is gone from where it was and now appears twice elsewhere,
+    # and the served neighbours no longer surround either copy.
+    f.write_text("a\nZ\nb\nDUP\nc\nDUP\n", encoding="utf-8")
+
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "dup.txt:L2-L2", "new_string": "Y\n"}]})
+
+    assert payload["rolled_back"] is True
+    assert f.read_text(encoding="utf-8") == "a\nZ\nb\nDUP\nc\nDUP\n"
+
+
+def test_blind_range_edit_never_relocates_on_a_bare_content_match(workspace: Path) -> None:
+    """A moved block must bring its neighbours with it.
+
+    The served line is gone from where it was and happens to exist exactly once
+    elsewhere -- "unique in the file" alone would relocate the splice into
+    unrelated code, silently, which is the failure the guard exists to prevent.
+    """
+    f = workspace / "coincidence.txt"
+    f.write_text("alpha\nTARGET\nbeta\ngamma\n", encoding="utf-8")
+    _read("coincidence.txt")
+    f.write_text("alpha\nreplaced\nbeta\ngamma\nunrelated\nTARGET\n", encoding="utf-8")
+
+    payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "coincidence.txt:L2-L2", "new_string": "X\n"}]})
+
+    assert payload["rolled_back"] is True
+    assert f.read_text(encoding="utf-8") == "alpha\nreplaced\nbeta\ngamma\nunrelated\nTARGET\n"
 
 
 def test_blind_range_edit_uses_gutter_disk_line_directly(workspace: Path) -> None:
@@ -1044,19 +1118,19 @@ def test_blind_range_edit_minified_flag_rejected_when_stale(workspace: Path) -> 
 
 
 def test_blind_range_edit_rejection_includes_retry_content(workspace: Path) -> None:
-    """A rejected blind range edit (file changed on disk since last read) ships
+    """A rejected blind range edit (the served lines are gone from disk) ships
     the exact current content around the requested range as retry_with, so the
     retry doesn't cost a separate read turn.
     """
     f = workspace / "drift.txt"
     f.write_text("a1\na2\na3\na4\na5\n", encoding="utf-8")
     _read("drift.txt")
-    f.write_text("NEW\na1\na2\na3\na4\na5\n", encoding="utf-8")  # external change shifts every line
+    f.write_text("a1\nrewritten\nalso rewritten\na4\na5\n", encoding="utf-8")
 
     payload = _edit({"post_edit_hooks": False, "edits": [{"file_path": "drift.txt:L2-L2", "new_string": "X\n"}]})
     assert "changed on disk since" in payload["failed"][0]["error"]
     retry_with = payload["failed"][0]["retry_with"]
-    assert retry_with["old_string"] == "NEW\na1\na2\na3\n"
+    assert retry_with["old_string"] == "a1\nrewritten\nalso rewritten\na4\n"
     assert retry_with["path"] == "drift.txt:L1-L4"
 
 
@@ -1080,6 +1154,47 @@ def test_blind_range_edit_retry_anchor_is_bounded(workspace: Path) -> None:
     assert 0 < len(anchor) <= 400, "anchor must stay bounded"
     assert anchor in body, "anchor must remain an exact substring so it works as old="
     assert anchor.endswith("\n"), "anchor must cut on a line boundary"
+
+
+def test_relocation_never_lands_on_different_content_under_random_drift() -> None:
+    """The invariant the guard is judged on, fuzzed.
+
+    Rejecting a resolvable range costs a turn; relocating onto the WRONG lines
+    corrupts a file silently, so the only property that must hold across every
+    drift shape is: whenever a range IS relocated, the lines it now points at
+    are byte-identical to the lines that were served. The vocabulary is
+    deliberately tiny and repetitive -- far more self-similar than real source
+    -- so near-miss anchors come up constantly.
+    """
+    vocab = ["", "    pass", "    return None", "}", "def f():", "x = 1", "# note", "import os", "    return x"]
+    rnd = random.Random(20260729)
+    relocated = 0
+    for _ in range(3000):
+        served_lines = [rnd.choice(vocab) for _ in range(rnd.randint(3, 40))]
+        current_lines = list(served_lines)
+        for _ in range(rnd.randint(1, 3)):
+            at = rnd.randrange(0, max(1, len(current_lines)))
+            op = rnd.choice(("insert", "delete", "replace"))
+            if op == "insert":
+                current_lines[at:at] = [rnd.choice(vocab) for _ in range(rnd.randint(1, 3))]
+            elif current_lines and op == "delete":
+                del current_lines[at : at + rnd.randint(1, 3)]
+            elif current_lines:
+                current_lines[at] = rnd.choice(vocab) + "!"
+        start = rnd.randint(1, len(served_lines))
+        end = min(len(served_lines), start + rnd.randint(0, 4))
+        served_text = "\n".join(served_lines) + "\n"
+        current_text = "\n".join(current_lines) + "\n"
+        got = mcp_server._relocate_served_range(
+            mcp_server._line_digests(served_text), mcp_server._line_digests(current_text), start, end
+        )
+        if got is None:  # fails closed -- always allowed
+            continue
+        relocated += 1
+        assert (
+            current_text.splitlines()[got[0] - 1 : got[1]] == served_text.splitlines()[start - 1 : end]
+        ), f"L{start}-L{end} -> L{got[0]}-L{got[1]} changed the content under the edit"
+    assert relocated > 1000, f"fuzz degenerated into all-rejections ({relocated} resolved)"
 
 
 def test_blind_range_guard_disabled_by_env(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
