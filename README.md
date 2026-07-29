@@ -82,7 +82,7 @@ Full request/response traffic is logged locally per run (path printed at
 startup; credentials and tokens are redacted) so you can audit exactly what
 ChatGPT sent and got back.
 
-**Known ChatGPT-side quirk:** Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
+**Known ChatGPT-side quirk:** Persistent connection is much more reliable. Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
 **Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
 
 > ⚠ The pairing code is a password — don't share the tunnel URL. This
@@ -243,9 +243,9 @@ a regression (SWE-bench Lite below).
 | SWE-bench Pro, 10 tasks x 5 reps                  |            88.0% |         **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** | **21.5% cheaper** |            |
 | Exploration tasks across 7 large repos x 5 reps   |                - |                 - |             - |    $19.11 |**$6.29** |   **67% cheaper** |            |
 | Telegraphic Q&A, 20 prompts x 5 reps              |                - |                 - |             - |     $8.40 |**$4.48** | **46.7% cheaper** |            |
-| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* |            78.9% |         **80.0%** |   **+1.1 pp** |                   — |                — |         — |
+| Terminal-Bench 2.1, 89 tasks x 5 reps (matched)\* |            78.9% |             78.9% |  0.0 pp (tied) |               $73.75 |          **$61.98** | **16.0% cheaper** |
 
-<sub> Both arms 89 tasks x 5 reps = 445 trials on the same dataset (LemonCrow's Harbor run vs the Claude Code 2.1.205 leaderboard run), so correctness is directly comparable. LemonCrow also sends 91.8% fewer fresh input tokens (1.05M vs 12.87M); cost is not a matched comparison here — see .</sub>
+<sub> Both arms 89 tasks x 5 reps = 445 trials on the same dataset — LemonCrow's Harbor run, public at [Harbor Hub job `47e1713b`](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7), vs the Claude Code 2.1.205 leaderboard run — so correctness is directly comparable; this run ties baseline exactly (351/445 both sides). LemonCrow sends 98.6% fewer fresh input tokens (182K vs 12.87M). Cost is normalized to the 1-hour cache-write rate on both sides (LemonCrow's harness bills prompt-cache writes at that tier; baseline's real run used the cheaper 5-minute tier, so it's re-priced at 1-hour for a same-rate comparison) on the 86 of 89 tasks with a priceable trajectory both sides — see [BENCHMARKS.md](BENCHMARKS.md#terminal-bench).</sub>
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
