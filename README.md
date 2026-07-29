@@ -28,6 +28,13 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 
 </div>
 
+```bash
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+cd your-project && lc init
+```
+
+<div align="center"><sub>Checksummed GitHub release · no login, no network — details in <a href="#quick-start">Quick start</a>.</sub></div>
+
 ---
 
 ## Results
