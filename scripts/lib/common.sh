@@ -1075,11 +1075,11 @@ detect_hosts() {
     # but costlier on small tasks. Opt in explicitly.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
-        HOST_SUMMARY+=("Cursor (*Faster execution only saves in longer sessions) (detected)")
-        HOST_CHOICES+=("Cursor (*Faster execution only saves in longer sessions)|detected")
+        HOST_SUMMARY+=("Cursor (saves in API move, doesn't save in auto mode) (detected)")
+        HOST_CHOICES+=("Cursor (saves in API move, doesn't save in auto mode)|detected")
     else
-        HOST_SUMMARY+=("Cursor (*Faster execution only saves in longer sessions) (not found)")
-        HOST_CHOICES+=("Cursor (*Faster execution only saves in longer sessions)|not found")
+        HOST_SUMMARY+=("Cursor (saves in API move, doesn't save in auto mode) (not found)")
+        HOST_CHOICES+=("Cursor (saves in API move, doesn't save in auto mode)|not found")
     fi
     HOST_DEFAULT_SELECTION+=(0)
 }
