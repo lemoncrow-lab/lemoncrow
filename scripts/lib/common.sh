@@ -1075,11 +1075,11 @@ detect_hosts() {
     # but costlier on small tasks. Opt in explicitly.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
-        HOST_SUMMARY+=("Cursor (detected, not recommended)")
-        HOST_CHOICES+=("Cursor (not recommended)|detected")
+        HOST_SUMMARY+=("Cursor (*Faster execution only saves in longer sessions) (detected)")
+        HOST_CHOICES+=("Cursor (*Faster execution only saves in longer sessions)|detected")
     else
-        HOST_SUMMARY+=("Cursor (not found, not recommended)")
-        HOST_CHOICES+=("Cursor (not recommended)|not found")
+        HOST_SUMMARY+=("Cursor (*Faster execution only saves in longer sessions) (not found)")
+        HOST_CHOICES+=("Cursor (*Faster execution only saves in longer sessions)|not found")
     fi
     HOST_DEFAULT_SELECTION+=(0)
 }
