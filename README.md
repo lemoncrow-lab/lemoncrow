@@ -12,7 +12,7 @@
 
 LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
 
-**State-of-the-art context engineering.** LemonCrow is tuned end to end across input context and output — ranked retrieval, exact-range reads, and bounded, compacted output — and out-measures grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
+**State-of-the-art context engineering.** Read less, Output less, without compromising correctness. LemonCrow is tuned end to end across input context and output — ranked retrieval, exact-range reads, and bounded, compacted output — and out-measures grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
@@ -107,6 +107,12 @@ LemonCrow keeps your existing coding agent and changes the working set around it
 | **Carry**  | Preserve useful task state through memory, deduplication, compaction manifests, and handover packets.         |
 | **Verify** | Notice code changes without tests or checks, then nudge the agent before it declares completion.              |
 
+**One shot to answer, one shot to action.** Every stage above is built around a
+single round trip: one search returns the symbol, its callers, and the exact
+source ranges — not a grep loop; one edit applies every hunk across every file —
+not a patch-per-file series. Re-asking the same ground is the cost, not the
+model.
+
 ### What actually gets replaced
 
 On Claude Code, `lc init` gives the agent five grounded tools and hides the
@@ -139,18 +145,15 @@ unproven; the additive prefix is the part that is actually measured.
 
 ## Quick start
 
-Install from a checksummed GitHub release:
+The [two lines at the top](#lemoncrow-runtime) are the whole setup: the installer
+pulls a checksummed GitHub release, and `lc init` indexes the repo it is run in —
+locally, no login, no network, nothing sent anywhere.
 
-```
-curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
-```
+Install once, then `lc init` in every project where you use your coding agent:
 
-Then initialize it inside the project where you use your coding agent — no login,
-no network:
-
-```
-    cd your-project
-    lc init  # Initializes your repo and index it.
+```bash
+cd another-project
+lc init
 ```
 
 ## More ways to run
@@ -275,14 +278,15 @@ that returns a concrete delete-list — code to remove, not rewrite.
 
 ## Privacy and network behavior
 
-- **Runs locally.** After install, all core functionality works offline and
-  contacts **no** LemonCrow-controlled server.
-- **Telemetry is OFF by default** and strictly opt-in. A global `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`
-  environment kill switch is honored.
-- **No** identifier, repository path, source code, or
-  symbol name leaves your machine. There is no crash reporting.
-- The only network calls the runtime makes are ones you initiate (`lc update`,
-  which checks GitHub Releases).
+- **Runs locally.** Indexing, search, edits, and memory all stay on your
+  machine; core functionality works offline.
+- **Anonymous telemetry is ON by default.** Turn it off with `lc telemetry remote off`,
+  or set `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`.
+- **No** source code, prompt, repository path, or symbol name is ever sent —
+  only aggregate counts, durations, and dollar estimates plus a hashed install
+  key. There is no crash reporting.
+- Apart from that rollup, the only network calls the runtime makes are ones you
+  initiate (`lc update`, which checks GitHub Releases).
 - Full detail: [docs/privacy.md](docs/privacy.md).
 
 ## Supported environments
@@ -297,9 +301,9 @@ that returns a concrete delete-list — code to remove, not rewrite.
 - **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
   and [Troubleshooting](docs/troubleshooting.md).
 
-## Roadmap — future cost optimizations
+## Roadmap — Future Improvements
 
-The numbers above are what ships today. Three levers are identified and not yet
+The numbers above are what ships today. Four levers are identified and not yet
 implemented:
 
 1. **Smart routing.** Every turn currently runs on whatever model the session
@@ -318,6 +322,14 @@ implemented:
    dead-end search — are written into the cached prefix and paid for even when
    they are never read again. Deciding what enters the cached prefix, instead
    of caching everything, removes writes that never earn themselves back.
+4. **Micro agent — multi-turn search that returns exactly what's needed.** Today
+   a search is one shot: the frontier model asks, gets ranked results, and pays
+   context for everything returned, including the misses. A micro agent moves
+   that loop off the frontier model — a small local model runs the search,
+   reads candidates, refines its own query across several turns, and hands back
+   only the exact document, symbol, or line range the task needed. The
+   exploration turns are cheap and local; the expensive model sees one precise
+   answer instead of a search transcript.
 
 ## Learn more
 

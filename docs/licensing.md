@@ -28,7 +28,8 @@ no behavior and unlocks no features.
 
 ## Network behavior
 
-By default LemonCrow makes no network requests to LemonCrow-controlled servers,
-and remote telemetry is off unless you explicitly opt in. For the full details
+Indexing, search, edits, and memory all stay on your machine. Anonymous remote
+telemetry is on by default — turn it off with `lc telemetry remote off`,
+`DO_NOT_TRACK=1`, or `LEMONCROW_TELEMETRY=off`. For the full details
 of what does and does not leave your machine, see
 [Privacy & network behavior](./privacy.md).

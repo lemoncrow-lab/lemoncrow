@@ -9,7 +9,7 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 | Section                                           | Description                                                                                           |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | [Installation](./installation.md)                 | Install script, background services, modes, storage, and uninstall                                    |
-| [Privacy & Network](./privacy.md)                 | What runs locally, network behavior, and telemetry (off by default, opt-in)                           |
+| [Privacy & Network](./privacy.md)                 | What runs locally, network behavior, and telemetry (on by default; `lc telemetry remote off`)         |
 | [Licensing](./licensing.md)                       | Apache-2.0 in full and the optional (gates-nothing) account                                           |
 | [CLI Reference](./cli.md)                         | Current public CLI reference                                                                          |
 | [Benchmark Results](./benchmarks/results.md)      | Every suite, every number, every raw-run link -- and the retrieval eval vs 10 named code-search tools |

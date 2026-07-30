@@ -93,7 +93,7 @@ Say exactly:
 
 - Parsing and indexing run locally.
 - Model calls still go to the provider already configured in the host.
-- Optional anonymous telemetry excludes source and prompts and can be disabled.
+- Anonymous telemetry is on by default, excludes source and prompts, and turns off with `lc telemetry remote off`.
 - All of LemonCrow, including the engine, is Apache-2.0 and ships as readable source.
 
 Do not claim every competitor requires uploading code.

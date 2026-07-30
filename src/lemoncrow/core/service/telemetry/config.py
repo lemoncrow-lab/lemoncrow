@@ -17,9 +17,11 @@ TRUE_VALUES = {"1", "true", "on", "yes"}
 
 @dataclass(frozen=True)
 class TelemetryConfig:
-    # Off by default: LemonCrow is a local runtime. Remote telemetry is strictly
-    # opt-in (`lc telemetry remote on`). Nothing leaves the machine until then.
-    remote_enabled: bool = False
+    # On by default: anonymous counts/durations only -- no code, prompts, paths,
+    # or symbol names (see telemetry/public_rollup.py `_payload`). Opt out with
+    # `lc telemetry remote off`, DO_NOT_TRACK=1, or LEMONCROW_TELEMETRY=off.
+    # Every other part of the runtime stays local.
+    remote_enabled: bool = True
     lexical_frustration_enabled: bool = False
 
 
@@ -41,7 +43,7 @@ def _load_file_config() -> TelemetryConfig:
             data = {}
 
     return TelemetryConfig(
-        remote_enabled=_bool(data.get("remote_enabled"), False),
+        remote_enabled=_bool(data.get("remote_enabled"), True),
         lexical_frustration_enabled=_bool(data.get("lexical_frustration_enabled"), False),
     )
 
@@ -61,9 +63,9 @@ def _env_master_disabled() -> bool:
 
 
 def load_telemetry_config() -> TelemetryConfig:
-    # Remote telemetry is OFF by default; a user-set ``remote_enabled = true``
-    # in telemetry.toml (via ``lc telemetry remote on``) opts in. The test guard
-    # and env kill switch below additionally suppress remote export.
+    # Remote telemetry is ON by default; a user-set ``remote_enabled = false``
+    # in telemetry.toml (via ``lc telemetry remote off``) opts out. The test
+    # guard and env kill switch below additionally suppress remote export.
     cfg = _load_file_config()
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS") != "1":
         return TelemetryConfig(False, cfg.lexical_frustration_enabled)

@@ -78,6 +78,8 @@ commitments, dated deliverables, or shipped features.
 | Cross-machine sync    | Encrypted workspace sync across machines                                                 |
 | Web dashboard         | Browser-based spend trends and management                                                |
 | Benchmark publication | One-command export to publishable JSON + markdown                                        |
+| Local agentic search  | Small local model runs the explore/search loop; only exact matched spans are passed up to the frontier model |
+| Multi-turn retrieval  | Iterative retrieval that returns the exact document the model asked for instead of top-k chunks |
 
 ## Not planned
 

@@ -76,10 +76,10 @@ def publish_public_savings_rollup(
     try:
         from lemoncrow.core.service.telemetry.config import remote_enabled
 
-        # Opt-in gate: the public savings rollup is remote telemetry and must
-        # never leave the machine unless the user enabled remote telemetry
-        # (`lc telemetry remote on`). Covers both the session-end hook and the
-        # daily daemon flush.
+        # Opt-out gate: the public savings rollup is remote telemetry, on by
+        # default but suppressed the moment the user disables it
+        # (`lc telemetry remote off`, DO_NOT_TRACK=1, LEMONCROW_TELEMETRY=off).
+        # Covers both the session-end hook and the daily daemon flush.
         if not remote_enabled():
             return False
 
@@ -110,7 +110,7 @@ def publish_public_savings_rollup(
         if payload is None:
             return False
         return _post_json(endpoint, payload, timeout_s=public_rollup_timeout_seconds())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("public_rollup.publish_failed", extra={"error": str(exc)})
         return False
 
