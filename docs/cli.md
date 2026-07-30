@@ -274,14 +274,14 @@ The internal/dev suites are `lc benchmark {codebench,swe}` and
 
 The `lc account` commands are an **optional** convenience for linking a hosted
 account. They gate nothing — LemonCrow is fully local and every feature works
-without them; they are never required and never prompted. Remote telemetry is
-**off by default** and strictly opt-in (see
+without them; they are never required and never prompted. Anonymous remote
+telemetry is **on by default**; turn it off with `lc telemetry remote off` (see
 [Privacy & network behavior](privacy.md)).
 
 | Command             | Purpose                                                            |
 | ------------------- | ----------------------------------------------------------------- |
 | `lc settings ...`   | Manage local plugin settings.                                     |
-| `lc telemetry ...`  | Inspect or toggle telemetry; remote telemetry is off by default.  |
+| `lc telemetry ...`  | Inspect or toggle telemetry; remote telemetry is on by default.   |
 | `lc account login`  | Optional: link a hosted account. Gates nothing; never required.   |
 | `lc account logout` | Remove the optional local account link.                           |
 | `lc account status` | Show whether an optional account link is present.                 |

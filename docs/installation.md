@@ -293,15 +293,15 @@ lc init
 
 ### Telemetry
 
-Remote telemetry is **off by default** and strictly opt-in. Enable it with
-`lc telemetry remote on` and disable it again with `lc telemetry remote off`.
+Anonymous remote telemetry is **on by default**. Turn it off with
+`lc telemetry remote off`, and back on with `lc telemetry remote on`.
 The kill switches `DO_NOT_TRACK=1` and `LEMONCROW_TELEMETRY=off` suppress remote
 telemetry entirely. See [Privacy & network behavior](privacy.md) for exactly
 what is and is not sent.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `LEMONCROW_TELEMETRY` | off (remote) | Remote telemetry is opt-in; `off`/`0`/`false`/`no`, or `DO_NOT_TRACK=1`, disable it |
+| `LEMONCROW_TELEMETRY` | on (remote) | Remote telemetry is on by default; `off`/`0`/`false`/`no`, or `DO_NOT_TRACK=1`, disables it |
 
 If you are developing LemonCrow itself instead of using the installed product:
 

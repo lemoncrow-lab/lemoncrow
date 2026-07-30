@@ -2,8 +2,8 @@
 
 With all outbound (non-loopback) network access blocked and no account
 credentials, the core local chokepoints succeed, entitlements are unlocked, the
-cap gate is never dormant, local identity works, and telemetry (off by default)
-emits nothing over the wire. See docs/maintenance-mode-transition.md.
+cap gate is never dormant, local identity works, and telemetry emits nothing
+over the wire once disabled. See docs/maintenance-mode-transition.md.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def test_local_identity_works_offline(_no_network: None, tmp_path: Path, monkeyp
     run_startup_migrations(tmp_path)  # migration is offline
 
 
-def test_telemetry_off_by_default_and_emits_nothing_offline(
+def test_telemetry_on_by_default_but_emits_nothing_offline(
     _no_network: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_DB", str(tmp_path / "t.db"))
@@ -73,8 +73,12 @@ def test_telemetry_off_by_default_and_emits_nothing_offline(
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "tid"))
 
     from lemoncrow.core.service.telemetry import emit_product
-    from lemoncrow.core.service.telemetry.config import remote_enabled
+    from lemoncrow.core.service.telemetry.config import _load_file_config, remote_enabled
 
+    # On by default on a real machine (opt out: `lc telemetry remote off`,
+    # DO_NOT_TRACK=1, LEMONCROW_TELEMETRY=off) ...
+    assert _load_file_config().remote_enabled is True
+    # ... while the pytest guard keeps the suite itself off the wire.
     assert remote_enabled() is False
     # Writes to the local SQLite store only; the _no_network guard proves no
     # outbound call happens.

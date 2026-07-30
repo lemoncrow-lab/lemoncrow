@@ -10,9 +10,10 @@ from typing import TextIO
 from lemoncrow.core.foundation.identity import config_dir
 
 BANNER_TEXT = (
-    "LemonCrow runs fully locally. Anonymous usage telemetry is OFF by default.\n"
-    "Enable it (opt-in):  lc telemetry remote on\n"
-    "What it would send:  lc telemetry show   ·   see docs/privacy.md\n"
+    "LemonCrow collects anonymous usage telemetry, ON by default: counts and\n"
+    "timings only -- never code, prompts, file paths, or symbol names.\n"
+    "Turn it off:    lc telemetry remote off   ·   or DO_NOT_TRACK=1\n"
+    "What it sends:  lc telemetry show        ·   see docs/privacy.md\n"
 )
 
 
