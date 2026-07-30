@@ -1030,6 +1030,7 @@ contains_any_host_flag() {
     has_flag "--claude" && return 0
     has_flag "--codex" && return 0
     has_flag "--opencode" && return 0
+    has_flag "--cursor" && return 0
     return 1
 }
 
@@ -1069,6 +1070,18 @@ detect_hosts() {
         HOST_DEFAULT_SELECTION+=(0)
     fi
 
+    # Cursor: offered but never default-selected. Cursor cannot hide its
+    # built-in tools, so LemonCrow is a pure prompt addition there - faster,
+    # but costlier on small tasks. Opt in explicitly.
+    if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
+       || command -v cursor-agent >/dev/null 2>&1; then
+        HOST_SUMMARY+=("Cursor (detected, not recommended)")
+        HOST_CHOICES+=("Cursor (not recommended)|detected")
+    else
+        HOST_SUMMARY+=("Cursor (not found, not recommended)")
+        HOST_CHOICES+=("Cursor (not recommended)|not found")
+    fi
+    HOST_DEFAULT_SELECTION+=(0)
 }
 
 join_with_comma_space() {
@@ -1114,6 +1127,7 @@ host_wizard() {
                     0) HOST_FLAGS+=(--claude) ;;
                     1) HOST_FLAGS+=(--codex) ;;
                     2) HOST_FLAGS+=(--opencode) ;;
+                    3) HOST_FLAGS+=(--cursor) ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1123,6 +1137,7 @@ host_wizard() {
         printf "│  1) %s\n" "${HOST_SUMMARY[0]}"
         printf "│  2) %s\n" "${HOST_SUMMARY[1]}"
         printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
+        printf "│  4) %s\n" "${HOST_SUMMARY[3]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -1145,6 +1160,7 @@ host_wizard() {
                         1) HOST_FLAGS+=(--claude) ;;
                         2) HOST_FLAGS+=(--codex) ;;
                         3) HOST_FLAGS+=(--opencode) ;;
+                        4) HOST_FLAGS+=(--cursor) ;;
                     esac
                 done
                 [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
