@@ -80,6 +80,27 @@ def test_sonnet_5_rates_track_the_intro_window() -> None:
     ) == expected
 
 
+def test_context_variant_tag_still_prices() -> None:
+    """Claude Code stamps the 1M-context beta as ``<model>[1m]`` in its transcript.
+
+    Unresolved, that tag made every savings row written in a 1M-context session
+    price as an unknown model -- $0 saved on the statusline all session long.
+    """
+    for tagged, plain in (
+        ("claude-opus-5[1m]", "claude-opus-5"),
+        ("claude-sonnet-4-5[1m]", "claude-sonnet-4-5"),
+        ("claude-sonnet-4-5-20250929[1m]", "claude-sonnet-4-5"),
+    ):
+        tagged_pricing = get_model_pricing(tagged)
+        plain_pricing = get_model_pricing(plain)
+        assert tagged_pricing.known, tagged
+        assert (tagged_pricing.input, tagged_pricing.output, tagged_pricing.cache_read) == (
+            plain_pricing.input,
+            plain_pricing.output,
+            plain_pricing.cache_read,
+        )
+
+
 def test_display_names_resolve_to_priced_models() -> None:
     for display, canonical in (
         ("Fable 5", "claude-fable-5"),
