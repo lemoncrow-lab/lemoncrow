@@ -2075,30 +2075,34 @@ def _savings_sidecar_path(root: str | Path, session_id: str, agent: str) -> Path
 
 def write_stop_hook_turn_cut_row(
     root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
-) -> None:
+) -> int:
     """Bench-calibrated turn-cut credit (``kind == "turn_cut"``).
 
     Shared implementation used by both the Claude stop hook and the OpenCode
     idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
     full derivation.
+
+    Returns the whole-avoided-turn count just credited (0 if none), so
+    immediate per-session callers -- e.g. ``build_codex_stop_output``'s public
+    rollup push -- can report ``turns_avoided`` without re-reading the sidecar.
     """
     if not session_id:
-        return
+        return 0
     try:
         ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
     except ValueError:
-        return
+        return 0
     if ratio <= 0:
-        return
+        return 0
     path = _savings_sidecar_path(root, session_id, agent)
     if path is None or not path.exists():
-        return
+        return 0
     turns = int(stats.get("turns") or 0)
     if turns <= 0:
-        return
+        return 0
     target = int(turns * ratio)
     if target <= 0:
-        return
+        return 0
     credited = 0
     with suppress(OSError):
         for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -2110,11 +2114,11 @@ def write_stop_hook_turn_cut_row(
                 credited += max(0, int(row.get("calls") or 0))
     delta = target - credited
     if delta <= 0:
-        return
+        return 0
     avg_ctx = int(stats.get("cache_read_tokens") or 0) // turns
     avg_out = int(stats.get("output_tokens") or 0) // turns
     if avg_ctx <= 0 and avg_out <= 0:
-        return
+        return 0
     try:
         from lemoncrow.core.capabilities.pricing import get_model_pricing
         from lemoncrow.core.capabilities.savings_summary import resolve_model_id
@@ -2122,7 +2126,7 @@ def write_stop_hook_turn_cut_row(
         model = str(stats.get("last_model") or stats.get("model") or "")
         pricing = get_model_pricing(resolve_model_id(model)) if model else None
         if pricing is None or not pricing.known or pricing.cache_read <= 0:
-            return
+            return 0
         usd = pricing.request_cost_usd(
             cache_read_tokens=delta * avg_ctx,
             output_tokens=delta * avg_out,
@@ -2130,9 +2134,9 @@ def write_stop_hook_turn_cut_row(
         )
     except Exception:
         logger.exception("Failed to price turn-cut row")
-        return
+        return 0
     if usd <= 0:
-        return
+        return 0
     row_out = {
         "kind": "turn_cut",
         "calls": int(delta),
@@ -2144,6 +2148,7 @@ def write_stop_hook_turn_cut_row(
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row_out) + "\n")
+    return int(delta)
 
 
 def write_stop_hook_input_style_row(
@@ -2778,6 +2783,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     # Supplemental bench-calibrated savings rows (plugin-level logic; pricing
     # resolves per model). Written BEFORE build_savings_report so the fresh rows
     # land in the aggregate.
+    _codex_turns_avoided = 0
     with suppress(Exception):
         _codex_state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
         _codex_usage = _as_dict(_codex_state.get("usage"))
@@ -2787,7 +2793,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
             "output_tokens": _codex_usage.get("output_tokens"),
             "last_model": _codex_state.get("last_model") or _codex_state.get("model"),
         }
-        write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex")
+        _codex_turns_avoided = write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex") or 0
         write_stop_hook_input_style_row(root, session_id, _codex_row_stats, agent="codex")
         credit_rtk_gain(root, session_id, _codex_row_stats, workspace=_codex_workspace_root(payload), agent="codex")
         write_stop_hook_output_style_row(
@@ -2846,6 +2852,7 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
             tokens_saved=tokens_saved,
             calls_avoided=calls_avoided,
             turn_count=llm_turns,
+            turns_avoided=_codex_turns_avoided,
             source="codex",
             carry_usd=carry_usd,
             carry_tokens=carry_tokens,

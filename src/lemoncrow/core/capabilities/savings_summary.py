@@ -2903,6 +2903,73 @@ def synthetic_backfill_saved_usd(root: str | Path) -> float:
     return round(total, 6)
 
 
+def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) -> dict[str, dict[str, float | int]]:
+    """Per-calendar-day realized-savings totals, across every session, for each
+    UTC calendar day that fully elapsed strictly after ``since_day`` and
+    before ``today`` (today's bucket is still accumulating, so it is never
+    included). Same source/fields as :func:`aggregate_savings_since_day`, but
+    keyed by day instead of summed across the whole range.
+
+    The public rollup's daily flush publishes one rollup PER DAY rather than
+    one lump sum for the whole unflushed range: summing first meant a
+    multi-day backlog (a missed flush, a sleeping laptop, a stuck checkpoint)
+    could push a single post's saved_usd/carry_usd past the per-session cap
+    the ingest endpoint enforces (MAX_SESSION_USD in
+    functions/api/telemetry/rollup.ts) and get rejected outright -- and since
+    a rejected post leaves the checkpoint unchanged, the NEXT flush resent the
+    same (now even larger) backlog and failed again, forever. Publishing one
+    day at a time keeps each post within a single day's totals (what the cap
+    was actually sized for) and lets the checkpoint advance day by day even
+    when the client is behind.
+
+    Reads the same day-bucketed aggregate that backs every other windowed
+    savings surface (:func:`aggregate_window_savings`, the CLI, the web
+    Savings page), reconciling any session ledgers it has not folded yet
+    first.
+    """
+    agg = reconcile_savings_aggregate(Path(root))
+    by_day: dict[str, dict[str, float | int]] = {}
+
+    def _bucket(day: str) -> dict[str, float | int]:
+        return by_day.setdefault(
+            day,
+            {
+                "saved_usd": 0.0,
+                "tokens_saved": 0,
+                "calls_avoided": 0,
+                "turn_count": 0,
+                "turns_avoided": 0,
+                "est_cost_usd": 0.0,
+                "carry_usd": 0.0,
+                "output_saved_tokens": 0,
+                "output_saved_usd": 0.0,
+            },
+        )
+
+    for key, entry in agg.get("sessions", {}).items():
+        # Skip the "_reconcile/ledger-gap" self-heal placeholder (see
+        # plugin_runtime._RECONCILE_HOST): it's a synthetic account-watermark
+        # patch, not a real session's savings, and can be orders of magnitude
+        # larger than any real day -- folding it in here could still blow past
+        # the per-post cap on its own day and permanently wedge that day.
+        if key.split("/")[-2:-1] == ["_reconcile"]:
+            continue
+        for day, vals in (entry.get("days") or {}).items():
+            if day >= today or day <= since_day:
+                continue
+            b = _bucket(day)
+            b["saved_usd"] = float(b["saved_usd"]) + float(vals[0])
+            b["tokens_saved"] = int(b["tokens_saved"]) + int(vals[1])
+            b["calls_avoided"] = int(b["calls_avoided"]) + int(vals[2])
+            b["turn_count"] = int(b["turn_count"]) + int(vals[3])
+            b["est_cost_usd"] = float(b["est_cost_usd"]) + float(vals[4])
+            b["carry_usd"] = float(b["carry_usd"]) + float(vals[5])
+            b["output_saved_tokens"] = int(b["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
+            b["output_saved_usd"] = float(b["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
+            b["turns_avoided"] = int(b["turns_avoided"]) + int(vals[12] if len(vals) > 12 else 0)
+    return by_day
+
+
 def aggregate_savings_since_day(
     root: str | Path, *, since_day: str, today: str
 ) -> tuple[dict[str, float | int], str | None]:
@@ -2910,17 +2977,15 @@ def aggregate_savings_since_day(
     that fully elapsed strictly after ``since_day`` and before ``today``
     (today's bucket is still accumulating, so it is never included).
 
-    Reads the same day-bucketed aggregate that backs every other windowed
-    savings surface (:func:`aggregate_window_savings`, the CLI, the web
-    Savings page), reconciling any session ledgers it has not folded yet
-    first. Used by the public rollup's daily flush so each calendar day of a
-    user's local savings is reported to the public counters exactly once, no
-    matter how often (or rarely) the flush actually runs.
+    Thin sum-across-days wrapper over :func:`aggregate_savings_by_day` (which
+    the public rollup's daily flush now uses directly so it can publish one
+    rollup per day instead of one lump sum -- see that function's docstring).
+    Kept for callers that want the whole-range total in one shot.
 
     Returns ``(totals, last_day)`` where ``last_day`` is the newest complete
     day folded in (``None`` if there was nothing new to report).
     """
-    agg = reconcile_savings_aggregate(Path(root))
+    by_day = aggregate_savings_by_day(root, since_day=since_day, today=today)
     totals: dict[str, float | int] = {
         "saved_usd": 0.0,
         "tokens_saved": 0,
@@ -2933,29 +2998,18 @@ def aggregate_savings_since_day(
         "output_saved_usd": 0.0,
     }
     last_day: str | None = None
-    for key, entry in agg.get("sessions", {}).items():
-        # Skip the "_reconcile/ledger-gap" self-heal placeholder (see
-        # plugin_runtime._RECONCILE_HOST): it's a synthetic account-watermark
-        # patch, not a real session's savings, and can be orders of magnitude
-        # larger than any real day -- folding it in here would blow past the
-        # public rollup server's per-post $ cap and permanently wedge this
-        # flush (failed posts keep the old checkpoint and retry forever).
-        if key.split("/")[-2:-1] == ["_reconcile"]:
-            continue
-        for day, vals in (entry.get("days") or {}).items():
-            if day >= today or day <= since_day:
-                continue
-            totals["saved_usd"] = float(totals["saved_usd"]) + float(vals[0])
-            totals["tokens_saved"] = int(totals["tokens_saved"]) + int(vals[1])
-            totals["calls_avoided"] = int(totals["calls_avoided"]) + int(vals[2])
-            totals["turn_count"] = int(totals["turn_count"]) + int(vals[3])
-            totals["est_cost_usd"] = float(totals["est_cost_usd"]) + float(vals[4])
-            totals["carry_usd"] = float(totals["carry_usd"]) + float(vals[5])
-            totals["output_saved_tokens"] = int(totals["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
-            totals["output_saved_usd"] = float(totals["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
-            totals["turns_avoided"] = int(totals["turns_avoided"]) + int(vals[12] if len(vals) > 12 else 0)
-            if last_day is None or day > last_day:
-                last_day = day
+    for day, vals in by_day.items():
+        totals["saved_usd"] = float(totals["saved_usd"]) + float(vals["saved_usd"])
+        totals["tokens_saved"] = int(totals["tokens_saved"]) + int(vals["tokens_saved"])
+        totals["calls_avoided"] = int(totals["calls_avoided"]) + int(vals["calls_avoided"])
+        totals["turn_count"] = int(totals["turn_count"]) + int(vals["turn_count"])
+        totals["est_cost_usd"] = float(totals["est_cost_usd"]) + float(vals["est_cost_usd"])
+        totals["carry_usd"] = float(totals["carry_usd"]) + float(vals["carry_usd"])
+        totals["output_saved_tokens"] = int(totals["output_saved_tokens"]) + int(vals["output_saved_tokens"])
+        totals["output_saved_usd"] = float(totals["output_saved_usd"]) + float(vals["output_saved_usd"])
+        totals["turns_avoided"] = int(totals["turns_avoided"]) + int(vals["turns_avoided"])
+        if last_day is None or day > last_day:
+            last_day = day
     return totals, last_day
 
 
