@@ -264,67 +264,95 @@ def _label(value: str, *, fallback: str, max_length: int) -> str:
 
 
 def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -> tuple[dict[str, Any], str | None]:
-    """Publish at most one aggregated rollup for every UTC day fully elapsed
-    since ``checkpoint_day``, computed directly from the canonical per-session
-    savings ledger (:func:`lemoncrow.core.capabilities.savings_summary.aggregate_savings_since_day`)
+    """Publish one rollup per UTC day fully elapsed since ``checkpoint_day``,
+    computed directly from the canonical per-session savings ledger
+    (:func:`lemoncrow.core.capabilities.savings_summary.aggregate_savings_by_day`)
     -- no separate queue file to maintain.
 
+    Days are posted oldest-first, one at a time, and the checkpoint advances
+    after each one that succeeds. Posting one lump sum for the whole unflushed
+    range (the original design) meant any backlog -- a missed flush, a
+    sleeping laptop -- could push a single post's saved_usd/carry_usd past the
+    ingest endpoint's per-session cap (MAX_SESSION_USD in
+    functions/api/telemetry/rollup.ts) and get rejected outright; since a
+    rejected post left the checkpoint untouched, the next flush resent the
+    same (now even larger) backlog and failed again -- a silent, permanent
+    wedge with no way to recover on its own. Per-day posting keeps each post
+    within a single day's totals (what the cap was actually sized for) and
+    lets days that DO fit through even when a later one is still stuck.
+
     Returns ``(result, new_checkpoint_day)``; callers persist the returned
-    checkpoint so each calendar day is reported exactly once, however often
+    checkpoint so each calendar day is reported at most once, however often
     (or rarely) this is actually called.
 
     ``checkpoint_day is None`` means "never flushed before". Rather than
-    resending a user's entire local history in one lump (which would double
-    report every session the old always-on Stop-hook push already sent
-    before this daily batching existed), the first call only establishes
-    today as the baseline and reports nothing.
+    resending a user's entire local history (which would double report every
+    session the old always-on Stop-hook push already sent before this daily
+    batching existed), the first call only establishes today as the baseline
+    and reports nothing.
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     if checkpoint_day is None:
         return {"flushed": False, "reason": "baseline"}, today
 
     from lemoncrow.core.capabilities.savings_summary import (
-        aggregate_savings_since_day,
+        aggregate_savings_by_day,
         aggregate_usage_totals_since_day,
         estimate_time_saved_seconds,
     )
 
-    totals, last_day = aggregate_savings_since_day(root, since_day=checkpoint_day, today=today)
-    if last_day is None:
+    by_day = aggregate_savings_by_day(root, since_day=checkpoint_day, today=today)
+    if not by_day:
         return {"flushed": False, "reason": "no_new_days"}, checkpoint_day
 
     # Independent pass (real per-session transcript parse, not the $-savings
     # ledger) -- see aggregate_usage_totals_since_day's docstring for why this
-    # is deliberately not folded into the totals dict above. Best-effort: a
+    # is deliberately not folded into the per-day totals above. Best-effort: a
     # transcript-read failure here must not block the $ figures below from
     # reporting, so a raise here degrades to "not reported" (0), not a
-    # skipped flush.
+    # skipped flush. Attributed to the newest day only (it's a whole-range
+    # total, not itself day-bucketed) rather than repeated on every day.
     usage_totals: dict[str, float | int] = {"tokens_processed": 0, "calls_made": 0, "time_spent_seconds": 0.0}
     with suppress(Exception):
         usage_totals = aggregate_usage_totals_since_day(root, since_day=checkpoint_day, today=today)
 
-    ok = publish_public_savings_rollup(
-        session_id=f"daily-rollup-{last_day}",
-        saved_usd=float(totals["saved_usd"]),
-        tokens_saved=int(totals["tokens_saved"]),
-        calls_avoided=int(totals["calls_avoided"]),
-        turn_count=int(totals["turn_count"]),
-        turns_avoided=int(totals["turns_avoided"]),
-        source="claude",
-        carry_usd=float(totals["carry_usd"]),
-        est_cost_usd=float(totals["est_cost_usd"]),
-        time_saved_seconds=estimate_time_saved_seconds(
+    days_in_order = sorted(by_day)
+    newest_day = days_in_order[-1]
+    checkpoint = checkpoint_day
+    flushed_through: str | None = None
+    for day in days_in_order:
+        totals = by_day[day]
+        is_newest = day == newest_day
+        ok = publish_public_savings_rollup(
+            session_id=f"daily-rollup-{day}",
+            saved_usd=float(totals["saved_usd"]),
+            tokens_saved=int(totals["tokens_saved"]),
             calls_avoided=int(totals["calls_avoided"]),
+            turn_count=int(totals["turn_count"]),
+            turns_avoided=int(totals["turns_avoided"]),
+            source="claude",
+            carry_usd=float(totals["carry_usd"]),
+            est_cost_usd=float(totals["est_cost_usd"]),
+            time_saved_seconds=estimate_time_saved_seconds(
+                calls_avoided=int(totals["calls_avoided"]),
+                output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
+            ),
             output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
-        ),
-        output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
-        output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
-        tokens_processed=int(usage_totals["tokens_processed"]),
-        calls_made=int(usage_totals["calls_made"]),
-        time_spent_seconds=float(usage_totals["time_spent_seconds"]),
-    )
-    if not ok:
-        # Failed POST: keep the old checkpoint so these days are retried on
-        # the next flush instead of being dropped permanently.
-        return {"flushed": False, "through_day": last_day, "reason": "post_failed"}, checkpoint_day
-    return {"flushed": True, "through_day": last_day}, last_day
+            output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
+            tokens_processed=int(usage_totals["tokens_processed"]) if is_newest else 0,
+            calls_made=int(usage_totals["calls_made"]) if is_newest else 0,
+            time_spent_seconds=float(usage_totals["time_spent_seconds"]) if is_newest else 0.0,
+        )
+        if not ok:
+            # This day (and everything after it) is retried on the next
+            # flush; days already posted above stay committed instead of
+            # being resent or permanently blocked by a later stuck day.
+            return {
+                "flushed": flushed_through is not None,
+                "through_day": flushed_through,
+                "stuck_day": day,
+                "reason": "post_failed",
+            }, checkpoint
+        checkpoint = day
+        flushed_through = day
+    return {"flushed": True, "through_day": flushed_through}, checkpoint
