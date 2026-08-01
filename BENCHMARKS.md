@@ -65,6 +65,22 @@ Every knob below was identical for both arms unless marked LemonCrow-only.
 - Disabled tools in both arms: `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `WebFetch`, `WebSearch`, LemonCrow `web_fetch`, `Workflow`, and `ScheduleWakeup`.
 - LemonCrow-only persona: `lemoncrow:auto`.
 
+### Current build spot-check (2026-07-30, 1 rep)
+
+A fresh single-rep LemonCrow run on the current build, against the same 50 instances, re-priced/re-tokenized per-task-average (baseline unchanged, still the 5-rep 2026-06-30 run). **Honest note:** correctness swings from +12.0pp above baseline (5-rep headline) to -4.8pp below it here -- with n=1/task this is exactly the kind of single-rep noise this doc has flagged before (see SWE-bench Pro below), not a claimed regression, but it's reported as measured rather than smoothed over.
+
+| Metric | Baseline (5-rep, unchanged) | LemonCrow (1-rep, 2026-07-30) | Delta |
+| --- | ---: | ---: | ---: |
+| Cost (per-task avg, summed) | $46.97 | $40.50 | -13.8% |
+| Fresh input tok (per-task avg, summed) | 223,644 | 209,255 | -6.4% |
+| Cache write (per-task avg, summed) | 1,407,291 | 1,357,474 | -3.5% |
+| Cache read (per-task avg, summed) | 36,319,313 | 28,430,274 | -21.7% |
+| Output tok (per-task avg, summed) | 607,879 | 534,634 | -12.0% |
+| Turns (per-task avg, summed) | 1,392 | 1,149 | -17.5% |
+| Resolved | 202 / 250 (80.8%) | 38 / 50 (76.0%) | -4.8 pp |
+
+Raw data: `benchmarks/codebench/results/sweverified_lemoncrow_2026-07-30/` (local only; not yet mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
+
 ## SWE-bench Lite
 
 A smaller companion cut: 10 SWE-bench Lite instances x 5 reps, same harness (`multiswe_run.py`), same model, same disabled-tools list, and the same `lemoncrow:auto` persona as the Verified run above.
@@ -92,6 +108,22 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --model claude-opus-4-8 \
   --jobs 3
 ```
+
+### Current build spot-check (2026-07-30, 1 rep)
+
+Same 10 pinned instances, fresh single-rep LemonCrow run on the current build (baseline unchanged, still the 5-rep 2026-07-16 run):
+
+| Metric | Baseline (5-rep, unchanged) | LemonCrow (1-rep, 2026-07-30) | Delta |
+| --- | ---: | ---: | ---: |
+| Cost (per-task avg, summed) | $3.97 | $3.18 | -19.9% |
+| Fresh input tok (per-task avg, summed) | 39,641 | 40,740 | +2.8% |
+| Cache write (per-task avg, summed) | 133,953 | 128,121 | -4.4% |
+| Cache read (per-task avg, summed) | 2,436,131 | 1,594,989 | -34.5% |
+| Output tok (per-task avg, summed) | 50,293 | 35,722 | -29.0% |
+| Turns (per-task avg, summed) | 154 | 110 | -28.7% |
+| Resolved | 49 / 50 (98.0%) | 10 / 10 (100.0%) | +2.0 pp |
+
+Fresh input ticks up slightly (n=1/task noise, not a real regression at this size). Raw data: `benchmarks/codebench/results/swe-lite_lemoncrow_2026-07-30/` (local only; not yet mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
 ## SWE-bench Pro
 
@@ -136,6 +168,22 @@ uv run --project benchmarks python -m benchmarks.codebench.multiswe_run \
   --model claude-opus-4-8 \
   --jobs-per-token 4
 ```
+
+### Current build spot-check (2026-07-30, 1 rep)
+
+`--suite swe-pro`'s pinned default slice has grown from 10 to 18 instances since the baseline run above (8 new tasks, none with baseline data yet). This spot-check is filtered back down to the original 10 overlapping instances for a fair comparison; the current build's other 8 tasks aren't included below.
+
+| Metric | Baseline (5-rep, unchanged) | LemonCrow (1-rep, 2026-07-30) | Delta |
+| --- | ---: | ---: | ---: |
+| Cost (per-task avg, summed) | $7.80 | $5.79 | -25.7% |
+| Input tok (per-task avg, summed) | 54,330 | 43,216 | -20.5% |
+| Cache write (per-task avg, summed) | 303,691 | 229,713 | -24.4% |
+| Cache read (per-task avg, summed) | 6,964,287 | 3,857,422 | -44.6% |
+| Output tok (per-task avg, summed) | 89,351 | 54,095 | -39.5% |
+| Turns (per-task avg, summed) | 278 | 169 | -39.2% |
+| Resolved | 44 / 50 (88.0%) | 10 / 10 (100.0%) | +12.0 pp |
+
+Raw data: `benchmarks/codebench/results/swe-pro_lemoncrow_2026-07-30/` (18 tasks total, local only; not yet mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
 ## Exploration Tasks
 
@@ -234,6 +282,21 @@ uv run lemoncrow benchmark telegraphic \
 ```
 
 baseline/lemoncrow run through codebench with `--jobs`; caveman's isolated `claude -p` calls always run one at a time, by design (`benchmarks/telegraphic/extra_arms.py`).
+
+### Current build spot-check (2026-07-30, 1 rep)
+
+Same 20 prompts, fresh single-rep LemonCrow run on the current build (baseline unchanged, still the 5-rep 2026-07-17 run):
+
+| Metric | Baseline (5-rep, unchanged) | LemonCrow (1-rep, 2026-07-30) | Delta |
+| --- | ---: | ---: | ---: |
+| Cost (per-prompt avg, summed) | $1.68 | $1.06 | -36.8% |
+| Fresh input tok (per-prompt avg, summed) | 70,101 | 50 | -99.9% |
+| Cache write (per-prompt avg, summed) | 55,062 | 75,967 | +38.0% |
+| Cache read (per-prompt avg, summed) | 467,695 | 155,201 | -66.8% |
+| Output tok (per-prompt avg, summed) | 23,731 | 8,957 | -62.3% |
+| Turns (per-prompt avg, summed) | 48 | 25 | -47.9% |
+
+Cache write is the one metric that regressed (+38.0%) -- worth another look if it persists on a repeat run. No golden patch here, so no resolved/correctness row. Raw data: local only (scratch-repo run, not yet copied into the repo or mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
 Pure retrieval quality was measured against common CLI and MCP code-search tools on the same 14 repos and roughly 7.2k query/gold pairs. LemonCrow reports three internal channels: lexical default, optional `+zoekt`, and optional `+semantic`. Every provider is scored across all 5 gold kinds (definition, content, semantic, swebench, sessions) -- a provider with no content/text-search capability (codegraph, universal-ctags) scores 0 on the kinds it cannot answer rather than being excluded from them, so `n` is uniform (7213) across every row in the table and MRR is directly comparable throughout.
 
@@ -346,6 +409,24 @@ LemonCrow's token efficiency is worth **16.0% lower cost** once both sides are p
 <sub>Fresh input = input tokens excluding cache. Harbor Hub reports baseline input inclusive of cache, so baseline fresh input here is total input minus cache. Cache tokens are combined read + write. Cost figures are per-task averages summed across the 86 comparable tasks (each task weighted equally regardless of billed-rep count), not raw run totals -- see `benchmarks/harbor/normalized_token_cost.py` to reproduce (also reports the un-normalized real-$-per-own-tier and 5-min-tier cuts, for reference).</sub>
 
 Raw data: [`2026-07-28__19-19-14/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/2026-07-28__19-19-14) (445 trials; also public on [Harbor Hub](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7)). Baseline + full methodology, including the `_1h_tier` normalized-cost columns: [`baseline/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/baseline).
+
+### Opus 5 (no same-model baseline yet)
+
+Same 89-task x 5-rep suite, run on `claude-opus-5` (`reasoning_effort=high`) on 2026-07-29: public [Harbor Hub job `18239ddc`](https://hub.harborframework.com/jobs/18239ddc-556a-4631-a20d-bcf5da8d16a2), submitted as [leaderboard PR #183](https://github.com/harbor-framework/terminal-bench-2-1/pull/183). No official Claude-Code + Opus-5 baseline exists on the leaderboard yet -- the only other public Opus 5 entry is a different harness ([Ouroboros, PR #175](https://github.com/harbor-framework/terminal-bench-2-1/pull/175), also unmerged) -- so these numbers are reported standalone, **not** as a delta against the Opus 4.8 baseline above (different model = not a controlled comparison; don't subtract these tables).
+
+| Metric | Value |
+| --- | --- |
+| Resolved | 359 / 445 (80.7%) |
+| Errored before completing | 41 / 445 (23 timeout, 18 provider error: 14 safety refusal on 3 tasks + 4 transient 529) |
+| Cost (86/89 priceable tasks, per-task avg, summed) | $38.68 |
+| Fresh input tokens | 184K |
+| Output tokens | 5.17M |
+| Cache tokens | 146.0M |
+| Total tokens | 151.3M |
+
+<sub>Same per-task-average cost convention as above (`extract-moves-from-video` and `make-doom-for-mips` priced fine this run; `gpt2-codegolf`, `schemelike-metacircular-eval`, and `train-fasttext` didn't -- a different 3-task exclusion set than the Opus 4.8 cut, so the two $-figures aren't the same 86 tasks either). Cost is real, LemonCrow's-own-tier billing (1-hour cache-write rate) -- nothing to normalize against without a same-model baseline.</sub>
+
+Raw data: [`2026-07-29__15-35-08/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/2026-07-29__15-35-08) (445 trials).
 
 Run it:
 
