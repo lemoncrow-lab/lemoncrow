@@ -815,14 +815,22 @@ def test_pricing_all_known_models_non_empty() -> None:
     assert "_default" not in models
 
 
-def test_pricing_no_prefix_fallback_for_unknown_variant() -> None:
+def test_pricing_unknown_variant_falls_back_to_nearest_sibling() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
-    # Fabricated model variant not in LiteLLM must NOT silently match a real
-    # model via prefix — it should return known=False with zero cost.
+    # A model variant LiteLLM has never seen prices at its nearest known
+    # sibling, flagged approximate=True. Reporting $0 instead (the old rule)
+    # zeroed out cost AND savings for entire sessions whenever the host
+    # stamped a variant tag the catalogue lacks.
     p = get_model_pricing("claude-opus-4-extended")
-    assert p.known is False
-    assert p.output == 0.0
+    assert p.known is True
+    assert p.approximate is True
+    assert p.model_id.startswith("claude-opus-4")
+    assert p.output > 0.0
+
+    # ...but a two-segment id keeps at least family+version, so nothing
+    # collapses to a bare family word.
+    assert get_model_pricing("claude-opus").known is False
 
 
 def test_pricing_copilot_explicit_models() -> None:

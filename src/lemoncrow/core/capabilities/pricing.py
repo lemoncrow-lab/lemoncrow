@@ -173,7 +173,7 @@ def _load_litellm_model_cost() -> dict[str, object]:
         model_cost = getattr(litellm, "model_cost", None)
         if model_cost:
             return cast(dict[str, object], model_cost)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # fall through to bundled snapshot
     finally:
         if previous_litellm_log is None:
@@ -207,6 +207,12 @@ _DATE_SUFFIX_RE = re.compile(r"(?:-\d{8}|-\d{4}-\d{2}-\d{2})(?:-v\d+:\d+)?$")
 _LATEST_SUFFIX_RE = re.compile(r"-latest$")
 _PREVIEW_SUFFIX_RE = re.compile(r"-preview(?:-[a-z0-9.]+)*$", re.IGNORECASE)
 _ANTHROPIC_VERSION_RE = re.compile(r"^(claude-(?:opus|sonnet|haiku)-\d+)-\d+$")
+# Host-appended context-variant tag, e.g. Claude Code stamps the 1M-context
+# beta as "claude-opus-4-5[1m]" in its transcript. No catalogue lists that id,
+# and the >200k premium is applied separately from the rate card's own tiers,
+# so the tag must be stripped before lookup -- otherwise every 1M-context
+# session prices as an unknown model ($0 on every savings row it writes).
+_VARIANT_SUFFIX_RE = re.compile(r"\[[^\]]*\]$")
 _TIER_SUFFIX_RE = re.compile(r"_above_(\d+)k_tokens$")
 
 # Vendor prefixes that denote flat-rate subscription usage rather than a real
@@ -247,6 +253,9 @@ class ModelPricing:
         known:       ``True`` when pricing was explicitly configured for this
                      model; ``False`` when the model id was not found and the
                      zero-cost default was used instead.
+        approximate: ``True`` when the id itself is absent from the catalogue
+                     and these are a *nearest sibling's* rates (see
+                     :func:`_nearest_table_match`) rather than the model's own.
     """
 
     model_id: str
@@ -263,6 +272,7 @@ class ModelPricing:
     cache_write_tiers: tuple[PricingTier, ...] = ()
     thinking_tiers: tuple[PricingTier, ...] = ()
     known: bool = True
+    approximate: bool = False
 
     @staticmethod
     def _cost_for_tokens(tokens: int, base_rate: float, tiers: tuple[PricingTier, ...]) -> float:
@@ -507,6 +517,13 @@ def _alias_candidates(model_id: str) -> set[str]:
         if alias and alias != model_id:
             aliases.add(alias)
 
+    without_variant = _VARIANT_SUFFIX_RE.sub("", model_id)
+    if without_variant != model_id:
+        _add(without_variant)
+        # Re-run the whole chain on the stripped id so a variant tag stacked on
+        # a date/preview suffix ("claude-opus-4-5-20260101[1m]") still resolves.
+        aliases.update(_alias_candidates(without_variant))
+
     without_latest = _LATEST_SUFFIX_RE.sub("", model_id)
     _add(without_latest)
 
@@ -677,6 +694,42 @@ def _normalize_model_id(model_id: str) -> str:
     return _DOT_VERSION_RE.sub(r"\1-\2", model_id)
 
 
+_NEAREST_MATCH_MIN_SEGMENTS = 2
+
+
+@lru_cache(maxsize=512)
+def _nearest_table_match(model_id: str) -> str:
+    """Nearest catalogue id for an id the table has never seen (``""`` if none).
+
+    Progressive tail trim: drop one ``-`` segment at a time and try (a) that
+    stem verbatim, then (b) the newest catalogue entry underneath it. So an
+    unreleased/renamed model still prices at its closest known sibling --
+    ``claude-opus-9-2-turbo`` → ``claude-opus-9-2`` → ... → the newest
+    ``claude-opus-*`` -- instead of silently reporting $0 for a whole session
+    (the failure mode a bare ``[1m]`` context tag used to cause).
+
+    Guards: at least two segments always survive, so this never collapses to a
+    bare family word and never crosses a vendor (the vendor prefix rides in
+    every stem). Rates from here are a neighbour's, hence ``approximate=True``.
+    """
+    if "/" in model_id and model_id.split("/", 1)[0] in _SUBSCRIPTION_VENDOR_PREFIXES:
+        # Flat-rate subscription usage (copilot/...) must stay at $0 -- pricing
+        # it at any sibling's per-token rate overbills usage already paid for.
+        return ""
+    table = _load_pricing_table()
+    parts = model_id.split("-")
+    for cut in range(len(parts) - 1, _NEAREST_MATCH_MIN_SEGMENTS - 1, -1):
+        stem = "-".join(parts[:cut])
+        if stem in table:
+            return stem
+        siblings = [key for key in table if key.startswith(f"{stem}-")]
+        if siblings:
+            # _alias_priority sorts newest-and-plainest first (versions are
+            # negated, preview/latest/dated variants are demoted).
+            return min(siblings, key=_alias_priority)
+    return ""
+
+
 def get_model_pricing(model_id: str) -> ModelPricing:
     """Return :class:`ModelPricing` for *model_id*.
 
@@ -684,8 +737,10 @@ def get_model_pricing(model_id: str) -> ModelPricing:
     1. Exact match against the LiteLLM-backed table.
     2. Dot-to-dash version normalisation (``claude-sonnet-4.6`` → ``claude-sonnet-4-6``).
     3. Alias stripping via :func:`_alias_candidates` on the normalised id
-       (removes date/preview suffixes so ``claude-opus-4-7-20260416`` → ``claude-opus-4-7``).
-    4. Zero-cost default with ``known=False`` — a one-time warning is logged so
+       (removes date/preview/variant suffixes so ``claude-opus-4-7-20260416`` →
+       ``claude-opus-4-7`` and ``claude-opus-5[1m]`` → ``claude-opus-5``).
+    4. Nearest-sibling match via :func:`_nearest_table_match` (``approximate=True``).
+    5. Zero-cost default with ``known=False`` — a one-time warning is logged so
        the operator knows to upgrade LiteLLM.
 
     Placeholder ids (``<synthetic>``, ``_default``, empty) are returned as
@@ -720,7 +775,22 @@ def get_model_pricing(model_id: str) -> ModelPricing:
         if hit := _lookup(alias):
             return hit
 
-    # 4. Unknown — log once, return zero-cost sentinel
+    # 5. Nearest known sibling — a real rate card from the same family beats
+    #    reporting $0 for every request and every saving of the session.
+    if normalised and normalised not in _PLACEHOLDER_MODEL_IDS:
+        nearest = _nearest_table_match(normalised)
+        if nearest:
+            entry = cast(dict[str, Any], table[nearest])
+            if model_id not in _warned_unknown_models:
+                _warned_unknown_models.add(model_id)
+                logger.debug(
+                    "lemoncrow.pricing: no entry for model %r — pricing it at nearest sibling %r.",
+                    model_id,
+                    nearest,
+                )
+            return ModelPricing(model_id=nearest, known=True, approximate=True, **entry)
+
+    # 6. Unknown — log once, return zero-cost sentinel
     if model_id and model_id not in _PLACEHOLDER_MODEL_IDS and model_id not in _warned_unknown_models:
         _warned_unknown_models.add(model_id)
         logger.debug(
