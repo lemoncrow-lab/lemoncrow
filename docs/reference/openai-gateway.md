@@ -129,8 +129,33 @@ curl -X POST http://localhost:8787/v1/models/refresh | jq '.data[].id'
 | `groq`          | `api_key`                                     | `GROQ_API_KEY`                                        |
 | `mistral`       | `api_key`                                     | `MISTRAL_API_KEY`                                     |
 | `ollama`        | `base_url`                                    | `OLLAMA_HOST`                                         |
+| `zen`           | none (free tier) / `api_key`                  | `OPENCODE_API_KEY`                                    |
 | `together`      | `api_key`                                     | `TOGETHER_API_KEY`                                    |
 | `fireworks`     | `api_key`                                     | `FIREWORKS_API_KEY`                                   |
+
+### OpenCode Zen — zero-config fallback
+
+Zen (`https://opencode.ai/zen/v1`) serves its zero-cost models against the
+literal bearer token `public`, so LemonCrow can run a real model on a machine
+with no credentials at all. Zen models are namespaced `zen/<model>` (e.g.
+`zen/big-pickle`) and rewritten to the litellm OpenAI-compatible form at the
+call site, so they never collide with a same-named OpenAI or Anthropic model.
+
+Behaviour:
+
+- **No credentials anywhere** — Zen is the routing vendor and only its free
+  models are discovered.
+- **Any other vendor configured** — the Zen public tier is not offered. Free
+  models are free because the upstream vendors may train on the traffic, so
+  they never silently out-compete a vendor you configured yourself.
+- **`OPENCODE_API_KEY` set** (or an existing `opencode` login in
+  `~/.local/share/opencode/auth.json`) — Zen is offered alongside your other
+  vendors and the full paid Zen catalogue is discovered.
+- **`LEMONCROW_ZEN_PUBLIC=0`** — disables the keyless fallback entirely.
+
+The free-model set is read from the public `models.dev` catalogue (cost 0 in,
+0 out) with a static fallback, so it tracks Zen's promotions instead of
+pinning a hardcoded list.
 
 ### Troubleshooting
 

@@ -82,7 +82,7 @@ The delivered control plane includes:
 - Automated upstream synchronization, tests, and multi-platform release
   verification for the fork.
 
-See [the CLI reference](./cli.md#lemoncode) for current commands and controls.
+See [the CLI reference](../reference/cli.md#lemoncode) for current commands and controls.
 
 ### Why a fork is the right boundary
 
@@ -109,7 +109,7 @@ The public matched Terminal-Bench 2.1 comparison is the baseline for claims:
 | Normalized cost, both at 1-hour cache-write rate | $61.98 | $73.75 | 16.0% lower |
 
 The detailed methodology and raw-run links are in
-[Terminal-Bench](../BENCHMARKS.md#terminal-bench).
+[Terminal-Bench](../../BENCHMARKS.md#terminal-bench).
 
 ### Design estimates are not product claims
 
@@ -177,9 +177,9 @@ direct cost + P(failure) * escalation cost + cache-break cost
   proposals; a pinned `--model` or `--optimization-mode off` is the rollback.
 
 Implementation:
-[`runtime.py`](../src/lemoncrow/gateway/cli/runtime.py),
-[`runtime_policy.py`](../src/lemoncrow/pro/capabilities/owned_agent_session/runtime_policy.py), and
-[`routing_calibration.py`](../src/lemoncrow/pro/capabilities/optimization/routing_calibration.py).
+[`runtime.py`](../../src/lemoncrow/gateway/cli/runtime.py),
+[`runtime_policy.py`](../../src/lemoncrow/pro/capabilities/owned_agent_session/runtime_policy.py), and
+[`routing_calibration.py`](../../src/lemoncrow/pro/capabilities/optimization/routing_calibration.py).
 
 ### Still missing
 
@@ -319,13 +319,13 @@ receive one bounded evidence packet rather than the entire search transcript.
   `--local-retrieval-model <local model>`.
 
 Implementation:
-[`task_primer.py`](../src/lemoncrow/pro/capabilities/owned_agent_session/task_primer.py),
-[`primer_cache.py`](../src/lemoncrow/pro/capabilities/owned_agent_session/primer_cache.py),
+[`task_primer.py`](../../src/lemoncrow/pro/capabilities/owned_agent_session/task_primer.py),
+[`primer_cache.py`](../../src/lemoncrow/pro/capabilities/owned_agent_session/primer_cache.py),
 and
-[`local_retrieval.py`](../src/lemoncrow/pro/capabilities/optimization/local_retrieval.py).
+[`local_retrieval.py`](../../src/lemoncrow/pro/capabilities/optimization/local_retrieval.py).
 Tests:
-[`test_local_retrieval.py`](../tests/core/test_local_retrieval.py) and
-[`test_primer_cache.py`](../tests/gateway/cli/test_primer_cache.py).
+[`test_local_retrieval.py`](../../tests/core/test_local_retrieval.py) and
+[`test_primer_cache.py`](../../tests/gateway/cli/test_primer_cache.py).
 
 ### Still missing
 
@@ -523,8 +523,8 @@ reports.
   deselected**, covering the six levers, LemonCode/native/managed paths, OpenAI
   and Anthropic gateway protocols, both MCP profiles, daemon IPC, and the SDK
   boundary. The executable tests live in
-  [`tests/core`](../tests/core), [`tests/gateway`](../tests/gateway), and
-  [`tests/infra`](../tests/infra). A follow-up MCP HTTP/profile gate passes
+  [`tests/core`](../../tests/core), [`tests/gateway`](../../tests/gateway), and
+  [`tests/infra`](../../tests/infra). A follow-up MCP HTTP/profile gate passes
   **23 tests**, including sorted discovery manifests in both profiles.
 - `uv build` produces both the source distribution and wheel;
   `npm --prefix frontend run typecheck` passes; `git diff --check` passes.
@@ -536,9 +536,9 @@ reports.
   schema ordering, profile-isolated surface assertions, local IPC/client
   boundaries, and relative-import SDK detection); their exact reruns now pass.
   The three remaining failures reproduce independently in
-  [`test_telegraphic_retry_invalid.py`](../tests/benchmarks/test_telegraphic_retry_invalid.py)
+  [`test_telegraphic_retry_invalid.py`](../../tests/benchmarks/test_telegraphic_retry_invalid.py)
   (scratch-repository setup counted as benchmark subprocess work) and
-  [`test_minify_projection.py`](../tests/core/test_minify_projection.py)
+  [`test_minify_projection.py`](../../tests/core/test_minify_projection.py)
   (a pre-existing fuzzy-ambiguity expectation). They are recorded here rather
   than being silently changed as part of the savings milestone.
 

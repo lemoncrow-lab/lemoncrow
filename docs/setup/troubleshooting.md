@@ -131,7 +131,7 @@ lc worker list
 
 Use the install guide here:
 
-- [hosts/antigravity-install.md](hosts/antigravity-install.md)
+- [Antigravity install guide](../hosts/antigravity-install.md)
 
 ## pgvector Extension Not Available
 

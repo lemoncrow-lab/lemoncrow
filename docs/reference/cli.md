@@ -19,7 +19,9 @@ lc help background
 ## LemonCode
 
 `lc code` is the permanent LemonCode command; `lemoncode` is a
-permanent wheel console entry point for the same command. It uses the controlled
+permanent wheel console entry point for the same command. Bare `lc` with no
+subcommand or flags also dispatches to `lc code` directly (`lc -h` still
+shows the full command tree). It uses the controlled
 [`lemoncrow-lab/lemoncode`](https://github.com/lemoncrow-lab/lemoncode) fork as
 its preferred frontend and keeps LemonCrow at the expensive boundary: LemonCrow chooses the
 provider/model, owns tools and subagents, applies cache breakpoints, phase output
@@ -323,7 +325,7 @@ The `lc account` commands are an **optional** convenience for linking a hosted
 account. They gate nothing — LemonCrow is fully local and every feature works
 without them; they are never required and never prompted. Anonymous remote
 telemetry is **on by default**; turn it off with `lc telemetry remote off` (see
-[Privacy & network behavior](privacy.md)).
+[Privacy & network behavior](../setup/privacy.md)).
 
 | Command             | Purpose                                                            |
 | ------------------- | ----------------------------------------------------------------- |
@@ -345,5 +347,5 @@ is command-specific rather than universal.
 ## Related References
 
 - [README.md](https://github.com/lemoncrow-lab/lemoncrow#readme)
-- [docs/installation.md](installation.md)
-- [docs/sdk/mcp.md](sdk/mcp.md)
+- [setup/installation.md](../setup/installation.md)
+- [sdk/mcp.md](../sdk/mcp.md)

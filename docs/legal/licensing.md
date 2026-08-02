@@ -6,8 +6,8 @@ the engine (the `lemoncrow.pro` package) are all published as readable source
 under the same license. There is no open-core split and no proprietary
 component.
 
-- Full license text: [`/LICENSE`](../LICENSE) and [`/LICENSE-APACHE`](../LICENSE-APACHE)
-- Attribution and third-party notices: [`/NOTICE`](../NOTICE)
+- Full license text: [`/LICENSE`](../../LICENSE) and [`/LICENSE-APACHE`](../../LICENSE-APACHE)
+- Attribution and third-party notices: [`/NOTICE`](../../NOTICE)
 
 ## No account, no entitlement gate
 
@@ -32,4 +32,4 @@ Indexing, search, edits, and memory all stay on your machine. Anonymous remote
 telemetry is on by default — turn it off with `lc telemetry remote off`,
 `DO_NOT_TRACK=1`, or `LEMONCROW_TELEMETRY=off`. For the full details
 of what does and does not leave your machine, see
-[Privacy & network behavior](./privacy.md).
+[Privacy & network behavior](../setup/privacy.md).

@@ -77,9 +77,9 @@ const config: Config = {
           title: "Docs",
           items: [
             { label: "Home", to: "/" },
-            { label: "Installation", to: "/installation" },
-            { label: "CLI Reference", to: "/cli" },
-            { label: "Troubleshooting", to: "/troubleshooting" },
+            { label: "Installation", to: "/setup/installation" },
+            { label: "CLI Reference", to: "/reference/cli" },
+            { label: "Troubleshooting", to: "/setup/troubleshooting" },
           ],
         },
         {
@@ -98,7 +98,7 @@ const config: Config = {
               label: "GitHub",
               href: "https://github.com/lemoncrow-lab/lemoncrow",
             },
-            { label: "Privacy", to: "/privacy" },
+            { label: "Privacy", to: "/setup/privacy" },
             {
               label: "License",
               href: "https://github.com/lemoncrow-lab/lemoncrow/blob/main/LICENSE",

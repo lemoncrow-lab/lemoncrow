@@ -329,11 +329,11 @@ If `.env.worktree` is present, `make start` and `make restart` automatically loa
 
 After installation, use the host-specific guides if you want to inspect or customize integration:
 
-- [hosts/claude-code-install.md](hosts/claude-code-install.md)
-- [hosts/copilot-install.md](hosts/copilot-install.md)
-- [hosts/codex-install.md](hosts/codex-install.md)
-- [hosts/opencode-install.md](hosts/opencode-install.md)
-- [hosts/antigravity-install.md](hosts/antigravity-install.md)
+- [hosts/claude-code-install.md](../hosts/claude-code-install.md)
+- [hosts/copilot-install.md](../hosts/copilot-install.md)
+- [hosts/codex-install.md](../hosts/codex-install.md)
+- [hosts/opencode-install.md](../hosts/opencode-install.md)
+- [hosts/antigravity-install.md](../hosts/antigravity-install.md)
 
 ### Optional Zoekt Backend
 
