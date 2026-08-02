@@ -80,7 +80,7 @@ function HomepageHeader() {
         >
           <Link
             className="button button--secondary button--lg"
-            to="/installation"
+            to="/setup/installation"
           >
             Install LemonCrow
           </Link>

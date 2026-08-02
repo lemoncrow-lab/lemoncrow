@@ -8,24 +8,21 @@ const sidebars: SidebarsConfig = {
       label: "Home",
     },
     {
-      type: "doc",
-      id: "installation",
-    },
-    {
-      label: "Use LemonCrow",
+      label: "Setup & Troubleshooting",
       type: "category",
       items: [
         {
           type: "doc",
-          id: "cli",
+          id: "setup/installation",
+          label: "Installation",
         },
         {
           type: "doc",
-          id: "troubleshooting",
+          id: "setup/privacy",
         },
         {
           type: "doc",
-          id: "production-readiness",
+          id: "setup/troubleshooting",
         },
       ],
     },
@@ -83,23 +80,87 @@ const sidebars: SidebarsConfig = {
           type: "doc",
           id: "sdk/mcp",
         },
+      ],
+    },
+    {
+      label: "Reference",
+      type: "category",
+      items: [
         {
           type: "doc",
-          id: "hosts/host-capability-matrix",
+          id: "reference/cli",
+        },
+        {
+          type: "doc",
+          id: "reference/architecture",
+        },
+        {
+          type: "doc",
+          id: "reference/openai-gateway",
         },
       ],
     },
     {
-      label: "Strategy & Roadmap",
+      label: "Benchmarks",
       type: "category",
       items: [
-{
-            type: "doc",
-            id: "marketing/strategy",
-          },
         {
           type: "doc",
-          id: "roadmap",
+          id: "benchmarks/harbor-eval",
+        },
+        {
+          type: "doc",
+          id: "benchmarks/mini-eval",
+        },
+        {
+          type: "doc",
+          id: "benchmarks/results",
+        },
+      ],
+    },
+    {
+      label: "Legal & Licensing",
+      type: "category",
+      items: [
+        {
+          type: "doc",
+          id: "legal/licensing",
+        },
+        {
+          type: "doc",
+          id: "legal/licensing-report",
+        },
+        {
+          type: "doc",
+          id: "legal/dependency-licenses",
+        },
+      ],
+    },
+    {
+      label: "Roadmap & Savings",
+      type: "category",
+      items: [
+        {
+          type: "doc",
+          id: "planning/roadmap",
+        },
+        {
+          type: "doc",
+          id: "planning/savings-optimization-roadmap",
+        },
+      ],
+    },
+    {
+      label: "Operations",
+      type: "category",
+      items: [
+        {
+          type: "doc",
+          id: "operations/production-readiness",
+        },
+        {
+          type: "doc",
+          id: "operations/maintenance-mode-transition",
         },
       ],
     },
