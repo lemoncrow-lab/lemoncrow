@@ -1,4 +1,4 @@
-"""``lc mcp`` — start the stdio MCP server, or run MCP diagnostics."""
+"""``lc mcp`` — start the stdio MCP server, publish it remotely, or run diagnostics."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import click
 
 import lemoncrow
 from lemoncrow.gateway.cli.commands._shared import _emit
+from lemoncrow.gateway.cli.commands.mcp_serve import mcp_client_cmd, mcp_serve_cmd
 
 _BENCHMARK_REQUIRED_TOOLS = frozenset({"read", "edit", "code_search", "bash"})
 
@@ -254,7 +255,9 @@ def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the LemonCrow MCP server, or inspect MCP diagnostics.
 
-    With no subcommand: starts the stdio MCP server.
+    With no subcommand: starts the stdio MCP server (what a local agent spawns).
+    Use ``lc mcp serve`` to publish the same tools at a public https URL that
+    any remote MCP client — ChatGPT, Claude, Cursor, VS Code — can connect to.
     Use ``lc mcp stats`` to view latency analytics.
     """
     if ctx.invoked_subcommand is not None:
@@ -707,6 +710,12 @@ def mcp_debug_off(ctx: click.Context) -> None:
     else:
         click.echo("MCP debug logging: already off")
 
+
+# Remote (streamable-HTTP + OAuth) transport lives in its own module because it
+# is a whole tunnel/OAuth stack; it hangs off this group so one `lc mcp` covers
+# both transports: bare `lc mcp` = local stdio, `lc mcp serve` = public URL.
+mcp_group.add_command(mcp_serve_cmd)
+mcp_group.add_command(mcp_client_cmd)
 
 # backward-compat alias used by commands/__init__.py
 mcp_cmd = mcp_group

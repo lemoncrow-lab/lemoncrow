@@ -207,8 +207,11 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
-        from .chatgpt import chatgpt_group
+        from .mcp_serve import chatgpt_group
 
+        # `lc mcp serve` is the real name now; the old top-level group stays
+        # registered (hidden) so existing scripts keep working.
+        _h(chatgpt_group)
         cli.add_command(chatgpt_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True

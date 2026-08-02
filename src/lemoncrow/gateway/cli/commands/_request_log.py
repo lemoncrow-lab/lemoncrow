@@ -1,9 +1,9 @@
-"""JSONL request/response logging for ``lc chatgpt serve`` (always on).
+"""JSONL request/response logging for ``lc mcp serve`` (always on).
 
 The operator debugging a ChatGPT connector sees only uvicorn's access lines;
 this middleware captures the actual MCP traffic (JSON-RPC request + response
 bodies) as one JSONL entry per request, appended to a single 0600 file the
-caller (``chatgpt.py``) picks a path for — see ``default_log_dir``/
+caller (``mcp_serve.py``) picks a path for — see ``default_log_dir``/
 ``dated_log_dir`` for the directory shape and ``ensure_log_file`` for the
 eager-touch helper the CLI banner uses.
 

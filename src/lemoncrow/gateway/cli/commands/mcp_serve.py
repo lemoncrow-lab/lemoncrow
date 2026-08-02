@@ -1,13 +1,19 @@
-"""``lc chatgpt`` — expose LemonCrow's MCP transport to a ChatGPT connector.
+"""``lc mcp serve`` — expose LemonCrow's MCP transport to any remote MCP client.
 
-ChatGPT's custom MCP connector (Developer Mode) speaks OAuth 2.1 or no-auth, so
-``serve`` runs the OAuth shim from ``mcp_oauth.py`` (or the open transport with
-``--no-auth``) behind loopback and prints the pairing code + the ChatGPT setup
-steps the operator needs. By default a cloudflared *quick tunnel* is
-auto-launched (downloading cloudflared on first use if needed) to provide the
-public https URL ChatGPT requires; ``--no-tunnel`` opts out for operators
-running their own named tunnel / ngrok. ``client`` mints a stable user-defined
-OAuth client ID for ChatGPT's "Enter a client ID" connector field.
+Nothing here is vendor-specific: ``serve`` publishes the standard
+streamable-HTTP MCP transport at ``/mcp``, protected by the OAuth 2.1 shim in
+``mcp_oauth.py`` (or open, with ``--no-auth``). Any client that accepts a remote
+MCP server URL — ChatGPT connectors, Claude connectors, Cursor, VS Code, and
+other MCP hosts — connects to the same URL. By default a cloudflared *quick
+tunnel* is auto-launched (downloading cloudflared on first use if needed) to
+provide the public https URL remote clients require; ``--no-tunnel`` opts out
+for operators running their own named tunnel / ngrok. ``client`` mints a stable
+user-defined OAuth client ID for clients that ask for one instead of doing
+dynamic registration (ChatGPT's "Enter a client ID" field).
+
+``lc chatgpt`` stays registered as a hidden deprecated alias of this group.
+On-disk state still lives under ``<store_root>/chatgpt/`` — the directory name
+is kept so already-paired connectors survive the rename.
 """
 
 from __future__ import annotations
@@ -17,7 +23,6 @@ import hashlib
 import os
 import platform
 import re
-import secrets
 import shutil
 import socket
 import subprocess
@@ -39,12 +44,28 @@ _TUNNEL_URL_TIMEOUT_SECONDS = 30.0
 _CLOUDFLARED_INSTALL_URL = "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
 _CLOUDFLARED_RELEASE_BASE = "https://github.com/cloudflare/cloudflared/releases/latest/download"
 
-# ChatGPT's connector OAuth redirect endpoints (both current and legacy hosts),
-# used as the default redirect_uris for a user-defined client (`lc chatgpt client`).
-_CHATGPT_REDIRECT_URIS = (
+# Connector OAuth redirect endpoints of the hosted chat clients that ask for a
+# user-defined client ID instead of doing dynamic registration. Used as the
+# default redirect_uris for `lc mcp client`; override with --redirect-uri for
+# any other host. Current and legacy/forward-compat hostnames are both
+# registered per vendor — an unregistered redirect_uri fails the handshake, and
+# a spare entry costs nothing since each is still an exact-match allowlist.
+#
+# Not covered here (deliberately): ChatGPT now mints a *per-app* callback
+# (https://chatgpt.com/connector/oauth/<callback_id>) shown in its app-management
+# UI. It cannot be predicted, so pass it with --redirect-uri when ChatGPT shows
+# one instead of the legacy shared endpoint below.
+_CONNECTOR_REDIRECT_URIS = (
+    # Claude — one callback shared by web, Desktop and mobile.
+    "https://claude.ai/api/mcp/auth_callback",
+    "https://claude.com/api/mcp/auth_callback",
+    # ChatGPT — legacy shared endpoint, still honoured for existing apps.
     "https://chatgpt.com/connector_platform_oauth_redirect",
     "https://chat.openai.com/connector_platform_oauth_redirect",
 )
+
+# Back-compat alias for the pre-rename name.
+_CHATGPT_REDIRECT_URIS = _CONNECTOR_REDIRECT_URIS
 
 # The quick-tunnel hostname is <random-words>.trycloudflare.com. cloudflared's
 # stderr also mentions its control-plane host (api.trycloudflare.com, e.g. in
@@ -216,7 +237,7 @@ def _download_cloudflared(dest: Path) -> str | None:
 def _abort_missing_cloudflared(port: int) -> NoReturn:
     """Print the manual install path and exit — shared by every failure branch."""
     click.echo(f"  Install it:  {_CLOUDFLARED_INSTALL_URL}", err=True)
-    click.echo("  Then run `uv run lemoncrow chatgpt serve` again.", err=True)
+    click.echo("  Then run `uv run lemoncrow mcp serve` again.", err=True)
     click.echo("  (Or use --no-tunnel and expose the port yourself:", err=True)
     click.echo(f"     cloudflared tunnel --url http://localhost:{port} )", err=True)
     raise SystemExit(1)
@@ -283,12 +304,22 @@ def _start_tunnel(
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
-@click.group("chatgpt", context_settings={"help_option_names": ["-h", "--help"]})
-def chatgpt_group() -> None:
-    """Connect ChatGPT (Developer Mode custom MCP connector) to LemonCrow."""
+# Where to paste the URL in the clients people actually ask about. Not a
+# capability list — the endpoint is plain MCP, so anything that accepts a
+# remote server URL works; these are just the two menus that are hard to find.
+_CLIENT_HINTS = (
+    ("ChatGPT", "Settings → Plugins → Browse Plugins → (next to search) + → Create"),
+    ("Claude", "Settings → Connectors → Add custom connector"),
+    ("Cursor / VS Code / Zed / …", "add a remote (streamable-HTTP) MCP server"),
+)
 
 
-@chatgpt_group.command("serve")
+def _echo_client_hints() -> None:
+    for name, where in _CLIENT_HINTS:
+        click.echo(f"       {name}:  " + click.style(where, dim=True))
+
+
+@click.command("serve")
 @click.option(
     "--port",
     default=None,
@@ -305,7 +336,15 @@ def chatgpt_group() -> None:
 @click.option(
     "--pairing-code",
     default=None,
-    help="Pairing code the browser OAuth page asks for (generated if omitted).",
+    help="One-off pairing code for this run only (not persisted). Omit to use "
+    "the stable code stored for this server, minted on first run.",
+)
+@click.option(
+    "--new-pairing-code",
+    is_flag=True,
+    default=False,
+    help="Rotate the stored pairing code (use if the old one leaked). Every "
+    "already-authorized client keeps working — only re-pairing needs the new code.",
 )
 @click.option(
     "--reset",
@@ -323,7 +362,7 @@ def chatgpt_group() -> None:
     "--no-auth",
     is_flag=True,
     default=False,
-    help="Serve /mcp with NO authentication (ChatGPT's 'No authentication' option). "
+    help="Serve /mcp with NO authentication (the client's 'No authentication' option). "
     "Anyone with the URL gets full tool access — prefer OAuth.",
 )
 @click.option(
@@ -332,7 +371,8 @@ def chatgpt_group() -> None:
     default=False,
     help="Stable MCP URL that survives restarts, backed by a real Cloudflare named "
     "tunnel (requires a domain you manage in Cloudflare DNS; one-time `cloudflared "
-    "tunnel login` browser step). Mutually exclusive with --no-tunnel.",
+    "tunnel login` browser step). Mutually exclusive with --no-tunnel. Recommended: "
+    "most clients have to be re-pointed every time a quick-tunnel URL rotates.",
 )
 @click.option(
     "--hostname",
@@ -350,10 +390,11 @@ def chatgpt_group() -> None:
     "reconfigured from scratch. Does NOT delete the Cloudflare-side "
     "tunnel — that's `cloudflared tunnel delete` yourself.",
 )
-def chatgpt_serve_cmd(
+def mcp_serve_cmd(
     port: int | None,
     host: str,
     pairing_code: str | None,
+    new_pairing_code: bool,
     reset: bool,
     tunnel: bool,
     no_auth: bool,
@@ -361,17 +402,23 @@ def chatgpt_serve_cmd(
     hostname: str | None,
     reset_tunnel: bool,
 ) -> None:
-    """Serve the OAuth-protected MCP endpoint for a ChatGPT connector.
+    """Publish this workspace as a remote MCP server for any chat app.
 
-    By default a cloudflared quick tunnel is launched automatically (offering a
-    one-time download of cloudflared if missing) and the public MCP server URL
-    is printed.
+    Serves the standard streamable-HTTP MCP transport at ``/mcp`` behind OAuth
+    2.1, so any MCP client that takes a server URL gets the same LemonCrow
+    tools you use locally. By default a cloudflared quick tunnel is launched
+    automatically (offering a one-time download of cloudflared if missing) and
+    the public MCP server URL is printed.
 
     \b
-    1. In ChatGPT:  Settings -> Plugins -> Browse Plugins -> Next to search
-                    click + -> Create. Set the printed MCP server URL
-                    (https://<tunnel-host>/mcp), Authentication: OAuth.
-    2. Approve the browser OAuth page with the pairing code below.
+    1. Paste the printed https://<host>/mcp URL into your client:
+         ChatGPT  Settings -> Plugins -> Browse Plugins ->
+                  (next to search) + -> Create
+         Claude   Settings -> Connectors -> Add custom connector
+         Cursor / VS Code / Zed / ...: add a remote (streamable-HTTP) server
+       Authentication: OAuth.
+    2. Approve the browser OAuth page with the pairing code below. That code
+       is stored per server, so it survives restarts.
 
     With --no-tunnel, expose the port yourself (named cloudflared tunnel, ngrok).
     With --no-auth, /mcp is served completely open (URL = the only secret).
@@ -383,7 +430,10 @@ def chatgpt_serve_cmd(
 
     from lemoncrow.gateway.adapters.mcp_oauth import (
         create_protected_mcp_app,
+        default_pairing_path,
         default_state_path,
+        load_or_create_pairing_code,
+        reset_pairing_code,
         reset_state,
     )
     from lemoncrow.gateway.adapters.mcp_oauth import migrate_legacy_state as migrate_legacy_oauth_state
@@ -399,8 +449,10 @@ def chatgpt_serve_cmd(
         tunnel_state_path_for,
     )
 
-    if no_auth and (pairing_code is not None or reset):
-        raise click.UsageError("--no-auth cannot be combined with --pairing-code or --reset")
+    if no_auth and (pairing_code is not None or reset or new_pairing_code):
+        raise click.UsageError("--no-auth cannot be combined with --pairing-code, --new-pairing-code or --reset")
+    if new_pairing_code and pairing_code is not None:
+        raise click.UsageError("--new-pairing-code cannot be combined with --pairing-code (it sets the code itself)")
     if persistent and not tunnel:
         raise click.UsageError("--persistent cannot be combined with --no-tunnel (--persistent IS a tunnel mode)")
     if reset_tunnel and not persistent:
@@ -476,7 +528,6 @@ def chatgpt_serve_cmd(
 
         app = create_mcp_http_app()
     else:
-        code = pairing_code or secrets.token_urlsafe(9)
         # Per-hostname OAuth store under --persistent: every mutation flushes
         # the whole file, so two concurrently-serving projects on one store
         # would clobber each other's clients and token hashes (the other
@@ -485,9 +536,20 @@ def chatgpt_serve_cmd(
         if oauth_scope is not None:
             migrate_legacy_oauth_state(oauth_scope)
         state_path = default_state_path(oauth_scope)
+        pairing_path = default_pairing_path(oauth_scope)
         if reset:
             removed = reset_state(state_path)
+            reset_pairing_code(pairing_path)
             click.echo(f"  Reset OAuth state ({'removed ' + str(state_path) if removed else 'nothing to remove'}).")
+        # Explicit --pairing-code stays a one-off override; otherwise the code
+        # is read from (or minted into) the store, so restarting the server
+        # does not invalidate the code the operator already knows.
+        if pairing_code is not None:
+            code = pairing_code
+        else:
+            code = load_or_create_pairing_code(pairing_path, rotate=new_pairing_code)
+            if new_pairing_code:
+                click.secho("  Rotated the stored pairing code.", fg="yellow")
         app = create_protected_mcp_app(pairing_code=code, state_path=state_path)
 
     from lemoncrow.gateway.cli.commands._request_log import (
@@ -558,47 +620,48 @@ def chatgpt_serve_cmd(
     click.echo("")
     click.echo(f"  {rule}")
     click.secho(
-        "  LemonCrow → ChatGPT connector " + ("(NO AUTH)" if no_auth else "(OAuth 2.1)"),
+        "  LemonCrow remote MCP server " + ("(NO AUTH)" if no_auth else "(OAuth 2.1)"),
         fg="cyan",
         bold=True,
     )
     click.echo(f"  {rule}")
     if code is not None:
         click.echo(click.style("  Pairing code:  ", dim=True) + click.style(code, fg="yellow", bold=True))
+        if pairing_code is None:
+            click.secho(
+                "                 stays the same across restarts (--new-pairing-code changes it)",
+                dim=True,
+            )
     click.echo(click.style("  Local server:  ", dim=True) + f"http://{host}:{port}/mcp")
     click.echo(click.style("  Request log:   ", dim=True) + click.style(str(log_path), fg="magenta"))
     click.secho("  View it live in a second terminal (keeps this output clean):", dim=True)
     click.secho(f"      tail -f {log_path} | jq .", fg="cyan", bold=True)
     click.echo("")
     if tunnel_url is not None:
-        # THE value the user pastes into ChatGPT — make it the loudest line.
+        # THE value the user pastes into their client — make it the loudest line.
         click.echo(
-            click.style("  MCP server URL for ChatGPT:  ", dim=True)
-            + click.style(f"{tunnel_url}/mcp", fg="green", bold=True)
+            click.style("  MCP server URL:  ", dim=True) + click.style(f"{tunnel_url}/mcp", fg="green", bold=True)
         )
+        click.echo(click.style("  Authentication:  ", dim=True) + auth_value)
         click.echo("")
-        click.echo(click.style("  1.", bold=True) + " ChatGPT → Settings → Plugins → Browse Plugins →")
-        click.echo("     Next to search click + → Create.")
-        click.echo("       Name: LC-<project> (so you can refer it per project)")
-        click.echo("       MCP server URL:  " + click.style(f"{tunnel_url}/mcp", fg="green"))
-        click.echo(f"       Authentication:  {auth_value}")
+        click.echo(click.style("  1.", bold=True) + " Add it as a remote MCP server in any client that takes a URL:")
+        _echo_client_hints()
+        click.echo("     Name it LC-<project> so you can tell projects apart.")
         if not no_auth:
             click.echo(click.style("  2.", bold=True) + " Approve the browser OAuth page with the pairing code above.")
         click.echo("")
         if persistent:
             click.secho("  Note: stable — this URL does not change across restarts.", dim=True)
         else:
-            click.secho("  Note: this quick-tunnel URL rotates on every restart — re-add the", dim=True)
-            click.secho("  connector each time, or use a named tunnel with --no-tunnel.", dim=True)
+            click.secho("  Note: this quick-tunnel URL rotates on every restart — re-point the", dim=True)
+            click.secho("  client each time, or use --persistent for a stable URL.", dim=True)
     else:
         click.echo(click.style("  1.", bold=True) + " Expose it through a tunnel (in another terminal):")
         click.echo(f"       cloudflared tunnel --url http://localhost:{port}")
         click.echo(f"       # or:  ngrok http {port}")
-        click.echo(click.style("  2.", bold=True) + " ChatGPT → Settings → Plugins → Browse Plugins →")
-        click.echo("     Next to search click + → Create.")
-        click.echo("       Name: LC-<project> (so you can refer it per project)")
-        click.echo("       MCP server URL:  https://<tunnel-host>/mcp")
-        click.echo(f"       Authentication:  {auth_value}")
+        click.echo(click.style("  2.", bold=True) + " Add https://<tunnel-host>/mcp as a remote MCP server:")
+        _echo_client_hints()
+        click.echo(f"     Authentication:  {auth_value}")
         if not no_auth:
             click.echo(click.style("  3.", bold=True) + " Approve the browser OAuth page with the pairing code above.")
     click.echo("")
@@ -631,7 +694,7 @@ def chatgpt_serve_cmd(
         sock.close()
 
 
-@chatgpt_group.command("client")
+@click.command("client")
 @click.option(
     "--redirect-uri",
     "redirect_uris",
@@ -644,13 +707,15 @@ def chatgpt_serve_cmd(
     help="Mint the client in the OAuth store of this --persistent hostname (each "
     "hostname has its own store). Omit for the default/quick-tunnel store.",
 )
-def chatgpt_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None:
-    """Print a stable OAuth client ID for ChatGPT's "Enter a client ID" field.
+def mcp_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None:
+    """Print a stable OAuth client ID for clients that ask for one.
 
-    ChatGPT's connector form can use a user-supplied OAuth client instead of
-    dynamic registration. This mints one in the same state store `serve` uses
+    Most MCP clients register themselves dynamically and need nothing here.
+    Some connector forms (ChatGPT's "Enter a client ID") want a user-supplied
+    OAuth client instead. This mints one in the same state store `serve` uses
     (idempotent: re-running prints the same ID) so it survives restarts. Pass
-    the same --hostname you serve that connector with.
+    the same --hostname you serve that connector with, and --redirect-uri for
+    any client whose callback is not in the built-in defaults.
     """
     from lemoncrow.gateway.adapters.mcp_oauth import (
         _is_allowed_redirect_uri,
@@ -659,7 +724,7 @@ def chatgpt_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> 
     )
     from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
 
-    uris = list(redirect_uris) if redirect_uris else list(_CHATGPT_REDIRECT_URIS)
+    uris = list(redirect_uris) if redirect_uris else list(_CONNECTOR_REDIRECT_URIS)
     for uri in uris:
         if not _is_allowed_redirect_uri(uri):
             raise click.UsageError(f"redirect_uri must be https (or http loopback): {uri}")
@@ -672,8 +737,28 @@ def chatgpt_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> 
     )
     click.echo(click.style("  Client secret:  ", dim=True) + "leave empty (public client, PKCE)")
     click.echo("")
-    click.echo("  Paste the client ID into ChatGPT's connector form → Advanced /")
-    click.echo('  OAuth client section ("Enter a client ID"). Registered redirect URIs:')
+    click.echo("  Paste the client ID into your connector form → Advanced / OAuth")
+    click.echo('  client section (in ChatGPT: "Enter a client ID"). Registered')
+    click.echo("  redirect URIs:")
     for uri in record["redirect_uris"]:
         click.echo(f"    - {uri}")
     click.echo("")
+
+
+# ── deprecated alias ────────────────────────────────────────────────────────────────
+@click.group("chatgpt", context_settings={"help_option_names": ["-h", "--help"]})
+def chatgpt_group() -> None:
+    """Deprecated alias of ``lc mcp serve`` / ``lc mcp client``.
+
+    The endpoint was never ChatGPT-specific — it is plain remote MCP. Kept so
+    scripts and muscle memory from before the rename keep working.
+    """
+    click.secho("  note: `lc chatgpt` is now `lc mcp` — this alias still works.", fg="yellow", err=True)
+
+
+chatgpt_group.add_command(mcp_serve_cmd)
+chatgpt_group.add_command(mcp_client_cmd)
+
+# Pre-rename symbol names, kept for any out-of-tree importer.
+chatgpt_serve_cmd = mcp_serve_cmd
+chatgpt_client_cmd = mcp_client_cmd

@@ -1,5 +1,5 @@
-"""``lc chatgpt`` CLI — tunnel auto-launch, cloudflared auto-install, no-auth,
-user-defined client.
+"""``lc mcp serve`` CLI — tunnel auto-launch, cloudflared auto-install, no-auth,
+user-defined client, and the deprecated ``lc chatgpt`` alias.
 
 None of these tests require cloudflared or the network: the spawn/download
 points (``shutil.which`` / ``subprocess.Popen`` / ``_download_cloudflared``) and
@@ -17,11 +17,12 @@ import pytest
 import uvicorn
 from click.testing import CliRunner, Result
 
-from lemoncrow.gateway.cli.commands import chatgpt as chatgpt_mod
-from lemoncrow.gateway.cli.commands.chatgpt import (
+from lemoncrow.gateway.cli.commands import mcp_serve as mcp_serve_mod
+from lemoncrow.gateway.cli.commands.mcp_serve import (
     _cloudflared_asset_name,
     _extract_tunnel_url,
-    chatgpt_group,
+    mcp_client_cmd,
+    mcp_serve_cmd,
 )
 
 # Real cloudflared quick-tunnel stderr shape: the URL sits inside an ASCII box.
@@ -79,20 +80,20 @@ def test_resolve_cloudflared_prefers_path_then_managed(monkeypatch: pytest.Monke
     managed.write_bytes(b"#!/bin/sh\n")
     managed.chmod(0o755)
 
-    monkeypatch.setattr(chatgpt_mod.shutil, "which", lambda name: "/usr/local/bin/cloudflared")
-    assert chatgpt_mod._resolve_cloudflared() == "/usr/local/bin/cloudflared"
+    monkeypatch.setattr(mcp_serve_mod.shutil, "which", lambda name: "/usr/local/bin/cloudflared")
+    assert mcp_serve_mod._resolve_cloudflared() == "/usr/local/bin/cloudflared"
 
-    monkeypatch.setattr(chatgpt_mod.shutil, "which", lambda name: None)
-    assert chatgpt_mod._resolve_cloudflared() == str(managed)
+    monkeypatch.setattr(mcp_serve_mod.shutil, "which", lambda name: None)
+    assert mcp_serve_mod._resolve_cloudflared() == str(managed)
 
     managed.unlink()
-    assert chatgpt_mod._resolve_cloudflared() is None
+    assert mcp_serve_mod._resolve_cloudflared() is None
 
 
 # ── CLI behavior (no cloudflared, no network) ──────────────────────────────────
 def _invoke_serve(args: list[str], input: str | None = None) -> Result:
     # click >= 8.2: result.output interleaves stdout and stderr by default.
-    return CliRunner().invoke(chatgpt_group, ["serve", "--pairing-code", "x", *args], input=input)
+    return CliRunner().invoke(mcp_serve_cmd, ["--pairing-code", "x", *args], input=input)
 
 
 class _FakeTunnelProc:
@@ -115,9 +116,9 @@ class _FakeTunnelProc:
 def test_no_tunnel_never_probes_cloudflared(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
     probes: list[str] = []
-    monkeypatch.setattr(chatgpt_mod.shutil, "which", lambda *a, **k: probes.append("which"))
-    monkeypatch.setattr(chatgpt_mod.subprocess, "Popen", lambda *a, **k: probes.append("popen"))
-    monkeypatch.setattr(chatgpt_mod, "_download_cloudflared", lambda dest: probes.append("download"))
+    monkeypatch.setattr(mcp_serve_mod.shutil, "which", lambda *a, **k: probes.append("which"))
+    monkeypatch.setattr(mcp_serve_mod.subprocess, "Popen", lambda *a, **k: probes.append("popen"))
+    monkeypatch.setattr(mcp_serve_mod, "_download_cloudflared", lambda dest: probes.append("download"))
     served: list[bool] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append(True))
 
@@ -130,25 +131,25 @@ def test_no_tunnel_never_probes_cloudflared(monkeypatch: pytest.MonkeyPatch, tmp
 def test_missing_cloudflared_noninteractive_aborts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No binary + no TTY to answer the download prompt → exit 1 with the link."""
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    monkeypatch.setattr(chatgpt_mod, "_resolve_cloudflared", lambda: None)
+    monkeypatch.setattr(mcp_serve_mod, "_resolve_cloudflared", lambda: None)
     downloads: list[Path] = []
-    monkeypatch.setattr(chatgpt_mod, "_download_cloudflared", lambda dest: downloads.append(dest))
+    monkeypatch.setattr(mcp_serve_mod, "_download_cloudflared", lambda dest: downloads.append(dest))
     served: list[bool] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append(True))
 
     result = _invoke_serve([])  # no input → click.confirm hits EOF → Abort
     assert result.exit_code == 1
     assert "developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads" in result.output
-    assert "run `uv run lemoncrow chatgpt serve` again" in result.output
+    assert "run `uv run lemoncrow mcp serve` again" in result.output
     assert downloads == []
     assert served == []
 
 
 def test_declined_download_exits_with_link(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    monkeypatch.setattr(chatgpt_mod, "_resolve_cloudflared", lambda: None)
+    monkeypatch.setattr(mcp_serve_mod, "_resolve_cloudflared", lambda: None)
     downloads: list[Path] = []
-    monkeypatch.setattr(chatgpt_mod, "_download_cloudflared", lambda dest: downloads.append(dest))
+    monkeypatch.setattr(mcp_serve_mod, "_download_cloudflared", lambda dest: downloads.append(dest))
     served: list[bool] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append(True))
 
@@ -162,7 +163,7 @@ def test_declined_download_exits_with_link(monkeypatch: pytest.MonkeyPatch, tmp_
 
 def test_accepted_download_installs_then_serves(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    monkeypatch.setattr(chatgpt_mod, "_resolve_cloudflared", lambda: None)
+    monkeypatch.setattr(mcp_serve_mod, "_resolve_cloudflared", lambda: None)
     managed = tmp_path / ".lemoncrow" / "chatgpt" / "bin" / "cloudflared"
     downloads: list[Path] = []
 
@@ -170,7 +171,7 @@ def test_accepted_download_installs_then_serves(monkeypatch: pytest.MonkeyPatch,
         downloads.append(dest)
         return str(dest)
 
-    monkeypatch.setattr(chatgpt_mod, "_download_cloudflared", _fake_download)
+    monkeypatch.setattr(mcp_serve_mod, "_download_cloudflared", _fake_download)
     proc = _FakeTunnelProc()
     tunnel_binaries: list[str] = []
 
@@ -178,7 +179,7 @@ def test_accepted_download_installs_then_serves(monkeypatch: pytest.MonkeyPatch,
         tunnel_binaries.append(binary)
         return proc, "https://foo.trycloudflare.com"
 
-    monkeypatch.setattr(chatgpt_mod, "_start_tunnel", _fake_start)
+    monkeypatch.setattr(mcp_serve_mod, "_start_tunnel", _fake_start)
     served: list[bool] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append(True))
 
@@ -192,10 +193,10 @@ def test_accepted_download_installs_then_serves(monkeypatch: pytest.MonkeyPatch,
 
 def test_tunnel_url_printed_and_proc_cleaned_up(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    monkeypatch.setattr(chatgpt_mod, "_resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(mcp_serve_mod, "_resolve_cloudflared", lambda: "/usr/bin/cloudflared")
     proc = _FakeTunnelProc()
     monkeypatch.setattr(
-        chatgpt_mod,
+        mcp_serve_mod,
         "_start_tunnel",
         lambda binary, port, timeout=30.0: (proc, "https://foo.trycloudflare.com"),
     )
@@ -203,8 +204,8 @@ def test_tunnel_url_printed_and_proc_cleaned_up(monkeypatch: pytest.MonkeyPatch,
 
     result = _invoke_serve([])
     assert result.exit_code == 0, result.output
-    assert "MCP server URL for ChatGPT:  https://foo.trycloudflare.com/mcp" in result.output
-    assert "rotates" in result.output
+    assert "MCP server URL:  https://foo.trycloudflare.com/mcp" in result.output
+    assert "quick-tunnel URL rotates" in result.output
     # The manual "expose it through a tunnel" step is dropped when the URL is known.
     assert "Expose it through a tunnel" not in result.output
     # try/finally must take the tunnel down even on a clean exit.
@@ -213,9 +214,9 @@ def test_tunnel_url_printed_and_proc_cleaned_up(monkeypatch: pytest.MonkeyPatch,
 
 def test_tunnel_timeout_warns_and_still_serves(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    monkeypatch.setattr(chatgpt_mod, "_resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr(mcp_serve_mod, "_resolve_cloudflared", lambda: "/usr/bin/cloudflared")
     proc = _FakeTunnelProc()
-    monkeypatch.setattr(chatgpt_mod, "_start_tunnel", lambda binary, port, timeout=30.0: (proc, None))
+    monkeypatch.setattr(mcp_serve_mod, "_start_tunnel", lambda binary, port, timeout=30.0: (proc, None))
     served: list[bool] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append(True))
 
@@ -235,7 +236,7 @@ def test_no_auth_serves_open_mcp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     captured_apps: list[Any] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: captured_apps.append(self.config.app))
 
-    result = CliRunner().invoke(chatgpt_group, ["serve", "--no-auth", "--no-tunnel"])
+    result = CliRunner().invoke(mcp_serve_cmd, ["--no-auth", "--no-tunnel"])
     assert result.exit_code == 0, result.output
     assert "Authentication:  None (no auth)" in result.output
     assert "NO AUTHENTICATION" in result.output
@@ -253,7 +254,7 @@ def test_no_auth_serves_open_mcp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 def test_no_auth_conflicts_with_pairing_code_and_reset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
     for extra in (["--pairing-code", "x"], ["--reset"]):
-        result = CliRunner().invoke(chatgpt_group, ["serve", "--no-auth", "--no-tunnel", *extra])
+        result = CliRunner().invoke(mcp_serve_cmd, ["--no-auth", "--no-tunnel", *extra])
         assert result.exit_code != 0
         assert "cannot be combined" in result.output
 
@@ -267,7 +268,7 @@ def _state_clients(tmp_path: Path) -> dict[str, Any]:
 
 def test_client_command_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    first = CliRunner().invoke(chatgpt_group, ["client"])
+    first = CliRunner().invoke(mcp_client_cmd, [])
     assert first.exit_code == 0, first.output
 
     clients = _state_clients(tmp_path)
@@ -275,13 +276,15 @@ def test_client_command_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path:
     client_id, record = next(iter(clients.items()))
     assert record["user_defined"] is True
     assert set(record["redirect_uris"]) == {
+        "https://claude.ai/api/mcp/auth_callback",
+        "https://claude.com/api/mcp/auth_callback",
         "https://chatgpt.com/connector_platform_oauth_redirect",
         "https://chat.openai.com/connector_platform_oauth_redirect",
     }
     assert client_id in first.output
     assert "leave empty" in first.output
 
-    second = CliRunner().invoke(chatgpt_group, ["client"])
+    second = CliRunner().invoke(mcp_client_cmd, [])
     assert second.exit_code == 0, second.output
     assert client_id in second.output  # same ID, not a new registration
     assert len(_state_clients(tmp_path)) == 1
@@ -289,6 +292,31 @@ def test_client_command_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
 def test_client_command_rejects_non_https_redirect(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    result = CliRunner().invoke(chatgpt_group, ["client", "--redirect-uri", "http://evil.example.com/cb"])
+    result = CliRunner().invoke(mcp_client_cmd, ["--redirect-uri", "http://evil.example.com/cb"])
     assert result.exit_code != 0
     assert "must be https" in result.output
+
+
+# ── command wiring (`lc mcp serve` is the name; `lc chatgpt` still resolves) ──
+def test_remote_transport_hangs_off_the_mcp_group() -> None:
+    """The remote transport must be reachable as ``lc mcp serve``/``lc mcp client``.
+
+    Registration lives in ``mcp.py`` while the implementation lives here, so a
+    missing ``add_command`` would silently drop the whole feature from the CLI
+    with every unit test above still green.
+    """
+    from lemoncrow.gateway.cli.commands.mcp import mcp_group
+
+    assert mcp_group.commands["serve"] is mcp_serve_cmd
+    assert mcp_group.commands["client"] is mcp_client_cmd
+
+
+def test_chatgpt_alias_still_runs_and_says_it_is_deprecated() -> None:
+    result = CliRunner().invoke(mcp_serve_mod.chatgpt_group, ["--help"])
+    assert result.exit_code == 0
+    assert "serve" in result.output
+    assert "client" in result.output
+
+    from lemoncrow.gateway.cli.app import cli
+
+    assert cli.commands["chatgpt"].hidden is True

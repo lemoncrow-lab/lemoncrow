@@ -1,8 +1,8 @@
-"""``lc chatgpt serve`` request logging (always on) — JSONL entries.
+"""``lc mcp serve`` request logging (always on) — JSONL entries.
 
 Exercises ``RequestLogMiddleware`` mounted on the real OAuth app (the same
 ``add_middleware`` wiring ``serve`` uses) plus the CLI banner surface. Focus:
-the single concrete log file ``chatgpt.py`` picks (named from the pairing
+the single concrete log file ``mcp_serve.py`` picks (named from the pairing
 code slug, or a fixed name for ``--no-auth`` — never split per MCP session,
 never the raw unsanitized pairing code), redaction guarantees (auth header,
 credential endpoints), truncation, that SSE-framed responses (one-shot POST
@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.gateway.adapters.mcp_oauth import create_protected_mcp_app
 from lemoncrow.gateway.cli.commands._request_log import RequestLogMiddleware, dated_log_dir
-from lemoncrow.gateway.cli.commands.chatgpt import _pairing_code_log_slug, chatgpt_group
+from lemoncrow.gateway.cli.commands.mcp_serve import _pairing_code_log_slug, mcp_serve_cmd
 
 _PAIRING = "log-test-pair"
 _REDIRECT = "https://chatgpt.example.com/cb"
@@ -279,7 +279,7 @@ def test_serve_always_logs_and_prints_tail_hint(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
     captured_apps: list[Any] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: captured_apps.append(self.config.app))
-    result = CliRunner().invoke(chatgpt_group, ["serve", "--no-tunnel", "--pairing-code", "x"])
+    result = CliRunner().invoke(mcp_serve_cmd, ["--no-tunnel", "--pairing-code", "x"])
     assert result.exit_code == 0, result.output
 
     log_dir = tmp_path / ".lemoncrow" / "chatgpt" / "sessions"
@@ -313,7 +313,7 @@ def test_serve_hashes_pairing_code_for_filename(monkeypatch: pytest.MonkeyPatch,
     captured_apps: list[Any] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: captured_apps.append(self.config.app))
     unsafe_code = "my code/with spaces"
-    result = CliRunner().invoke(chatgpt_group, ["serve", "--no-tunnel", "--pairing-code", unsafe_code])
+    result = CliRunner().invoke(mcp_serve_cmd, ["--no-tunnel", "--pairing-code", unsafe_code])
     assert result.exit_code == 0, result.output
 
     expected_slug = _pairing_code_log_slug(unsafe_code)
@@ -339,7 +339,7 @@ def test_no_auth_serve_uses_fixed_filename(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
     captured_apps: list[Any] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: captured_apps.append(self.config.app))
-    result = CliRunner().invoke(chatgpt_group, ["serve", "--no-tunnel", "--no-auth"])
+    result = CliRunner().invoke(mcp_serve_cmd, ["--no-tunnel", "--no-auth"])
     assert result.exit_code == 0, result.output
 
     log_dir = tmp_path / ".lemoncrow" / "chatgpt" / "sessions"

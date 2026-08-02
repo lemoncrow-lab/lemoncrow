@@ -1,6 +1,6 @@
-"""ChatGPT-connector OAuth 2.1 shim — resource protection + full handshake.
+"""remote MCP client-connector OAuth 2.1 shim — resource protection + full handshake.
 
-Exercises ``mcp_oauth.create_protected_mcp_app`` the way a ChatGPT Developer-Mode
+Exercises ``mcp_oauth.create_protected_mcp_app`` the way a remote MCP client Developer-Mode
 custom connector drives it: discover protected-resource metadata, register via
 DCR, run the PKCE authorization-code flow gated by the pairing code, exchange for
 a bearer token, and call ``/mcp``. Follows the FastAPI ``TestClient`` conventions

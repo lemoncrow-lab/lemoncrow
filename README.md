@@ -159,32 +159,56 @@ lc init
 
 ## More ways to run
 
-### Code from ChatGPT instead — free
+### Code from your chat app — free
 
-ChatGPT chat usage aren't counted towards credits unlike codex which has weekly limit.
-LemonCrow's tools (search, read, edit, bash) can be exposed through a tunnel and agent
-can do coding right from the chatgpt. I recommend using persistent tunnel to not drop
-connection in between the conversation.
+`lc mcp serve` publishes this workspace as a **remote MCP server**: a public
+`https://…/mcp` URL behind OAuth 2.1. Nothing about it is vendor-specific — any
+client that accepts a remote MCP server URL (ChatGPT connectors, Claude
+connectors, Cursor, VS Code, …) gets the same LemonCrow tools (search, read,
+edit, bash) your local agent uses, so you can code from a chat window or a
+phone. Chat usage is typically billed differently from coding-agent usage, so
+this is often the cheaper seat.
 
 ```bash
-lc chatgpt serve
+lc mcp serve
 ```
 
-Prints a pairing code and, by default, an auto-launched cloudflared tunnel
-URL (installs cloudflared on first use if missing). In ChatGPT: **Settings →
-Plugins → Browse Plugins → (next to search) + → Create**, paste the
-printed MCP server URL, set Authentication to **OAuth**, and approve the
-browser prompt with the pairing code.
+Prints a pairing code and, by default, an auto-launched cloudflared tunnel URL
+(installs cloudflared on first use if missing). Paste the printed MCP server URL
+into your client, set Authentication to **OAuth**, and approve the browser
+prompt with the pairing code:
+
+| Client                          | Where to paste it                                                  |
+| ------------------------------- | ------------------------------------------------------------------ |
+| ChatGPT                         | Settings → Plugins → Browse Plugins → (next to search) + → Create |
+| Claude (web, desktop, mobile)   | Settings → Connectors → Add custom connector                       |
+| Cursor / VS Code / Zed / others | Add a remote (streamable-HTTP) MCP server                          |
+
+The pairing code is stored per server, so restarting `lc mcp serve` keeps the
+same code — nothing to re-type. Use `--new-pairing-code` to rotate it, or
+`--reset` to wipe the pairing and every issued token.
+
+Use `--persistent` so the URL survives restarts too — a rotating quick-tunnel
+URL has to be re-pasted every run, and some clients drop the connector when it
+changes.
+
+Most clients register themselves with the server automatically. For the ones
+that ask you to supply an OAuth client ID instead, `lc mcp client` mints a
+stable one; pass `--redirect-uri` if your client shows a per-app callback URL
+(ChatGPT does, for newly created apps).
+
+`lc chatgpt serve` still works as a hidden alias of `lc mcp serve`.
 
 | Flag                        | Effect                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
 | `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. Each hostname gets its own tunnel, state and OAuth store, so several projects can serve at once. |
 | `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
+| `--new-pairing-code`        | Rotate the stored pairing code. Already-authorized clients keep working; only re-pairing needs the new one.               |
 
 Full request/response traffic is logged locally per run (path printed at
-startup; credentials and tokens are redacted) so you can audit exactly what
-ChatGPT sent and got back.
+startup; credentials and tokens are redacted) so you can audit exactly what the
+client sent and got back.
 
 **Known ChatGPT-side quirk:** Persistent connection is much more reliable. Sometimes chatgpt looses the tool aceess on a new chat message conversation and without reattaching it can't access the tool. Workaround is branchoff the chat and then reattach the tool and continue with your message.
 **Permissions**: If it complains about permissions or asks to reconnect, check in the Setting -> Plugins, it has `Allow All` permission
