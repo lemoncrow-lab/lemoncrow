@@ -1,22 +1,23 @@
-"""Single-user OAuth 2.1 shim so ChatGPT can reach LemonCrow's MCP transport.
+"""Single-user OAuth 2.1 shim so remote MCP clients can reach LemonCrow.
 
-ChatGPT's *custom MCP connector* (Settings → Connectors → Developer Mode) only
-speaks two authentication dialects: **no-auth** or **OAuth 2.1 with dynamic
-client registration (DCR)**. LemonCrow's streamable-HTTP transport
-(``mcp_http.py``) exposes shell-grade tools, so no-auth over a public tunnel is
-out of the question. This module supplies the smallest possible OAuth 2.1
-authorization server that satisfies ChatGPT while gating ``/mcp`` behind a
-single human secret — a *pairing code* printed at startup.
+Hosted MCP clients — ChatGPT's custom connectors, Claude's custom connectors,
+Cursor, VS Code, Zed — all speak the same two authentication dialects:
+**no-auth** or **OAuth 2.1 with dynamic client registration (DCR)**. LemonCrow's
+streamable-HTTP transport (``mcp_http.py``) exposes shell-grade tools, so
+no-auth over a public tunnel is out of the question. This module supplies the
+smallest possible OAuth 2.1 authorization server that satisfies those clients
+while gating ``/mcp`` behind a single human secret — a *pairing code* printed
+at startup.
 
 Design constraints that shape everything below:
 
   * **One human, one secret.** There is exactly one operator. We do not model
     users, consent screens, or scopes — the pairing code is the whole identity
     story. The OAuth machinery (PKCE, DCR, refresh rotation) exists only because
-    ChatGPT demands it, not because we have multiple principals to separate.
+    the clients demand it, not because we have multiple principals to separate.
 
   * **Behind a tunnel.** The process binds to loopback and is reached through
-    cloudflared/ngrok, so the URL ChatGPT sees is the *tunnel's* public URL, not
+    cloudflared/ngrok, so the URL the client sees is the *tunnel's* public URL, not
     ``localhost``. Every advertised URL (issuer, endpoints, resource id, the
     ``WWW-Authenticate`` discovery hint) must therefore be derived per-request
     from the forwarding headers — see ``_public_base_url``.
@@ -26,7 +27,7 @@ Design constraints that shape everything below:
     back in the token response. A leaked state file cannot be replayed.
 
   * **Survive restarts, but stay disposable.** Registered clients and token
-    hashes live in a 0600 JSON file so ChatGPT keeps working across a reconnect;
+    hashes live in a 0600 JSON file so the connector keeps working across a reconnect;
     short-lived authorization codes stay in memory only. ``--reset`` (or a
     corrupt file) starts fresh, revoking everything.
 
@@ -207,6 +208,67 @@ def reset_state(state_path: Path) -> bool:
         return False
 
 
+# ── pairing code persistence ─────────────────────────────────────────────
+def default_pairing_path(scope: str | None = None) -> Path:
+    """Peer of :func:`default_state_path` holding the stable pairing code.
+
+    Kept in its own file rather than inside ``oauth.json``: the OAuth store
+    rewrites that file wholesale on every token mutation, and the pairing code
+    must not be at the mercy of a mid-flight token flush. Same ``scope`` key as
+    the OAuth store, so a ``--persistent --hostname`` connector gets its own
+    code exactly like it gets its own client/token store.
+    """
+    name = "pairing.json" if scope is None else f"pairing-{scope}.json"
+    return default_store_root() / "chatgpt" / name
+
+
+def load_or_create_pairing_code(pairing_path: Path, *, rotate: bool = False) -> str:
+    """Return this store's pairing code, generating and persisting it once.
+
+    A fresh random code per start meant re-typing it into the client after
+    every restart, even though the tokens the client already holds are still
+    valid. Persisting it makes ``serve`` idempotent: stop, start, and the same
+    code still authorizes. ``rotate=True`` burns the old one and writes a new
+    one (the deliberate "that code leaked" path).
+
+    Written 0600 via tempfile+rename, like the OAuth state. An unreadable or
+    corrupt file is treated as absent — a new code is minted rather than
+    wedging the server on a file the operator would have to find and delete.
+    """
+    if not rotate:
+        try:
+            data = json.loads(pairing_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = None
+        if isinstance(data, dict):
+            existing = data.get("pairing_code")
+            if isinstance(existing, str) and existing:
+                return existing
+
+    code = secrets.token_urlsafe(9)
+    pairing_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(pairing_path.parent), prefix=".pairing.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"pairing_code": code}, handle)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, pairing_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    return code
+
+
+def reset_pairing_code(pairing_path: Path) -> bool:
+    """Delete the persisted pairing code. True if a file was removed."""
+    try:
+        pairing_path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
 class _OAuthStore:
     """Thread-safe store for OAuth state, with a 0600 JSON persistence layer.
 
@@ -328,7 +390,7 @@ class _OAuthStore:
                     return record
         return self.register_client(
             redirect_uris=redirect_uris,
-            client_name="ChatGPT (user-defined)",
+            client_name="Remote MCP client (user-defined)",
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             user_defined=True,
@@ -475,11 +537,11 @@ def _render_form(params: dict[str, str], error: str | None) -> str:
     )
     error_html = f"<p class='error'>{html.escape(error)}</p>" if error else ""
     return (
-        f"<!doctype html><html><head><meta charset='utf-8'><title>Connect ChatGPT to LemonCrow</title>"
+        f"<!doctype html><html><head><meta charset='utf-8'><title>Connect to LemonCrow</title>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<link rel='icon' href='/favicon.png' type='image/png'>"
         f"<style>{_PAGE_STYLE}</style></head><body><div class='card'>"
-        f"<h1>Connect ChatGPT to LemonCrow</h1>"
+        f"<h1>Connect to LemonCrow</h1>"
         f"<p>Enter the pairing code shown in your terminal to authorize this connector.</p>"
         f"<form method='post' action='/authorize'>{hidden}"
         f"<input type='text' name='pairing_code' autocomplete='off' autofocus "
@@ -518,9 +580,9 @@ def create_protected_mcp_app(
     store = _OAuthStore(state_path if state_path is not None else default_state_path())
 
     app = FastAPI(
-        title="LemonCrow MCP (ChatGPT OAuth)",
+        title="LemonCrow MCP (OAuth)",
         version=mcp_server.SERVER_VERSION,
-        description="OAuth 2.1-protected streamable-HTTP MCP transport for ChatGPT connectors.",
+        description="OAuth 2.1-protected streamable-HTTP MCP transport for remote MCP clients.",
     )
 
     # -- RFC 9728: protected-resource metadata --------------------------------

@@ -1,8 +1,8 @@
-"""Named-tunnel (Cloudflare) backend for ``lc chatgpt serve --persistent``.
+"""Named-tunnel (Cloudflare) backend for ``lc mcp serve --persistent``.
 
-The default ``chatgpt serve`` tunnel is a cloudflared *quick tunnel*: zero
+The default ``mcp serve`` tunnel is a cloudflared *quick tunnel*: zero
 setup, but the hostname rotates on every restart, so the operator has to
-re-add the ChatGPT connector each time. ``--persistent`` trades that
+re-point the connector each time. ``--persistent`` trades that
 convenience for a stable ``https://<hostname>/mcp`` URL backed by a real
 Cloudflare *named* tunnel, which requires a one-time ``cloudflared tunnel
 login`` (the operator must already manage a domain in Cloudflare DNS).
@@ -364,7 +364,7 @@ def setup_persistent_tunnel(
     """Full ``--persistent`` setup (or fast-path reuse), then launch
     ``cloudflared tunnel run``.
 
-    Assumes the caller (``chatgpt.py``) already resolved ``hostname`` and
+    Assumes the caller (``mcp_serve.py``) already resolved ``hostname`` and
     loaded ``existing_state`` from that hostname's own state file — this
     function only orchestrates cloudflared. ``narrate`` is called with short
     progress messages so the operator isn't staring at a silent hang during
