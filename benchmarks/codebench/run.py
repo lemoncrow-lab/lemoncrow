@@ -161,10 +161,18 @@ CLI_DRIVERS = ("claude", "lemoncrow-run", "codex", "cursor")
 # runs its server-chosen "auto" model (the only option without a paid plan).
 _CURSOR_MODEL_PREFIXES = ("claude-", "gpt-", "composer", "cursor-grok")
 _CLAUDE_MODEL_HINTS = ("sonnet", "opus", "haiku", "claude")
-# Only for pricing an estimate before the run: what a Codex arm most likely
-# lands on when nobody pinned a model. The realised cost is always re-priced
-# from the model the rollout records (see codex_session_model).
-_CODEX_MODEL_FALLBACK = "gpt-5.6-sol"
+
+# stream-json system/init display name -> cursor-agent --model id
+_CURSOR_DISPLAY_TO_ID = {
+    "cursor grok 4.5 high": "cursor-grok-4.5-high",
+    "cursor grok 4.5": "cursor-grok-4.5-high",
+    "cursor grok 4.5 high fast": "cursor-grok-4.5-high-fast",
+    "cursor grok 4.5 fast": "cursor-grok-4.5-high-fast",
+    "cursor grok 4.5 medium": "cursor-grok-4.5-medium",
+    "cursor grok 4.5 medium fast": "cursor-grok-4.5-medium-fast",
+    "cursor grok 4.5 low": "cursor-grok-4.5-low",
+    "cursor grok 4.5 low fast": "cursor-grok-4.5-low-fast",
+}
 
 
 def _cursor_model(model: str) -> str | None:
@@ -172,6 +180,51 @@ def _cursor_model(model: str) -> str | None:
     if m.startswith(_CURSOR_MODEL_PREFIXES):
         return m
     return None
+
+
+def _cursor_stream_served_model(stdout: str) -> str:
+    """Model Cursor actually served — from stream-json ``system/init`` (result omits it)."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("type") == "system" and obj.get("subtype") == "init":
+            served = str(obj.get("model") or "").strip()
+            if served:
+                return served
+    return ""
+
+
+def _cursor_canonical_model_id(served: str) -> str:
+    """Normalize Cursor display/pin to a stable id for audit + pricing."""
+    raw = (served or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(_CURSOR_MODEL_PREFIXES):
+        return raw
+    mapped = _CURSOR_DISPLAY_TO_ID.get(raw.lower())
+    if mapped:
+        return mapped
+    return raw
+
+
+def _cursor_price_model_id(model_id: str) -> str:
+    """Map cursor-grok pins to catalog rates (cursor-* ids are unknown/$0)."""
+    m = (model_id or "").strip()
+    low = m.lower()
+    if low.startswith("cursor-grok") and "4.5" in low:
+        return "grok-4.5"
+    if low.startswith("cursor-grok"):
+        return "grok-4"
+    if "grok" in low and "4.5" in low:
+        return "grok-4.5"
+    return m
 
 
 def _codex_host_model() -> str:
@@ -1059,20 +1112,14 @@ def _parse_codex_result(stdout: str, flow_path: Path, task: str, arm: str, rep: 
 
 
 def _parse_cursor_result(stdout: str, flow_path: Path, task: str, arm: str, rep: int) -> ArmResult:
-    """Parse ``cursor-agent -p --output-format json``.
+    """Parse ``cursor-agent -p --output-format json|stream-json``.
 
-    Cursor emits a single Claude-Code-style envelope:
-    ``{type:"result", result, is_error, duration_ms, usage:{inputTokens,
-    outputTokens, cacheReadTokens, cacheWriteTokens}}``. It reports NO
-    ``total_cost_usd`` (flat-rate subscription), so cost is priced from the
-    reported tokens via the shared catalog -- exactly like the Codex path. When
-    the model is server-chosen ("auto", no paid model pin), price at a Sonnet
-    fallback so BOTH cursor arms use one consistent rate and the lc-on/off
-    token/cost DELTA stays valid even if the absolute rate is approximate.
+    Prefers the last ``type:"result"`` envelope (stream-json emits many lines;
+    plain json emits one). Cost is priced from usage tokens via the shared
+    catalog. Tool attribution from stream-json is prefixed onto result_excerpt
+    and written beside the flow as ``*.trajectory.json``.
     """
     obj: dict[str, Any] | None = None
-    # cursor-agent may print a stray log line before the envelope; scan from the
-    # end for the last `type:"result"` object.
     for line in reversed(stdout.strip().splitlines()):
         line = line.strip()
         if not line.startswith("{"):
@@ -1084,6 +1131,12 @@ def _parse_cursor_result(stdout: str, flow_path: Path, task: str, arm: str, rep:
         if isinstance(cand, dict) and cand.get("type") == "result":
             obj = cand
             break
+    # Plain json format: whole stdout is one object (possibly without type).
+    if obj is None:
+        with contextlib.suppress(json.JSONDecodeError):
+            cand = json.loads(stdout.strip())
+            if isinstance(cand, dict) and ("usage" in cand or cand.get("type") == "result"):
+                obj = cand
     if obj is None:
         return ArmResult(task, arm, rep, False, 0.0, 0, 0, 0, 0, 0, 0, 0, [], True, stdout[:200], str(flow_path))
 
@@ -1092,19 +1145,32 @@ def _parse_cursor_result(stdout: str, flow_path: Path, task: str, arm: str, rep:
     output_tokens = _usage_int(u.get("outputTokens", 0))
     cache_read = _usage_int(u.get("cacheReadTokens", 0))
     cache_write = _usage_int(u.get("cacheWriteTokens", 0))
-    # Cursor's JSON doesn't echo the resolved model; use the pinned model when
-    # given (a real claude-*/gpt-* id), else a Sonnet fallback rate.
-    model_id = str(obj.get("model") or "").strip() or "claude-sonnet-4-5"
+    # Result envelopes omit model; stream-json system/init carries the served name.
+    served = str(obj.get("model") or "").strip() or _cursor_stream_served_model(stdout)
+    model_id = _cursor_canonical_model_id(served) or "cursor/unknown"
+    price_model = _cursor_price_model_id(model_id)
     cost_usd = 0.0
     with contextlib.suppress(Exception):
         cost_usd = usage_cost_usd(
-            model_id,
+            price_model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
     is_error = bool(obj.get("is_error", False))
+    mcp_n, native_n, by_tool = _cursor_tool_attribution_completed(stdout)
+    tool_prefix = f"[tools mcp={mcp_n} native={native_n}] "
+    traj = {
+        "mcp_calls": mcp_n,
+        "native_calls": native_n,
+        "calls_by_tool": dict(sorted(by_tool.items(), key=lambda kv: -kv[1])),
+        "model": model_id,
+    }
+    traj_path = Path(str(flow_path)).with_suffix(".trajectory.json")
+    with contextlib.suppress(OSError):
+        traj_path.write_text(json.dumps(traj, indent=1) + "\n", encoding="utf-8")
+    excerpt = tool_prefix + str(obj.get("result", ""))
     return ArmResult(
         task=task,
         arm=arm,
@@ -1121,9 +1187,51 @@ def _parse_cursor_result(stdout: str, flow_path: Path, task: str, arm: str, rep:
         thinking_tokens=0,
         models=[model_id],
         is_error=is_error,
-        result_excerpt=str(obj.get("result", ""))[:4000],
+        result_excerpt=excerpt[:4000],
         flow_path=str(flow_path),
     )
+
+
+def _cursor_tool_attribution_completed(stdout: str) -> tuple[int, int, dict[str, int]]:
+    """Like ``_cursor_tool_attribution`` but only ``subtype==completed`` events."""
+    mcp = 0
+    native = 0
+    by_tool: dict[str, int] = {}
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict) or ev.get("type") != "tool_call":
+            continue
+        if ev.get("subtype") != "completed":
+            continue
+        payload = ev.get("tool_call")
+        if not isinstance(payload, dict):
+            continue
+        kind = next((k for k in payload if isinstance(k, str) and k.endswith("ToolCall")), "unknown")
+        body = payload.get(kind) if isinstance(payload.get(kind), dict) else {}
+        args = body.get("args") if isinstance(body, dict) else {}
+        args = args if isinstance(args, dict) else {}
+        name = str(args.get("name") or args.get("toolName") or "")
+        short = kind[: -len("ToolCall")] if kind.endswith("ToolCall") else kind
+        key = f"{short}:{name}" if name else short
+        # Skip hook-denied / rejected completions — they never executed.
+        result = body.get("result") if isinstance(body, dict) else None
+        rtxt = json.dumps(result) if isinstance(result, (dict, list)) else str(result or "")
+        if any(s in rtxt for s in ("permissionDenied", '"rejected"', "fail closed", "blocked by a hook")):
+            key = f"denied:{key}"
+            by_tool[key] = by_tool.get(key, 0) + 1
+            continue
+        by_tool[key] = by_tool.get(key, 0) + 1
+        if short.lower() in {"mcp", "getmcptools"} or "lemoncrow" in key.lower() or name.lower().startswith("mcp"):
+            mcp += 1
+        else:
+            native += 1
+    return mcp, native, by_tool
 
 
 def _parse_claude_result(stdout: str, flow_path: Path, task: str, arm: str, rep: int) -> ArmResult:
@@ -3781,7 +3889,7 @@ def main() -> int:
             n_prompts=len(args.prompt),
             arms=len(args.arms),
             reps=args.reps,
-            model=((args.model or _CODEX_MODEL_FALLBACK) if args.cli_driver == "codex" else args.model),
+            model=args.model,
             max_turns=args.max_turns,
         )
         print("", flush=True)

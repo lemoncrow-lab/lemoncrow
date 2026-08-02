@@ -818,6 +818,23 @@ export interface OptimizationGap {
   notes: string;
 }
 
+export interface OptimizationRuntimeDecisionSummary {
+  days: number;
+  runs: number;
+  accepted_runs: number;
+  acceptance_rate: number | null;
+  cost_usd: number;
+  cost_per_accepted_run_usd: number | null;
+  tokens: Record<string, number>;
+  provider_calls: number;
+  tool_calls: number;
+  broker_calls: number;
+  truncation_extensions: number;
+  decisions: number;
+  proposed_changes: number;
+  by_mode: Record<string, { runs: number; accepted: number; cost_usd: number }>;
+}
+
 export interface OptimizationAdvisorRoutingPolicy {
   policy: string;
   simple: string;
@@ -1076,6 +1093,7 @@ export interface OptimizationsSummary {
   budget_rules: OptimizationRule[];
   implemented_levers: OptimizationLever[];
   implementation_gaps: OptimizationGap[];
+  runtime_decisions: OptimizationRuntimeDecisionSummary;
   advisor: OptimizationAdvisor;
   advisor_history: OptimizationAdvisorHistoryEntry[];
   recommendations: {

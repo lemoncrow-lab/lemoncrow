@@ -22,6 +22,9 @@ from lemoncrow.core.capabilities.mcp_integration.loader import (
 from lemoncrow.gateway.cli.events import (
     AssistantDelta,
     AssistantMessage,
+    AssistantProgress,
+    CacheStats,
+    ContextUsageUpdated,
     LemonCrowEvent,
     MemoryHit,
     PermissionRequested,
@@ -31,6 +34,51 @@ from lemoncrow.gateway.cli.events import (
     ToolOutput,
     ToolRequested,
     ToolStarted,
+    VerificationResult,
+)
+from lemoncrow.pro.capabilities.optimization.cache_economics import (
+    CacheDecision,
+    cache_control_for_tier,
+    choose_cache_decision,
+    load_provider_cache_handle,
+    save_provider_cache_handle,
+    select_cache_breakpoint,
+    should_rewrite_compacted_prefix,
+    stable_system_text,
+)
+from lemoncrow.pro.capabilities.optimization.evidence_reuse import (
+    VerificationReceipt as EvidenceVerificationReceipt,
+)
+from lemoncrow.pro.capabilities.optimization.evidence_reuse import (
+    finalize_task_evidence,
+    stage_evidence_result,
+)
+from lemoncrow.pro.capabilities.optimization.routing_calibration import (
+    choose_calibrated_route,
+    provider_for_model,
+)
+from lemoncrow.pro.capabilities.optimization.routing_calibration import (
+    record_route_outcome as persist_route_outcome,
+)
+from lemoncrow.pro.capabilities.optimization.runtime_decisions import (
+    OptimizationTraceRecorder,
+    normalize_optimization_mode,
+)
+from lemoncrow.pro.capabilities.owned_agent_session.runtime_policy import (
+    RuntimeTurnState,
+    build_final_receipt,
+    choose_mcp_exposure,
+    compact_history,
+    estimate_context_tokens,
+    is_truncation_finish_reason,
+    is_verification_command,
+    mcp_broker_schema,
+    output_governor_system_message,
+    output_token_limit,
+    reasoning_effort_for,
+    recommended_tool_choice,
+    should_switch_route,
+    task_requests_mutation,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,12 +140,28 @@ class InteractiveRuntime:
         yolo: bool = False,
         model: str | None = None,
         provider: str | None = None,
+        budget_hint: str = "balanced",
+        cache_policy: str = "auto",
+        max_cost: float | None = None,
+        dynamic_routing: bool = True,
+        mcp_enabled: bool = True,
+        mcp_schema_mode: str = "auto",
+        optimization_mode: str = "shadow",
     ) -> None:
         self._root = root or Path.home() / ".lemoncrow"
         self._yolo = yolo
         self._provider_override = provider
         self._override_model = model
+        self._budget_hint = budget_hint if budget_hint in {"cheap", "balanced", "best"} else "balanced"
+        self._cache_policy = cache_policy
+        self._max_cost = max_cost
+        self._dynamic_routing = dynamic_routing
+        self._mcp_enabled = mcp_enabled
+        self._mcp_schema_mode = mcp_schema_mode
+        self._optimization_mode = normalize_optimization_mode(optimization_mode)
+        self._project_root = Path.cwd().resolve()
         self._sessions: dict[str, list[dict[str, Any]]] = {}
+        self._session_costs: dict[str, float] = {}
         self._pending_permissions: dict[str, dict[str, Any]] = {}
         self._active_tools: list[str] | None = None
         self._current_mode: str = "code"
@@ -105,8 +169,10 @@ class InteractiveRuntime:
         self._mcp_tools: list[MCPTool] = []
         self._mcp_lock = threading.Lock()
         self._mcp_startup_thread: threading.Thread | None = None
-        self._background_tasks: list[dict[str, Any]] = []  # {id, name, status, result}
+        self._background_tasks: list[dict[str, Any]] = []
         self._share_tokens: dict[str, str] = {}
+        self._gemini_cache_names: dict[str, str] = {}
+        self._gemini_cache_failures: set[str] = set()
 
     async def start_session(
         self,
@@ -116,15 +182,22 @@ class InteractiveRuntime:
     ) -> str:
         session_id = session_id or uuid.uuid4().hex
         while len(self._sessions) >= _MAX_TRACKED_SESSIONS:
-            self._sessions.pop(next(iter(self._sessions)))
+            oldest = next(iter(self._sessions))
+            self._sessions.pop(oldest)
+            self._session_costs.pop(oldest, None)
         self._sessions[session_id] = []
+        self._session_costs.setdefault(session_id, 0.0)
         if project_root:
-            os.environ["CLAUDE_WORKSPACE_ROOT"] = project_root
+            self._project_root = Path(project_root).resolve()
+            os.environ["CLAUDE_WORKSPACE_ROOT"] = str(self._project_root)
         self._start_mcp_servers()
         return session_id
 
     def _start_mcp_servers(self) -> None:
-        """Start MCP servers in a background thread to avoid blocking session start."""
+        """Start discovered MCP servers once; schema selection happens per turn."""
+        if not self._mcp_enabled:
+            return
+        workspace_root = self._project_root
 
         def _start() -> None:
             try:
@@ -133,7 +206,7 @@ class InteractiveRuntime:
                     discover_mcp_configs,
                 )
 
-                configs = discover_mcp_configs()
+                configs = discover_mcp_configs(workspace_root)
                 for cfg in configs:
                     proc = MCPServerProcess(cfg)
                     if proc.start():
@@ -142,7 +215,7 @@ class InteractiveRuntime:
                             self._mcp_servers.append(proc)
                             self._mcp_tools.extend(tools)
                         logger.info("Started MCP server %s with %d tools", cfg.name, len(tools))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("MCP server startup failed (non-blocking)", exc_info=True)
 
         thread = threading.Thread(target=_start, daemon=True)
@@ -165,54 +238,87 @@ class InteractiveRuntime:
         self,
         messages: list[dict[str, Any]],
         model: str,
+        decision: CacheDecision | None = None,
     ) -> list[dict[str, Any]]:
-        """Move the Anthropic cache boundary to the latest completed message."""
-        from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import _provider_cache_style
-
-        if _provider_cache_style(self._provider_override or "", model) != "anthropic":
+        """Apply the selected Anthropic tier only to stable and reusable content."""
+        decision = decision or choose_cache_decision(
+            self._root,
+            requested_policy=self._cache_policy,
+            provider=self._provider_override or "",
+            model=model,
+            messages=messages,
+            optimization_mode=self._optimization_mode,
+        )
+        control = cache_control_for_tier(decision.actual_tier)
+        if control is None or decision.provider_style != "anthropic":
             return messages
-        # Shallow-copy the list so the two messages we re-wrap below don't mutate
-        # the persisted history, then deep-copy only those messages. A full
-        # deepcopy of the whole history here runs on every agent-loop iteration,
-        # so its cost scales as iterations x history-size.
-        request_messages = list(messages)
-        first_index = 0 if request_messages else None
-        if (
-            first_index is not None
-            and request_messages[0].get("role") == "system"
-            and isinstance(request_messages[0].get("content"), str)
-            and request_messages[0]["content"]
-        ):
-            # Static breakpoint on the system message: pins the tools+system
-            # prefix so every call gets a cache hit there regardless of how far
-            # the moving trailing breakpoint has advanced (Anthropic's automatic
-            # prefix lookback only scans a bounded number of blocks before each
-            # explicit breakpoint).
-            first = copy.deepcopy(request_messages[0])
-            first["content"] = [
-                {
-                    "type": "text",
-                    "text": first["content"],
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-            request_messages[0] = first
-        # Moving breakpoint on the latest completed message.
-        for index in range(len(request_messages) - 1, -1, -1):
-            content = request_messages[index].get("content")
-            if not isinstance(content, str) or not content:
-                continue
-            message = copy.deepcopy(request_messages[index])
-            message["content"] = [
-                {
-                    "type": "text",
-                    "text": content,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-            request_messages[index] = message
-            break
+        request_messages = copy.deepcopy(messages)
+        if request_messages and request_messages[0].get("role") == "system":
+            content = request_messages[0].get("content")
+            if isinstance(content, str) and content:
+                request_messages[0]["content"] = [{"type": "text", "text": content, "cache_control": dict(control)}]
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        block["cache_control"] = dict(control)
+                        break
+
+        breakpoint = decision.breakpoint or select_cache_breakpoint(request_messages)
+        if breakpoint is not None:
+            content = request_messages[breakpoint.index].get("content")
+            if isinstance(content, str) and content:
+                request_messages[breakpoint.index]["content"] = [
+                    {"type": "text", "text": content, "cache_control": dict(control)}
+                ]
         return request_messages
+
+    def _gemini_cached_content(
+        self,
+        decision: CacheDecision,
+        messages: list[dict[str, Any]],
+        model: str,
+    ) -> str | None:
+        if decision.provider_style != "gemini" or not decision.enabled or self._optimization_mode != "enforce":
+            return None
+        if decision.lane_key in self._gemini_cache_failures:
+            return None
+        cached = self._gemini_cache_names.get(decision.lane_key) or load_provider_cache_handle(
+            self._root,
+            prefix_hash=decision.prefix_hash,
+            model=model,
+        )
+        if cached:
+            self._gemini_cache_names[decision.lane_key] = cached
+            return cached
+        system_text = stable_system_text(messages)
+        try:
+            minimum = max(1, int(os.environ.get("LEMONCROW_GEMINI_CACHE_MIN_TOKENS", "1024")))
+        except ValueError:
+            minimum = 1024
+        if len(system_text) // 4 < minimum:
+            return None
+        ttl_seconds = 3600 if decision.actual_tier == "1h" else 300
+        try:
+            from lemoncrow.pro.capabilities.owned_agent_session.gemini_cache import GeminiContextCache
+
+            cache = GeminiContextCache.create(
+                model=model,
+                system_prompt=system_text,
+                ttl=f"{ttl_seconds}s",
+            )
+        except Exception:
+            self._gemini_cache_failures.add(decision.lane_key)
+            logger.debug("Gemini context-cache creation failed", exc_info=True)
+            return None
+        self._gemini_cache_names[decision.lane_key] = cache.name
+        save_provider_cache_handle(
+            self._root,
+            prefix_hash=decision.prefix_hash,
+            model=model,
+            name=cache.name,
+            ttl_seconds=ttl_seconds,
+        )
+        return cache.name
 
     async def _completion_with_backoff(self, request_kwargs: dict[str, Any]) -> Any:
         """Call LiteLLM with bounded exponential backoff for provider throttling."""
@@ -242,34 +348,73 @@ class InteractiveRuntime:
         tool_args: dict[str, Any],
         session_id: str = "",
     ) -> tuple[str, bool]:
-        """Execute one built-in or external MCP tool without blocking the event loop."""
+        """Execute one built-in, exposed MCP, or fallback-broker call."""
         try:
+            if tool_name == "mcp_tool":
+                result_str = await asyncio.to_thread(self._dispatch_mcp_broker, tool_args)
+                return result_str, not result_str.startswith("Error:")
             if tool_name.startswith("mcp__"):
                 result_str = await asyncio.to_thread(self._dispatch_mcp_tool, tool_name, tool_args)
                 return result_str, not result_str.startswith("Error:")
             result = await asyncio.to_thread(_dispatch_tool, tool_name, tool_args)
             return _render_tool_result(tool_name, result, tool_args, session_id=session_id), True
-        except Exception as exc:  # noqa: BLE001 - tool failures are model-visible results
+        except Exception as exc:
             return f"Error: {exc}", False
 
     def _dispatch_mcp_tool(self, tool_name: str, tool_args: dict[str, Any]) -> str:
-        """Route an ``mcp__<server>__<tool>`` call to the right MCP server."""
         parts = tool_name.split("__", 2)
         if len(parts) != 3:
             return f"Error: malformed MCP tool name '{tool_name}'"
         _, server_name, actual_tool = parts
-        for server in self._mcp_servers:
+        with self._mcp_lock:
+            servers = list(self._mcp_servers)
+        for server in servers:
             if server.config.name == server_name:
                 return server.call_tool(actual_tool, tool_args)
         return f"Error: MCP server '{server_name}' not found"
+
+    def _dispatch_mcp_broker(self, args: dict[str, Any]) -> str:
+        action = str(args.get("action", "search"))
+        with self._mcp_lock:
+            tools = list(self._mcp_tools)
+        if action == "search":
+            query = str(args.get("query", "")).lower().strip()
+            matches = [
+                {"server": tool.server_name, "tool": tool.name, "description": tool.description[:240]}
+                for tool in tools
+                if not query or query in f"{tool.server_name} {tool.name} {tool.description}".lower()
+            ][:20]
+            return json.dumps({"matches": matches}, ensure_ascii=False)
+        if action == "call":
+            server_name = str(args.get("server", ""))
+            tool_name = str(args.get("tool", ""))
+            arguments = args.get("arguments", {})
+            if not isinstance(arguments, dict):
+                return "Error: MCP arguments must be an object"
+            return self._dispatch_mcp_tool(f"mcp__{server_name}__{tool_name}", arguments)
+        return f"Error: unknown MCP broker action '{action}'"
+
+    @property
+    def root(self) -> Path:
+        return self._root
+
+    @property
+    def project_root(self) -> Path:
+        return self._project_root
 
     @property
     def session_ids(self) -> list[str]:
         return list(self._sessions.keys())
 
     def session_messages(self, session_id: str) -> list[dict[str, Any]]:
-        """Return a copy of the normalized conversation for persistence or APIs."""
         return list(self._sessions.get(session_id, ()))
+
+    def restore_session(self, session_id: str, messages: list[dict[str, Any]]) -> None:
+        self._sessions[session_id] = list(messages)
+
+    def drop_session(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        self._session_costs.pop(session_id, None)
 
     async def handle_user_message(
         self,
@@ -277,12 +422,13 @@ class InteractiveRuntime:
         text: str,
         *,
         model_override: str | None = None,
-        budget_hint: str = "balanced",
+        budget_hint: str | None = None,
+        context: str = "",
+        max_output_tokens: int | None = None,
+        primer_metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LemonCrowEvent]:
         messages = self._sessions.setdefault(session_id, [])
-
-        # Inject mode prefix in the user message (NOT in the system prompt) so the
-        # system prefix stays byte-identical across modes for maximum cache reuse.
+        budget = budget_hint or self._budget_hint
         mode_prefix = {
             "code": "[MODE: code]",
             "explore": "[MODE: explore — no edits please]",
@@ -290,42 +436,110 @@ class InteractiveRuntime:
             "plan": "[MODE: plan — no edits]",
         }.get(self._current_mode, "")
         prefixed_text = f"{mode_prefix} {text}".strip() if mode_prefix else text
+        if context:
+            prefixed_text = f"{prefixed_text}\n\n{context}"
         messages.append({"role": "user", "content": prefixed_text})
 
+        initial_route_trace: dict[str, Any] | None = None
         if model_override or self._override_model:
-            model = model_override or self._override_model  # type: ignore[assignment]
+            selected_model = model_override or self._override_model or ""
+            initial_route_trace = {
+                "proposed": {"model": selected_model},
+                "actual": {"model": selected_model},
+                "reason": "pinned model override",
+                "eligible": False,
+            }
             yield RouteSelected(
                 type="route.selected",
                 provider=self._provider_override if not model_override else None,
-                model=model,
-                reason="api model override" if model_override else "user override (/set-model)",
+                model=selected_model,
+                reason="api model override" if model_override else "user model override",
             )
-            async for event in self._agent_loop(session_id, messages, model=model or ""):  # type: ignore[arg-type]
+            async for event in self._agent_loop(
+                session_id,
+                messages,
+                model=selected_model,
+                task_text=text,
+                budget_hint=budget,
+                primer_supplied=bool(context),
+                dynamic_routing=False,
+                max_output_tokens=max_output_tokens,
+                initial_route_trace=initial_route_trace,
+                primer_metadata=primer_metadata,
+            ):
                 yield event
             return
 
         try:
             from lemoncrow.gateway.cli.commands.run import _resolve_litellm_model
-            from lemoncrow.pro.capabilities.owned_execution_routing import (
-                OwnedRouteRequest,
-                select_owned_route,
-            )
+            from lemoncrow.pro.capabilities.owned_execution_routing import OwnedRouteRequest, select_owned_route
 
             decision = select_owned_route(
                 self._root,
-                OwnedRouteRequest(tool_name="tui", task_text=text, mode="auto", budget=budget_hint),  # type: ignore[arg-type]
+                OwnedRouteRequest(
+                    tool_name="edit" if context else "read",
+                    task_text=text,
+                    mode="explicit" if self._provider_override else "auto",
+                    budget=budget,  # type: ignore[arg-type]
+                    provider=self._provider_override or "",
+                ),
             )
-            model = _resolve_litellm_model(decision.provider, decision.model)
+            if self._optimization_mode == "off":
+                actual_provider = decision.provider
+                actual_model = decision.model
+                route_reason = decision.reason
+                initial_route_trace = {
+                    "proposed": {"provider": actual_provider, "model": actual_model},
+                    "actual": {"provider": actual_provider, "model": actual_model},
+                    "reason": "optimization mode off; legacy owned route",
+                    "eligible": False,
+                }
+            else:
+                calibrated = choose_calibrated_route(
+                    self._root,
+                    route_decision=decision,
+                    phase="execute" if context else "explore",
+                    current_model="",
+                    context_tokens=0,
+                )
+                enforce_calibrated = self._optimization_mode == "enforce" and calibrated.eligible
+                actual_provider = calibrated.provider if enforce_calibrated else decision.provider
+                actual_model = calibrated.model if enforce_calibrated else decision.model
+                route_reason = calibrated.reason if enforce_calibrated else decision.reason
+                initial_route_trace = {
+                    "proposed": calibrated.trace(),
+                    "actual": {"provider": actual_provider, "model": actual_model},
+                    "reason": calibrated.reason,
+                    "eligible": calibrated.eligible,
+                }
+            selected_model = _resolve_litellm_model(actual_provider, actual_model)
             yield RouteSelected(
                 type="route.selected",
-                provider=decision.provider,
-                model=decision.model,
-                reason=decision.reason,
+                provider=actual_provider,
+                model=actual_model,
+                reason=route_reason,
             )
-        except Exception:  # noqa: BLE001 - fall back gracefully
-            model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
+        except Exception:
+            selected_model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
+            initial_route_trace = {
+                "proposed": {"model": selected_model},
+                "actual": {"model": selected_model},
+                "reason": "owned route fallback",
+                "eligible": False,
+            }
 
-        async for event in self._agent_loop(session_id, messages, model=model):
+        async for event in self._agent_loop(
+            session_id,
+            messages,
+            model=selected_model,
+            task_text=text,
+            budget_hint=budget,
+            primer_supplied=bool(context),
+            dynamic_routing=self._dynamic_routing,
+            max_output_tokens=max_output_tokens,
+            initial_route_trace=initial_route_trace,
+            primer_metadata=primer_metadata,
+        ):
             yield event
 
     async def _agent_loop(
@@ -334,92 +548,371 @@ class InteractiveRuntime:
         messages: list[dict[str, Any]],
         *,
         model: str,
+        task_text: str = "",
+        budget_hint: str = "balanced",
+        primer_supplied: bool = False,
+        dynamic_routing: bool = False,
         max_iterations: int = 100,
+        max_output_tokens: int | None = None,
+        initial_route_trace: dict[str, Any] | None = None,
+        primer_metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[LemonCrowEvent]:
         from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import _system_message
 
-        # Stable, immutable generic system prompt shared across ALL modes and turns.
-        # The mode is injected as a user-message prefix (see handle_user_message),
-        # never here — this keeps the system prefix byte-identical for cache reuse.
         if not messages or messages[0].get("role") != "system":
-            messages.insert(0, _system_message(self._provider_override or "", model))
+            system_message = _system_message(self._provider_override or "", model)
+            messages.insert(0, output_governor_system_message(system_message, self._optimization_mode))
+
+        startup_thread = self._mcp_startup_thread
+        if startup_thread is not None and startup_thread.is_alive():
+            await asyncio.to_thread(startup_thread.join, 1.0)
 
         tools = [
-            t for t in _get_litellm_tools() if self._active_tools is None or t["function"]["name"] in self._active_tools
+            tool
+            for tool in _get_litellm_tools()
+            if self._active_tools is None or tool["function"]["name"] in self._active_tools
         ]
+        with self._mcp_lock:
+            available_mcp_tools = list(self._mcp_tools)
+        exposure = choose_mcp_exposure(available_mcp_tools, task_text, self._mcp_schema_mode)
+        for tool in exposure.tools:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": f"mcp__{tool.server_name}__{tool.name}",
+                        "description": f"[MCP:{tool.server_name}] {tool.description}",
+                        "parameters": tool.input_schema or {"type": "object", "properties": {}},
+                    },
+                }
+            )
+        if exposure.focused:
+            tools.append(mcp_broker_schema())
 
-        # Add MCP tools as litellm-compatible tool defs
-        mcp_litellm_tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": f"mcp__{t.server_name}__{t.name}",
-                    "description": f"[MCP:{t.server_name}] {t.description}",
-                    "parameters": t.input_schema or {"type": "object", "properties": {}},
-                },
-            }
-            for t in self._mcp_tools
-        ]
-        tools = tools + mcp_litellm_tools
+        state = RuntimeTurnState(primer_supplied=primer_supplied)
+        mutation_requested = task_requests_mutation(task_text)
+        routed_phase = state.phase
+        current_model = model
+        trace = OptimizationTraceRecorder(
+            self._root,
+            session_id=session_id,
+            task_text=task_text,
+            mode=self._optimization_mode,
+        )
 
+        def record_route_outcome(
+            root: Path,
+            *,
+            provider: str,
+            model: str,
+            phase: str,
+            success: bool,
+            cost_usd: float,
+        ) -> None:
+            if self._optimization_mode != "off":
+                persist_route_outcome(
+                    root,
+                    provider=provider,
+                    model=model,
+                    phase=phase,
+                    success=success,
+                    cost_usd=cost_usd,
+                )
+
+        initial_route_trace = initial_route_trace or {
+            "proposed": {"model": current_model},
+            "actual": {"model": current_model},
+            "reason": "initial owned route",
+            "eligible": False,
+        }
+        trace.decision(
+            "route",
+            phase=state.phase,
+            proposed=initial_route_trace["proposed"],
+            actual=initial_route_trace["actual"],
+            reason=str(initial_route_trace["reason"]),
+            eligible=bool(initial_route_trace["eligible"]),
+        )
+        primer_trace = primer_metadata or {
+            "optimization_mode": self._optimization_mode,
+            "base_primer_skipped": False,
+            "evidence_hits": 0,
+            "invalidated_evidence": 0,
+            "evidence_applied": False,
+            "local_retrieval_invoked": False,
+            "local_retrieval_cache_hit": False,
+            "local_retrieval_packet_ready": False,
+            "local_retrieval_applied": False,
+            "local_retrieval_model_calls": 0,
+            "local_retrieval_turns": 0,
+            "local_retrieval_spans": 0,
+            "local_retrieval_confidence": 0.0,
+            "local_retrieval_reason": "no first-turn primer metadata",
+        }
+        base_primer_skipped = bool(primer_trace.get("base_primer_skipped"))
+        trace.decision(
+            "base_primer",
+            phase=state.phase,
+            proposed={"skip_broad_primer": base_primer_skipped},
+            actual={"skip_broad_primer": base_primer_skipped},
+            reason=(
+                "explicit source path already supplies the deterministic starting target"
+                if base_primer_skipped
+                else "bounded deterministic workspace primer"
+            ),
+            eligible=base_primer_skipped,
+        )
+        evidence_common = {
+            "hit_count": int(primer_trace.get("evidence_hits", 0) or 0),
+            "invalidated": int(primer_trace.get("invalidated_evidence", 0) or 0),
+        }
+        trace.decision(
+            "evidence_lookup",
+            phase=state.phase,
+            proposed={**evidence_common, "applied": evidence_common["hit_count"] > 0},
+            actual={**evidence_common, "applied": bool(primer_trace.get("evidence_applied"))},
+            reason="verified evidence is prompt-visible only in enforce mode",
+            eligible=evidence_common["hit_count"] > 0,
+        )
+        local_common = {
+            "invoked": bool(primer_trace.get("local_retrieval_invoked")),
+            "cache_hit": bool(primer_trace.get("local_retrieval_cache_hit")),
+            "model_calls": int(primer_trace.get("local_retrieval_model_calls", 0) or 0),
+            "turns": int(primer_trace.get("local_retrieval_turns", 0) or 0),
+            "spans": int(primer_trace.get("local_retrieval_spans", 0) or 0),
+            "confidence": float(primer_trace.get("local_retrieval_confidence", 0.0) or 0.0),
+        }
+        trace.decision(
+            "local_retrieval",
+            phase=state.phase,
+            proposed={**local_common, "applied": bool(primer_trace.get("local_retrieval_packet_ready"))},
+            actual={**local_common, "applied": bool(primer_trace.get("local_retrieval_applied"))},
+            reason=str(primer_trace.get("local_retrieval_reason", "bounded local evidence packet"))[:256],
+            eligible=bool(local_common["invoked"]),
+        )
+        trace.decision(
+            "tool_exposure",
+            phase=state.phase,
+            proposed={"profile": exposure.reason, "tool_count": len(tools)},
+            actual={"profile": exposure.reason, "tool_count": len(tools)},
+            reason="deterministic hybrid MCP exposure",
+        )
         total_input = total_output = total_cache_read = total_cache_write = 0
-        tool_call_counts: dict[str, int] = {}  # normalized name+arguments -> count
+        total_cost = total_naive_cost = 0.0
+        tool_call_counts: dict[str, int] = {}
+        completed = False
+        next_output_limit: int | None = None
+        truncation_extensions = 0
+        evidence_staged = 0
+        last_cache_enabled = False
+        last_cache_sample_count = 0
 
-        for _ in range(max_iterations):
+        for _iteration in range(max_iterations):
+            if dynamic_routing and state.phase != routed_phase:
+                routed_phase = state.phase
+                try:
+                    from lemoncrow.gateway.cli.commands.run import _resolve_litellm_model
+                    from lemoncrow.pro.capabilities.owned_execution_routing import OwnedRouteRequest, select_owned_route
+
+                    phase_tool = {
+                        "explore": "read",
+                        "execute": "edit",
+                        "repair": "bash",
+                        "finish": "tui",
+                    }[state.phase]
+                    decision = select_owned_route(
+                        self._root,
+                        OwnedRouteRequest(
+                            tool_name=phase_tool,
+                            task_text=f"[phase:{state.phase}] {task_text}",
+                            mode="auto",
+                            budget=budget_hint,  # type: ignore[arg-type]
+                            session_state={
+                                "phase": state.phase,
+                                "edits": state.edit_count,
+                                "failures": state.failure_count,
+                            },
+                        ),
+                    )
+                    legacy_candidate = _resolve_litellm_model(decision.provider, decision.model)
+                    if self._optimization_mode == "off":
+                        actual_provider = decision.provider
+                        actual_model = decision.model
+                        candidate = legacy_candidate
+                        route_reason = decision.reason
+                        proposed_route = {"provider": actual_provider, "model": actual_model}
+                        route_eligible = False
+                    else:
+                        calibrated = choose_calibrated_route(
+                            self._root,
+                            route_decision=decision,
+                            phase=state.phase,
+                            current_model=current_model,
+                            context_tokens=estimate_context_tokens(messages),
+                            failure_count=state.failure_count,
+                        )
+                        enforce_calibrated = self._optimization_mode == "enforce" and calibrated.eligible
+                        actual_provider = calibrated.provider if enforce_calibrated else decision.provider
+                        actual_model = calibrated.model if enforce_calibrated else decision.model
+                        candidate = (
+                            _resolve_litellm_model(actual_provider, actual_model)
+                            if enforce_calibrated
+                            else legacy_candidate
+                        )
+                        route_reason = calibrated.reason if enforce_calibrated else decision.reason
+                        proposed_route = calibrated.trace()
+                        route_eligible = calibrated.eligible
+                    switch = should_switch_route(messages, current_model, candidate, state.phase)
+                    trace.decision(
+                        "route",
+                        phase=state.phase,
+                        proposed=proposed_route,
+                        actual={"provider": actual_provider, "model": candidate if switch else current_model},
+                        reason=route_reason,
+                        eligible=route_eligible,
+                    )
+                    if switch:
+                        current_model = candidate
+                        yield RouteSelected(
+                            type="route.selected",
+                            provider=actual_provider,
+                            model=actual_model,
+                            reason=f"phase {state.phase}: {route_reason}",
+                        )
+                except Exception:
+                    logger.debug("Phase route selection failed; retaining %s", current_model, exc_info=True)
+
+            iteration_phase = state.phase
             accumulated_text = ""
             tool_calls_acc: dict[int, dict[str, Any]] = {}
             finish_reason = ""
+            iter_input = iter_output = iter_cache_read = iter_cache_write = 0
+            base_output_limit = output_token_limit(budget_hint, state.phase)
+            phase_output_limit = next_output_limit or base_output_limit
+            next_output_limit = None
+            if max_output_tokens is not None and max_output_tokens > 0:
+                phase_output_limit = min(phase_output_limit, max_output_tokens)
+            proposed_tool_choice = recommended_tool_choice(current_model, state.phase, task_text)
+            actual_tool_choice = proposed_tool_choice if self._optimization_mode == "enforce" else "auto"
+            trace.decision(
+                "tool_choice",
+                phase=state.phase,
+                proposed={"tool_choice": proposed_tool_choice},
+                actual={"tool_choice": actual_tool_choice},
+                reason="tool-only execution for explicit mutation work",
+                eligible=proposed_tool_choice == "required",
+            )
+            cache_decision = choose_cache_decision(
+                self._root,
+                requested_policy=self._cache_policy,
+                provider=self._provider_override or "",
+                model=current_model,
+                messages=messages,
+                optimization_mode=self._optimization_mode,
+            )
+            last_cache_enabled = cache_decision.enabled
+            last_cache_sample_count = cache_decision.sample_count
+            trace.decision(
+                "cache",
+                phase=state.phase,
+                proposed=cache_decision.trace_proposed(),
+                actual=cache_decision.trace_actual(),
+                reason=cache_decision.reason,
+            )
+            request_kwargs: dict[str, Any] = {
+                "model": current_model,
+                "messages": self._messages_with_cache_breakpoint(messages, current_model, cache_decision),
+                "tools": tools,
+                "tool_choice": actual_tool_choice,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+                "max_tokens": phase_output_limit,
+            }
+            if cache_decision.provider_style == "openai" and cache_decision.enabled:
+                request_kwargs["prompt_cache_key"] = cache_decision.lane_key
+            elif cache_decision.provider_style == "gemini" and cache_decision.enabled:
+                cached_content = await asyncio.to_thread(
+                    self._gemini_cached_content,
+                    cache_decision,
+                    messages,
+                    current_model,
+                )
+                if cached_content:
+                    request_kwargs["extra_body"] = {"cachedContent": cached_content}
+            effort = reasoning_effort_for(current_model, budget_hint, state.phase)
+            trace.decision(
+                "joint_policy",
+                phase=state.phase,
+                proposed={
+                    "model": current_model,
+                    "reasoning_effort": effort,
+                    "output_limit": phase_output_limit,
+                    "tool_choice": proposed_tool_choice,
+                    "tool_profile": exposure.reason,
+                    "cache_tier": cache_decision.proposed_tier,
+                    "cache_lane": cache_decision.lane_key,
+                },
+                actual={
+                    "model": current_model,
+                    "reasoning_effort": effort,
+                    "output_limit": phase_output_limit,
+                    "tool_choice": actual_tool_choice,
+                    "tool_profile": exposure.reason,
+                    "cache_tier": cache_decision.actual_tier,
+                    "cache_lane": cache_decision.lane_key,
+                },
+                reason="joint phase policy",
+            )
+            if effort is not None:
+                request_kwargs["reasoning_effort"] = effort
+            if current_model.startswith("bedrock/"):
+                bearer_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+                if bearer_token:
+                    os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
+                    request_kwargs["api_key"] = bearer_token
 
             try:
-                request_kwargs: dict[str, Any] = {
-                    "model": model,
-                    "messages": self._messages_with_cache_breakpoint(messages, model),
-                    "tools": tools,
-                    "tool_choice": "auto",
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                }
-                if model.startswith("bedrock/"):
-                    bearer_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-                    if bearer_token:
-                        os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
-                        request_kwargs["api_key"] = bearer_token
                 stream = await self._completion_with_backoff(request_kwargs)
-            except Exception as exc:  # noqa: BLE001 - fall back gracefully
+            except Exception as exc:
                 err_str = str(exc)
-                if "API_KEY_SERVICE_BLOCKED" in err_str or "PERMISSION_DENIED" in err_str or "403" in err_str:
-                    from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
-                        detect_api_key_vendors,
+                blocked = "API_KEY_SERVICE_BLOCKED" in err_str or "PERMISSION_DENIED" in err_str or "403" in err_str
+                fallback_model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
+                if blocked and current_model != fallback_model:
+                    yield RuntimeErrorEvent(
+                        type="error",
+                        message=f"Provider {current_model!r} blocked; retrying with {fallback_model!r}.",
                     )
-
-                    other_vendors = [v for v in detect_api_key_vendors() if "google" not in v.lower()]
-                    fallback_model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
-                    if other_vendors and model != fallback_model:
-                        yield RuntimeErrorEvent(
-                            type="error",
-                            message=(
-                                f"Provider {model!r} blocked (API_KEY_SERVICE_BLOCKED). "
-                                f"Retrying with {fallback_model!r}."
-                            ),
-                        )
-                        async for event in self._agent_loop(
-                            session_id,
-                            messages,
-                            model=fallback_model,
-                            max_iterations=max_iterations - 1,
-                        ):
-                            yield event
-                    else:
-                        yield RuntimeErrorEvent(type="error", message=f"LLM call failed: {exc}")
+                    async for event in self._agent_loop(
+                        session_id,
+                        messages,
+                        model=fallback_model,
+                        task_text=task_text,
+                        budget_hint=budget_hint,
+                        primer_supplied=primer_supplied,
+                        dynamic_routing=False,
+                        max_iterations=max_iterations - 1,
+                        max_output_tokens=max_output_tokens,
+                        primer_metadata=primer_metadata,
+                    ):
+                        yield event
                 else:
                     yield RuntimeErrorEvent(type="error", message=f"LLM call failed: {exc}")
+                record_route_outcome(
+                    self._root,
+                    provider=provider_for_model(current_model),
+                    model=current_model,
+                    phase=iteration_phase,
+                    success=False,
+                    cost_usd=0.0,
+                )
+                trace.finish(accepted=False, error_code="provider_error")
                 return
 
             async for chunk in _aiter_sync_stream(stream):
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
-                    total_input += int(getattr(usage, "prompt_tokens", 0) or 0)
-                    total_output += int(getattr(usage, "completion_tokens", 0) or 0)
+                    raw_input = int(getattr(usage, "prompt_tokens", 0) or 0)
+                    output = int(getattr(usage, "completion_tokens", 0) or 0)
                     details = getattr(usage, "prompt_tokens_details", None)
                     cached = int(
                         getattr(usage, "cache_read_input_tokens", 0)
@@ -432,95 +925,214 @@ class InteractiveRuntime:
                         or (getattr(details, "cache_creation_tokens", 0) if details else 0)
                         or 0
                     )
-                    total_cache_read += cached
-                    total_cache_write += cache_write
-                    total_input -= cached + cache_write
+                    iter_input += max(0, raw_input - cached - cache_write)
+                    iter_output += output
+                    iter_cache_read += cached
+                    iter_cache_write += cache_write
+
                 choice = chunk.choices[0] if chunk.choices else None
                 if choice is None:
                     continue
                 delta = choice.delta
                 finish_reason = choice.finish_reason or finish_reason
-
                 if delta.content:
                     accumulated_text += delta.content
-                    yield AssistantDelta(type="assistant.delta", text=delta.content)
-
+                    if self._optimization_mode != "enforce":
+                        yield AssistantDelta(type="assistant.delta", text=delta.content)
                 if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {
-                                "id": tc.id or "",
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+                        if index not in tool_calls_acc:
+                            tool_calls_acc[index] = {
+                                "id": tool_call.id or "",
                                 "type": "function",
                                 "function": {
-                                    "name": (tc.function.name if tc.function else "") or "",
+                                    "name": (tool_call.function.name if tool_call.function else "") or "",
                                     "arguments": "",
                                 },
                             }
-                        if tc.id:
-                            tool_calls_acc[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tool_calls_acc[idx]["function"]["name"] = tc.function.name
-                            if tc.function.arguments:
-                                tool_calls_acc[idx]["function"]["arguments"] += tc.function.arguments
+                        if tool_call.id:
+                            tool_calls_acc[index]["id"] = tool_call.id
+                        if tool_call.function:
+                            if tool_call.function.name:
+                                tool_calls_acc[index]["function"]["name"] = tool_call.function.name
+                            if tool_call.function.arguments:
+                                tool_calls_acc[index]["function"]["arguments"] += tool_call.function.arguments
 
-            if not tool_calls_acc or finish_reason == "stop":
+            if self._optimization_mode == "enforce" and accumulated_text:
+                if tool_calls_acc:
+                    yield AssistantProgress(type="assistant.progress", text=accumulated_text)
+                else:
+                    yield AssistantDelta(type="assistant.delta", text=accumulated_text)
+
+            total_input += iter_input
+            total_output += iter_output
+            total_cache_read += iter_cache_read
+            total_cache_write += iter_cache_write
+            try:
+                from lemoncrow.core.capabilities.savings_summary import estimate_cost_usd
+
+                iteration_cost = float(
+                    estimate_cost_usd(
+                        model_id=current_model,
+                        input_tokens=iter_input,
+                        output_tokens=iter_output,
+                        cache_read_tokens=iter_cache_read,
+                        cache_write_tokens=iter_cache_write,
+                    )
+                )
+                iteration_naive = float(
+                    estimate_cost_usd(
+                        model_id=current_model,
+                        input_tokens=iter_input + iter_cache_read + iter_cache_write,
+                        output_tokens=iter_output,
+                        cache_read_tokens=0,
+                        cache_write_tokens=0,
+                    )
+                )
+            except Exception:
+                iteration_cost = iteration_naive = 0.0
+            total_cost += iteration_cost
+            total_naive_cost += iteration_naive
+            trace.record_provider_call(
+                phase=state.phase,
+                model=current_model,
+                finish_reason=finish_reason,
+                output_limit=phase_output_limit,
+                reasoning_effort=effort,
+                fresh_input_tokens=iter_input,
+                cache_read_tokens=iter_cache_read,
+                cache_write_tokens=iter_cache_write,
+                output_tokens=iter_output,
+                cost_usd=iteration_cost,
+            )
+
+            projected = self._session_costs.get(session_id, 0.0) + total_cost
+            if self._max_cost is not None and projected > self._max_cost:
+                record_route_outcome(
+                    self._root,
+                    provider=provider_for_model(current_model),
+                    model=current_model,
+                    phase=iteration_phase,
+                    success=False,
+                    cost_usd=iteration_cost,
+                )
                 if accumulated_text:
                     messages.append({"role": "assistant", "content": accumulated_text})
                     yield AssistantMessage(type="assistant.message", text=accumulated_text)
+                yield RuntimeErrorEvent(
+                    type="error",
+                    message=(
+                        f"Cost cap reached: projected session cost ${projected:.4f} exceeds ${self._max_cost:.4f}."
+                    ),
+                )
                 break
 
-            tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
+            if is_truncation_finish_reason(finish_reason):
+                record_route_outcome(
+                    self._root,
+                    provider=provider_for_model(current_model),
+                    model=current_model,
+                    phase=iteration_phase,
+                    success=False,
+                    cost_usd=iteration_cost,
+                )
+                extended = min(max(phase_output_limit + 256, phase_output_limit * 2), base_output_limit * 4)
+                if max_output_tokens is not None and max_output_tokens > 0:
+                    extended = min(extended, max_output_tokens)
+                if truncation_extensions < 1 and extended > phase_output_limit:
+                    truncation_extensions += 1
+                    next_output_limit = extended
+                    trace.record_truncation_extension()
+                    trace.decision(
+                        "output_extension",
+                        phase=state.phase,
+                        proposed={"max_tokens": extended},
+                        actual={"max_tokens": extended},
+                        reason="provider returned an explicit truncation finish reason",
+                    )
+                    if not tool_calls_acc and accumulated_text:
+                        messages.append({"role": "assistant", "content": accumulated_text})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "[Output was truncated. Continue exactly where it stopped, concisely.]",
+                            }
+                        )
+                    continue
+                yield RuntimeErrorEvent(
+                    type="error",
+                    message="Provider output remained truncated at the configured hard limit.",
+                )
+                break
+
+            if not tool_calls_acc or finish_reason == "stop":
+                record_route_outcome(
+                    self._root,
+                    provider=provider_for_model(current_model),
+                    model=current_model,
+                    phase=iteration_phase,
+                    success=bool(accumulated_text) and (not mutation_requested or state.ready_for_receipt),
+                    cost_usd=iteration_cost,
+                )
+                if accumulated_text:
+                    messages.append({"role": "assistant", "content": accumulated_text})
+                    yield AssistantMessage(type="assistant.message", text=accumulated_text)
+                    completed = True
+                break
+
+            tool_calls_list = [tool_calls_acc[index] for index in sorted(tool_calls_acc)]
+            retain_progress = self._optimization_mode != "enforce"
+            trace.decision(
+                "progress_history",
+                phase=state.phase,
+                proposed={"retain_progress": False},
+                actual={"retain_progress": retain_progress},
+                reason="progress remains user-visible but is unnecessary model context",
+                eligible=bool(accumulated_text),
+            )
             messages.append(
                 {
                     "role": "assistant",
-                    "content": accumulated_text or None,
+                    "content": (accumulated_text or None) if retain_progress else None,
                     "tool_calls": tool_calls_list,
                 }
             )
 
             looping = False
-            for tc in tool_calls_list:
-                tool_name = tc["function"]["name"]
-                fingerprint = f"{tool_name}:{tc['function']['arguments']}"
+            for tool_call in tool_calls_list:
+                tool_name = tool_call["function"]["name"]
+                fingerprint = f"{tool_name}:{tool_call['function']['arguments']}"
                 tool_call_counts[fingerprint] = tool_call_counts.get(fingerprint, 0) + 1
                 if tool_call_counts[fingerprint] > 3:
                     yield RuntimeErrorEvent(
                         type="error",
-                        message=(
-                            f"⚠ Loop detected: '{tool_name}' called "
-                            f"{tool_call_counts[fingerprint]} times with identical arguments. "
-                            "Consider interrupting with Ctrl+C."
-                        ),
+                        message=f"Loop detected: {tool_name!r} repeated with identical arguments.",
                     )
-                    if tool_call_counts[fingerprint] > 6:
-                        looping = True
+                    looping = tool_call_counts[fingerprint] > 6
             if looping:
-                # The assistant message with tool_calls was already appended
-                # above. Breaking without emitting a matching tool result for
-                # each call would persist orphaned tool_calls, which the provider
-                # rejects with a 400 on the next request ("assistant message with
-                # tool_calls must be followed by tool responses") — permanently
-                # corrupting the session. Close out every pending call first.
-                for tc in tool_calls_list:
+                for tool_call in tool_calls_list:
                     messages.append(
-                        {"role": "tool", "tool_call_id": tc["id"], "content": "[stopped: identical tool-call loop]"}
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": "[stopped: identical tool-call loop]",
+                        }
                     )
                 break
 
             prepared_calls: list[tuple[str, str, dict[str, Any]]] = []
-            for tc in tool_calls_list:
-                tool_id = tc["id"]
-                tool_name = tc["function"]["name"]
+            iteration_tools_ok = True
+            for tool_call in tool_calls_list:
+                tool_id = tool_call["id"]
+                tool_name = tool_call["function"]["name"]
                 try:
-                    tool_args = json.loads(tc["function"]["arguments"] or "{}")
+                    tool_args = json.loads(tool_call["function"]["arguments"] or "{}")
                 except json.JSONDecodeError:
                     tool_args = {}
-
                 yield ToolRequested(type="tool.requested", id=tool_id, name=tool_name, args=tool_args)
 
-                if not self._yolo and tool_name in ("edit", "bash"):
+                if not self._yolo and tool_name in {"edit", "bash"}:
                     self._pending_permissions[tool_id] = {"approved": None}
                     _evict_oldest(self._pending_permissions, _MAX_PENDING_PERMISSIONS)
                     yield PermissionRequested(
@@ -533,9 +1145,13 @@ class InteractiveRuntime:
                         await asyncio.sleep(0.1)
                         if self._pending_permissions.get(tool_id, {}).get("approved") is not None:
                             break
-                    if not self._pending_permissions.get(tool_id, {}).get("approved", False):
+                    approved = self._pending_permissions.pop(tool_id, {}).get("approved", False)
+                    if not approved:
                         result_str = "[denied by user]"
                         messages.append({"role": "tool", "tool_call_id": tool_id, "content": result_str})
+                        state.record(tool_name, False, tool_args, result_str)
+                        trace.record_tool(tool_name, ok=False)
+                        iteration_tools_ok = False
                         yield ToolFinished(
                             type="tool.finished",
                             id=tool_id,
@@ -546,15 +1162,19 @@ class InteractiveRuntime:
                         continue
                 prepared_calls.append((tool_id, tool_name, tool_args))
 
-            parallel_tools = _PARALLEL_SAFE_TOOLS
             index = 0
             while index < len(prepared_calls):
-                tool_id, tool_name, tool_args = prepared_calls[index]
-                if tool_name in parallel_tools or tool_name.startswith("mcp__"):
+                _, tool_name, _ = prepared_calls[index]
+                if tool_name in _PARALLEL_SAFE_TOOLS or tool_name.startswith("mcp__") or tool_name == "mcp_tool":
                     end = index + 1
-                    while end < len(prepared_calls) and (
-                        prepared_calls[end][1] in parallel_tools or prepared_calls[end][1].startswith("mcp__")
-                    ):
+                    while end < len(prepared_calls):
+                        candidate_name = prepared_calls[end][1]
+                        if not (
+                            candidate_name in _PARALLEL_SAFE_TOOLS
+                            or candidate_name.startswith("mcp__")
+                            or candidate_name == "mcp_tool"
+                        ):
+                            break
                         end += 1
                     batch = prepared_calls[index:end]
                 else:
@@ -569,10 +1189,9 @@ class InteractiveRuntime:
                         for _, batch_name, batch_args in batch
                     )
                 )
-
                 for (batch_id, batch_name, batch_args), (result_str, ok) in zip(batch, results, strict=True):
-                    output_preview = result_str[:2000] + ("…" if len(result_str) > 2000 else "")
-                    yield ToolOutput(type="tool.output", id=batch_id, chunk=output_preview)
+                    preview = result_str[:2000] + ("…" if len(result_str) > 2000 else "")
+                    yield ToolOutput(type="tool.output", id=batch_id, chunk=preview)
                     yield ToolFinished(
                         type="tool.finished",
                         id=batch_id,
@@ -581,12 +1200,35 @@ class InteractiveRuntime:
                         result=result_str[:500],
                     )
                     messages.append({"role": "tool", "tool_call_id": batch_id, "content": result_str})
+                    state.record(batch_name, ok, batch_args, result_str)
+                    trace.record_tool(batch_name, ok=ok)
+                    iteration_tools_ok = iteration_tools_ok and ok
+                    if ok and self._optimization_mode != "off":
+                        staged = await asyncio.to_thread(
+                            stage_evidence_result,
+                            self._root,
+                            self._project_root,
+                            task=task_text,
+                            tool_name=batch_name,
+                            args=batch_args,
+                            result=result_str,
+                        )
+                        evidence_staged += int(staged.staged)
+
+                    if batch_name == "bash" and is_verification_command(batch_args):
+                        trace.record_verification(ok=ok)
+                        yield VerificationResult(
+                            type="verification.result",
+                            ok=ok,
+                            rubric="project command",
+                            details=result_str[-1000:],
+                        )
 
                     if batch_name == "edit" and ok:
                         try:
                             edited_paths = [
-                                str(e.get("file_path") or e.get("path") or "").split("#")[0]
-                                for e in batch_args.get("edits", [])
+                                str(edit.get("file_path") or edit.get("path") or "").split("#")[0]
+                                for edit in batch_args.get("edits", [])
                             ]
                             diff_cmd = ["git", "diff", "--no-color"]
                             if edited_paths and all(edited_paths):
@@ -594,7 +1236,7 @@ class InteractiveRuntime:
                             raw_diff = await asyncio.to_thread(
                                 subprocess.check_output,
                                 diff_cmd,
-                                cwd=os.getcwd(),
+                                cwd=str(self._project_root),
                                 stderr=subprocess.DEVNULL,
                             )
                             diff = raw_diff.decode(errors="replace")[:5000]
@@ -604,52 +1246,87 @@ class InteractiveRuntime:
                                 yield PatchProposed(
                                     type="patch.proposed",
                                     id=batch_id,
-                                    files=[str(e.get("file_path", "?")) for e in batch_args.get("edits", [])],
+                                    files=edited_paths,
                                     diff=diff,
                                 )
-                        except Exception:  # noqa: BLE001 - diff is best-effort
+                        except Exception:
                             pass
                 index = end
 
-            # History must stay append-only: with prompt caching, mutating any
-            # prior message (e.g. squashing stale tool output) invalidates the
-            # cached prefix and re-writes the whole conversation at the cache
-            # write rate (~12.5x the read rate) — measured far more expensive
-            # than re-reading the verbose output. Dedup stubs handle repeats
-            # without touching history.
+            record_route_outcome(
+                self._root,
+                provider=provider_for_model(current_model),
+                model=current_model,
+                phase=iteration_phase,
+                success=iteration_tools_ok,
+                cost_usd=iteration_cost,
+            )
+
+            if state.ready_for_receipt:
+                receipt = build_final_receipt(state)
+                enforce_receipt = self._optimization_mode == "enforce"
+                trace.decision(
+                    "finalization",
+                    phase=state.phase,
+                    proposed={"strategy": "deterministic_receipt"},
+                    actual={"strategy": "deterministic_receipt" if enforce_receipt else "model"},
+                    reason="latest mutation generation has a successful verification receipt",
+                )
+                if enforce_receipt:
+                    yield AssistantDelta(type="assistant.delta", text=receipt)
+                    messages.append({"role": "assistant", "content": receipt})
+                    yield AssistantMessage(type="assistant.message", text=receipt)
+                    completed = True
+                    break
+
+        evidence_finalized = 0
+        evidence_receipt = None
+        if completed and self._optimization_mode != "off":
+            if state.ready_for_receipt:
+                evidence_receipt = EvidenceVerificationReceipt(
+                    kind="project_command",
+                    command=state.verification_commands[-1],
+                    ok=True,
+                    output_hash=state.last_verification_output_hash,
+                )
+            elif state.edit_count == 0 and not mutation_requested:
+                evidence_receipt = EvidenceVerificationReceipt(
+                    kind="read_only_completion",
+                    command="workspace fingerprint revalidation",
+                    ok=True,
+                )
+            if evidence_receipt is not None:
+                evidence_finalized = await asyncio.to_thread(
+                    finalize_task_evidence,
+                    self._root,
+                    self._project_root,
+                    task=task_text,
+                    receipt=evidence_receipt,
+                )
+        trace.decision(
+            "evidence_reuse",
+            phase=state.phase,
+            proposed={"staged": evidence_staged, "finalized": evidence_finalized},
+            actual={"staged": evidence_staged, "finalized": evidence_finalized},
+            reason="only source-hashed deterministic evidence can be finalized",
+            eligible=evidence_staged > 0,
+        )
 
         total_input = max(0, total_input)
-        denom = total_cache_read + total_cache_write + total_input
-        if denom > 0:
-            from lemoncrow.core.capabilities.savings_summary import estimate_cost_usd
-            from lemoncrow.gateway.cli.events import CacheStats
-
-            efficiency = round(total_cache_read / denom * 100, 1)
-            cost = estimate_cost_usd(
-                model_id=model,
-                input_tokens=total_input,
-                output_tokens=total_output,
-                cache_read_tokens=total_cache_read,
-                cache_write_tokens=total_cache_write,
-            )
-            naive = estimate_cost_usd(
-                model_id=model,
-                input_tokens=denom,
-                output_tokens=total_output,
-                cache_read_tokens=0,
-                cache_write_tokens=0,
-            )
+        denominator = total_cache_read + total_cache_write + total_input
+        self._session_costs[session_id] = self._session_costs.get(session_id, 0.0) + total_cost
+        if denominator > 0:
+            efficiency = round(total_cache_read / denominator * 100, 1)
             yield CacheStats(
                 type="cache.stats",
                 session_id=session_id,
                 cache_efficiency_pct=efficiency,
-                cost_usd=cost,
-                savings_usd=max(0.0, naive - cost),
+                cost_usd=total_cost,
+                savings_usd=max(0.0, total_naive_cost - total_cost),
                 cache_read_tokens=total_cache_read,
                 cache_write_tokens=total_cache_write,
                 fresh_tokens=total_input,
             )
-            from lemoncrow.gateway.cli.events import ContextUsageUpdated
             from lemoncrow.pro.capabilities.owned_agent_session.stem_prompt import STEM_VERSION
 
             yield ContextUsageUpdated(
@@ -660,24 +1337,22 @@ class InteractiveRuntime:
                 cache_write_tokens=total_cache_write,
                 output_tokens=total_output,
                 cache_efficiency_pct=efficiency,
-                cost_usd=cost,
+                cost_usd=total_cost,
                 stem_version=STEM_VERSION,
             )
 
-        self._sessions[session_id] = _trim_history(messages)
-
-        # Warm-cache prompt suggestions: when most of the input was served from
-        # cache, surface a few low-cost follow-up prompts.
         if total_cache_read > total_input // 2 and total_input > 0:
             last_assistant = next(
                 (
-                    m["content"]
-                    for m in reversed(messages)
-                    if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str)
+                    message["content"]
+                    for message in reversed(messages)
+                    if message.get("role") == "assistant" and isinstance(message.get("content"), str)
                 ),
                 "",
             )
             if last_assistant:
+                from lemoncrow.gateway.cli.events import PromptSuggestion as PromptSuggestionEvent
+
                 suggestions = []
                 lowered = last_assistant.lower()
                 if "error" in lowered or "failed" in lowered:
@@ -685,12 +1360,70 @@ class InteractiveRuntime:
                 if "implement" in lowered or "edit" in lowered:
                     suggestions.append("write tests for this")
                 suggestions.append("explain how this works")
-                from lemoncrow.gateway.cli.events import (
-                    PromptSuggestion as PromptSuggestionEvent,
-                )
+                for suggestion in suggestions[:3]:
+                    yield PromptSuggestionEvent(type="prompt.suggestion", text=suggestion)
 
-                for s in suggestions[:3]:
-                    yield PromptSuggestionEvent(type="prompt.suggestion", text=s)
+        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.pro.capabilities.optimization.audit import context_window_for_model
+
+        try:
+            priced_window = int(get_model_pricing(current_model).context_window or 0)
+        except Exception:
+            priced_window = 0
+        context_window = priced_window or context_window_for_model(current_model)
+        safe_context_limit = max(8_192, int(context_window * 0.80))
+        try:
+            configured_threshold = int(os.environ.get("LEMONCROW_COMPACT_AT_TOKENS", "120000"))
+        except ValueError:
+            configured_threshold = 120_000
+        try:
+            configured_hard_limit = max(
+                1,
+                int(os.environ.get("LEMONCROW_COMPACT_HARD_TOKENS", "180000")),
+            )
+        except ValueError:
+            configured_hard_limit = 180_000
+        hard_limit = min(configured_hard_limit, safe_context_limit)
+        compaction_threshold = min(
+            configured_threshold if configured_threshold > 0 else safe_context_limit,
+            hard_limit,
+        )
+        compacted_messages, compaction_available = compact_history(
+            messages,
+            threshold_tokens=compaction_threshold,
+        )
+        stored_messages = messages
+        if compaction_available:
+            old_tokens = estimate_context_tokens(messages)
+            compacted_tokens = estimate_context_tokens(compacted_messages)
+            expected_reads = float(max(1, min(8, last_cache_sample_count + 1)))
+            economical = not last_cache_enabled or should_rewrite_compacted_prefix(
+                old_tokens=old_tokens,
+                compacted_tokens=compacted_tokens,
+                expected_future_reads=expected_reads,
+            )
+            hard_required = old_tokens >= hard_limit
+            proposed_compaction = economical or hard_required
+            applied_compaction = proposed_compaction if self._optimization_mode == "enforce" else True
+            trace.decision(
+                "compaction",
+                phase=state.phase,
+                proposed={
+                    "rewrite": proposed_compaction,
+                    "old_tokens": old_tokens,
+                    "compacted_tokens": compacted_tokens,
+                    "expected_future_reads": expected_reads,
+                    "hard_required": hard_required,
+                },
+                actual={"rewrite": applied_compaction},
+                reason="cache rewrite must repay its write cost; hard context limit always wins",
+                eligible=True,
+            )
+            if applied_compaction:
+                stored_messages = compacted_messages
+        self._sessions[session_id] = _trim_history(stored_messages)
+        accepted = completed and (state.ready_for_receipt or (state.edit_count == 0 and not mutation_requested))
+        trace.finish(accepted=accepted, error_code=None if completed else "incomplete")
 
     async def handle_slash_command(
         self,
@@ -934,7 +1667,7 @@ class InteractiveRuntime:
                     for sess in recent_sessions:
                         lines.append(f"- `{sess.session_id}` — {sess.mode} — ${sess.total_cost_usd:.4f}")
                 yield AssistantMessage(type="assistant.message", text="\n".join(lines))
-            except Exception as exc:  # noqa: BLE001 - analytics is best-effort
+            except Exception as exc:
                 yield AssistantMessage(type="assistant.message", text=f"Analytics unavailable: {exc}")
         elif name == "mcp":
             import json as _json
@@ -953,7 +1686,7 @@ class InteractiveRuntime:
                         servers = data.get("mcpServers") or data.get("servers") or {}
                         for name_key, cfg in servers.items():
                             all_servers[name_key] = {"config": cfg, "source": str(mcp_file)}
-                    except Exception:  # noqa: BLE001 - config is best-effort
+                    except Exception:
                         pass
 
             if all_servers:
@@ -1018,7 +1751,7 @@ class InteractiveRuntime:
                 from lemoncrow import __version__
 
                 lines.append(f"- Version: `{__version__}`")
-            except Exception:  # noqa: BLE001 - version is best-effort
+            except Exception:
                 lines.append("- Version: unknown")
             import shutil
 
@@ -1047,7 +1780,7 @@ class InteractiveRuntime:
                 from lemoncrow import __version__
 
                 yield AssistantMessage(type="assistant.message", text=f"LemonCrow `{__version__}`")
-            except Exception:  # noqa: BLE001 - version is best-effort
+            except Exception:
                 yield AssistantMessage(type="assistant.message", text="LemonCrow (version unknown)")
         elif name == "newtask":
             self._sessions[session_id] = []
@@ -1108,7 +1841,7 @@ class InteractiveRuntime:
                 try:
                     result = await asyncio.to_thread(tool_bash, {"command": cmd, "timeout": 30})
                     yield AssistantMessage(type="assistant.message", text=f"```\n{result}\n```")
-                except Exception as exc:  # noqa: BLE001 - shell is best-effort
+                except Exception as exc:
                     yield RuntimeErrorEvent(type="error", message=f"Shell failed: {exc}")
             else:
                 yield RuntimeErrorEvent(type="error", message="Usage: !<command>")
@@ -1177,7 +1910,7 @@ class InteractiveRuntime:
             try:
                 content, *_ = _call_llm(ephemeral_messages, model=model, provider="openai")
                 yield AssistantMessage(type="assistant.message", text=f"**(btw)** {content}")
-            except Exception as exc:  # noqa: BLE001 - ephemeral call is best-effort
+            except Exception as exc:
                 yield RuntimeErrorEvent(type="error", message=f"/btw failed: {exc}")
         elif name == "auth":
             from lemoncrow.core.capabilities.auth.wizard import (
@@ -1312,7 +2045,7 @@ class InteractiveRuntime:
 
             result = await asyncio.to_thread(tool_memory, {"op": "recall", "query": query, "top_k": 5})
             yield MemoryHit(type="memory.hit", key=query, summary=str(result)[:2000])
-        except Exception as exc:  # noqa: BLE001 - fall back gracefully
+        except Exception as exc:
             yield RuntimeErrorEvent(type="error", message=f"Memory search failed: {exc}")
 
     async def _run_route(self, task: str) -> AsyncIterator[LemonCrowEvent]:
@@ -1335,7 +2068,7 @@ class InteractiveRuntime:
                 model=decision.model,
                 reason=decision.reason,
             )
-        except Exception as exc:  # noqa: BLE001 - fall back gracefully
+        except Exception as exc:
             yield RuntimeErrorEvent(type="error", message=f"Route selection failed: {exc}")
 
     async def respond_to_permission(

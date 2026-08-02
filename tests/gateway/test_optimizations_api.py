@@ -214,6 +214,18 @@ def test_optimizations_summary_returns_runtime_catalog_and_recommendations(
     assert any(
         item["id"] == "batch_edit" and item["observed_tokens_saved"] == 50 for item in data["implemented_levers"]
     )
+    implemented_ids = {item["id"] for item in data["implemented_levers"]}
+    assert {
+        "optimization_decision_trace",
+        "output_governor_v2",
+        "adaptive_cache_economics_v2",
+        "calibrated_phase_routing_v2",
+        "local_retrieval_firewall_v2",
+        "hybrid_mcp_exposure",
+        "verified_evidence_reuse_v2",
+    } <= implemented_ids
+    assert data["runtime_decisions"]["runs"] == 0
+    assert "owned-runtime-controlled-ab" in {item["id"] for item in data["implementation_gaps"]}
 
     recommendation_ids = {item["id"] for item in data["recommendations"]["recommendations"]}
     assert "high-cost-session-outliers" in recommendation_ids

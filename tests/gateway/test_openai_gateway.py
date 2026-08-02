@@ -40,6 +40,14 @@ class _Error:
         self.message = message
 
 
+class _Usage:
+    type = "context.usage.updated"
+    input_tokens = 80
+    cache_read_tokens = 20
+    cache_write_tokens = 0
+    output_tokens = 10
+
+
 async def _stream(*events) -> AsyncIterator:
     for ev in events:
         yield ev
@@ -57,6 +65,13 @@ def mock_runtime():
     rt.start_session = AsyncMock(return_value="test-session-id")
     rt.shutdown = MagicMock()
     rt._sessions = {}
+    rt.restore_session = MagicMock(
+        side_effect=lambda session_id, messages: rt._sessions.__setitem__(
+            session_id,
+            list(messages),
+        )
+    )
+    rt.drop_session = MagicMock(side_effect=lambda session_id: rt._sessions.pop(session_id, None))
     return rt
 
 
@@ -129,7 +144,15 @@ def test_chat_nonstreaming(client):
 
 def test_chat_streaming(client):
     c, rt = client
-    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("tok1"), _Delta("tok2"), _Message("tok1tok2")))
+    rt.handle_user_message = MagicMock(
+        return_value=_stream(
+            _Delta("tok1"),
+            _Delta("tok2"),
+            _Message("tok1tok2"),
+            _Usage(),
+        )
+    )
+    rt.drop_session.reset_mock()
 
     resp = c.post(
         "/v1/chat/completions",
@@ -146,6 +169,8 @@ def test_chat_streaming(client):
     raw = resp.text
     assert "data: " in raw
     assert "[DONE]" in raw
+    assert '"total_tokens":110' in raw, raw
+    rt.drop_session.assert_called_once()
 
     # Every data line (except [DONE]) must be valid JSON with choices
     for line in raw.splitlines():
@@ -219,8 +244,6 @@ def test_models_refresh_is_post(client):
 
 
 def test_v1_blocks_non_loopback_without_token(mock_runtime, monkeypatch):
-    # When no token is set, only loopback clients may reach /v1/*. TestClient is
-    # not loopback (host == "testclient"), so it must be rejected with 403.
     monkeypatch.delenv("LEMONCROW_GATEWAY_TOKEN", raising=False)
     with patch(
         "lemoncrow.gateway.openai_gateway.app.InteractiveRuntime",
@@ -231,3 +254,184 @@ def test_v1_blocks_non_loopback_without_token(mock_runtime, monkeypatch):
         app = create_app(project_root=None, yolo=True)
         with TestClient(app, raise_server_exceptions=True) as c:
             assert c.get("/v1/models").status_code == 403
+
+
+def test_chat_decodes_whole_string_host_envelope(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("ok"), _Message("ok")))
+
+    response = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "lc/lemoncrow",
+            "messages": [{"role": "user", "content": json.dumps("do it")}],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert rt.handle_user_message.call_args.args[1] == "do it"
+
+
+def test_virtual_model_drops_host_system_prompt(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("ok"), _Message("ok")))
+
+    response = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "lc/lemoncrow",
+            "messages": [
+                {"role": "system", "content": "very large host prompt"},
+                {"role": "user", "content": "do it"},
+            ],
+            "stream": False,
+            "max_tokens": 9999,
+        },
+    )
+
+    assert response.status_code == 200
+    restored = rt.restore_session.call_args.args[1]
+    assert restored == []
+    kwargs = rt.handle_user_message.call_args.kwargs
+    assert kwargs["model_override"] is None
+    assert kwargs["max_output_tokens"] == 9999
+
+
+def test_responses_api_drops_codex_host_scaffolding(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("frontend-ok"), _Message("frontend-ok"), _Usage()))
+
+    response = c.post(
+        "/v1/responses",
+        json={
+            "model": "lemoncrow",
+            "instructions": "twenty kilobytes of Codex host instructions",
+            "input": [
+                {"type": "message", "role": "developer", "content": "host policy"},
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "# AGENTS.md instructions for /repo\n...\n"
+                            "<environment_context>host context</environment_context>",
+                        }
+                    ],
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "do the work"}],
+                },
+            ],
+            "stream": False,
+            "max_output_tokens": 4321,
+            "tools": [{"type": "function", "name": "exec_command"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object"] == "response"
+    assert body["status"] == "completed"
+    assert body["output"][0]["content"][0]["text"] == "frontend-ok"
+    assert body["usage"]["total_tokens"] == 110
+    assert rt.restore_session.call_args.args[1] == []
+    kwargs = rt.handle_user_message.call_args.kwargs
+    assert rt.handle_user_message.call_args.args[1] == "do the work"
+    assert kwargs["model_override"] is None
+    assert kwargs["max_output_tokens"] == 4321
+
+
+def test_responses_api_streams_official_lifecycle(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(
+        return_value=_stream(_Delta("front"), _Delta("end-ok"), _Message("frontend-ok"), _Usage())
+    )
+    rt.drop_session.reset_mock()
+
+    response = c.post(
+        "/v1/responses",
+        json={
+            "model": "lemoncrow",
+            "input": "say frontend-ok",
+            "stream": True,
+        },
+        headers={"Accept": "text/event-stream"},
+    )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    event_types = []
+    payloads = []
+    for line in response.text.splitlines():
+        if line.startswith("event: "):
+            event_types.append(line[7:])
+        elif line.startswith("data: "):
+            payloads.append(json.loads(line[6:]))
+    assert event_types[0] == "response.created"
+    assert "response.output_text.delta" in event_types
+    assert event_types[-1] == "response.completed"
+    assert [item["sequence_number"] for item in payloads] == list(range(len(payloads)))
+    completed = payloads[-1]["response"]
+    assert completed["output"][0]["content"][0]["text"] == "frontend-ok"
+    assert completed["usage"]["total_tokens"] == 110
+    rt.drop_session.assert_called_once()
+
+
+def test_anthropic_messages_supports_claude_code_headers(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("hello"), _Message("hello"), _Usage()))
+
+    response = c.post(
+        "/v1/messages",
+        headers={"Authorization": "", "x-api-key": _TEST_TOKEN},
+        json={
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "<system-reminder>host-only current date</system-reminder>\n\n hi",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert rt.handle_user_message.call_args.args[1] == "hi"
+    body = response.json()
+    assert body["type"] == "message"
+    assert body["content"][0]["text"] == "hello"
+    assert body["usage"] == {"input_tokens": 100, "output_tokens": 10}
+
+
+def test_anthropic_stream_and_count_tokens(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("hello"), _Message("hello"), _Usage()))
+
+    stream = c.post(
+        "/v1/messages",
+        json={
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert stream.status_code == 200
+    assert "event: message_start" in stream.text
+    assert "event: content_block_delta" in stream.text
+    assert "event: message_stop" in stream.text
+
+    count = c.post(
+        "/v1/messages/count_tokens",
+        json={
+            "model": "claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    assert count.status_code == 200
+    assert count.json()["input_tokens"] > 0

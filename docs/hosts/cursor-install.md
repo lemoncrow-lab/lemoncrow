@@ -13,11 +13,11 @@ install wires up **both**. LemonCrow treats them as one `cursor` host.
 ```bash
 make install            # detects cursor / cursor-agent and installs
 # or, directly:
-bash scripts/install_cursor.sh                      # global (~/.cursor)
-bash scripts/install_cursor.sh --workspace /path    # project-local (.cursor/)
+bash scripts/install_cursor.sh                      # global (~/.cursor), enforce off
+bash scripts/install_cursor.sh --workspace /path    # project hooks/rules
+bash scripts/install_cursor.sh --enforce hard       # stick-deny natives (bench-identical)
+bash scripts/install_cursor.sh --enforce soft       # deny + cooloff (IDE nudge)
 ```
-
-Detection covers the IDE launcher (`cursor`), the CLI (`cursor-agent`), and a
 present `~/.cursor` dir.
 
 ---

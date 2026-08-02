@@ -53,6 +53,44 @@ TASKS = _load("benchmarks.codebench.tasks")
 INCONTAINER = _load("benchmarks.codebench.incontainer")
 
 
+def test_parse_cursor_result_reads_model_from_system_init(tmp_path: Path) -> None:
+    """Result envelopes omit model; must not invent claude-sonnet-4-5."""
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "system",
+                    "subtype": "init",
+                    "model": "Cursor Grok 4.5 High",
+                    "apiKeySource": "login",
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "usage": {
+                        "inputTokens": 100,
+                        "outputTokens": 10,
+                        "cacheReadTokens": 0,
+                        "cacheWriteTokens": 0,
+                    },
+                    "result": "ok",
+                    "duration_ms": 12,
+                }
+            ),
+        ]
+    )
+    flow = tmp_path / "t.flow"
+    flow.write_text("", encoding="utf-8")
+    res = CODEBENCH._parse_cursor_result(stdout, flow, "t", "baseline", 1)
+    assert res.models == ["cursor-grok-4.5-high"]
+    assert res.ok
+    traj = json.loads(flow.with_suffix(".trajectory.json").read_text(encoding="utf-8"))
+    assert traj["model"] == "cursor-grok-4.5-high"
+    assert res.cost_usd > 0
+
+
 def test_arm_specs_resolve_persona_by_capability() -> None:
     specs = CODEBENCH.ARM_SPECS
     # baseline runs the vanilla Claude default for the only capability (code).

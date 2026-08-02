@@ -7,6 +7,10 @@
 The sections below separate shipped capabilities from ideas that may or may not
 be pursued on a best-effort basis. Nothing here is a commitment.
 
+For implementation-level status, evidence, acceptance gates, and sequencing of
+the six cost levers, see the
+[savings optimization status and roadmap](./savings-optimization-roadmap.md).
+
 ## Shipped capabilities
 
 ### Context & memory

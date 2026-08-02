@@ -752,17 +752,16 @@ def test_new_claude_plugin_hook_scripts_exist(script: str) -> None:
 
 
 def test_new_claude_plugin_settings_uses_supported_keys() -> None:
-    """Plugin settings.json may only use keys supported by Claude Code: `agent` and `subagentStatusLine`."""
+    """Plugin settings stay supported without pinning every session to one agent."""
     settings = CLAUDE_PLUGIN_NEW / "settings.json"
     assert settings.exists(), "integrations/claude/plugin/settings.json must exist"
     data = json.loads(settings.read_text())
-    allowed = {"agent", "subagentStatusLine"}
-    extra = set(data.keys()) - allowed
-    assert not extra, f"settings.json contains unsupported keys: {extra}. Only {allowed} are honored by Claude Code."
-    assert data.get("agent") == "lemoncrow:code", (
-        "settings.json must set `agent` to 'lemoncrow:code' — Claude Code namespaces plugin "
-        "agents as '<plugin-name>:<agent-name>' (plugin name is 'lemoncrow'), so this is what "
-        "resolves to a real agent and what the host displays as the default agent."
+    allowed = {"subagentStatusLine"}
+    extra = set(data) - allowed
+    assert not extra, f"settings.json contains unsupported keys: {extra}"
+    assert "agent" not in data, (
+        "the plugin bundle must not re-assert a static default agent; the installer "
+        "owns that user setting so dormancy and explicit host selection can clear it"
     )
 
 

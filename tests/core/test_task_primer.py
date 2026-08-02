@@ -25,6 +25,20 @@ def test_primer_contains_tree_and_keyword_excerpts(tmp_path: Path) -> None:
     assert ".git" not in primer
 
 
+def test_primer_never_traverses_source_symlinks(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.py").write_text("PRIMER_SYMLINK_SECRET = True\n")
+    (workspace / "linked").symlink_to(outside, target_is_directory=True)
+
+    primer = build_task_primer("Find PRIMER_SYMLINK_SECRET", workspace)
+
+    assert "PRIMER_SYMLINK_SECRET" not in primer
+    assert "linked" not in primer
+
+
 def test_primer_empty_workspace_returns_empty(tmp_path: Path) -> None:
     assert build_task_primer("anything", tmp_path) == ""
 

@@ -2,22 +2,23 @@
   "mcpServers": {
     "lemoncrow": {
       "command": "lc",
-      "args": ["mcp", "--host", "cursor"],
+      "args": ["mcp", "--host", "claude"],
+      "env": {
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
+      },
       "alwaysAllow": [
         "bash",
         "code_search",
-        "codemod",
         "compact",
         "context",
         "edit",
         "grep",
         "memory",
         "read",
-        "rescue",
-        "search",
-        "sql",
-        "trace",
-        "verify"
+        "relations",
+        "tool",
+        "verify",
+        "web_fetch"
       ]
     }
   }

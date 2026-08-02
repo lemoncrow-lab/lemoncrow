@@ -145,24 +145,72 @@ if [ "$ARM" = "lemoncrow" ]; then
 fi
 
 prompt="$(cat /mnt/prompt.txt)"
+if [ "$DRIVER" = "cursor" ]; then
+  # Soft hermetic nudge (WebSearch/WebFetch are server-side — hooks cannot block
+  # them). Still cuts some gold-PR lookups when the model complies.
+  prompt="HERMETIC EVAL: do not use WebSearch or WebFetch (treat as unavailable). Solve only from this repo checkout.
+
+${prompt}"
+fi
 
 if [ "$DRIVER" = "cursor" ]; then
-  cargs=(-p "$prompt" --force --output-format json)
+  # stream-json: every tool_call event on stdout so the host can attribute
+  # native vs MCP routing (plain json only emits the final result envelope).
+  cargs=(-p "$prompt" --force --output-format stream-json)
   [ -n "${CODEBENCH_CURSOR_MODEL:-}" ] && cargs+=(--model "$CODEBENCH_CURSOR_MODEL")
   if [ "$ARM" = "lemoncrow" ]; then
-    # Register the lc MCP server + persona rule in the workspace and approve it
-    # non-interactively (the per-workspace approved list needs cwd=$REPO). The
-    # .cursor/ dir is stripped before the diff capture so it never contaminates
-    # the patch.
-    mkdir -p "$REPO/.cursor/rules"
+    # Register the lc MCP server + always-on rule + hard-enforce hooks.
+    # cursor-agent CLI loads user hooks from ~/.cursor/hooks.json (workspace
+    # hooks alone are not enough in headless -p). Absolute paths required.
+    # .cursor/ and .lemoncrow/ are stripped before the diff capture.
+    mkdir -p "$REPO/.cursor/rules" "$REPO/.cursor/hooks" "$HOME/.cursor" "$HOME/.lemoncrow/cursor-hooks"
     printf '%s' '{"mcpServers":{"lemoncrow":{"type":"stdio","command":"lemoncrow","args":["mcp","--host","cursor"]}}}' \
       >"$REPO/.cursor/mcp.json"
-    [ -f /mnt/cursor-rule.mdc ] && cp /mnt/cursor-rule.mdc "$REPO/.cursor/rules/lemoncrow.auto.mdc"
+    [ -f /mnt/cursor-rule.mdc ] && cp /mnt/cursor-rule.mdc "$REPO/.cursor/rules/lemoncrow.code.mdc"
+    if [ -d /mnt/cursor-hooks ]; then
+      cp /mnt/cursor-hooks/*.py "$REPO/.cursor/hooks/" 2>/dev/null || true
+      cp /mnt/cursor-hooks/*.py "$HOME/.lemoncrow/cursor-hooks/" 2>/dev/null || true
+      _write_hooks_json() {
+        # $1 = hooks dir (absolute), $2 = output hooks.json path
+        # MUST use /usr/bin/python3: conda testbed's python3 is 3.6 on many
+        # SWE images, which cannot parse `from __future__ import annotations`
+        # — failClosed then blocks LemonCrow MCP itself.
+        local _hd="$1" _out="$2" _py="/usr/bin/python3"
+        cat >"$_out" <<EOF
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{"command": "${_py} ${_hd}/session_start.py"}],
+    "stop": [{"command": "${_py} ${_hd}/stop.py"}],
+    "beforeShellExecution": [{"command": "${_py} ${_hd}/before_shell_execution.py", "failClosed": true}],
+    "beforeReadFile": [{"command": "${_py} ${_hd}/before_read_file.py", "failClosed": true}],
+    "preToolUse": [{"command": "${_py} ${_hd}/before_tool_use.py", "failClosed": true}]
+  }
+}
+EOF
+      }
+      _write_hooks_json "$REPO/.cursor/hooks" "$REPO/.cursor/hooks.json"
+      _write_hooks_json "$HOME/.lemoncrow/cursor-hooks" "$HOME/.cursor/hooks.json"
+    fi
     (cd "$REPO" && cursor-agent mcp enable lemoncrow >/tmp/cursor-mcp-enable.log 2>&1) || true
+  else
+    # Baseline: hermetic web deny only (natives allowed). Same /usr/bin/python3 pin.
+    if [ -f /mnt/cursor-deny-web.py ]; then
+      mkdir -p "$HOME/.cursor" "$HOME/.lemoncrow/cursor-hooks"
+      cp /mnt/cursor-deny-web.py "$HOME/.lemoncrow/cursor-hooks/before_tool_use.py"
+      cat >"$HOME/.cursor/hooks.json" <<EOF
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [{"command": "/usr/bin/python3 $HOME/.lemoncrow/cursor-hooks/before_tool_use.py", "failClosed": true}]
+  }
+}
+EOF
+    fi
   fi
   (cd "$REPO" && cursor-agent "${cargs[@]}")
-  # Strip the injected config so it never lands in the captured diff.
-  rm -rf "$REPO/.cursor"
+  # Strip injected config + index artifacts so they never land in the patch.
+  rm -rf "$REPO/.cursor" "$REPO/.lemoncrow"
 else
 args=(-p "$prompt" --model "$MODEL" --output-format json --permission-mode bypassPermissions)
 [ -n "${CODEBENCH_MAX_TURNS:-}" ] && args+=(--max-turns "$CODEBENCH_MAX_TURNS")
@@ -190,6 +238,14 @@ disallowed=(AskUserQuestion EnterPlanMode ExitPlanMode WebFetch WebSearch mcp__l
 args+=(--disallowedTools "${disallowed[@]}")
 
 claude "${args[@]}"
+fi
+
+# Drop agent-created lockfile noise (MCP bash `uv` often writes an untracked
+# uv.lock that bloats the patch ~75KB and was the flask pollution vector).
+if git -C "$REPO" cat-file -e HEAD:uv.lock 2>/dev/null; then
+  git -C "$REPO" checkout -- uv.lock 2>/dev/null || true
+else
+  rm -f "$REPO/uv.lock"
 fi
 
 echo "<<<CODEBENCH_DIFF_BEGIN>>>"

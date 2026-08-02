@@ -13,18 +13,65 @@ lc help benchmark
 lc help background
 ```
 
-## Global Options
-
 | Flag           | Description                                                            |
 | -------------- | ---------------------------------------------------------------------- |
 | `--version`    | Show the installed LemonCrow version and exit.                           |
-| `--root PATH`  | Override the LemonCrow runtime data directory. Defaults to `~/.lemoncrow`. |
-| `-h`, `--help` | Show help for the current command path.                                |
+## LemonCode
 
-## Core Lifecycle Commands
+`lc code` is the permanent LemonCode command; `lemoncode` is a
+permanent wheel console entry point for the same command. It uses the controlled
+[`lemoncrow-lab/lemoncode`](https://github.com/lemoncrow-lab/lemoncode) fork as
+its preferred frontend and keeps LemonCrow at the expensive boundary: LemonCrow chooses the
+provider/model, owns tools and subagents, applies cache breakpoints, phase output
+caps, compaction, verification, and cost limits.
 
-These commands cover installation state, local runtime initialization, and the
-optional visualization stack.
+~~~bash
+lc code                              # auto: LemonCode, Codex, Claude, native
+lemoncode --engine lemoncode
+lemoncode --engine codex -p "fix the failing parser test"
+lemoncode --engine claude --resume <host-session-id>
+lc code --engine native              # original PromptToolkit fallback
+~~~
+
+Managed engines receive no outer tool calls: their UI and session store are
+reused, while a token-authenticated loopback gateway performs the agent loop.
+The LemonCode fork strips its redundant host prompt and tool schemas before the
+gateway call, uses an isolated `lemoncode` data directory, and disables its own
+compaction/update/model-fetch loops. `lc code host install|update|status|build|remove`
+manages the verified host binary. The default host update policy checks the
+LemonCode release channel at most once every six hours; set
+`LEMONCODE_HOST_UPDATE=off` to pin it.
+This avoids paying for the host's large system/tool prompt at the real model and
+avoids duplicate host/LemonCrow tool execution. The gateway is started for the
+CLI process and stopped on exit.
+
+~~~bash
+lc code --cache-policy 1h --budget cheap
+lc code --model openai/gpt-5.4
+lc code --max-cost 2.00
+lc code --optimization-mode shadow   # default: measure, preserve provider behavior
+lc code --optimization-mode enforce  # apply V2 policies
+lc code --optimization-mode off      # one-setting V2 rollback
+lc code --local-retrieval auto
+lc code --local-retrieval force --local-retrieval-model ollama/qwen2.5-coder:7b
+lc optimize decisions --json
+lc code --no-mcp
+~~~
+
+Local retrieval `auto` skips the broad first-turn primer and exits before
+retrieval fingerprinting/corpus scanning when the task names an explicit source
+file (existing verified evidence is still validated), and it stays off for
+small or non-retrieval tasks. Without
+`--local-retrieval-model`, refinement is deterministic and makes zero planner
+calls. Planner identifiers must start with `ollama/`, `lm_studio/`, or
+`local/`; cloud model identifiers are ignored. `force` overrides only the
+eligibility gate—use it with `--optimization-mode enforce` to inject the packet.
+
+Direct Claude/Codex/OpenCode integrations advertise an eager core containing
+normal coding tools, so code_search, read, edit, bash, and web_fetch never
+require discovery. Rare capabilities use the deterministic tool broker. Set
+LEMONCROW_MCP_TOOL_PROFILE=full to advertise every schema eagerly; managed
+`lc code` does not expose this outer MCP catalog at all.
 
 | Command                  | Purpose                                                        |
 | ------------------------ | -------------------------------------------------------------- |

@@ -2,18 +2,17 @@
 # install_cursor.sh - Install LemonCrow into Cursor IDE
 #
 # What it does:
-#   Global mode: adds LemonCrow to ~/.cursor/mcp.json.
-#   Workspace mode (--workspace DIR): adds LemonCrow to DIR/.cursor/mcp.json
-#   and writes the named mode rules to DIR/.cursor/rules/lemoncrow.<mode>.mdc.
-#   Exactly one carries `alwaysApply: true` (stamped at sync time; default: code).
+#   Global mode: adds LemonCrow to ~/.cursor/mcp.json + user hooks.
+#   Workspace mode (--workspace DIR): rules + hooks under DIR/.cursor/
+#   (MCP stays global — a project mcp.json under the same key drops the client).
 #
 # Options:
 #   --dry-run      Print what would happen, touch nothing
 #   --print-only   Print config snippet for manual install, touch nothing
-#   --workspace DIR  Install project-local artifacts into DIR instead of global user config
-#   --strict       Exit nonzero if cursor CLI not on PATH (heuristic: ~/.cursor exists)
-
-set -euo pipefail
+#   --workspace DIR  Install project-local hooks/rules into DIR
+#   --enforce MODE   Hook stick/nudge: off|soft|hard (default: off)
+#                    hard = bench-identical native deny; soft = cooloff nudge
+#   --strict       Exit nonzero if cursor CLI not on PATH
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -24,12 +23,21 @@ PRINT_ONLY=false
 STRICT=false
 WORKSPACE=""
 WORKSPACE_SET=false
+ENFORCE="off"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)    DRY_RUN=true ;;
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
+        --enforce)
+            if [ $# -lt 2 ]; then
+                echo "Missing value for --enforce (off|soft|hard)" >&2
+                exit 1
+            fi
+            ENFORCE="$2"
+            shift
+            ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -44,6 +52,12 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+case "$ENFORCE" in
+    off|0|"") ENFORCE="off" ;;
+    soft|1|true|yes|on) ENFORCE="soft" ;;
+    hard|strict|bench) ENFORCE="hard" ;;
+    *) echo "Invalid --enforce '$ENFORCE' (want off|soft|hard)" >&2; exit 1 ;;
+esac
 if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 fi
@@ -215,15 +229,14 @@ fi
 # show $0). stop refreshes attribution and logs a savings recap. Both the Cursor
 # IDE and the cursor-agent CLI load these hooks from the same hooks.json.
 CURSOR_HOOKS_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/hooks"
-# event:source-basename[:matcher] triples (matcher optional -- most hooks fire
-# for everything; preToolUse needs one to stay scoped to the gap tools
-# beforeShellExecution/beforeReadFile don't already own).
+# event:source-basename[:matcher] triples (matcher optional).
+# preToolUse is unscoped so Glob (Claude-compat matcher alias null) is covered.
 CURSOR_HOOKS=(
     "sessionStart:session_start.py"
     "stop:stop.py"
     "beforeShellExecution:before_shell_execution.py"
     "beforeReadFile:before_read_file.py"
-    "preToolUse:before_tool_use.py:Grep|Glob|Write|StrReplace|Delete"
+    "preToolUse:before_tool_use.py"
 )
 if $WORKSPACE_SET; then
     CURSOR_HOOKS_FILE="${WORKSPACE}/.cursor/hooks.json"
@@ -244,17 +257,22 @@ if [ -d "$CURSOR_HOOKS_SRC_DIR" ]; then
         [ -f "$_src" ] || continue
         run "cp $(printf %q "$_src") $(printf %q "$HOOKS_DEST_DIR/$_script")"
         if $DRY_RUN; then
-            echo "  [dry-run] merge ${_event} hook into $CURSOR_HOOKS_FILE"
+            echo "  [dry-run] merge ${_event} hook into $CURSOR_HOOKS_FILE (enforce=$ENFORCE)"
         else
+            # Deny hooks need ENFORCE in their own process env — Cursor does not
+            # forward shell exports into hook/MCP children.
+            _hook_cmd="python3 ${HOOK_CMD_DIR}/${_script}"
+            if [[ "$ENFORCE" != "off" && "$_event" =~ ^(preToolUse|beforeShellExecution|beforeReadFile)$ ]]; then
+                _hook_cmd="env LEMONCROW_CURSOR_ENFORCE=${ENFORCE} ${_hook_cmd}"
+            fi
             LEMONCROW_CURSOR_HOOKS_FILE="$CURSOR_HOOKS_FILE" \
             LEMONCROW_CURSOR_HOOK_EVENT="$_event" \
-            LEMONCROW_CURSOR_HOOK_CMD="python3 ${HOOK_CMD_DIR}/${_script}" \
+            LEMONCROW_CURSOR_HOOK_CMD="$_hook_cmd" \
             LEMONCROW_CURSOR_HOOK_MATCHER="${_matcher:-}" \
             python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
-
 path = Path(os.environ["LEMONCROW_CURSOR_HOOKS_FILE"])
 event = os.environ["LEMONCROW_CURSOR_HOOK_EVENT"]
 cmd = os.environ["LEMONCROW_CURSOR_HOOK_CMD"]
@@ -273,11 +291,23 @@ if not isinstance(entries, list):
     hooks[event] = entries
 # Idempotent on our staged script basename (survives re-install/upgrade).
 script_base = os.path.basename(cmd.split()[-1])
-if not any(isinstance(e, dict) and script_base in str(e.get("command", "")) for e in entries):
+fail_closed = event in {"preToolUse", "beforeShellExecution", "beforeReadFile"}
+existing = next((e for e in entries if isinstance(e, dict) and script_base in str(e.get("command", ""))), None)
+if existing is None:
     entry = {"command": cmd}
     if matcher:
         entry["matcher"] = matcher
+    if fail_closed:
+        entry["failClosed"] = True
     entries.append(entry)
+else:
+    existing["command"] = cmd
+    if matcher:
+        existing["matcher"] = matcher
+    else:
+        existing.pop("matcher", None)
+    if fail_closed:
+        existing["failClosed"] = True
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(f"[lemoncrow:cursor] merged {event} hook into {path}")
@@ -285,10 +315,6 @@ PYEOF
         fi
     done
 fi
-
-# A pre-existing <workspace>/.cursor/mcp.json is left exactly as it is. It may
-# carry settings the global entry does not (an `env` block pinning
-# CLAUDE_WORKSPACE_ROOT, say), and sessions against such workspaces are on
 # record routing almost every call through LemonCrow -- so deleting it is not a
 # cleanup, it is a regression. We simply stop adding new ones.
 

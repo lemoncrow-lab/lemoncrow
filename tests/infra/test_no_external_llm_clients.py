@@ -9,19 +9,16 @@ FORBIDDEN_PROVIDER_IMPORTS = {
     "google.generativeai",
     "mistralai",
 }
-# Allowed provider imports are restricted to a single file each.
+# Allowed provider imports are restricted to explicit infrastructure boundaries.
 # - "ollama": LemonCrow's internal-processing module only (WP-36). Any other file
 #   importing ollama breaks the boundary rule: no model-client imports on the
 #   user's hot path.
-# - "openai": The OpenAI embedder only (text-embedding-3-small vector lookups).
-#   This is a vector call, not a completion call. All other files are forbidden.
-# - "httpx": The OpenAI embedder uses httpx directly (the openai SDK depends on
-#   it). Allowing httpx only in that same file keeps the boundary consistent
-#   without special-casing the transitive openai→httpx dependency at the SDK
-#   level. No other LemonCrow module should import httpx.
+# - "openai": Embedding and internal-processing adapters only.
+# - "httpx": HTTP implementation details stay in the embedding or local IPC
+#   infrastructure adapters, never in gateway orchestration.
 # - "litellm": LemonCrow's internal-processing module only. Native multi-provider
-#   (Bedrock / Vertex / Azure) completion client, confined like the others so no
-#   model-client import lands on the user's hot path.
+#   completion clients are confined so no model-client import lands on the
+#   user's hot path.
 ALLOWED_PROVIDER_IMPORTS = {
     "ollama": {Path("src/lemoncrow/infra/internal_llm/ollama_client.py")},
     "litellm": {
@@ -37,7 +34,10 @@ ALLOWED_PROVIDER_IMPORTS = {
         Path("src/lemoncrow/infra/embeddings/openai_embedder.py"),
         Path("src/lemoncrow/infra/internal_llm/openai_client.py"),
     },
-    "httpx": {Path("src/lemoncrow/infra/embeddings/openai_embedder.py")},
+    "httpx": {
+        Path("src/lemoncrow/infra/embeddings/openai_embedder.py"),
+        Path("src/lemoncrow/infra/ipc/httpx_uds.py"),
+    },
 }
 
 
@@ -51,7 +51,7 @@ def _imported_roots(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             roots.update(alias.name.split(".", 1)[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             roots.add(node.module.split(".", 1)[0])
 
     return roots

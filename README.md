@@ -131,19 +131,20 @@ strongest equivalent controls they expose.
 What's unchanged: the host, the model, your workflow. Full internals:
 [Architecture](docs/architecture.md).
 
-**Caveat — hosts that can't hide their built-ins (Cursor).** Substitution is
-what makes the swap free.
-Cursor ships ~7,900 tok of native tool definitions
-Lemoncrow ships 1,899 tok on every request is a pure addition on cursor.
-Claude Code and Codex can displace most of the built-in toolset,
-so this does not apply there.
+**Caveat — Cursor (CLI vs IDE).** Built-ins can't be hidden there, so
+LemonCrow is additive — Claude Code and Codex can displace most of their
+built-in toolset, and that does not apply on Cursor. Measured on SWE-bench
+Lite (10 tasks, `cursor-grok-4.5-high`, matched prompts): **Cursor CLI +
+LemonCrow was ~40% cheaper** than Cursor CLI baseline (tokens −39.8%, cost
+−41.2%). The same tasks in **Cursor IDE did not show that saving** — CLI is
+the cheaper Cursor path today. Reproduce from
+`reports/benchmark/swe/20260802T121526Z/`.
 
 NOTE: One inference, flagged: that Cursor selectively chooses server-side what to cache-write
 is derived from implied hit rates, not confirmed in their docs.
 Cursor stores no local cache counters, so every hit
 rate is computed as 1 − billed/integral. Treat the caching mechanism as
-unproven; the additive prefix is the part that is actually measured.
-
+unproven; the CLI cost delta above is from Usage/token totals on the pinned run.
 ## Quick start
 
 The [two lines at the top](#lemoncrow-runtime) are the whole setup: the installer
@@ -326,35 +327,20 @@ that returns a concrete delete-list — code to remove, not rewrite.
 - **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
   and [Troubleshooting](docs/troubleshooting.md).
 
-## Roadmap — Future Improvements
+## Roadmap — Savings Optimization
 
-The numbers above are what ships today. Four levers are identified and not yet
-implemented:
+The LemonCode host/control plane and all six savings-runtime implementations
+are shipped locally: closed-loop routing, Output Governor V2, provider-aware
+cache economics, the bounded local retrieval firewall, hybrid MCP exposure, and
+verified cross-session reuse. The five learned/policy levers remain
+measurement-pending; MCP exposure is adapted-complete without a mandatory
+search-first call.
 
-1. **Smart routing.** Every turn currently runs on whatever model the session
-   was started with. Most steps in a task are mechanical — retrieval,
-   formatting, patch application, verification reads — and do not need a
-   frontier model. Routing each step to the cheapest model that can actually do
-   it, escalating only for reasoning, is the largest remaining line item.
-2. **Cache-tier selection (5-minute vs 1-hour).** The harness writes prompt
-   cache entries at the 1-hour tier unconditionally, the more expensive write
-   rate — the Terminal-Bench row above is normalized to that tier on both sides
-   for exactly this reason. Most sessions never need a 1-hour TTL. Picking the
-   tier from the observed reuse gap (5-minute by default, 1-hour only for
-   long-lived prefixes) is a direct write-cost cut with no behavior change.
-3. **Selective cache writes.** Not every tool output or model output deserves
-   to be cached. Large one-shot payloads — build logs, a file dumped once, a
-   dead-end search — are written into the cached prefix and paid for even when
-   they are never read again. Deciding what enters the cached prefix, instead
-   of caching everything, removes writes that never earn themselves back.
-4. **Micro agent — multi-turn search that returns exactly what's needed.** Today
-   a search is one shot: the frontier model asks, gets ranked results, and pays
-   context for everything returned, including the misses. A micro agent moves
-   that loop off the frontier model — a small local model runs the search,
-   reads candidates, refines its own query across several turns, and hands back
-   only the exact document, symbol, or line range the task needed. The
-   exploration turns are cheap and local; the expensive model sees one precise
-   answer instead of a search transcript.
+See the
+[detailed savings optimization status and roadmap](docs/savings-optimization-roadmap.md)
+for shipped behavior, missing work, original estimates, acceptance gates, and
+the proposed implementation order. Planning estimates there are non-additive
+and are not presented as measured savings.
 
 ## Learn more
 

@@ -240,7 +240,7 @@ class CursorHarborAgent(BaseInstalledAgent):
             payload = ev.get("tool_call")
             if not isinstance(payload, dict):
                 continue
-            kind = next((k for k in payload if k.endswith("ToolCall")), "unknown")
+            kind = next((k for k in payload if isinstance(k, str) and k.endswith("ToolCall")), "unknown")
             body = payload.get(kind) if isinstance(payload.get(kind), dict) else {}
             args = body.get("args") if isinstance(body, dict) else {}
             args = args if isinstance(args, dict) else {}

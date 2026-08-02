@@ -146,17 +146,24 @@ if $WORKSPACE_SET; then
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
         "apiKey": "local"
+      },
+      "models": {
+        "lemoncrow": {
+          "name": "LemonCrow",
+          "limit": {"context": 200000, "output": 7600}
+        }
       }
     }
   },
   "mcp": {
-      "lc": {
-        "type": "local",
-        "command": ["lemoncrow", "mcp", "--host", "opencode"],
-        "environment": {
-          "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
-        }
+    "lc": {
+      "type": "local",
+      "command": ["lemoncrow", "mcp", "--host", "opencode"],
+      "environment": {
+        "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}",
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
       }
+    }
   }
 }
 JSON
@@ -183,13 +190,22 @@ else
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
         "apiKey": "local"
+      },
+      "models": {
+        "lemoncrow": {
+          "name": "LemonCrow",
+          "limit": {"context": 200000, "output": 7600}
+        }
       }
     }
   },
   "mcp": {
     "lc": {
       "type": "local",
-      "command": ["lemoncrow", "mcp", "--host", "opencode"]
+      "command": ["lemoncrow", "mcp", "--host", "opencode"],
+      "environment": {
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
+      }
     }
   }
 }

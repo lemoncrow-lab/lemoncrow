@@ -11,6 +11,9 @@ from rich.text import Text
 from lemoncrow.gateway.cli.events import (
     AssistantDelta,
     AssistantMessage,
+    AssistantProgress,
+    CacheStats,
+    ContextUsageUpdated,
     LemonCrowEvent,
     MemoryHit,
     PatchProposed,
@@ -46,9 +49,13 @@ class EventRenderer:
             self.append_delta(event.text)
             return
 
-        # Any non-delta event ends an in-progress stream first.
+        # Final AssistantMessage mirrors streamed deltas. Persist it, but do
+        # not print the same text twice.
+        streamed_text = self._stream_buffer if self._streaming else ""
         if self._streaming:
             self.end_stream()
+        if isinstance(event, AssistantMessage) and streamed_text == event.text:
+            return
 
         if isinstance(event, SessionStarted):
             self._console.print(
@@ -71,6 +78,8 @@ class EventRenderer:
                 self._console.print(Text(f"  {event.summary}", style="dim"))
         elif isinstance(event, AssistantMessage):
             self._console.print(Markdown(event.text))
+        elif isinstance(event, AssistantProgress):
+            self._console.print(Text(event.text, style="dim"))
         elif isinstance(event, ToolRequested):
             self._console.print(Text(f"[tool] {event.name} {_short_args(event.args)}", style="dim"))
         elif isinstance(event, ToolStarted):
@@ -114,6 +123,22 @@ class EventRenderer:
             if event.details:
                 body.append(f"\n{event.details}", style="dim")
             self._console.print(Panel(body, border_style=style, expand=False))
+        elif isinstance(event, CacheStats):
+            self._console.print(
+                Text(
+                    f"cache {event.cache_efficiency_pct:.1f}% · cost ${event.cost_usd:.4f} "
+                    f"· saved ${event.savings_usd:.4f}",
+                    style="dim",
+                )
+            )
+        elif isinstance(event, ContextUsageUpdated):
+            self._console.print(
+                Text(
+                    f"tokens fresh={event.input_tokens} cached={event.cache_read_tokens} "
+                    f"write={event.cache_write_tokens} output={event.output_tokens}",
+                    style="dim",
+                )
+            )
         elif isinstance(event, RuntimeErrorEvent):
             body = Text(event.message, style="red")
             if event.details:

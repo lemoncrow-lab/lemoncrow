@@ -1,31 +1,22 @@
 #!/usr/bin/env python3
-"""Cursor preToolUse hook: force Grep/Glob/Write/StrReplace/Delete through LemonCrow.
+"""Cursor preToolUse hook: route natives through LemonCrow MCP tools.
 
-beforeShellExecution and beforeReadFile cover Shell and Read, but Cursor's
-native tool palette also has separate Grep, Glob, Write, StrReplace, and
-Delete tools that neither of those hooks touches -- left alone, an agent can
-route straight around LemonCrow's `code_search`/`edit`/`bash` tools through
-any of those five instead. `preToolUse` is the generic hook that covers
-every built-in tool (matcher values: Shell, Read, Write, Grep, Delete, Task,
-and MCP:<tool> -- cursor.com/docs/agent/hooks); this project's hooks.json
-scopes it via `matcher` to just the five gap tools, so Shell/Read stay owned
-by their own dedicated hooks.
+Unscoped (no matcher): fires for every tool, including Glob — Cursor's
+Claude-compat matcher map sets Glob:null, so a matcher never covers it.
 
-Same sliding-window loop guard as before_shell_execution.py/
-before_read_file.py (see before_shell_execution.py for the full rationale),
-in its own state file so it doesn't share a cooloff with those two.
+Modes via LEMONCROW_CURSOR_ENFORCE:
+  unset/0  — allow all (default; inert for interactive IDE)
+  1/true   — soft: deny natives with cooloff (legacy nudge)
+  hard     — deny every non-LemonCrow-MCP tool, no cooloff (bench)
 
-preToolUse's output also supports `updated_input` (rewrite the input to the
-*same* native tool) but nothing that redirects to a different tool entirely
--- deny + a message naming the lc replacement is still the only cross-tool
-lever. `permission: "ask"` is accepted by the schema but not enforced for
-preToolUse today (per Cursor's docs), so only allow/deny are used here.
-
-Fail-open by default -- see before_shell_execution.py for the failClosed note.
+Allowed under hard: MCP tools whose bare name is one of LemonCrow's
+code tools (code_search, read, edit, bash, web_fetch), including
+server-qualified forms like MCP:lemoncrow:code_search.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -35,12 +26,25 @@ from pathlib import Path
 IMMEDIATE_RETRY_SECONDS = 10
 COOLOFF_SECONDS = int(os.environ.get("LEMONCROW_CURSOR_TOOL_COOLOFF_SECONDS", "300"))
 
+_ALLOWED_MCP_TOOLS = frozenset({"code_search", "read", "edit", "bash", "web_fetch"})
+# Cursor meta MCP callers: deny under hard — schemas are already injected once
+# `cursor-agent mcp enable lemoncrow` runs; GetMcpTools/CallMcpTool burn ~9k
+# chars and confuse the model into invalid CallMcpTool loops.
+_ALLOWED_META_TOOLS = frozenset()
+
 _REPLACEMENT = {
     "Grep": "code_search",
     "Glob": "code_search",
     "Write": "edit",
     "StrReplace": "edit",
     "Delete": "bash",
+    "Shell": "bash",
+    "Read": "read",
+    "Task": "bash",
+    "WebFetch": "web_fetch",
+    "WebSearch": "web_fetch",
+    "GetMcpTools": "lemoncrow-code_search",
+    "CallMcpTool": "lemoncrow-code_search",
 }
 
 
@@ -54,20 +58,39 @@ def _state_path() -> Path:
     return _lemoncrow_root() / "cursor-hooks" / "pretooluse_deny_state.json"
 
 
-def _enforcement_enabled() -> bool:
-    """Deny-and-redirect is opt-in; default OFF. Enable with LEMONCROW_CURSOR_ENFORCE=1.
-
-    See before_shell_execution.py for the measurement this default comes from.
-    This hook is also the one that cannot be made complete on Cursor: the matcher
-    vocabulary has no `Glob`, so `glob_file_search` can never be covered -- and
-    that is precisely the tool a blocked agent escapes to. Denying the rest while
-    leaving the most expensive one open is strictly worse than denying nothing.
-    """
-    return os.environ.get("LEMONCROW_CURSOR_ENFORCE", "0").strip().lower() in {"1", "true", "yes", "on"}
+def _enforce_mode() -> str:
+    """Return '', 'soft', or 'hard'."""
+    raw = os.environ.get("LEMONCROW_CURSOR_ENFORCE", "0").strip().lower()
+    if raw in {"hard", "strict", "bench"}:
+        return "hard"
+    if raw in {"1", "true", "yes", "on", "soft"}:
+        return "soft"
+    return ""
 
 
-def _decide() -> str:
-    """Return "deny" or "allow" per the loop-guard state machine (sliding window, no fixed expiry)."""
+def _mcp_bare_name(tool_name: str) -> str | None:
+    """Extract bare MCP tool name, or None if not an MCP tool."""
+    name = tool_name.strip()
+    if not name:
+        return None
+    lower = name.lower()
+    # Cursor docs: MCP:<tool_name>. Also seen: MCP:server:tool, mcp__server__tool.
+    if lower.startswith("mcp:"):
+        parts = name.split(":")
+        return parts[-1].strip().lower() or None
+    if lower.startswith("mcp__"):
+        parts = name.split("__")
+        return parts[-1].strip().lower() or None
+    return None
+
+
+def _is_allowed_mcp(tool_name: str) -> bool:
+    bare = _mcp_bare_name(tool_name)
+    return bare is not None and bare in _ALLOWED_MCP_TOOLS
+
+
+def _decide_soft() -> str:
+    """Soft mode cooloff: deny then allow retries so the agent is not stuck."""
     now = time.time()
     path = _state_path()
     try:
@@ -83,9 +106,9 @@ def _decide() -> str:
     if isinstance(last_at, (int, float)):
         age = now - last_at
         if last_action == "deny" and age < IMMEDIATE_RETRY_SECONDS:
-            action = "allow"  # same-burst retry right after a deny -> break the loop
+            action = "allow"
         elif last_action == "allow" and age < COOLOFF_SECONDS:
-            action = "allow"  # still inside the sliding cooloff window
+            action = "allow"
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,6 +118,20 @@ def _decide() -> str:
     return action
 
 
+def _deny(tool_name: str) -> dict:
+    replacement = _REPLACEMENT.get(tool_name, "code_search")
+    return {
+        "permission": "deny",
+        "user_message": (
+            f"Native {tool_name or 'tool'} blocked — LemonCrow routes this through its own " f"'{replacement}' tool."
+        ),
+        "agent_message": (
+            f"Native '{tool_name}' is blocked. Use the '{replacement}' tool from the lemoncrow MCP "
+            "server (MCP:code_search / MCP:read / MCP:edit / MCP:bash). Do not retry the native tool."
+        ),
+    }
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -102,27 +139,36 @@ def main() -> int:
         payload = {}
 
     tool_name = str(payload.get("tool_name") or "")
-    replacement = _REPLACEMENT.get(tool_name, "bash")
+    mode = _enforce_mode()
 
-    if not _enforcement_enabled() or _decide() == "allow":
+    if not mode:
         sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
         return 0
 
-    sys.stdout.write(
-        json.dumps(
-            {
-                "permission": "deny",
-                "user_message": (
-                    f"Native {tool_name or 'tool'} blocked — LemonCrow routes this through its own "
-                    f"'{replacement}' tool."
-                ),
-                "agent_message": (
-                    f"Native '{tool_name}' is blocked. Use the '{replacement}' tool from the lc MCP " "server instead."
-                ),
-            }
-        )
-        + "\n"
-    )
+    if _is_allowed_mcp(tool_name):
+        sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
+        return 0
+
+    if tool_name.strip().lower() in _ALLOWED_META_TOOLS:
+        sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
+        return 0
+
+    if mode == "hard":
+        # Stick deny — no cooloff. MCP tools already allowed above.
+        decision = _deny(tool_name)
+        with contextlib.suppress(OSError):
+            log = Path("/tmp/lc-cursor-enforce.log")
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"mode": mode, "tool": tool_name, "decision": "deny"}) + "\n")
+        sys.stdout.write(json.dumps(decision) + "\n")
+        return 0
+
+    # Soft: cooloff may allow natives through (legacy IDE nudge).
+    if _decide_soft() == "allow":
+        sys.stdout.write(json.dumps({"permission": "allow"}) + "\n")
+        return 0
+
+    sys.stdout.write(json.dumps(_deny(tool_name)) + "\n")
     return 0
 
 

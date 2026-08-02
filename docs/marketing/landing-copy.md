@@ -23,7 +23,6 @@ LemonCrow gives your existing agent a local code graph, exact-range tools, bound
 \`\`\`bash
 curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 \`\`\`
-
 Hero side panel:
 
 - Find — ranked symbols, callers, and exact ranges.
@@ -31,6 +30,9 @@ Hero side panel:
 - Carry — task state and useful memory across long sessions.
 - 92.8% resolved; 37.7% fewer turns; 23.7% faster.
 
+**Cursor \*:** CLI is cheaper than IDE. LemonCrow saves ~40% on Cursor CLI
+(SWE-bench Lite, same model); IDE did not match that saving. Built-ins can't
+be replaced — additive there.
 ## Context sharpness
 
 # Context gets noisy before it gets full.
