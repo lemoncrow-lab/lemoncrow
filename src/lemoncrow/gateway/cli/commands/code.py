@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import sqlite3
@@ -467,9 +468,191 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
         logging.exception("Zoekt prewarm failed")
 
 
-@click.group("code")
-def code_group() -> None:
-    """Code context indexing, retrieval, repo maps, and impact analysis."""
+@click.group("code", invoke_without_command=True)
+@click.option(
+    "--engine",
+    type=click.Choice(["auto", "lemoncode", "codex", "claude", "native"]),
+    default="auto",
+    show_default=True,
+    help="Frontend engine; auto prefers the controlled LemonCode host, then Codex, then Claude.",
+)
+@click.option("--provider", default="", help="Preferred model provider (optional).")
+@click.option("--model", default="", help="Fixed LiteLLM model; omit for phase-aware routing.")
+@click.option(
+    "--budget",
+    type=click.Choice(["cheap", "balanced", "best"]),
+    default="balanced",
+    show_default=True,
+)
+@click.option(
+    "--cache-policy",
+    type=click.Choice(["auto", "5m", "1h", "off"]),
+    default="auto",
+    show_default=True,
+)
+@click.option("--max-cost", type=float, default=None, help="Stop before another turn exceeds this USD cap.")
+@click.option(
+    "--optimization-mode",
+    type=click.Choice(["off", "shadow", "enforce"]),
+    default="shadow",
+    show_default=True,
+    help="Observe or enforce the owned-runtime savings policies.",
+)
+@click.option(
+    "--local-retrieval",
+    type=click.Choice(["off", "auto", "force"]),
+    default="auto",
+    show_default=True,
+    help="Bounded local evidence loop; auto skips explicit-path and small tasks.",
+)
+@click.option(
+    "--local-retrieval-model",
+    default="",
+    help="Optional local-only planner model (ollama/, lm_studio/, or local/).",
+)
+@click.option(
+    "--yolo",
+    is_flag=True,
+    help="Approve edit and shell tools in the native fallback (managed gateways auto-approve).",
+)
+@click.option("-p", "--prompt", default=None, help="Run one prompt, print the final answer, and exit.")
+@click.option("--resume", default=None, metavar="SESSION_ID", help="Resume a saved owned session.")
+@click.option(
+    "--project-root",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=None,
+    help="Workspace root (default: current directory).",
+)
+@click.option("--mcp/--no-mcp", "mcp_enabled", default=True, show_default=True)
+@click.option(
+    "--mcp-schema-mode",
+    type=click.Choice(["auto", "eager", "focused"]),
+    default="auto",
+    show_default=True,
+    help="Auto focuses only on explicit server/tool names; ambiguous tasks stay eager.",
+)
+@click.pass_context
+def code_group(
+    ctx: click.Context,
+    engine: str,
+    provider: str,
+    model: str,
+    budget: str,
+    cache_policy: str,
+    max_cost: float | None,
+    optimization_mode: str,
+    local_retrieval: str,
+    local_retrieval_model: str,
+    yolo: bool,
+    prompt: str | None,
+    resume: str | None,
+    project_root: Path | None,
+    mcp_enabled: bool,
+    mcp_schema_mode: str,
+) -> None:
+    """Run a mature coding CLI over LemonCrow, or manage code indexes."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from lemoncrow.gateway.cli.coding_engine import run_coding_engine
+
+    root_obj = ctx.find_root().obj if isinstance(ctx.find_root().obj, dict) else {}
+    store_root = Path(root_obj.get("root", Path.home() / ".lemoncrow"))
+    return_code = run_coding_engine(
+        store_root=store_root,
+        project_root=(project_root or Path.cwd()).resolve(),
+        engine=engine,  # type: ignore[arg-type]
+        provider=provider,
+        model=model,
+        budget=budget,
+        cache_policy=cache_policy,
+        max_cost=max_cost,
+        yolo=yolo,
+        prompt=prompt,
+        resume=resume,
+        mcp_enabled=mcp_enabled,
+        mcp_schema_mode=mcp_schema_mode,
+        optimization_mode=optimization_mode,
+        local_retrieval=local_retrieval,
+        local_retrieval_model=local_retrieval_model,
+    )
+    if return_code:
+        raise SystemExit(return_code)
+
+
+def _code_store_root(ctx: click.Context) -> Path:
+    root_obj = ctx.find_root().obj if isinstance(ctx.find_root().obj, dict) else {}
+    return Path(root_obj.get("root", Path.home() / ".lemoncrow"))
+
+
+@code_group.group("host")
+def code_host_group() -> None:
+    """Manage the controlled LemonCode frontend binary."""
+
+
+@code_host_group.command("status")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def code_host_status_cmd(ctx: click.Context, as_json: bool) -> None:
+    from lemoncrow.gateway.cli.lemoncode_host import host_status
+
+    value = host_status(_code_store_root(ctx))
+    if as_json:
+        click.echo(json.dumps(value, sort_keys=True))
+        return
+    click.echo(f"  Installed: {value['installed']}")
+    click.echo(f"  Resolved:  {value['resolved_path'] or 'not installed'}")
+    click.echo(f"  Policy:    {value['update_policy']}")
+    metadata = value["metadata"]
+    if metadata:
+        click.echo(f"  Version:   {metadata.get('tag', 'unknown')}")
+        click.echo(f"  Commit:    {metadata.get('commit', 'unknown')}")
+
+
+@code_host_group.command("install")
+@click.pass_context
+def code_host_install_cmd(ctx: click.Context) -> None:
+    from lemoncrow.gateway.cli.lemoncode_host import install_host_release
+
+    path = install_host_release(_code_store_root(ctx))
+    click.echo(f"  ✓ LemonCode host installed: {path}")
+
+
+@code_host_group.command("update")
+@click.pass_context
+def code_host_update_cmd(ctx: click.Context) -> None:
+    from lemoncrow.gateway.cli.lemoncode_host import install_host_release
+
+    path = install_host_release(_code_store_root(ctx))
+    click.echo(f"  ✓ LemonCode host updated: {path}")
+
+
+@code_host_group.command("build")
+@click.option(
+    "--source",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path("opencode"),
+    show_default=True,
+    help="LemonCode fork checkout.",
+)
+@click.pass_context
+def code_host_build_cmd(ctx: click.Context, source: Path) -> None:
+    from lemoncrow.gateway.cli.lemoncode_host import build_host_from_source
+
+    path = build_host_from_source(_code_store_root(ctx), source)
+    click.echo(f"  ✓ LemonCode host built and installed: {path}")
+
+
+@code_host_group.command("remove")
+@click.option("--yes", is_flag=True, help="Confirm removal without prompting.")
+@click.pass_context
+def code_host_remove_cmd(ctx: click.Context, yes: bool) -> None:
+    from lemoncrow.gateway.cli.lemoncode_host import remove_host
+
+    if not yes and not click.confirm("Remove the managed LemonCode host binary?"):
+        return
+    removed = remove_host(_code_store_root(ctx))
+    click.echo("  ✓ LemonCode host removed." if removed else "  ✓ LemonCode host was not installed.")
 
 
 @code_group.command("index")

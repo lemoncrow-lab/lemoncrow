@@ -49,33 +49,48 @@ def _execute_owned_tool_session(
     model: str,
     yolo: bool,
     root: Path,
+    budget_hint: str = "balanced",
+    cache_policy: str = "inherit",
+    max_cost: float | None = None,
 ) -> tuple[OwnedAgentSession, SessionReceipt, str]:
-    """Execute one real model/tool loop shared with the TUI and HTTP gateway."""
+    """Execute one real model/tool loop shared with the CLI and HTTP gateway."""
     import asyncio
 
     from lemoncrow.gateway.cli.events import AssistantMessage, ContextUsageUpdated, RuntimeErrorEvent
     from lemoncrow.gateway.cli.runtime import InteractiveRuntime
     from lemoncrow.pro.capabilities.owned_agent_session import OwnedAgentSession
+    from lemoncrow.pro.capabilities.owned_agent_session.primer_cache import cached_task_primer
     from lemoncrow.pro.capabilities.owned_agent_session.receipt import PhaseTokens, SessionReceipt
-    from lemoncrow.pro.capabilities.owned_agent_session.task_primer import build_task_primer
 
     session = OwnedAgentSession.new(
         provider=provider,
         model=model,
         transport="litellm",
+        cache_policy=cache_policy,
         phase_linear=False,
     )
-    runtime = InteractiveRuntime(root=root, yolo=yolo, model=model, provider=provider)
-
-    primer = build_task_primer(task, Path(os.getcwd()))
-    prompt = f"{task}\n\n{primer}" if primer else task
+    runtime = InteractiveRuntime(
+        root=root,
+        yolo=yolo,
+        model=model,
+        provider=provider,
+        budget_hint=budget_hint,
+        cache_policy=cache_policy,
+        max_cost=max_cost,
+    )
+    primer = cached_task_primer(task, Path(os.getcwd()), root).text
 
     async def _run() -> tuple[str, ContextUsageUpdated | None]:
         await runtime.start_session(os.getcwd(), session_id=session.session_id)
         final_text = ""
         usage: ContextUsageUpdated | None = None
         try:
-            async for event in runtime.handle_user_message(session.session_id, prompt):
+            async for event in runtime.handle_user_message(
+                session.session_id,
+                task,
+                budget_hint=budget_hint,
+                context=primer,
+            ):
                 if isinstance(event, AssistantMessage):
                     final_text = event.text
                 elif isinstance(event, ContextUsageUpdated):
@@ -208,6 +223,9 @@ def _run_owned_session(
             model=litellm_model,
             yolo=yolo,
             root=root,
+            budget_hint=budget,
+            cache_policy=cache_policy,
+            max_cost=max_cost,
         )
         session.cache_policy = cache_policy_cast
         click.echo(f"[lc run] session={session.session_id}  provider={decision.provider}  model={litellm_model}")
@@ -306,6 +324,8 @@ def _run_print_session(
         model=litellm_model,
         yolo=True,
         root=root,
+        budget_hint=budget,
+        cache_policy=cache_policy,
     )
     session.cache_policy = cache_policy_cast
     session.save(root=root)
@@ -344,9 +364,11 @@ def _run_ci_session(
         model=litellm_model,
         yolo=True,
         root=root,
+        budget_hint=budget,
+        cache_policy=cache_policy,
     )
     session.cache_policy = cache_policy_cast
-    session_path = session.save()
+    session_path = session.save(root=root)
 
     output = {
         "session_id": session.session_id,

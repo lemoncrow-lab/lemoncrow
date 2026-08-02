@@ -2,6 +2,8 @@
   "lc": {
     "command": "lemoncrow",
     "args": ["mcp", "--host", "codex"],
-    "env": {}
+    "env": {
+      "LEMONCROW_MCP_TOOL_PROFILE": "core"
+    }
   }
 }

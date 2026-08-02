@@ -257,14 +257,19 @@ def help_cmd(ctx: click.Context, command_path: tuple[str, ...]) -> None:
 _register_command_modules(cli)
 
 
-def main() -> None:
-    # Handle calling conventions (symlink for backward compat)
-    argv = sys.argv[1:]
-    prog_name = Path(sys.argv[0]).name
+def _argv_for_program(prog_name: str, argv: list[str]) -> list[str]:
+    """Translate permanent symlink entrypoints onto the canonical command tree."""
     if prog_name in ("lemoncrowd", "lcd"):
-        argv = ["background", "service", *argv]
-    elif prog_name == "lemoncrow-mcp":
-        argv = ["mcp", *argv]
+        return ["background", "service", *argv]
+    if prog_name == "lemoncrow-mcp":
+        return ["mcp", *argv]
+    if prog_name == "lemoncode":
+        return ["code", *argv]
+    return argv
+
+
+def main() -> None:
+    argv = _argv_for_program(Path(sys.argv[0]).name, sys.argv[1:])
 
     # ── Auto-install: if a command module failed to import, run uv sync ────────
     if not os.environ.get(_AUTO_INSTALL_SENTINEL) and not getattr(sys, "frozen", False):

@@ -88,13 +88,12 @@ def test_workspace_install_writes_consistent_artifacts(tmp_path: Path) -> None:
     # Read/Shell and the MCP server's tools never actually get exercised.
     assert any("before_shell_execution.py" in e["command"] for e in hooks["beforeShellExecution"])
     assert any("before_read_file.py" in e["command"] for e in hooks["beforeReadFile"])
-    # preToolUse covers the remaining native tools that bypass the two
-    # dedicated hooks above (Grep/Glob/Write/StrReplace/Delete); it must stay
-    # matcher-scoped so it doesn't also fire for Shell/Read.
+    # preToolUse is unscoped (no matcher): Cursor's Claude-compat map sets
+    # Glob:null, so a matcher never covers it — same as the SWE hard-enforce path.
     pre_tool_use = [e for e in hooks["preToolUse"] if "before_tool_use.py" in e["command"]]
     assert pre_tool_use, "before_tool_use.py not registered under preToolUse"
-    assert pre_tool_use[0]["matcher"] == "Grep|Glob|Write|StrReplace|Delete"
-    assert (ws / ".cursor" / "hooks" / "session_start.py").is_file()
+    assert "matcher" not in pre_tool_use[0]
+    assert pre_tool_use[0].get("failClosed") is True
     assert (ws / ".cursor" / "hooks" / "stop.py").is_file()
     assert (ws / ".cursor" / "hooks" / "before_shell_execution.py").is_file()
     assert (ws / ".cursor" / "hooks" / "before_read_file.py").is_file()

@@ -1,18 +1,14 @@
-"""Adapter: convert between OpenAI chat messages and LemonCrow NDJSON events.
-
-Three pieces:
-1. openai_messages_to_lemoncrow(): extract the last user turn + prior history
-2. lemoncrow_events_to_sse(): stream LemonCrowEvents as OpenAI SSE delta chunks
-3. run_chat_completion(): shared /v1/chat/completions handler used by both
-   the standalone gateway app and the integrated LemonCrow service
-"""
+"""Translate OpenAI-compatible requests into LemonCrow-owned runtime turns."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
@@ -29,65 +25,142 @@ from .schemas import (
 if TYPE_CHECKING:
     from lemoncrow.gateway.cli.events import LemonCrowEvent
 
+_VIRTUAL_MODELS = {
+    "lemoncrow",
+    "lemoncrow-default",
+    "lemoncrow-default/latest",
+    "lc/lemoncrow",
+    "lc/lemoncrow-default",
+}
+
+
+def is_virtual_model(model: str | None) -> bool:
+    normalized = (model or "").strip().lower()
+    return normalized in _VIRTUAL_MODELS or normalized.startswith("lc/lemoncrow")
+
+
+def _decode_host_string(text: str) -> str:
+    """Undo a whole-string JSON envelope emitted by some coding frontends."""
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        try:
+            decoded = json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return text
+        if isinstance(decoded, str):
+            return decoded
+    return text
+
+
+def _message_text(msg: ChatMessage) -> str:
+    if isinstance(msg.content, str):
+        return _decode_host_string(msg.content)
+    if isinstance(msg.content, list):
+        text = " ".join(
+            str(part.get("text", "")) for part in msg.content if isinstance(part, dict) and part.get("text")
+        )
+        return _decode_host_string(text)
+    return ""
+
 
 def openai_messages_to_lemoncrow(
     messages: list[ChatMessage],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Extract the last user message and return the prior conversation history.
+    """Return the newest user turn and safe prior user/assistant history.
 
-    Returns:
-        (last_user_text, prior_history)  — prior_history is a list of
-        ``{"role": ..., "content": ...}`` dicts that can be injected into
-        the runtime session so context is preserved across requests.
-
-    Raises:
-        ValueError: when the message list contains no user messages.
+    Host system prompts and host tool transcripts are deliberately dropped.
+    Mature coding CLIs routinely send tens of kilobytes of their own system and
+    tool schema text; LemonCrow owns those surfaces and must not pay for them a
+    second time at the upstream provider.
     """
-    user_messages = [m for m in messages if m.role == "user"]
-    if not user_messages:
+    last_user: ChatMessage | None = None
+    for message in messages:
+        if message.role == "user":
+            last_user = message
+    if last_user is None:
         raise ValueError("No user message found in the request")
 
-    last_user = user_messages[-1]
-
-    # Normalise content: lists (multi-modal) → concatenate text parts
-    def _text(msg: ChatMessage) -> str:
-        if isinstance(msg.content, str):
-            return msg.content
-        if isinstance(msg.content, list):
-            return " ".join(part.get("text", "") for part in msg.content if isinstance(part, dict))
-        return ""
-
-    last_user_text = _text(last_user)
-
-    # Prior history excludes the last user message (identity, not position, so a
-    # request that ends with a non-user turn doesn't duplicate it). The runtime
-    # owns its own system prompt, so client ``system``/``tool`` roles must not be
-    # forwarded as authoritative turns: system text is folded into a user turn,
-    # tool results are dropped. Assistant turns that carry ``tool_calls`` can't
-    # be flattened to a string without losing structure, so they're dropped too.
     prior: list[dict[str, Any]] = []
-    for msg in messages:
-        if msg is last_user:
+    for message in messages:
+        if message is last_user:
             continue
-        if msg.role == "tool":
+        if message.role not in {"user", "assistant"}:
             continue
-        if msg.role == "assistant" and msg.tool_calls:
+        if message.role == "assistant" and message.tool_calls:
             continue
-        if msg.role == "system":
-            text = _text(msg)
-            if text:
-                prior.append({"role": "user", "content": text})
-            continue
-        prior.append({"role": msg.role, "content": _text(msg)})
-
-    return last_user_text, prior
+        text = _message_text(message)
+        if text:
+            prior.append({"role": message.role, "content": text})
+    return _message_text(last_user), prior
 
 
 def _permission_note(event: Any) -> str:
-    """Render a permission.requested event as an inline assistant note."""
     action: str = getattr(event, "action", "tool call")
     risk: str = getattr(event, "risk", "medium") or "medium"
     return f"\n\n[LemonCrow: executing {action} ({risk} risk) autonomously]\n\n"
+
+
+def _usage_from_event(event: Any) -> dict[str, Any] | None:
+    if getattr(event, "type", "") != "context.usage.updated":
+        return None
+    fresh = int(getattr(event, "input_tokens", 0) or 0)
+    cache_read = int(getattr(event, "cache_read_tokens", 0) or 0)
+    cache_write = int(getattr(event, "cache_write_tokens", 0) or 0)
+    output = int(getattr(event, "output_tokens", 0) or 0)
+    return {
+        "prompt_tokens": fresh + cache_read + cache_write,
+        "completion_tokens": output,
+        "total_tokens": fresh + cache_read + cache_write + output,
+        "prompt_tokens_details": {
+            "cached_tokens": cache_read,
+            "cache_write_tokens": cache_write,
+        },
+    }
+
+
+async def _prepare_runtime_events(
+    runtime: Any,
+    messages: list[ChatMessage],
+    *,
+    requested_model: str | None,
+    max_output_tokens: int | None,
+) -> tuple[str, AsyncIterator[Any]]:
+    try:
+        last_user_text, prior_history = openai_messages_to_lemoncrow(messages)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    session_id = str(uuid.uuid4())
+    runtime.restore_session(session_id, prior_history)
+
+    context = ""
+    primer_metadata: dict[str, Any] = {}
+    if not any(message.get("role") == "user" for message in prior_history):
+        root = getattr(runtime, "root", None)
+        project_root = getattr(runtime, "project_root", None)
+        if isinstance(root, Path) and isinstance(project_root, Path):
+            from lemoncrow.pro.capabilities.owned_agent_session.primer_cache import cached_task_primer
+
+            primer = await asyncio.to_thread(
+                cached_task_primer,
+                last_user_text,
+                project_root,
+                root,
+                retrieval_mode=os.environ.get("LEMONCROW_LOCAL_RETRIEVAL", "auto"),
+                local_retrieval_model=os.environ.get("LEMONCROW_LOCAL_RETRIEVAL_MODEL", ""),
+                optimization_mode=os.environ.get("LEMONCROW_OPTIMIZATION_MODE", "shadow"),
+            )
+            context = primer.text
+            primer_metadata = primer.optimization_metadata()
+
+    events = runtime.handle_user_message(
+        session_id,
+        last_user_text,
+        model_override=None if is_virtual_model(requested_model) else requested_model,
+        context=context,
+        max_output_tokens=max_output_tokens,
+        primer_metadata=primer_metadata,
+    )
+    return session_id, events
 
 
 async def lemoncrow_events_to_sse(
@@ -95,132 +168,127 @@ async def lemoncrow_events_to_sse(
     model: str,
     chunk_id: str | None = None,
 ) -> AsyncIterator[str]:
-    """Convert a stream of LemonCrowEvents to OpenAI SSE chunks.
+    """Consume the full runtime stream and emit OpenAI SSE.
 
-    Yields ``data: <json>\\n\\n`` lines followed by ``data: [DONE]\\n\\n``.
-    Skips session-internal events (route selection, cache stats, etc.) that
-    callers don't need.
+    The runtime's final usage/cache events arrive after the assistant message;
+    consuming through exhaustion is required both for correct accounting and
+    for session compaction/finalization.
     """
-    if chunk_id is None:
-        chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-
+    chunk_id = chunk_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
+    usage: dict[str, Any] | None = None
+    had_error = False
 
-    def _chunk(delta: DeltaContent, finish_reason: str | None = None) -> str:
+    def _chunk(
+        delta: DeltaContent,
+        finish_reason: str | None = None,
+        chunk_usage: dict[str, Any] | None = None,
+    ) -> str:
         chunk = ChatCompletionChunk(
             id=chunk_id,
             created=created,
             model=model,
             choices=[DeltaChoice(index=0, delta=delta, finish_reason=finish_reason)],
+            usage=chunk_usage,
         )
         return f"data: {chunk.model_dump_json()}\n\n"
 
+    yield _chunk(DeltaContent(role="assistant"))
     async for event in events:
-        ev_type: str = getattr(event, "type", "")
-
-        # ── streaming text token ─────────────────────────────────────────────
-        if ev_type == "assistant.delta":
+        event_type = getattr(event, "type", "")
+        if event_type == "assistant.delta":
             yield _chunk(DeltaContent(content=getattr(event, "text", "")))
-
-        # ── final message → close stream ─────────────────────────────────────
-        elif ev_type == "assistant.message":
-            yield _chunk(DeltaContent(content=""), finish_reason="stop")
-            yield "data: [DONE]\n\n"
-            return
-
-        # ── tool call requested → LemonCrow runs it server-side; emit nothing ──
-        # The resulting text arrives as later assistant.delta events. We do not
-        # forward OpenAI tool_calls deltas: the client cannot execute them and
-        # the stream finishes with finish_reason='stop', not 'tool_calls'.
-
-        # ── permission / approval prompt → inject a system note as text ──────
-        elif ev_type == "permission.requested":
+        elif event_type == "permission.requested":
             yield _chunk(DeltaContent(content=_permission_note(event)))
+        elif event_type == "error":
+            message = getattr(event, "message", "unknown error")
+            payload = json.dumps({"error": {"message": message, "type": "lemoncrow_error"}})
+            yield f"data: {payload}\n\n"
+            had_error = True
+        else:
+            event_usage = _usage_from_event(event)
+            if event_usage is not None:
+                usage = event_usage
 
-        # ── error → surface to caller then stop ──────────────────────────────
-        elif ev_type == "error":
-            message: str = getattr(event, "message", "unknown error")
-            error_payload = json.dumps({"error": {"message": message, "type": "lemoncrow_error"}})
-            yield f"data: {error_payload}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-
-        # ── everything else is internal (routing, cache stats, etc.) → skip ──
-
-    # Stream ended without an explicit AssistantMessage (e.g. interrupted)
-    yield _chunk(DeltaContent(content=""), finish_reason="stop")
+    if not had_error:
+        yield _chunk(DeltaContent(content=""), finish_reason="stop", chunk_usage=usage)
     yield "data: [DONE]\n\n"
 
 
 async def run_chat_completion(runtime: Any, req: ChatCompletionRequest) -> Any:
-    """Handle one /v1/chat/completions request against an InteractiveRuntime.
-
-    Shared by the standalone gateway app and the integrated LemonCrow service so
-    the wire protocol has exactly one implementation. The per-request session
-    is dropped once the response finishes — the OpenAI protocol is stateless.
-    """
     if not req.messages:
         raise HTTPException(status_code=422, detail="messages must not be empty")
 
-    try:
-        last_user_text, prior_history = openai_messages_to_lemoncrow(req.messages)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    session_id = str(uuid.uuid4())
-    runtime._sessions[session_id] = prior_history
-
-    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    model = req.model or ""
-
-    events_gen = runtime.handle_user_message(
-        session_id,
-        last_user_text,
-        model_override=model or None,
+    max_output_tokens = req.max_tokens or req.max_completion_tokens
+    session_id, events = await _prepare_runtime_events(
+        runtime,
+        req.messages,
+        requested_model=req.model,
+        max_output_tokens=max_output_tokens,
     )
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    response_model = req.model or "lemoncrow"
 
     if req.stream:
-        sse_gen = lemoncrow_events_to_sse(events_gen, model=model or "lemoncrow", chunk_id=chunk_id)
+        sse = lemoncrow_events_to_sse(events, model=response_model, chunk_id=chunk_id)
 
         async def _stream() -> AsyncIterator[str]:
             try:
-                async for line in sse_gen:
+                async for line in sse:
                     yield line
             finally:
-                runtime._sessions.pop(session_id, None)
+                runtime.drop_session(session_id)
 
-        return StreamingResponse(_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
-    # Buffered (non-streaming) — consume the runtime events directly
     content_parts: list[str] = []
+    usage: dict[str, Any] | None = None
     try:
-        async for event in events_gen:
-            ev_type = getattr(event, "type", "")
-            if ev_type == "assistant.delta":
+        async for event in events:
+            event_type = getattr(event, "type", "")
+            if event_type == "assistant.delta":
                 content_parts.append(getattr(event, "text", ""))
-            elif ev_type == "permission.requested":
+            elif event_type == "permission.requested":
                 content_parts.append(_permission_note(event))
-            elif ev_type == "error":
-                raise HTTPException(status_code=500, detail=getattr(event, "message", "unknown error"))
+            elif event_type == "error":
+                raise HTTPException(
+                    status_code=500,
+                    detail=getattr(event, "message", "unknown error"),
+                )
+            event_usage = _usage_from_event(event)
+            if event_usage is not None:
+                usage = event_usage
     finally:
-        runtime._sessions.pop(session_id, None)
+        runtime.drop_session(session_id)
 
     return JSONResponse(
         {
             "id": chunk_id,
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": model,
+            "model": response_model,
             "choices": [
                 {
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "".join(content_parts),
-                    },
+                    "message": {"role": "assistant", "content": "".join(content_parts)},
                     "finish_reason": "stop",
                 }
             ],
-            "usage": None,
+            "usage": usage,
         }
     )
+
+
+__all__ = [
+    "_permission_note",
+    "_prepare_runtime_events",
+    "_usage_from_event",
+    "is_virtual_model",
+    "lemoncrow_events_to_sse",
+    "openai_messages_to_lemoncrow",
+    "run_chat_completion",
+]

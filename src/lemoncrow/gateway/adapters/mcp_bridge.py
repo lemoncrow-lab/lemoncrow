@@ -144,7 +144,7 @@ class _ClientPool:
 
 def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
     """Run the stdio bridge until the host closes stdin (blocks)."""
-    import httpx
+    from lemoncrow.infra.ipc.httpx_uds import UDS_CONNECTION_ERRORS, unbounded_request_timeout
 
     resolved_root = default_store_root() if root is None else Path(root)
     workspace = _resolve_workspace()
@@ -164,7 +164,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
     # the daemon is gone, triggering a single respawn+retry. Clients bind the
     # daemon's Unix socket: loopback IPC no HTTP proxy can hijack. The pool
     # re-binds if a respawned daemon comes up on a different socket path.
-    clients = _ClientPool(handle.current(), daemon_client, httpx.Timeout(None, connect=10.0))
+    clients = _ClientPool(handle.current(), daemon_client, unbounded_request_timeout(connect=10.0))
     stdout_lock = threading.Lock()
 
     def _write(message: dict[str, Any]) -> None:
@@ -194,7 +194,7 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
                 headers["X-LemonCrow-Agent"] = host
             try:
                 resp = clients.for_registration(reg).post(_UDS_BASE_URL + "/mcp", headers=headers, content=body)
-            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError, httpx.ConnectTimeout):
+            except UDS_CONNECTION_ERRORS:
                 if attempt == 0:
                     handle.respawn(reg)  # daemon died/reaped -> respawn and retry once
                     continue

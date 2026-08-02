@@ -64,3 +64,32 @@ def test_crossing_legacy_cap_state_has_no_effect(tmp_path: Path) -> None:
     assert len(_list()) > 0
     _seed_legacy_over_cap(tmp_path)
     assert len(_list()) > 0
+
+
+def test_core_profile_keeps_normal_tools_eager_and_brokers_rare_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.gateway.adapters import mcp_server
+
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
+    monkeypatch.setattr(mcp_server, "mcp_tool_visible_to_llm", lambda _name: True)
+    names = {tool["name"] for tool in _list()}
+
+    assert {"code_search", "read", "edit", "bash", "web_fetch", "tool"} <= names
+    assert "sql" not in names
+
+    result = mcp_server._TOOL_BROKER_SPEC["handler"]({"action": "search", "query": "sql database"})
+    assert result["matches"]
+    assert result["matches"][0]["name"] == "sql"
+
+
+def test_full_profile_does_not_advertise_unnecessary_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.gateway.adapters import mcp_server
+
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "full")
+    monkeypatch.setattr(mcp_server, "mcp_tool_visible_to_llm", lambda _name: True)
+    names = {tool["name"] for tool in _list()}
+    assert "sql" in names
+    assert "tool" not in names

@@ -30,6 +30,17 @@ def test_discovery_manifest_served() -> None:
     assert isinstance(manifest["tools"], list) and manifest["tools"]
 
 
+@pytest.mark.parametrize("profile", ["core", "full"])
+def test_discovery_manifest_tools_are_sorted(
+    profile: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", profile)
+    manifest = _client().get(MCP_DISCOVERY_PATH).json()
+    names = [tool["name"] for tool in manifest["tools"]]
+    assert names == sorted(names)
+
+
 def test_favicon_is_public_png() -> None:
     for path in ("/favicon.png", "/favicon.ico"):
         resp = _client().get(path)

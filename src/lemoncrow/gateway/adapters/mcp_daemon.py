@@ -166,7 +166,7 @@ _UDS_BASE_URL = "http://lemoncrow-daemon"
 
 
 def daemon_client(reg: dict[str, Any], *, timeout: Any = 2.0) -> Any:
-    """An ``httpx.Client`` pinned to the daemon's Unix-domain socket.
+    """An HTTP client pinned to the daemon's Unix-domain socket.
 
     A UDS transport bypasses HTTP proxy env entirely (``HTTP_PROXY``/``ALL_PROXY``
     apply only to real host:port URLs), so a proxied host -- e.g. a benchmark
@@ -174,13 +174,9 @@ def daemon_client(reg: dict[str, Any], *, timeout: Any = 2.0) -> Any:
     is off for the same reason. The URL host in requests is a placeholder; the
     transport routes to the socket regardless.
     """
-    import httpx
+    from lemoncrow.infra.ipc.httpx_uds import uds_http_client
 
-    return httpx.Client(
-        transport=httpx.HTTPTransport(uds=str(reg["socket"])),
-        trust_env=False,
-        timeout=timeout,
-    )
+    return uds_http_client(str(reg["socket"]), timeout=timeout)
 
 
 def _probe_healthy(reg: dict[str, Any], *, timeout: float = 2.0) -> bool:

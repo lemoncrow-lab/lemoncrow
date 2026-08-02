@@ -28,8 +28,8 @@ from benchmarks.codebench.run import (
     CA_CERT,
     REPO_ROOT,
     ArmResult,
-    _free_port,
     _cursor_model,
+    _free_port,
     _lean_plugin_root,
     _parse_claude_result,
     _parse_cursor_result,
@@ -60,14 +60,20 @@ _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 _ARM_AGENT: dict[str, str | None] = {"baseline": None, "lemoncrow": "lemoncrow:auto"}
 
 # --- cursor driver -----------------------------------------------------------
+# --- cursor driver -----------------------------------------------------------
 # cursor-agent authenticates from ~/.config/cursor/auth.json (accessToken +
 # refreshToken, written by `cursor-agent login`). Bind-mounted into the container
 # so cursor-agent runs authenticated with no interactive login.
 CURSOR_AUTH_HOST = Path.home() / ".config" / "cursor" / "auth.json"
-# cursor-agent's persona rule (mirrors the exploration driver in run.py). The
-# leaner `auto` persona -- `solve` was measured as an over-investigation tax on
-# single-turn work -- is the default for the container arm too.
-CURSOR_RULE_HOST = REPO_ROOT / "integrations" / "cursor" / "rules" / "lemoncrow.auto.mdc"
+# Always-on rule (alwaysApply: true). `lemoncrow.auto.mdc` is description-only
+# (Agent Requested) -- Cursor injects it only if the model asks, after the first
+# native tool call, so the lemoncrow arm silently degrades to baseline+overhead.
+# Harbor's LemonCrowCursorHarborAgent uses code.mdc for the same reason.
+CURSOR_RULE_HOST = REPO_ROOT / "integrations" / "cursor" / "rules" / "lemoncrow.code.mdc"
+# read-only into the lemoncrow cursor arm; entry script stages them under
+# $REPO/.cursor/hooks.
+CURSOR_HOOKS_HOST = REPO_ROOT / "integrations" / "cursor" / "hooks"
+CURSOR_DENY_WEB_HOST = REPO_ROOT / "benchmarks" / "codebench" / "fixtures" / "cursor_deny_web.py"
 # Egress allowlist for the cursor driver: cursor-agent's model inference + auth
 # live on *.cursor.sh / *.cursor.com, which the hermetic guard would else block.
 CURSOR_EGRESS_ALLOW = "cursor.sh,cursor.com,anthropic.com,amazonaws.com"
@@ -424,12 +430,18 @@ def _docker_run_cmd(
         # into a writable HOME so a token refresh mid-run isn't blocked by the
         # read-only bind mount.
         cmd += ["-v", f"{CURSOR_AUTH_HOST}:/mnt/cursor-auth.json:ro"]
+        if CURSOR_DENY_WEB_HOST.is_file():
+            # Both arms: block WebSearch/WebFetch gold-PR fetches (claude uses
+            # --disallowedTools; cursor-agent has no equivalent flag).
+            cmd += ["-v", f"{CURSOR_DENY_WEB_HOST}:/mnt/cursor-deny-web.py:ro"]
     if arm == "lemoncrow":
         if driver == "cursor":
             # cursor drives the lc MCP server via .cursor/mcp.json + a persona rule
-            # (both written by the entry script), not the claude plugin-dir.
+            # + hard-enforce hooks (all written by the entry script).
             if CURSOR_RULE_HOST.is_file():
                 cmd += ["-v", f"{CURSOR_RULE_HOST}:/mnt/cursor-rule.mdc:ro"]
+            if CURSOR_HOOKS_HOST.is_dir():
+                cmd += ["-v", f"{CURSOR_HOOKS_HOST}:/mnt/cursor-hooks:ro"]
         else:
             cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
@@ -482,9 +494,10 @@ def _docker_run_cmd(
         env["CODEBENCH_HOST"] = "cursor"
         # cursor-agent only accepts its own model ids (composer-*, gpt-*, specific
         # claude-* ids); the codebench --model default is a claude id cursor-agent
-        # rejects, and the free plan supports only "auto" regardless. So run auto
-        # unless an operator explicitly pins a real cursor id via this env var.
-        _pin = os.environ.get("CODEBENCH_CURSOR_MODEL", "").strip()
+        # rejects, and the free plan supports only "auto" regardless. Prefer an
+        # explicit CODEBENCH_CURSOR_MODEL env pin, else the CLI --model when it is
+        # already a cursor id (cursor-grok-*, gpt-*, composer*, claude-*).
+        _pin = os.environ.get("CODEBENCH_CURSOR_MODEL", "").strip() or model
         env["CODEBENCH_CURSOR_MODEL"] = (_cursor_model(_pin) or "") if _pin else ""
     # SWE-bench images carry the repo at /testbed; pin it so the entry script
     # never picks a stray .git (e.g. under site-packages). Multi-SWE instances
@@ -527,6 +540,16 @@ def _docker_run_cmd(
         # (measured -33% to -47% cost at equal correctness). Opt out for control
         # runs with CODEBENCH_EDIT_VERIFY=0.
         env["LEMONCROW_EDIT_VERIFY"] = os.environ.get("CODEBENCH_EDIT_VERIFY", "1")
+        # Grammar CDN downloads hold a process-wide lock for the full global
+        # timeout on every miss; under codebench that freezes `code index` before
+        # the agent starts. Skip parsers so FTS indexing completes; edit-verify
+        # falls open without them. Override with CODEBENCH_TREE_SITTER_OFF=0 once
+        # grammars are prefetched into the overlay.
+        env["LEMONCROW_TREE_SITTER_OFF"] = os.environ.get("CODEBENCH_TREE_SITTER_OFF", "1")
+        if driver == "cursor":
+            # Stick-deny natives (no cooloff). Soft ENFORCE=1 was measured ~1.8x
+            # worse because cooloff let natives through and Glob escaped.
+            env["LEMONCROW_CURSOR_ENFORCE"] = os.environ.get("CODEBENCH_CURSOR_ENFORCE", "hard")
         # Code search runs lexical (symbol FTS + zoekt) by default -- the shipped
         # default (NullEmbedder, FTS-only). The feature-hashing "local" embedder was
         # removed: RETRIEVAL_EVAL measured it at -0.0004 MRR (net zero, flask -0.16)
@@ -541,7 +564,10 @@ def _docker_run_cmd(
         # replaces a blanket persona "always iterate against tests" rule, which
         # taxed easy tasks; the gate nudges once, only when a test was actually
         # skipped. Override with CODEBENCH_VERIFY_BEFORE_DONE=0.
-        env["LEMONCROW_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", "1")
+        # Cursor hard-enforce: verify-before-done adds extra bash turns that
+        # dominate short SWE-lite tasks; keep on for claude, default off for cursor.
+        _vbd_default = "0" if driver == "cursor" else "1"
+        env["LEMONCROW_VERIFY_BEFORE_DONE"] = os.environ.get("CODEBENCH_VERIFY_BEFORE_DONE", _vbd_default)
         # code_search outline mode ON by default: large sections become L<start>-L<end>
         # pointers (small ones stay inline; include_source keeps a bounded top-2).
         # Flow-capture attribution (reports/benchmark/swe/20260706T065549Z) measured
@@ -549,6 +575,8 @@ def _docker_run_cmd(
         # per 10 tasks while the agent read its edit targets anyway (sphinx: 14k chars
         # of sections next to an unchanged read volume). Opt out for control runs with
         # CODEBENCH_CODESEARCH_OUTLINE=0.
+        # Keep outline ON for cursor too — turning it off (pilot7) made code_search
+        # miss and the agent loop empty re-searches (+$0.10 on flask).
         env["LEMONCROW_CODESEARCH_OUTLINE"] = os.environ.get("CODEBENCH_CODESEARCH_OUTLINE", "1")
         # Defer mutating edit-hooks (format/organize-imports) + contract-site re-fires
         # to the Stop hook so the formatter can't reflow files mid-session and break
@@ -615,15 +643,23 @@ def run_in_container(
     prompt_path = out_dir / f"{stem}.prompt.txt"
     prompt_path.write_text(instance.problem_statement, encoding="utf-8")
 
-    port = _free_port()
     egress_allow = CURSOR_EGRESS_ALLOW if driver == "cursor" else None
-    proxy = _start_proxy(port, flow_path, egress_allow=egress_allow)
+    # jobs>1: _free_port() has a bind-then-close TOCTOU race; retry a few ports.
+    proxy = None
+    port = 0
+    for _try in range(8):
+        port = _free_port()
+        proxy = _start_proxy(port, flow_path, egress_allow=egress_allow)
+        if _wait_port(port):
+            break
+        _stop_proxy(proxy)
+        proxy = None
     started = time.time()
     timed_out = False
     stdout = ""
     stderr = ""
     try:
-        if not _wait_port(port):
+        if proxy is None:
             raise RuntimeError("mitmdump did not start")
         cmd = _docker_run_cmd(
             instance,
@@ -650,6 +686,9 @@ def run_in_container(
     head, diff = _split_output(stdout)
     patch_path.write_text(diff, encoding="utf-8")
     if driver == "cursor":
+        # Keep stream-json for post-hoc native-vs-MCP attribution (trajectory.json).
+        with contextlib.suppress(OSError):
+            (out_dir / f"{stem}.stdout.jsonl").write_text(head, encoding="utf-8")
         result = _parse_cursor_result(head, flow_path, instance.instance_id, arm, rep)
     else:
         result = _parse_claude_result(head, flow_path, instance.instance_id, arm, rep)

@@ -2844,6 +2844,7 @@ def _implemented_optimization_catalog(
     from lemoncrow.pro.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
 
     supported_hosts = list(SUPPORTED_OPTIMIZER_HOSTS)
+    owned_runtime_hosts = ["lemoncode", "codex", "claude", "native"]
     per_lever = {
         str(key): int(value or 0)
         for key, value in (savings_payload.get("per_lever") or {}).items()
@@ -2865,6 +2866,104 @@ def _implemented_optimization_catalog(
                 "Also powers the trace-based optimization recommendations shown below."
             ),
             "examples": ["SessionStart guidance", "No-edit 10m nudge", "lc optimize"],
+        },
+        {
+            "id": "optimization_decision_trace",
+            "title": "Redacted optimization decision trace",
+            "category": "measurement",
+            "automation": "Automatic in shadow and enforce modes",
+            "status": "active",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Records proposed versus actual policy, calls, tokens, cost, verification, "
+                "and accepted outcomes without prompts, source, arguments, commands, or diffs."
+            ),
+            "examples": ["lc optimize decisions --json", "--optimization-mode off|shadow|enforce"],
+        },
+        {
+            "id": "output_governor_v2",
+            "title": "Output Governor V2",
+            "category": "output_control",
+            "automation": "Shadow by default; opt-in enforcement",
+            "status": "implemented_shadow",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Suppresses retained execution narration, requires real truncation before extension, "
+                "and finalizes verified mutations without another provider call."
+            ),
+            "examples": ["tool-only mutation phase", "deterministic verification receipt"],
+        },
+        {
+            "id": "adaptive_cache_economics_v2",
+            "title": "Adaptive cache economics V2",
+            "category": "cache",
+            "automation": "Shadow by default; explicit cache policy always wins",
+            "status": "implemented_shadow",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Learns reuse gaps, chooses provider-aware TTLs and stable lanes, filters volatile "
+                "breakpoints, and applies rewrite economics to compaction."
+            ),
+            "examples": ["--cache-policy auto|5m|1h|off", "route/cache hysteresis"],
+        },
+        {
+            "id": "calibrated_phase_routing_v2",
+            "title": "Calibrated phase routing V2",
+            "category": "model_selection",
+            "automation": "Shadow until the outcome sample floor; repair escalates immediately",
+            "status": "implemented_shadow",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Minimizes direct cost plus calibrated failure escalation and cache-break cost, "
+                "with a warm-lane hysteresis guard."
+            ),
+            "examples": ["20-sample default floor", "pinned-model rollback"],
+        },
+        {
+            "id": "local_retrieval_firewall_v2",
+            "title": "Bounded local retrieval firewall",
+            "category": "context_pruning",
+            "automation": "Auto-gated; prompt-visible only in enforce mode",
+            "status": "implemented_shadow",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Returns bounded exact source-hashed spans. Explicit-file tasks skip before scanning; "
+                "the optional planner accepts local model identifiers only."
+            ),
+            "examples": ["--local-retrieval auto|force|off", "--local-retrieval-model ollama/..."],
+        },
+        {
+            "id": "hybrid_mcp_exposure",
+            "title": "Hybrid MCP and tool exposure",
+            "category": "tool_supervision",
+            "automation": "Automatic eager core with deterministic focused fallback",
+            "status": "adapted_complete",
+            "observed_tokens_saved": 0,
+            "applies_to": [*supported_hosts, "lemoncode", "native"],
+            "notes": (
+                "Keeps ordinary coding tools eager and never requires a search-first broker call; "
+                "managed LemonCode exposes no redundant outer MCP schemas."
+            ),
+            "examples": ["LEMONCROW_MCP_TOOL_PROFILE=full", "--mcp-schema-mode auto"],
+        },
+        {
+            "id": "verified_evidence_reuse_v2",
+            "title": "Verified cross-session evidence reuse",
+            "category": "context_reuse",
+            "automation": "Collected in shadow; prompt-visible only in enforce mode",
+            "status": "implemented_shadow",
+            "observed_tokens_saved": 0,
+            "applies_to": owned_runtime_hosts,
+            "notes": (
+                "Reuses deterministic source-hashed retrieval only after a matching workspace, "
+                "dependency, tool-version, and verification receipt check."
+            ),
+            "examples": ["read-only revalidation receipt", "post-edit project-command receipt"],
         },
         {
             "id": "search_read",
@@ -3010,6 +3109,27 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
     supported_hosts = list(SUPPORTED_OPTIMIZER_HOSTS)
     return [
         {
+            "id": "owned-runtime-controlled-ab",
+            "priority": "high",
+            "title": "Run controlled quality/cost acceptance gates for the V2 savings runtime",
+            "hosts": ["lemoncode", "codex", "claude", "native"],
+            "notes": (
+                "All six runtime implementations are locally verified, but routing, output, cache, "
+                "retrieval, and evidence reuse remain measurement-pending until frozen-corpus A/B "
+                "reports show lower cost per accepted change without a quality regression."
+            ),
+        },
+        {
+            "id": "local-retrieval-recall-corpus",
+            "priority": "high",
+            "title": "Measure local retrieval recall, frontier tokens, and latency",
+            "hosts": ["lemoncode", "codex", "claude", "native"],
+            "notes": (
+                "Compare deterministic-only and optional-local-planner packets against normal "
+                "frontier retrieval; keep the feature shadow-only if exact-target recall regresses."
+            ),
+        },
+        {
             "id": "wrapper-adoption-visibility",
             "priority": "medium",
             "title": "Distinguish wrapper-launched sessions from instruction-only sessions",
@@ -3122,6 +3242,10 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
         recent_traces, window_days=window_days, live_events=live_events
     )
     compact_session_history = _build_compact_session_history(live_events, window_days=window_days)
+    from lemoncrow.pro.capabilities.optimization.runtime_decisions import summarize_runtime_decisions
+
+    runtime_decisions = summarize_runtime_decisions(root, days=window_days)
+    runtime_decisions.pop("trace_path", None)
 
     automatic_hosts = sum(1 for item in runtime_coverage if item["automatic_at_start"])
     advisory_only_hosts = sum(1 for item in runtime_coverage if item["advisory_only"])
@@ -3153,6 +3277,7 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
         "reread_telemetry": reread_telemetry,
         "model_routing_simulation": model_routing_simulation,
         "compact_session_history": compact_session_history,
+        "runtime_decisions": runtime_decisions,
         "savings": savings,
         "data_sources": [
             {
@@ -3179,6 +3304,11 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
                 "id": "savings_telemetry",
                 "label": "Savings telemetry",
                 "detail": "Observed token savings pulled from cost history and live savings event streams.",
+            },
+            {
+                "id": "runtime_decisions",
+                "label": "Owned-runtime decision trace",
+                "detail": "Redacted proposed-versus-actual policy, provider/tool calls, tokens, cost, verification, and accepted outcomes.",
             },
         ],
     }

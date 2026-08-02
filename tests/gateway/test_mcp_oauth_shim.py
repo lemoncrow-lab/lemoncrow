@@ -17,6 +17,7 @@ import stat
 import urllib.parse
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from lemoncrow.gateway.adapters.mcp_oauth import create_protected_mcp_app
@@ -159,14 +160,16 @@ def test_dcr_allows_loopback_http(tmp_path: Path) -> None:
 
 
 # ── Form parsing ──────────────────────────────────────────────────────────────
-def test_form_posts_work_without_python_multipart(tmp_path: Path) -> None:
-    """`request.form()` asserts python-multipart is installed even for
-    urlencoded bodies, which 500'd the pairing POST mid-handshake. The
-    endpoints parse urlencoded bodies themselves instead."""
-    import importlib.util
+def test_form_posts_work_without_python_multipart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The OAuth handlers parse urlencoded bodies without Request.form()."""
 
-    assert importlib.util.find_spec("multipart") is None  # the failing environment, reproduced
+    async def unexpected_form(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("OAuth endpoint must not call Request.form()")
 
+    monkeypatch.setattr("starlette.requests.Request.form", unexpected_form)
     client = _app(tmp_path / "s.json")
     authorize = client.post("/authorize", data={"client_id": "nope", "redirect_uri": _REDIRECT_URI})
     token = client.post("/token", data={"grant_type": "weird"})

@@ -261,6 +261,26 @@ AUTO_COMPACT_MIN_TURNS = 15
 # a few very large turns can fill the window just as fast as many small ones.
 AUTO_COMPACT_HIGH_UTIL_OVERRIDE = 90.0
 
+# Direct host integrations can advertise this eager core without making normal
+# coding operations pay a broker/search round trip. Rare tools stay available
+# behind the deterministic tool broker. The default remains full for backwards
+# compatibility and for clients that explicitly prefer one large schema prefix.
+_CORE_MCP_TOOLS = frozenset(
+    {
+        "bash",
+        "code_search",
+        "compact",
+        "context",
+        "edit",
+        "grep",
+        "memory",
+        "read",
+        "relations",
+        "tool",
+        "verify",
+        "web_fetch",
+    }
+)
 
 # --------------------------------------------------------------------------- #
 # Tool Registry Decorator                                                     #
@@ -289,6 +309,18 @@ def _tool_description(spec: dict[str, Any]) -> str:
 
 def _tool_visible_to_llm(tool_name: str, spec: dict[str, Any]) -> bool:
     return mcp_tool_visible_to_llm(tool_name)
+
+
+def _mcp_tool_profile() -> str:
+    value = os.environ.get("LEMONCROW_MCP_TOOL_PROFILE", "full").strip().lower()
+    return value if value in {"core", "full"} else "full"
+
+
+def _tool_profile_exposes(tool_name: str) -> bool:
+    if _mcp_tool_profile() == "core":
+        return tool_name in _CORE_MCP_TOOLS
+    # The broker is unnecessary in full mode and would invite an avoidable call.
+    return tool_name != "tool"
 
 
 def _tool_mode(spec: dict[str, Any]) -> str:
@@ -1622,13 +1654,18 @@ def _workflow_runner_model(
     runner: str | None = None,
 ) -> str | None:
     resolved_runner = runner or _workflow_runner_profile()
+    workspace_model = resolve_host_model(
+        resolved_runner,
+        role_id,
+        workspace_root=workspace,
+        fallback=None,
+    )
+    if workspace_model:
+        return normalize_model_for_host(resolved_runner, workspace_model)
     configured = str(_get_mcp_model() or os.environ.get("LEMONCROW_MODEL") or "").strip()
     if configured:
         return normalize_model_for_host(resolved_runner, configured)
-    return normalize_model_for_host(
-        resolved_runner,
-        resolve_host_model(resolved_runner, role_id, workspace_root=workspace, fallback=None),
-    )
+    return None
 
 
 def _native_workflow_execution_receipt(
@@ -10694,10 +10731,77 @@ def tool_compact(
     return result
 
 
+_TOOL_BROKER_DESCRIPTION = (
+    "Deterministic fallback for rare LemonCrow tools hidden by the core profile. "
+    "Normal code_search/read/edit/bash/web_fetch calls are already exposed: never "
+    "search for those. Use search once for a rare capability, then call its exact name."
+)
+
+
+def _tool_broker_handler(args: dict[str, Any]) -> dict[str, Any] | Any:
+    """Search or invoke the rare-tool registry without global registration."""
+    action = str(args.get("action") or "")
+    if action == "search":
+        normalized = " ".join(str(args.get("query") or "").lower().split())
+        terms = tuple(term for term in re.split(r"\W+", normalized) if term)
+        matches: list[tuple[int, str, str]] = []
+        for tool_name, spec in TOOLS.items():
+            if tool_name in _CORE_MCP_TOOLS:
+                continue
+            if not _tool_visible_to_llm(tool_name, spec):
+                continue
+            description = _tool_description(spec)
+            haystack = f"{tool_name} {description}".lower()
+            score = (100 if normalized == tool_name.lower() else 0) + (
+                40 if normalized and normalized in haystack else 0
+            )
+            score += 5 * sum(1 for term in terms if term in haystack)
+            if not normalized or score > 0:
+                matches.append((score, tool_name, description[:240]))
+        matches.sort(key=lambda item: (-item[0], item[1]))
+        return {
+            "matches": [{"name": tool_name, "description": description} for _, tool_name, description in matches[:12]]
+        }
+
+    if action == "call":
+        target = str(args.get("name") or "").strip()
+        if not target:
+            raise _ToolArgumentError("tool call requires an exact name")
+        if target in _CORE_MCP_TOOLS:
+            raise _ToolArgumentError(f"{target!r} is already exposed; call it directly")
+        call_spec = TOOLS.get(target)
+        if call_spec is None or not _tool_visible_to_llm(target, call_spec):
+            raise _ToolArgumentError(f"unknown or unavailable tool: {target}")
+        arguments = args.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise _ToolArgumentError("tool arguments must be an object")
+        handler = cast(Callable[[dict[str, Any]], Any], call_spec["handler"])
+        return handler(arguments)
+
+    raise _ToolArgumentError(f"unknown broker action: {action}")
+
+
+_TOOL_BROKER_SPEC: dict[str, Any] = {
+    "name": "tool",
+    "description": _TOOL_BROKER_DESCRIPTION,
+    "handler": _tool_broker_handler,
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["search", "call"]},
+            "query": {"type": "string"},
+            "name": {"type": "string"},
+            "arguments": {"type": "object"},
+        },
+        "required": ["action"],
+        "additionalProperties": False,
+    },
+}
+
+
 # --------------------------------------------------------------------------- #
 # Remote mode & dispatcher                                                    #
 # --------------------------------------------------------------------------- #
-
 # Tools that are routed through the remote HTTP service in MCP remote mode.
 _REMOTE_TOOLS = frozenset(
     {
@@ -11523,15 +11627,25 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 "inputSchema": s.get("inputSchema", {}),
             }
             for n, s in sorted(TOOLS.items())
-            if _tool_visible_to_llm(n, s)
+            if _tool_profile_exposes(n) and _tool_visible_to_llm(n, s)
         ]
+        if _mcp_tool_profile() == "core":
+            broker = _TOOL_BROKER_SPEC
+            tools.append(
+                {
+                    "name": "tool",
+                    "description": broker["description"],
+                    "inputSchema": broker["inputSchema"],
+                }
+            )
+        tools.sort(key=lambda item: str(item["name"]))
         return _ok(rid, {"tools": tools})
 
     if method == "tools/call":
         name = params.get("name") or ""
         if name == "run":
             name = "bash"
-        if _savings_dormant() and name in TOOLS:
+        if _savings_dormant() and (name in TOOLS or name == "tool"):
             # A stale client may still call a formerly advertised tool. Recheck
             # live and reject it rather than grandfathering the connection.
             return _err(
@@ -11550,7 +11664,7 @@ def _handle(request: dict[str, Any]) -> dict[str, Any] | _Deferred | None:
                 args = json.loads(args)
         if not isinstance(args, dict):
             args = {}
-        spec = TOOLS.get(name)
+        spec = _TOOL_BROKER_SPEC if name == "tool" and _mcp_tool_profile() == "core" else TOOLS.get(name)
         if spec is None:
             return _err(rid, -32601, f"unknown tool: {name}")
         if name == "memory" and isinstance(args, dict):

@@ -55,16 +55,27 @@ def _max_body_bytes() -> int:
 
 
 def _public_tools() -> list[dict[str, Any]]:
-    """The advertised tool surface, filtered by the shared visibility policy."""
-    return [
+    """The advertised tool surface, filtered by visibility and profile."""
+    tools = [
         {
             "name": name,
             "description": mcp_server._tool_description(spec),
             "inputSchema": spec.get("inputSchema", {}),
         }
         for name, spec in mcp_server.TOOLS.items()
-        if mcp_server._tool_visible_to_llm(name, spec)
+        if mcp_server._tool_profile_exposes(name) and mcp_server._tool_visible_to_llm(name, spec)
     ]
+    if mcp_server._mcp_tool_profile() == "core":
+        spec = mcp_server._TOOL_BROKER_SPEC
+        tools.append(
+            {
+                "name": "tool",
+                "description": spec["description"],
+                "inputSchema": spec["inputSchema"],
+            }
+        )
+    tools.sort(key=lambda item: str(item["name"]))
+    return tools
 
 
 def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH) -> dict[str, Any]:

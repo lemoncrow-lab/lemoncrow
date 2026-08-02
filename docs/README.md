@@ -41,9 +41,10 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 ## Roadmap
 
-| Document                | Description                                 |
-| ----------------------- | ------------------------------------------- |
-| [Roadmap](./roadmap.md) | Shipped capabilities and active development |
+| Document | Description |
+| -------- | ----------- |
+| [Roadmap](./roadmap.md) | Shipped capabilities and possible technical directions |
+| [Savings optimization status](./savings-optimization-roadmap.md) | Six-lever implementation audit, evidence, acceptance gates, and next work |
 
 ---
 

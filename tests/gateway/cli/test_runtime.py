@@ -233,10 +233,11 @@ def test_cache_breakpoints_pin_system_and_latest_message(tmp_path) -> None:
     # Static breakpoint on the system message (pins tools+system prefix).
     assert request[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
     assert request[0]["content"][0]["text"] == "sys prompt"
-    # Moving breakpoint on the latest completed message.
-    assert request[-1]["content"][0]["cache_control"] == {"type": "ephemeral"}
-    # Intermediate message untouched; original messages not mutated.
-    assert request[1]["content"] == "do the task"
+    # Selective moving breakpoint stays on the stable user turn; one-shot model prose is not written.
+    assert request[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert request[-1]["content"] == "done"
+    # Original messages are not mutated.
+    assert messages[1]["content"] == "do the task"
     assert messages[0]["content"] == "sys prompt"
 
 

@@ -209,6 +209,7 @@ def test_notifications_initialized_returns_none() -> None:
 def test_tools_list_returns_exact_public_surface(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "full")
     resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
     names = {tool["name"] for tool in resp["result"]["tools"]}
@@ -219,6 +220,7 @@ def test_tools_list_returns_exact_public_surface(
 def test_tools_list_hides_internal_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "full")
     resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
     tools = resp["result"]["tools"]
@@ -2977,7 +2979,7 @@ def test_shell_mcp_call_returns_managed_session_for_background_command(
         },
     )
     text = response["result"]["content"][0]["text"]
-    match = re.search(r"\bid=([a-f0-9]+)", text)
+    match = re.search(r"\bid=([^;\s]+)", text)
 
     assert "running" in text
     assert match is not None

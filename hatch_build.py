@@ -121,6 +121,7 @@ _SKIP_PATHS = {
     "lemoncrow/gateway/adapters/mcp_server.py",
     # mypyc does not support async generators (async def with yield).
     "lemoncrow/gateway/adapters/mcp_http.py",
+    "lemoncrow/gateway/openai_gateway/responses.py",
     # FastAPI DI defaults (Header()/Depends()/Request) are sentinel objects that
     # violate the compiled parameter's type annotation, so mypyc raises
     # "str object expected; got fastapi.params.Header" the instant run_daemon

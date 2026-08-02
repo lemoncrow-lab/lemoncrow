@@ -1101,13 +1101,10 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     name="bash",
     input_schema=BASH_TOOL_INPUT_SCHEMA,
     description=(
-        "Run a shell command. EXECUTION only — git, make, builds, tests, installs; "
-        "read/search code with the indexed tools. cd doesn't persist → cwd= or "
-        "absolute paths. `timeout` WAITS, never kills: set it high up front and "
-        "finish in one call. Servers/daemons → bg=true. REPLs → interactive=true. "
-        "Several checks → command=[...] beats && chains hiding failures."
+        "Execute git/build/test/install commands; use indexed tools for code reads/search. "
+        "cd doesn't persist → set cwd or use absolute paths. timeout waits, never kills. "
+        "Servers → bg=true; REPLs → interactive=true. Batch checks with command=[...]."
     ),
-    hidden_params=("max_lines", "max_output_tokens", "idle_ttl", "commands", "ids"),
     param_aliases={"session_id": "id", "background": "bg", "is_background": "bg"},
     recover_args=_lift_bash_command_list,
 )

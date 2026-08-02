@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
@@ -13,6 +14,8 @@ from lemoncrow.gateway.hosts.session_parsers.hermes import (
     serialize_hermes_session,
 )
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
+
+_BASE_TIME = time.time()
 
 _SCHEMA = """
 CREATE TABLE sessions (
@@ -65,8 +68,8 @@ def _make_db(tmp_path: Path) -> Path:
             "sess_abc",
             "cli",
             "nousresearch/hermes-4-405b",
-            1_780_000_000.0,
-            1_780_000_900.0,
+            _BASE_TIME,
+            _BASE_TIME + 900,
             12_000,
             3_000,
             8_000,
@@ -82,7 +85,7 @@ def _make_db(tmp_path: Path) -> Path:
             "How do I fix the docker build failing on arm64 machines",
             None,
             None,
-            1_780_000_010.0,
+            _BASE_TIME + 10,
             None,
         ),
         (
@@ -93,10 +96,10 @@ def _make_db(tmp_path: Path) -> Path:
                 [{"id": "call_1", "function": {"name": "terminal", "arguments": '{"command": "docker buildx ls"}'}}]
             ),
             None,
-            1_780_000_020.0,
+            _BASE_TIME + 20,
             "Considering manifest availability...",
         ),
-        ("sess_abc", "tool", '{"exit": 0}', None, "terminal", 1_780_000_030.0, None),
+        ("sess_abc", "tool", '{"exit": 0}', None, "terminal", _BASE_TIME + 30, None),
     ]
     conn.executemany(
         "INSERT INTO messages (session_id, role, content, tool_calls, tool_name, timestamp, reasoning)"
@@ -113,7 +116,7 @@ def test_find_hermes_sessions_orders_by_last_active(tmp_path: Path) -> None:
     sessions = find_hermes_sessions(db)
     assert [s["id"] for s in sessions] == ["sess_abc"]
     # last_active = newest message timestamp, not started_at
-    assert sessions[0]["last_active"] == 1_780_000_030.0
+    assert sessions[0]["last_active"] == _BASE_TIME + 30
 
 
 def test_serialize_parses_as_normalized_turns(tmp_path: Path) -> None:
@@ -160,7 +163,7 @@ def test_reimport_dedups_until_new_activity(tmp_path: Path) -> None:
     conn = sqlite3.connect(db)
     conn.execute(
         "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-        ("sess_abc", "user", "also check the CI runner architecture please", 1_780_100_000.0),
+        ("sess_abc", "user", "also check the CI runner architecture please", _BASE_TIME + 100_000),
     )
     conn.commit()
     conn.close()

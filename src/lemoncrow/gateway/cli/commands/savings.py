@@ -636,6 +636,32 @@ def optimize_compare(ctx: click.Context, as_json: bool) -> None:
     click.echo(f"Shadow spend (this run only): ${float(state.get('spend_usd', 0.0)):.2f}")
 
 
+@optimize_group.command("decisions")
+@click.option("--days", default=7, show_default=True, type=int)
+@click.option("--limit", default=10_000, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def optimize_decisions(ctx: click.Context, days: int, limit: int, as_json: bool) -> None:
+    """Report redacted owned-runtime optimization decisions and outcomes."""
+    from lemoncrow.pro.capabilities.optimization.runtime_decisions import summarize_runtime_decisions
+
+    payload = summarize_runtime_decisions(ctx.obj["root"], days=days, limit=limit)
+    from lemoncrow.pro.capabilities.optimization.routing_calibration import summarize_route_outcomes
+
+    payload["routing"] = summarize_route_outcomes(ctx.obj["root"])
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"Runtime optimization runs: {payload['runs']}")
+    click.echo(f"Accepted runs: {payload['accepted_runs']}")
+    click.echo(
+        f"Provider/tool/broker calls: {payload['provider_calls']}/{payload['tool_calls']}/{payload['broker_calls']}"
+    )
+    click.echo(f"Cost per accepted run: {payload['cost_per_accepted_run_usd']}")
+    click.echo(f"Proposed policy changes: {payload['proposed_changes']}")
+    click.echo(f"Trace: {payload['trace_path']}")
+
+
 @optimize_group.command("history")
 @click.option("--limit", default=10, show_default=True, type=int)
 @click.option("--json", "as_json", is_flag=True)

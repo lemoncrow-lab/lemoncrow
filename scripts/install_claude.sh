@@ -125,7 +125,7 @@ if $PRINT_ONLY; then
         echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
     else
         echo "Step 3 - Register MCP in Claude user scope:"
-        echo "  claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"alwaysLoad\":true}'"
+        echo "  claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"env\":{\"LEMONCROW_MCP_TOOL_PROFILE\":\"core\"},\"alwaysLoad\":true}'"
     fi
     echo ""
     echo "After install, in Claude Code: /lemoncrow:explore"
@@ -152,7 +152,7 @@ fi
 # Only tools actually registered by the MCP server (@mcp_tool in
 # gateway/adapters/mcp_server.py) -- unregistered names in the allowlist are
 # dead entries that mask typos.
-LEMONCROW_MCP_TOOLS_JSON='["mcp__lc__codemod", "mcp__lc__code_search", "mcp__lc__compact", "mcp__lc__context", "mcp__lc__edit", "mcp__lc__grep", "mcp__lc__memory", "mcp__lc__read", "mcp__lc__rescue", "mcp__lc__search", "mcp__lc__bash", "mcp__lc__sql", "mcp__lc__trace", "mcp__lc__verify"]'
+LEMONCROW_MCP_TOOLS_JSON='["mcp__lc__codemod", "mcp__lc__code_search", "mcp__lc__compact", "mcp__lc__context", "mcp__lc__edit", "mcp__lc__grep", "mcp__lc__memory", "mcp__lc__read", "mcp__lc__relations", "mcp__lc__rescue", "mcp__lc__search", "mcp__lc__bash", "mcp__lc__sql", "mcp__lc__tool", "mcp__lc__trace", "mcp__lc__verify", "mcp__lc__web_fetch"]'
 # git: read/commit subset only -- push/reset/rebase still prompt.
 LEMONCROW_BASH_ALLOWS_JSON='["Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add *)", "Bash(git commit *)", "Bash(gh *)", "Bash(uv run pytest *)", "Bash(uv run python *)", "Bash(uv run mypy *)", "Bash(uv run ruff *)", "Bash(uv run lemoncrow *)", "Bash(uv run uvicorn *)", "Bash(uv sync *)", "Bash(uv add *)", "Bash(uv pip *)", "Bash(uv lock *)", "Bash(npm run *)", "Bash(npm install *)", "Bash(npm test *)", "Bash(npx tsc *)", "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)"]'
 
@@ -466,6 +466,7 @@ data.setdefault("mcpServers", {})["lc"] = {
     "type": "stdio",
     "command": "lemoncrow",
     "args": ["mcp", "--host", "claude"],
+    "env": {"LEMONCROW_MCP_TOOL_PROFILE": "core"},
     "alwaysLoad": True,
 }
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -474,11 +475,11 @@ PYEOF
     fi
 else
     if $DRY_RUN; then
-        echo "  [dry-run] claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"alwaysLoad\":true}'"
+        echo "  [dry-run] claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"env\":{\"LEMONCROW_MCP_TOOL_PROFILE\":\"core\"},\"alwaysLoad\":true}'"
     else
         info "Registering always-loaded lc MCP server in Claude user scope"
         claude mcp remove --scope user lc 2>/dev/null || true
-        claude mcp add-json --scope user lc '{"type":"stdio","command":"lc","args":["mcp","--host","claude"],"alwaysLoad":true}'
+        claude mcp add-json --scope user lc '{"type":"stdio","command":"lc","args":["mcp","--host","claude"],"env":{"LEMONCROW_MCP_TOOL_PROFILE":"core"},"alwaysLoad":true}'
     fi
 fi
 

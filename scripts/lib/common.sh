@@ -1538,76 +1538,57 @@ stop_existing_lemoncrow_processes() {
     fi
 }
 
-# Warn (never fail) when a foreign `lemoncrow`/`lc` executable — one we did not
-# install — is already on the user's PATH, so a shadowing surprise is visible
-# before we drop the LemonCrow console scripts into place. We never clobber a
-# foreign binary: our scripts land in our own bin dir; PATH order decides which
-# wins. Idempotent — our own previously-installed lemoncrow/lc resolve to our
-# bin dirs and are treated as ours, so re-runs stay quiet.
+# Warn-only hook retained for installer compatibility. Alias creation below is
+# collision-safe and independently evaluates each name.
 warn_on_foreign_cli_collision() {
-    # Intentionally silent.  ensure_lc_alias() already skips creating
-    # the 'lc' symlink when a foreign binary occupies that name on PATH;
-    # no need to warn the user about it.
     return 0
 }
 
-# Create the short `lc` alias as a symlink to the just-installed `lemoncrow`
-# binary. `lc` is NOT its own console_script entry point (pyproject.toml only
-# declares `lemoncrow`) -- there is nothing to drift or go missing
-# independently; `lc` is always exactly whatever `lemoncrow` resolves to,
-# guaranteed by construction rather than by two separately-generated scripts
-# staying in sync.
-#
-# Skipped entirely if a DIFFERENT (non-ours) `lc` is already on PATH -- never
-# clobber or shadow a tool the user already has installed under that name.
-# warn_on_foreign_cli_collision() already surfaced that case to the user;
-# this is the enforcement half.
-ensure_lc_alias() {
-    LC_ALIAS_AVAILABLE=0
+_ensure_cli_alias() {
+    local alias_name="$1"
     local lemoncrow_bin="${LEMONCROW_BIN_DIR}/lemoncrow"
-    [[ -x "${lemoncrow_bin}" ]] || return 0
+    [[ -x "${lemoncrow_bin}" ]] || return 1
 
-    local found resolved dabs lemoncrow_real
+    local found resolved dabs lemoncrow_real existing_real
     lemoncrow_real="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && realpath lemoncrow 2>/dev/null || readlink -f "${lemoncrow_bin}" 2>/dev/null || echo "${lemoncrow_bin}")"
-    found="$(command -v lc 2>/dev/null || true)"
+    found="$(command -v "${alias_name}" 2>/dev/null || true)"
     if [[ -n "${found}" ]]; then
         resolved="$(cd "$(dirname "${found}")" 2>/dev/null && pwd -P)/$(basename "${found}")" 2>/dev/null || resolved="${found}"
         dabs="$(cd "${LEMONCROW_BIN_DIR}" 2>/dev/null && pwd -P || echo "${LEMONCROW_BIN_DIR}")"
         case "${resolved}" in
-            "${dabs}"/*) ;;  # already ours (a prior lc symlink here) -- fine to (re)link
+            "${dabs}"/*) ;;
             *)
-                # Check if existing lc already resolves to lemoncrow
-                local existing_real
                 existing_real="$(cd "$(dirname "${found}")" 2>/dev/null && realpath "$(basename "${found}")" 2>/dev/null || readlink -f "${found}" 2>/dev/null || echo "${found}")"
                 if [[ "${existing_real}" == "${lemoncrow_real}" ]]; then
-                    verbose "'lc' already resolves to lemoncrow at ${found}"
-                    LC_ALIAS_AVAILABLE=1
+                    verbose "'${alias_name}' already resolves to lemoncrow at ${found}"
                     return 0
                 fi
-                verbose "Skipping 'lc' alias -- a different 'lc' is already on PATH: ${found}"
-                return 0
+                verbose "Skipping '${alias_name}' alias -- a different executable is already on PATH: ${found}"
+                return 1
                 ;;
         esac
     fi
 
-    ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/lc"
-    LC_ALIAS_AVAILABLE=1
-
-    # Mirror into ~/.local/bin too: MCP host configs (Claude Code, opencode)
-    # spawn the bare `lc` command, and ~/.local/bin is on PATH far more
-    # reliably across non-login/GUI-spawned shells than LEMONCROW_BIN_DIR,
-    # whose PATH export only takes effect for shells started after the rc
-    # edit ran. Skip if something else already occupies the name there.
+    ln -sf "${lemoncrow_bin}" "${LEMONCROW_BIN_DIR}/${alias_name}"
     local local_bin="${HOME}/.local/bin"
-    if [[ ! -e "${local_bin}/lc" ]]; then
+    if [[ ! -e "${local_bin}/${alias_name}" ]]; then
         mkdir -p "${local_bin}" 2>/dev/null || true
-        ln -sf "${LEMONCROW_BIN_DIR}/lc" "${local_bin}/lc" 2>/dev/null || true
+        ln -sf "${LEMONCROW_BIN_DIR}/${alias_name}" "${local_bin}/${alias_name}" 2>/dev/null || true
     fi
+    return 0
+}
+
+# lc remains the short alias for the full CLI. lemoncode maps directly to lc code.
+ensure_lc_alias() {
+    LC_ALIAS_AVAILABLE=0
+    if _ensure_cli_alias "lc"; then
+        LC_ALIAS_AVAILABLE=1
+    fi
+    _ensure_cli_alias "lemoncode" || true
 }
 
 # Install uv (Python package/tool manager) via the official installer.
-# Shared by ALL entry points: local.sh (source install), bundle.sh (wheel
-# install), and install.sh via its bundle.sh delegation.
+# Shared by all entry points.
 install_uv_if_needed() {
     if command -v uv >/dev/null 2>&1; then
         verbose "Found uv: $(uv --version 2>/dev/null || echo unknown)"

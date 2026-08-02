@@ -354,6 +354,7 @@ data.pop("lemoncrow", None)
 server["command"] = "lemoncrow"
 server["args"] = ["mcp", "--host", "codex"]
 env = dict(server.get("env") or {})
+env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
 if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1":
     env["LEMONCROW_WORKSPACE_ROOT"] = os.environ["LEMONCROW_WORKSPACE_VALUE"]
 else:

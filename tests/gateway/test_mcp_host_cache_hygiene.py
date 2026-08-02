@@ -83,7 +83,9 @@ def test_compact_result_text_falls_back_to_narrow_hint_when_spill_disabled(
     assert "narrow the query for full" in out
 
 
-def test_tools_list_is_sorted_by_name() -> None:
+@pytest.mark.parametrize("profile", ["core", "full"])
+def test_tools_list_is_sorted_by_name(profile: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", profile)
     resp = mcp_server._handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
     names = [tool["name"] for tool in resp["result"]["tools"]]

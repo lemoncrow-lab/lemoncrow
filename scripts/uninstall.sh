@@ -292,7 +292,7 @@ fi
 
 # ---- remove main bin commands ------------------------------------------------
 info "Removing LemonCrow bin commands from ${LEMONCROW_BIN_DIR}..."
-for cmd in lemoncrow lc lemoncrowd lcd; do
+for cmd in lemoncrow lc lemoncode lemoncrowd lcd; do
     target="${LEMONCROW_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f $(printf %q "$target")"
@@ -302,8 +302,9 @@ done
 
 # Also remove LemonCrow symlinks from ~/.local/bin (created at install). Only
 # remove a symlink that points into the LemonCrow tree -- never clobber an
+# remove a symlink that points into the LemonCrow tree -- never clobber an
 # unrelated binary a user placed there.
-for cmd in lemoncrow lc lemoncrowd lcd; do
+for cmd in lemoncrow lc lemoncode lemoncrowd lcd; do
     target="${HOME}/.local/bin/${cmd}"
     if [ -L "$target" ]; then
         link_dest="$(readlink "$target" 2>/dev/null || true)"

@@ -24,8 +24,21 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = True
     temperature: float | None = None
     max_tokens: int | None = None
+    max_completion_tokens: int | None = None
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class ResponsesRequest(BaseModel):
+    """Subset of the Responses request used by Codex and compatible clients."""
+
+    model: str = "lemoncrow"
+    input: str | list[Any] = ""
+    instructions: str | list[Any] | None = None
+    stream: bool = False
+    max_output_tokens: int | None = None
 
     model_config = {"extra": "ignore"}
 

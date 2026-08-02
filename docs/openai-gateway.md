@@ -1,150 +1,93 @@
-# LemonCrow OpenAI-Compatible Gateway
+# LemonCrow Local LLM Gateway
 
-LemonCrow's service exposes a standards-compliant `/v1/chat/completions` streaming endpoint. Any TUI that supports custom OpenAI-compatible providers can use LemonCrow as its brain—request handling, caching, subagents, memory, and verification all stay inside LemonCrow.
+The gateway exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic
+Messages APIs. It is the savings boundary behind `lc code`: the frontend
+supplies its mature terminal UI and session store, while LemonCrow owns routing,
+tools, caching, compaction, verification, and output limits.
 
-## Start the gateway
+## Start it directly
 
-```bash
-lc service start --port 8787
-```
+~~~bash
+LEMONCROW_GATEWAY_TOKEN=change-me \
+  lc serve-openai --host 127.0.0.1 --port 8787 --project-root "$PWD"
+~~~
 
-Optional standalone mode (legacy):
+Normally use `lc code`; it starts an authenticated gateway on a random
+loopback port and tears it down with the selected frontend.
 
-```bash
-lc serve-openai --port 8787
-```
+## Frontends
 
-Options for standalone mode:
+OpenCode uses `POST /v1/chat/completions` through
+`@ai-sdk/openai-compatible`. The managed launcher supplies an inline
+`lc/lemoncrow` provider and tested model metadata.
 
-| Flag             | Default | Description                                                    |
-| ---------------- | ------- | -------------------------------------------------------------- |
-| `--port`         | 8787    | TCP port                                                       |
-| `--host`         | 0.0.0.0 | Bind address                                                   |
-| `--project-root` | cwd     | Working directory for LemonCrow runtime                          |
-| `--no-yolo`      | off     | Require manual approval for tool calls (default: auto-approve) |
+Current Codex releases use the Responses API, which is their only supported
+custom-provider wire protocol:
 
-## Connect a TUI
-
-### OpenCode
-
-`opencode.json` (project or `~/.config/opencode/opencode.json`):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "lc": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "LemonCrow",
-      "options": {
-        "baseURL": "http://localhost:8787/v1",
-        "apiKey": "local"
-      },
-      "models": {
-        "lemoncrow-default": { "name": "LemonCrow Default" }
-      }
-    }
-  },
-  "model": "lemoncrow-lab/lemoncrow-default"
-}
-```
-
-### Crush
-
-`crush.json`:
-
-```json
-{
-  "$schema": "https://charm.land/crush.json",
-  "providers": {
-    "lc": {
-      "type": "openai-compat",
-      "base_url": "http://localhost:8787/v1",
-      "api_key": "local",
-      "models": [
-        {
-          "id": "lemoncrow-default",
-          "name": "LemonCrow",
-          "context_window": 200000,
-          "default_max_tokens": 16000
-        }
-      ]
-    }
-  }
-}
-```
-
-### Codex (`~/.codex/config.toml`)
-
-```toml
-model = "lemoncrow-default"
+~~~toml
+model = "lemoncrow"
 model_provider = "lemoncrow"
 
 [model_providers.lemoncrow]
-name     = "LemonCrow"
-base_url = "http://localhost:8787/v1"
-env_key  = "LEMONCROW_API_KEY"
-wire_api = "chat"
-```
+name = "LemonCrow"
+base_url = "http://127.0.0.1:8787/v1"
+env_key = "LEMONCROW_GATEWAY_TOKEN"
+wire_api = "responses"
+~~~
 
-Set `LEMONCROW_API_KEY=local` (or any non-empty value) in your shell.
+Claude Code uses the Anthropic-compatible endpoint:
 
-### Claude Code (MCP — zero configuration)
+~~~bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787 \
+ANTHROPIC_API_KEY="$LEMONCROW_GATEWAY_TOKEN" \
+claude --bare --model claude-sonnet-4-6
+~~~
 
-LemonCrow already ships `lc mcp`. Add to `~/.claude.json`:
+Supported routes:
 
-```json
-{
-  "mcpServers": {
-    "lc": {
-      "command": "lc mcp",
-      "env": { "LEMONCROW_SERVICE_URL": "http://127.0.0.1:8787" }
-    }
-  }
-}
-```
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `GET /v1/models`
+- `POST /v1/models/refresh`
+- `POST /v1/messages`
+- `POST /v1/messages/count_tokens`
+- `GET /health`
 
-### curl smoke test
+The OpenAI routes accept `Authorization: Bearer`; Anthropic clients may also
+use `x-api-key`. With no configured token, only loopback clients are accepted.
 
-```bash
-curl -X POST http://localhost:8787/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer local" \
-  -d '{"model":"lemoncrow-default","messages":[{"role":"user","content":"hello"}],"stream":true}' \
-  --no-buffer
-```
+## Cost behavior
 
-Expected: SSE stream of `data: {...}` chunks, terminated by `data: [DONE]`.
+Host system/developer prompts, host tool transcripts, and host tool schemas are
+dropped before the real provider request. For Codex Responses requests, the
+adapter also removes the injected AGENTS/environment envelope and outer tool
+catalog while retaining real user/assistant history. LemonCrow injects its own
+stable cached prefix, deterministic workspace primer, and owned tools.
 
-## Architecture
-
-```
-TUI  ──POST /v1/chat/completions──►  openai_gateway/app.py
-                                              │
-                                        adapter.py
-                                    (OpenAI ↔ NDJSON)
-                                              │
-                                  InteractiveRuntime.handle_user_message()
-                                              │
-                               LemonCrow execution / caching / subagents
-```
+Virtual model IDs (`lemoncrow`, `lemoncrow-default`, and `lc/lemoncrow`)
+invoke phase-aware dynamic routing instead of being sent to LiteLLM as provider
+model names. Client output limits are upper bounds; LemonCrow's smaller phase
+cap always wins. Streaming adapters consume the runtime through its final
+usage/cache events before closing. Tool calls stay server-side and are never
+re-executed by the outer coding CLI.
 
 Key properties:
 
-- **Per-request session isolation** — each HTTP request gets a fresh session ID; prior messages are injected as history so context is preserved within a conversation.
-- **Auto-approve in gateway mode** — `--no-yolo` disables this; without it the agent loop would block waiting for terminal input that never comes.
-- **Streaming by default** — set `"stream": false` in the request body for a buffered response.
-- **Tool calls visible** — tool calls LemonCrow makes during execution are forwarded as OpenAI function-call deltas so capable TUIs can display them.
+- **Per-request session isolation** — each request gets a fresh runtime session; safe prior user/assistant messages are restored as history.
+- **Owned execution** — managed gateway sessions approve LemonCrow's bounded tools without waiting on the outer frontend.
+- **Complete streaming lifecycles** — Chat Completions, Responses, and Anthropic streams finish only after accounting/finalization events arrive.
+- **Authenticated loopback by default** — `lc code` generates an ephemeral bearer token and stops the gateway with the frontend.
 
-## Available model
+## Available models
 
-Use `lemoncrow-default`, which runs the service's configured model. Automatic
-provider/model routing is still under development and is not included in
-current plans.
+Use a virtual LemonCrow model ID for dynamic routing, or request a concrete
+provider model to pin it for that request. `GET /v1/models` returns
+`lemoncrow` plus discovered provider models.
 
-| Model ID            | Description                         |
-| ------------------- | ----------------------------------- |
-| `lemoncrow-default` | The model configured for the service |
+| Model ID | Description |
+| --- | --- |
+| `lemoncrow` / `lemoncrow-default` / `lc/lemoncrow` | Phase-aware dynamic provider/model routing |
+| Concrete discovered model | Pin that provider model for the request |
 
 ---
 
@@ -168,7 +111,7 @@ lc service start   # or kill the old process first
 curl http://localhost:8787/v1/models | jq '.data[].id'
 
 # 5. After editing providers.json, refresh without restarting
-curl -X GET http://localhost:8787/v1/models/refresh | jq '.data[].id'
+curl -X POST http://localhost:8787/v1/models/refresh | jq '.data[].id'
 ```
 
 ### Supported providers

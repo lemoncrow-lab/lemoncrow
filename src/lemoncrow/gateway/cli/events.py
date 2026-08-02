@@ -31,6 +31,14 @@ class AssistantMessage:
 
 
 @dataclass(frozen=True)
+class AssistantProgress:
+    """User-visible execution progress that managed model adapters must not return as final prose."""
+
+    type: Literal["assistant.progress"]
+    text: str
+
+
+@dataclass(frozen=True)
 class RouteSelected:
     type: Literal["route.selected"]
     provider: str | None
@@ -199,6 +207,7 @@ LemonCrowEvent = (
     SessionStarted
     | AssistantDelta
     | AssistantMessage
+    | AssistantProgress
     | RouteSelected
     | MemoryHit
     | ToolRequested

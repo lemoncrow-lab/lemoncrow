@@ -5,6 +5,24 @@ import { fileURLToPath } from "node:url";
 const helper = fileURLToPath(new URL("./lemoncrow_nudge.py", import.meta.url));
 const failures = new Map();
 const pendingRescue = new Set();
+const phases = new Map();
+
+const budget = ["cheap", "balanced", "best"].includes(
+  process.env.LEMONCROW_CODE_BUDGET,
+)
+  ? process.env.LEMONCROW_CODE_BUDGET
+  : "balanced";
+const outputCaps = {
+  cheap: { explore: 900, execute: 2800, repair: 3600, finish: 900 },
+  balanced: { explore: 1200, execute: 4096, repair: 5200, finish: 1200 },
+  best: { explore: 1800, execute: 6144, repair: 7600, finish: 1600 },
+};
+const verificationCommand = (args) =>
+  /(pytest|npm test|pnpm test|yarn test|cargo test|go test|make (test|check)|ruff check|mypy|pyright|tsc\b)/i.test(
+    Array.isArray(args?.command)
+      ? args.command.join(" ")
+      : String(args?.command ?? ""),
+  );
 
 const canImportLemonCrow = (python) =>
   spawnSync(python, ["-c", "import lemoncrow"], { encoding: "utf8" }).status ===
@@ -119,7 +137,17 @@ const failureKey = (input, output) => {
 };
 
 export const LemonCrowNudge = async ({ client, directory }) => ({
+  "chat.params": async (input, output) => {
+    const phase = phases.get(input.sessionID) ?? "explore";
+    const cap = outputCaps[budget][phase] ?? outputCaps[budget].execute;
+    const requested = Number(output.maxOutputTokens);
+    output.maxOutputTokens =
+      Number.isFinite(requested) && requested > 0
+        ? Math.min(requested, cap)
+        : cap;
+  },
   "chat.message": async (input, output) => {
+    if (!phases.has(input.sessionID)) phases.set(input.sessionID, "explore");
     const textParts = output.parts.filter(
       (part) =>
         part.type === "text" &&
@@ -163,6 +191,15 @@ export const LemonCrowNudge = async ({ client, directory }) => ({
     });
     await showToast(client, nudge.uiMessage);
     const key = failureKey(input, output);
+    if (key) {
+      phases.set(input.sessionID, "repair");
+    } else if (/edit|write|patch|codemod/i.test(input.tool)) {
+      phases.set(input.sessionID, "execute");
+    } else if (/bash|shell|run/i.test(input.tool) && verificationCommand(input.args)) {
+      phases.set(input.sessionID, "finish");
+    } else if (/read|grep|search|glob/i.test(input.tool)) {
+      phases.set(input.sessionID, "execute");
+    }
     if (!key) return;
     const sessionFailures = failures.get(input.sessionID) ?? new Map();
     const count = (sessionFailures.get(key) ?? 0) + 1;
