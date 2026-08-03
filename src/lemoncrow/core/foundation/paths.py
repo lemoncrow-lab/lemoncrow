@@ -271,11 +271,15 @@ def detect_host() -> str:
     2. CLAUDE_CODE -> "claude"
     3. ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID -> "antigravity"
     4. CODEX_SESSION_ID -> "codex"
-    5. OPENCODE_SESSION_ID -> "opencode"
-    6. CURSOR_SESSION_ID or CURSOR_TRACE_ID -> "cursor"
-    7. HERMES_* -> "hermes"
-    8. COPILOT_CLI or GITHUB_COPILOT_SESSION_ID -> "copilot"
-    9. Falls back to "claude" (the MCP wrapper ships with the Claude plugin)
+    5. LEMONCODE_SESSION_ID or LEMONCODE_CLI -> "lemoncode"
+    6. OPENCODE_SESSION_ID -> "opencode"
+    7. CURSOR_SESSION_ID or CURSOR_TRACE_ID -> "cursor"
+    8. HERMES_* -> "hermes"
+    9. COPILOT_CLI or GITHUB_COPILOT_SESSION_ID -> "copilot"
+    10. Falls back to "claude" (the MCP wrapper ships with the Claude plugin)
+
+    LemonCode is checked before OpenCode: it is a fork that keeps upstream's
+    on-disk layout, so a LemonCode session must not be mistaken for one.
     """
     explicit = os.environ.get("LEMONCROW_AGENT", "").strip()
     if explicit:
@@ -291,6 +295,8 @@ def detect_host() -> str:
         return "antigravity"
     if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_CLI"):
         return "codex"
+    if os.environ.get("LEMONCODE_SESSION_ID") or os.environ.get("LEMONCODE_CLI"):
+        return "lemoncode"
     if os.environ.get("OPENCODE_SESSION_ID") or os.environ.get("OPENCODE_CLI"):
         return "opencode"
     if os.environ.get("CURSOR_SESSION_ID") or os.environ.get("CURSOR_TRACE_ID"):

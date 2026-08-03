@@ -161,6 +161,36 @@ def opencode_import(ctx: click.Context, path: Path | None, force: bool) -> None:
     click.echo(f"imported {len(ids)} opencode sessions")
 
 
+@click.group()
+def lemoncode() -> None:
+    """LemonCode session integration (~/.local/share/lemoncode/opencode.db)."""
+
+
+@lemoncode.command("import")
+@click.option(
+    "--path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override DB path (default: $XDG_DATA_HOME/lemoncode/opencode.db).",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Force re-import all sessions, ignoring timestamp dedup.",
+)
+@click.pass_context
+def lemoncode_import(ctx: click.Context, path: Path | None, force: bool) -> None:
+    """Import LemonCode sessions into the LemonCrow store (loss-preserving)."""
+    from lemoncrow.gateway.hosts.session_parsers.lemoncode import LemonCodeImporter
+
+    _ensure_import_progress_logging()
+    store = _load_store(ctx.obj["root"])
+    importer = LemonCodeImporter(store)
+    ids = importer.import_all(path, force=force)
+    click.echo(f"imported {len(ids)} lemoncode sessions")
+
+
 @click.command("import")
 @click.option(
     "--host",

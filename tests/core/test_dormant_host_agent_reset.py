@@ -1,5 +1,6 @@
-"""Codex/OpenCode dormant agent reset: stash our agent files, restore on active,
-never touch a user's own agents. Layer-2 parity with Claude's settings.json pop."""
+"""Codex/OpenCode/LemonCode dormant agent reset: stash our agent files, restore on
+active, never touch a user's own agents. Layer-2 parity with Claude's settings.json
+pop."""
 
 from __future__ import annotations
 
@@ -42,6 +43,17 @@ def test_opencode_dormant_stashes_primary_agent(tmp_path: Path) -> None:
     assert (d / "lemoncrow.code.md").exists()
 
 
+def test_lemoncode_dormancy_uses_the_shared_opencode_workspace_dir(tmp_path: Path) -> None:
+    """The fork did not rebrand ``.opencode/`` -- both hosts stash the same files."""
+    d = tmp_path / ".opencode" / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "lemoncrow.code.md").write_text("mode: primary", encoding="utf-8")
+    assert reset("lemoncode", tmp_path, dormant=True) == "stashed 1"
+    assert not (d / "lemoncrow.code.md").exists()
+    assert reset("lemoncode", tmp_path, dormant=False) == "restored 1"
+    assert (d / "lemoncrow.code.md").exists()
+
+
 def test_idempotent(tmp_path: Path) -> None:
     d = _codex(tmp_path)
     (d / "lemoncrow.code.toml").write_text("x", encoding="utf-8")
@@ -53,5 +65,5 @@ def test_idempotent(tmp_path: Path) -> None:
 
 def test_noop_when_no_agents_or_unknown_host(tmp_path: Path) -> None:
     assert reset("codex", tmp_path, dormant=True) == "noop"  # dir doesn't exist
-    assert reset("claude", tmp_path, dormant=True) == "noop"  # not codex/opencode
+    assert reset("claude", tmp_path, dormant=True) == "noop"  # not codex/opencode/lemoncode
     assert reset("opencode", tmp_path, dormant=False) == "noop"  # nothing stashed

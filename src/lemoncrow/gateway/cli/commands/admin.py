@@ -33,6 +33,7 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     write_workspace_codex_agents,
     write_workspace_copilot_agents,
     write_workspace_cursor_rules,
+    write_workspace_lemoncode_agents,
     write_workspace_opencode_agents,
 )
 from lemoncrow.core.foundation.models import Playbook, Rubric
@@ -124,7 +125,7 @@ def _sync_dormant_agent_override(root: Path) -> None:
         return
 
     workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
-    for host in ("codex", "opencode"):
+    for host in ("codex", "opencode", "lemoncode"):
         with suppress(Exception):
             from lemoncrow.core.capabilities.plugin_runtime import reset_host_agents_for_dormancy
 
@@ -379,6 +380,9 @@ def _detected_workspace_hosts(workspace_root: Path) -> tuple[str, ...]:
                 or (workspace_root / ".opencode").exists()
             ),
         ),
+        # LemonCode shares opencode's `.opencode/` workspace dir, so only the
+        # binary distinguishes it.
+        ("lemoncode", bool(shutil.which("lemoncode"))),
         ("antigravity", bool(shutil.which("antigravity") or shutil.which("agy"))),
         ("cursor", bool((workspace_root / ".cursor").exists())),
         (
@@ -397,6 +401,7 @@ def _host_label(host: str) -> str:
         "claude": "Claude Code",
         "codex": "Codex CLI",
         "opencode": "OpenCode",
+        "lemoncode": "LemonCode",
         "antigravity": "Antigravity",
         "cursor": "Cursor",
         "hermes": "Hermes",
@@ -474,6 +479,9 @@ def _apply_workspace_model_config(
     if "opencode" in detected:
         opencode_agents = write_workspace_opencode_agents(workspace_root)
         results["opencode"] = [f"updated {len(opencode_agents)} workspace-local OpenCode agents"]
+    if "lemoncode" in detected:
+        lemoncode_agents = write_workspace_lemoncode_agents(workspace_root)
+        results["lemoncode"] = [f"updated {len(lemoncode_agents)} workspace-local LemonCode agents"]
     if "codex" in detected:
         codex_agents = write_workspace_codex_agents(workspace_root)
         results["codex"] = [f"updated {len(codex_agents)} workspace-local Codex agents"]

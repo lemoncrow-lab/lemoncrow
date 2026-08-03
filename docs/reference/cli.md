@@ -191,6 +191,7 @@ Built-in runner profiles:
 | `codex`         | `codex exec -m <model> "<prompt>"`                      |
 | `copilot`       | `copilot --model <model> -p "<prompt>" --allow-all`     |
 | `opencode`      | `opencode run -m <provider/model> "<prompt>"`           |
+| `lemoncode`     | `lemoncode run -m <provider/model> "<prompt>"`          |
 | `ollama-claude` | `ollama launch claude --model <model> -- -p "<prompt>"` |
 
 You can still bypass profiles entirely and pass any raw child command after `--`
@@ -287,7 +288,7 @@ an HTML page, and opens it in the browser.
 
 | Flag | Effect |
 | ---- | ------ |
-| `--session-id <id> --host claude\|codex\|opencode` | Locate a session under a host's store. |
+| `--session-id <id> --host claude\|codex\|opencode\|lemoncode` | Locate a session under a host's store. |
 | `--file <path.jsonl>` | Replay a specific transcript directly (any host). |
 | `--last N` | Replay the N most recent sessions. |
 | `--repo <path>` | Repo root for real `code_search`/`read` (default: cwd). |

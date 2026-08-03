@@ -34,7 +34,7 @@ def host_context_state(host: str, session_id: str) -> tuple[int, str]:
         return 0, ""
     try:
         return probe(session_id)
-    except Exception:  # noqa: BLE001 - probes are best-effort
+    except Exception:
         logger.debug("context probe failed for host=%s", host, exc_info=True)
         return 0, ""
 
@@ -263,10 +263,18 @@ def _copilot_probe(session_id: str, root: Path | None = None) -> tuple[int, str]
     return (best, best_model) if best > 0 else (0, "")
 
 
+def _lemoncode_probe(session_id: str) -> tuple[int, str]:
+    """LemonCode keeps opencode's sqlite schema, under its own XDG data dir."""
+    from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
+
+    return _opencode_probe(session_id, default_lemoncode_db_path())
+
+
 _PROBES: dict[str, Callable[[str], tuple[int, str]]] = {
     "claude": _claude_probe,
     "codex": _codex_probe,
     "opencode": _opencode_probe,
+    "lemoncode": _lemoncode_probe,
     "cursor": _cursor_probe,
     "copilot": _copilot_probe,
 }

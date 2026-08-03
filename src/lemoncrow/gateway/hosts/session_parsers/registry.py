@@ -12,6 +12,7 @@ SUPPORTED_SESSION_IMPORT_HOSTS: tuple[str, ...] = (
     "copilot",
     "cursor",
     "hermes",
+    "lemoncode",
     "opencode",
 )
 
@@ -22,6 +23,7 @@ HOST_IMPORTER_CLASSES: dict[str, tuple[str, str]] = {
     "copilot": ("lemoncrow.gateway.hosts.session_parsers.copilot", "CopilotImporter"),
     "cursor": ("lemoncrow.gateway.hosts.session_parsers.cursor", "CursorImporter"),
     "hermes": ("lemoncrow.gateway.hosts.session_parsers.hermes", "HermesImporter"),
+    "lemoncode": ("lemoncrow.gateway.hosts.session_parsers.lemoncode", "LemonCodeImporter"),
     "opencode": ("lemoncrow.gateway.hosts.session_parsers.opencode", "OpenCodeImporter"),
 }
 

@@ -34,6 +34,13 @@ RUNNER_PROFILES: tuple[dict[str, Any], ...] = (
         "options_help": "Extra `opencode run` flags appended before the generated swarm prompt.",
     },
     {
+        "id": "lemoncode",
+        "label": "LemonCode",
+        "supports_model": True,
+        "model_placeholder": "provider/model",
+        "options_help": "Extra `lemoncode run` flags appended before the generated swarm prompt.",
+    },
+    {
         "id": "ollama-claude",
         "label": "Ollama Claude bridge",
         "supports_model": True,
@@ -125,8 +132,8 @@ def resolve_swarm_runner_command(
             command.extend(["--model", runner_model])
         command.extend(["--allow-all", *extra_args, "-p", prompt_template])
         return command
-    if profile == "opencode":
-        command = ["opencode", "run"]
+    if profile in {"opencode", "lemoncode"}:
+        command = [profile, "run"]
         if runner_model:
             command.extend(["-m", runner_model])
         command.extend(["--dangerously-skip-permissions", *extra_args, prompt_template])

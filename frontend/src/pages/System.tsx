@@ -56,6 +56,7 @@ import ProjectionInspector from "./ProjectionInspector";
 
 function HostIcon({ id }: { id: string }) {
   const SRC_MAP: Record<string, string> = {
+    lemoncode: "/logos/hosts/lemoncode.svg",
     claude: "/logos/hosts/claude.svg",
     codex: "/logos/hosts/codex.svg",
     opencode: "/logos/hosts/opencode.svg",
@@ -63,6 +64,7 @@ function HostIcon({ id }: { id: string }) {
   };
 
   const ALT_MAP: Record<string, string> = {
+    lemoncode: "LemonCode",
     claude: "Anthropic Claude",
     codex: "OpenAI Codex",
     opencode: "OpenCode",
@@ -100,6 +102,8 @@ function HostIcon({ id }: { id: string }) {
 }
 
 const HOST_DESC: Record<string, string> = {
+  lemoncode:
+    "LemonCrow's own opencode fork — the host we control end to end, so runtime optimizations land here first.",
   claude: "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
   codex:
     "Codex MCP registration with generated instructions and shared telemetry.",
@@ -118,6 +122,7 @@ const HOST_SCOPE_BADGES: Record<string, string> = {
 };
 
 const HOST_ORDER = [
+  "lemoncode",
   "claude",
   "codex",
   "opencode",

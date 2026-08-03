@@ -55,12 +55,13 @@ class BackfillResult:
         return round(sum(s.saved_usd for s in self.backfilled), 4)
 
 
-def _opencode_session_time(session_id: str) -> datetime | None:
-    """``time_created`` for an opencode session (ms epoch), or None."""
+def _opencode_session_time(session_id: str, db: Path | None = None) -> datetime | None:
+    """``time_created`` for an opencode/lemoncode session (ms epoch), or None."""
     from lemoncrow.core.capabilities.session_replay import _opencode_db_path
     from lemoncrow.gateway.hosts.session_parsers.opencode import find_opencode_sessions
 
-    db = _opencode_db_path()
+    if db is None:
+        db = _opencode_db_path()
     if db is None:
         return None
     try:
@@ -77,8 +78,11 @@ def _opencode_session_time(session_id: str) -> datetime | None:
 def _session_when(replay: Replay) -> datetime:
     """Best-effort real timestamp for the session, so backfilled rows land in
     the correct historical day-bucket instead of all piling onto \"today\"."""
-    if replay.host == "opencode":
-        when = _opencode_session_time(replay.session_id)
+    if replay.host in ("opencode", "lemoncode"):
+        # For both hosts the replay's source path IS the sqlite session store,
+        # so it also selects the right data root for lemoncode.
+        db = Path(replay.source_path) if replay.source_path else None
+        when = _opencode_session_time(replay.session_id, db)
         if when is not None:
             return when
     if replay.source_path:
@@ -144,7 +148,7 @@ def backfill_host_savings(
     result = BackfillResult()
     try:
         replays = load_replays(host=host, last=max(1, limit), store_root=root)
-    except Exception as exc:  # noqa: BLE001 -- a broken/foreign store must never crash the scan, but surface it
+    except Exception as exc:
         result.load_error = str(exc).strip() or exc.__class__.__name__
         return result
     for replay in replays:
@@ -159,7 +163,7 @@ def backfill_host_savings(
             continue
         try:
             estimate = estimate_savings(replay)
-        except Exception:  # noqa: BLE001 -- one bad transcript must not abort the scan
+        except Exception:
             result.unparseable += 1
             continue
         if estimate.get("ran_with_lemoncrow"):

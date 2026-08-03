@@ -53,7 +53,7 @@ the six cost levers, see the
 
 ### Host integrations
 
-- Claude Code, Codex, Copilot, OpenCode, Cursor, Antigravity, Hermes
+- Claude Code, Codex, Copilot, OpenCode, LemonCode, Cursor, Antigravity, Hermes
 - SDK adapters (Anthropic tools, OpenAI SDK hooks, LangChain middleware)
 
 ### Storage & telemetry

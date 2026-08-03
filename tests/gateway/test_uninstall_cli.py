@@ -255,6 +255,51 @@ def test_uninstall_opencode_cleans_provider_permissions_plugins_and_agents(tmp_p
     assert not staging_dir.exists()
 
 
+def test_uninstall_lemoncode_cleans_provider_permissions_plugins_and_agents(tmp_path: Path) -> None:
+    # lemoncode is a rebranded opencode fork: only the CLI name and the XDG app
+    # dir changed, so workspace artifacts still live at opencode.json/.opencode.
+    repo_root = Path(__file__).resolve().parents[2]
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    config = workspace / "opencode.json"
+    agents_dir = workspace / ".opencode" / "agents"
+    plugins_dir = workspace / ".opencode" / "plugins"
+    staging_dir = home / ".lemoncrow" / "lemoncode"
+    agents_dir.mkdir(parents=True)
+    plugins_dir.mkdir(parents=True)
+    staging_dir.mkdir(parents=True)
+    config.write_text(
+        json.dumps(
+            {
+                "default_agent": "lemoncrow.code",
+                "mcp": {"lc": {}, "other": {}},
+                "provider": {"lc": {}, "other": {}},
+                "permission": {"lc_*": "allow", "other_*": "ask"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (agents_dir / "lemoncrow.code.md").write_text("agent\n", encoding="utf-8")
+    (agents_dir / "custom.md").write_text("agent\n", encoding="utf-8")
+    (plugins_dir / "lemoncrow-nudge.js").write_text("plugin\n", encoding="utf-8")
+    (plugins_dir / "lemoncrow_nudge.py").write_text("plugin\n", encoding="utf-8")
+
+    result = _run_host_uninstall(repo_root, "uninstall_lemoncode.sh", home, workspace)
+
+    assert result.returncode == 0, result.stderr
+    data = json.loads(config.read_text(encoding="utf-8"))
+    assert "default_agent" not in data
+    assert data["mcp"] == {"other": {}}
+    assert data["provider"] == {"other": {}}
+    assert data["permission"] == {"other_*": "ask"}
+    assert not (agents_dir / "lemoncrow.code.md").exists()
+    assert (agents_dir / "custom.md").exists()
+    assert not (plugins_dir / "lemoncrow-nudge.js").exists()
+    assert not (plugins_dir / "lemoncrow_nudge.py").exists()
+    assert not staging_dir.exists()
+
+
 def test_uninstall_claude_cleans_workspace_settings_agents_and_skills(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     home = tmp_path / "home"

@@ -36,6 +36,9 @@ done
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 OPENCODE_CONFIG_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
+# lemoncode is a rebranded opencode fork: only the XDG app dir changed, the
+# config file names (opencode.json/.jsonc) are unchanged.
+LEMONCODE_CONFIG_HOME="${LEMONCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/lemoncode}"
 VSCODE_USER_DIR="${VSCODE_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Code/User}"
 
 has_cmd() { command -v "$1" &> /dev/null; }
@@ -124,6 +127,22 @@ check_opencode() {
     fi
 }
 
+check_lemoncode() {
+    if ! has_cmd lemoncode; then
+        echo "CLI not found"
+        return
+    fi
+
+    if has_lemoncrow "${WORKSPACE}/opencode.json" || \
+       has_lemoncrow "${WORKSPACE}/opencode.jsonc" || \
+       has_lemoncrow "${LEMONCODE_CONFIG_HOME}/opencode.json" || \
+       has_lemoncrow "${LEMONCODE_CONFIG_HOME}/opencode.jsonc"; then
+        echo "installed"
+    else
+        echo "CLI found but MCP not configured"
+    fi
+}
+
 check_copilot() {
     if ! has_cmd code; then
         echo "CLI not found"
@@ -179,6 +198,7 @@ CLI_STATUS="$(check_cli)"
 CLAUDE_STATUS="$(check_claude)"
 CODEX_STATUS="$(check_codex)"
 OPENCODE_STATUS="$(check_opencode)"
+LEMONCODE_STATUS="$(check_lemoncode)"
 COPILOT_STATUS="$(check_copilot)"
 ANTIGRAVITY_STATUS="$(check_antigravity)"
 CODEBURN_STATUS="$(check_codeburn)"
@@ -192,6 +212,7 @@ elif [ "$JSON" = true ]; then
     CLAUDE_STATUS="$CLAUDE_STATUS" \
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
+    LEMONCODE_STATUS="$LEMONCODE_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
     ANTIGRAVITY_STATUS="$ANTIGRAVITY_STATUS" \
     CODEBURN_STATUS="$CODEBURN_STATUS" \
@@ -206,6 +227,7 @@ print(json.dumps({
     "claude": os.environ["CLAUDE_STATUS"],
     "codex": os.environ["CODEX_STATUS"],
     "opencode": os.environ["OPENCODE_STATUS"],
+    "lemoncode": os.environ["LEMONCODE_STATUS"],
     "copilot": os.environ["COPILOT_STATUS"],
     "antigravity": os.environ["ANTIGRAVITY_STATUS"],
     "codeburn": os.environ["CODEBURN_STATUS"],
@@ -228,6 +250,7 @@ else
     echo "  Claude Code     $CLAUDE_STATUS"
     echo "  Codex           $CODEX_STATUS"
     echo "  opencode        $OPENCODE_STATUS"
+    echo "  LemonCode       $LEMONCODE_STATUS"
     echo "  Copilot         $COPILOT_STATUS"
     echo "  Antigravity     $ANTIGRAVITY_STATUS"
     echo ""
@@ -247,6 +270,7 @@ if [ "$WRITE" = true ]; then
     CLAUDE_STATUS="$CLAUDE_STATUS" \
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
+    LEMONCODE_STATUS="$LEMONCODE_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
     ANTIGRAVITY_STATUS="$ANTIGRAVITY_STATUS" \
     CODEBURN_STATUS="$CODEBURN_STATUS" \
@@ -262,6 +286,7 @@ status = {
     "claude": installed(os.environ["CLAUDE_STATUS"]),
     "codex": installed(os.environ["CODEX_STATUS"]),
     "opencode": installed(os.environ["OPENCODE_STATUS"]),
+    "lemoncode": installed(os.environ["LEMONCODE_STATUS"]),
     "copilot": installed(os.environ["COPILOT_STATUS"]),
     "antigravity": installed(os.environ["ANTIGRAVITY_STATUS"]),
     "codeburn": installed(os.environ["CODEBURN_STATUS"]),

@@ -29,7 +29,7 @@ def _result(*, saved_usd: float = 0.0, n: int = 0, scanned: int = 5) -> Backfill
     return r
 
 
-def test_backfill_defaults_to_claude_codex_opencode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_backfill_defaults_to_claude_codex_opencode_lemoncode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen_hosts: list[str] = []
 
     def _fake(root: Path, host: str, **kw: object) -> BackfillResult:
@@ -40,7 +40,7 @@ def test_backfill_defaults_to_claude_codex_opencode(monkeypatch: pytest.MonkeyPa
     runner = CliRunner()
     result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "session", "backfill"])
     assert result.exit_code == 0, result.output
-    assert seen_hosts == ["claude", "codex", "opencode"]
+    assert seen_hosts == ["claude", "codex", "opencode", "lemoncode"]
 
 
 def test_backfill_host_filter_is_respected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

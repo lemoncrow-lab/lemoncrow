@@ -6,7 +6,8 @@ Public API::
     from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
     turns = parse_session_turns(content, source="claude")
 
-Supported sources: ``"claude"``, ``"codex"``, ``"opencode"``, ``"copilot"``.
+Supported sources: ``"claude"``, ``"codex"``, ``"opencode"``, ``"lemoncode"``,
+``"copilot"``.
 """
 
 from __future__ import annotations
@@ -218,7 +219,8 @@ def parse_session_turns(content: str, source: str) -> list[dict[str, Any]]:
         turns = _parse_claude(content)
     elif source == "codex":
         turns = _parse_codex(content)
-    elif source == "opencode":
+    elif source in ("opencode", "lemoncode"):
+        # LemonCode forks OpenCode without changing the serialized shape.
         turns = _parse_opencode(content)
     elif source == "copilot":
         turns = _parse_copilot(content)
@@ -683,7 +685,7 @@ def extract_session_usage_summary(content: str, source: str) -> dict[str, Any]:
         return _summarize_codex_usage(content)
     if source == "copilot":
         return _summarize_copilot_usage(content)
-    if source == "opencode":
+    if source in ("opencode", "lemoncode"):
         return _summarize_opencode_usage(content)
     if source in _NORMALIZED_SESSION_SOURCES:
         return _usage_summary_from_turns(_parse_normalized_session(content))
