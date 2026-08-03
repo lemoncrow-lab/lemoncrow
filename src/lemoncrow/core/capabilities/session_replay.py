@@ -27,7 +27,7 @@ from typing import Any
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
-SUPPORTED_HOSTS = ("claude", "codex", "opencode", "copilot", "hermes", "cursor", "antigravity")
+SUPPORTED_HOSTS = ("claude", "codex", "opencode", "lemoncode", "copilot", "hermes", "cursor", "antigravity")
 
 # Argument keys that indicate a *ranged* (targeted) read rather than a whole-file
 # read. A ranged read means the agent already knew where to look, so it is not
@@ -555,7 +555,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             st = read_transcript_stats(replay.source_path)
             if st is not None:
                 total_cost = float(st.est_cost_usd)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     # Subagents have no own savings sidecar, so compute_savings_summary would fall
     # back to the PARENT session's total (double-counting -- the parent already
@@ -571,7 +571,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             is_lemoncrow = measured_saved > 0 or summ.smart_calls > 0
             if not total_cost:
                 total_cost = float(summ.est_cost_usd)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     model = replay.model or "claude-sonnet-4-5"
@@ -594,7 +594,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             )
             for tok in round_tokens
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         rounds_cost = 0.0
     if total_cost <= 0 and rounds_cost > 0:
         total_cost = rounds_cost
@@ -657,7 +657,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             from lemoncrow.core.capabilities.savings_summary import estimate_collapse_saving_fraction
 
             fraction = estimate_collapse_saving_fraction(round_tokens, loop_round_groups, model)
-        except Exception:  # noqa: BLE001
+        except Exception:
             fraction = 0.0
         # The fraction comes from MAIN-transcript rounds, while total_cost also
         # bills the subagent transcripts -- apply it to the main-transcript cost
@@ -670,7 +670,7 @@ def estimate_savings(replay: Replay) -> dict[str, Any]:
             from lemoncrow.core.capabilities.savings_summary import estimate_time_saved_seconds
 
             time_saved = estimate_time_saved_seconds(calls_avoided=calls_saved)
-        except Exception:  # noqa: BLE001
+        except Exception:
             time_saved = float(calls_saved) * 4.5
         lemoncrow_measured = False
         saved_measured = False
@@ -822,9 +822,22 @@ def _opencode_db_path() -> Path | None:
     return None
 
 
-def _opencode_db_entries(session_id: str | None, last: int) -> list[_ReplayEntry]:
-    """Enumerate opencode sessions from opencode.db (newest first)."""
-    db = _opencode_db_path()
+def _lemoncode_db_path() -> Path | None:
+    """Current LemonCode session store (SQLite), or None when absent.
+
+    The fork rebranded the XDG app dir but kept upstream's ``opencode.db``
+    filename and schema.
+    """
+    from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
+
+    path = default_lemoncode_db_path()
+    return path if path.is_file() else None
+
+
+def _opencode_db_entries(session_id: str | None, last: int, db: Path | None = None) -> list[_ReplayEntry]:
+    """Enumerate opencode/lemoncode sessions from their opencode.db (newest first)."""
+    if db is None:
+        db = _opencode_db_path()
     if db is None:
         return []
     from lemoncrow.gateway.hosts.session_parsers.opencode import (
@@ -886,7 +899,7 @@ def _store_entries(host: str, session_id: str | None, last: int, store_root: Pat
         if not store.history.db_path.is_file():
             return []
         artifacts = store.history.list_raw_artifacts(source=host, limit=max(1, last) * 5 + 50)
-    except Exception:  # noqa: BLE001 - a missing/foreign store means "no sessions", never a crash
+    except Exception:
         return []
     artifacts = [a for a in artifacts if a.kind == "session.jsonl"]
     if session_id:
@@ -925,8 +938,9 @@ def _path_entries(host: str, session_id: str | None, last: int) -> list[_ReplayE
     return entries
 
 
-# "hermes" stands in for every normalized-JSONL source (cursor, antigravity, …):
-# they share one parser, so the FORMAT is detectable but not the exact host.
+# "hermes" stands in for every normalized-JSONL source (cursor, antigravity, …)
+# and "opencode" for lemoncode: they share one parser, so the FORMAT is
+# detectable but not the exact host.
 _DETECTABLE_SOURCES = ("claude", "codex", "opencode", "copilot", "hermes")
 
 
@@ -940,7 +954,7 @@ def detect_transcript_host(content: str) -> tuple[str | None, int]:
     for source in _DETECTABLE_SOURCES:
         try:
             count = len(parse_session_turns(content, source))
-        except Exception:  # noqa: BLE001 - a foreign format may crash a stricter parser
+        except Exception:
             count = 0
         if count > best[1]:
             best = (source, count)
@@ -959,7 +973,8 @@ def load_replays(
 
     Per-host discovery: claude / codex / copilot read JSONL transcripts off
     disk; opencode enumerates opencode.db (falling back to the legacy *.jsonl
-    layout); hermes reads ~/.hermes/state.db; cursor / antigravity read the
+    layout) and lemoncode the same DB under its own data root; hermes reads
+    ~/.hermes/state.db; cursor / antigravity read the
     normalized session artifacts their importers stored in the LemonCrow store
     (``store_root``, default ``~/.lemoncrow``).
     """
@@ -973,6 +988,8 @@ def load_replays(
         entries = [(parsed_session_id or session_id or _session_id_from_path(file), content, str(file))]
     elif host == "opencode":
         entries = _opencode_db_entries(session_id, last) or _path_entries(host, session_id, last)
+    elif host == "lemoncode":
+        entries = _opencode_db_entries(session_id, last, _lemoncode_db_path())
     elif host == "hermes":
         entries = _hermes_entries(session_id, last)
     elif host in ("cursor", "antigravity"):
@@ -997,7 +1014,7 @@ def _load_subagents(path: Path, host: str) -> list[Replay]:
         from lemoncrow.core.capabilities.savings_summary import _subagent_transcripts
 
         subpaths = _subagent_transcripts(path)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
     out: list[Replay] = []
     for sub in subpaths:

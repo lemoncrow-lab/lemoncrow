@@ -243,6 +243,21 @@ def write_workspace_opencode_agents(
     )
 
 
+def write_workspace_lemoncode_agents(
+    workspace_root: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    role_ids: Sequence[str] | None = None,
+) -> list[Path]:
+    """Write the workspace agent files for LemonCode.
+
+    LemonCode forks OpenCode without rebranding the workspace dir, so both
+    hosts read the very same ``<repo>/.opencode/agents``: this is a pure
+    delegation, kept as a named sibling so callers dispatch on host id.
+    """
+    return write_workspace_opencode_agents(workspace_root, repo_root=repo_root, role_ids=role_ids)
+
+
 def write_workspace_cursor_rules(
     workspace_root: str | Path,
     *,

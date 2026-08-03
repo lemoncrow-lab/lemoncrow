@@ -222,6 +222,20 @@ def test_write_workspace_opencode_agents_normalize_explicit_host_model(tmp_path:
     assert "model: anthropic/claude-opus-4-8" in content.split("---", 2)[1]
 
 
+def test_write_workspace_lemoncode_agents_targets_the_shared_opencode_dir(tmp_path: Path, monkeypatch) -> None:
+    """LemonCode forks OpenCode without rebranding ``.opencode/``."""
+    from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_lemoncode_agents
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
+
+    written = write_workspace_lemoncode_agents(workspace)
+
+    assert written == write_workspace_opencode_agents(workspace)
+    assert (workspace / ".opencode" / "agents" / "lemoncrow.code.md").exists()
+
+
 def test_write_workspace_codex_agents_projects_standalone_files(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

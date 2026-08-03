@@ -34,6 +34,7 @@ function hostTag(agentId: string): string {
   if (raw.includes("copilot")) return "copilot";
   if (raw.includes("codex")) return "codex";
   if (raw.includes("gemini")) return "gemini";
+  if (raw.includes("lemoncode")) return "lemoncode";
   if (raw.includes("opencode")) return "opencode";
   if (raw.startsWith("lc") || raw.includes("claude")) return "claude";
   return raw;
@@ -104,6 +105,7 @@ export default function Memory() {
     gemini: "text-blue-300",
     copilot: "text-brand-400",
     opencode: "text-cyan-300",
+    lemoncode: "text-yellow-300",
   };
 
   useEffect(() => {

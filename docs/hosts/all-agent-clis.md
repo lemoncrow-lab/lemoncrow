@@ -24,6 +24,7 @@ bash scripts/install_hosts.sh --workspace /path/to/workspace
 | Codex CLI    | Native MCP registration + AGENTS + plugin bundle | `scripts/install_codex.sh`       |
 | Cursor       | MCP server config + rules                        | `scripts/install_cursor.sh`      |
 | opencode     | MCP + workspace agent profile                    | `scripts/install_opencode.sh`    |
+| LemonCode    | Controlled fork — MCP + gateway-native routing   | `scripts/install_lemoncode.sh`   |
 | Copilot      | MCP + instructions + agent + tasks               | `scripts/install_copilot.sh`     |
 | Hermes Agent | MCP server config + toolset                      | `scripts/install_hermes.sh`      |
 | Antigravity  | MCP + generated AGENTS surface                   | `scripts/install_antigravity.sh` |
@@ -70,6 +71,7 @@ All install scripts:
 - [codex-install.md](codex-install.md)
 - [cursor-install.md](cursor-install.md)
 - [opencode-install.md](opencode-install.md)
+- [lemoncode-install.md](lemoncode-install.md)
 - [copilot-install.md](copilot-install.md)
 - [hermes-install.md](hermes-install.md)
 - [antigravity-install.md](antigravity-install.md)
@@ -88,6 +90,7 @@ lemoncrow/integrations/
 ├── codex/           # Codex plugin template + marketplace docs
 ├── cursor/          # Cursor MCP config + rules
 ├── opencode/        # opencode.json example
+├── lemoncode/       # LemonCode fork config + agent profile
 ├── copilot/         # .vscode/mcp.json + copilot-instructions
 ├── copilot-cli/     # Copilot CLI config
 └── antigravity/     # Antigravity MCP template + host guidance

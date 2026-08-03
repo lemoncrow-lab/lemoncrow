@@ -2,7 +2,7 @@
 
 Welcome to [LemonCrow](https://github.com/lemoncrow-lab/lemoncrow) — the open-source (Apache-2.0), local-first context and execution runtime for coding agents. LemonCrow is a fully local, account-free tool in low-maintenance mode.
 
-LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LangChain, and MCP-compatible hosts.
+LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LemonCode, LangChain, and MCP-compatible hosts.
 
 ## Setup & Troubleshooting
 
@@ -22,6 +22,7 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 | [Copilot](./hosts/copilot-install.md)                       | Copilot setup                           |
 | [Codex CLI](./hosts/codex-install.md)                       | Codex CLI setup                         |
 | [opencode](./hosts/opencode-install.md)                     | opencode setup                          |
+| [LemonCode](./hosts/lemoncode-install.md)                   | LemonCode setup (opencode fork)         |
 | [Antigravity](./hosts/antigravity-install.md)               | Antigravity setup                       |
 | [Cursor](./hosts/cursor-install.md)                         | Cursor setup                            |
 | [Hermes Agent](./hosts/hermes-install.md)                   | Hermes Agent setup                      |

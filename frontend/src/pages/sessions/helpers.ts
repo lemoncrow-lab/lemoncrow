@@ -15,6 +15,7 @@ export const HOST_COLORS: Record<string, string> = {
   copilot: "bg-sky-900/40 text-sky-300 border-sky-700/50",
   codex: "bg-teal-900/40 text-teal-300 border-teal-700/50",
   opencode: "bg-indigo-900/40 text-indigo-300 border-indigo-700/50",
+  lemoncode: "bg-yellow-900/40 text-yellow-300 border-yellow-700/50",
 };
 
 export function extractHost(trace: Trace | string): string {
@@ -28,6 +29,7 @@ export function extractHost(trace: Trace | string): string {
   if (i.startsWith("claude-") || a === "claude") return "claude";
   if (i.startsWith("codex-") || a === "codex") return "codex";
   if (i.startsWith("copilot-") || a === "copilot") return "copilot";
+  if (i.startsWith("lemoncode-") || a === "lemoncode") return "lemoncode";
   if (i.startsWith("opencode-") || a === "opencode") return "opencode";
   if (a.startsWith("lemoncrow:")) return "lc";
   return "unknown";

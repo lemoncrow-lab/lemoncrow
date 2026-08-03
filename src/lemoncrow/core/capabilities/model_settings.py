@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_ROLE_IDS = ("code", "general", "explore", "plan", "execute", "review", "research", "solve")
 HOST_ROLE_IDS = ("code", "explore", "plan", "execute", "research", "review", "solve")
-HOST_IDS = ("default", "copilot", "claude", "codex", "opencode", "antigravity", "cursor", "hermes")
+HOST_IDS = ("default", "copilot", "claude", "codex", "opencode", "lemoncode", "antigravity", "cursor", "hermes")
 
 CANONICAL_COPILOT_AGENT_MODEL = "gpt-5.4"
 TOP_MODEL_CHOICES = (

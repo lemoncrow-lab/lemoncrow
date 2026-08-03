@@ -1773,7 +1773,7 @@ def _stream_hosts_live(
     "hosts_filter",
     multiple=True,
     type=click.Choice(list(SUPPORTED_SESSION_IMPORT_HOSTS)),
-    help="Host(s) to backfill (default: claude, codex, opencode).",
+    help="Host(s) to backfill (default: claude, codex, opencode, lemoncode).",
 )
 @click.option(
     "--limit",
@@ -1815,7 +1815,7 @@ def session_backfill_cmd(
     from lemoncrow.core.capabilities.session_backfill import backfill_host_savings
 
     root: Path = ctx.obj["root"]
-    hosts = list(hosts_filter) if hosts_filter else ["claude", "codex", "opencode"]
+    hosts = list(hosts_filter) if hosts_filter else ["claude", "codex", "opencode", "lemoncode"]
     per_host: dict[str, Any] = {}
     total_saved = 0.0
     total_sessions = 0

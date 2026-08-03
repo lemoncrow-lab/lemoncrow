@@ -86,6 +86,7 @@ _HOST_LABEL_OVERRIDES: dict[str, str] = {
     "claude": "Claude Code",
     "codex": "Codex CLI",
     "opencode": "opencode",
+    "lemoncode": "LemonCode",
     "copilot": "Copilot / VS Code",
     "antigravity": "Antigravity",
     "cursor": "Cursor IDE",
@@ -96,6 +97,7 @@ _HOST_DESCRIPTION_OVERRIDES: dict[str, str] = {
     "claude": "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
     "codex": "Codex MCP registration with generated instructions and shared telemetry.",
     "opencode": "OpenCode MCP config with imported session support and local agents.",
+    "lemoncode": "LemonCrow's controlled OpenCode fork: managed host binary, local agents, and session import.",
     "copilot": "VS Code / Copilot MCP config with custom instructions and shared telemetry.",
     "antigravity": "Antigravity MCP config plus generated AGENTS guidance and agy companion flow.",
     "cursor": "Cursor MCP config with project rules and MCP-first guidance.",
@@ -103,6 +105,7 @@ _HOST_DESCRIPTION_OVERRIDES: dict[str, str] = {
 }
 
 _HOST_ORDER: tuple[str, ...] = (
+    "lemoncode",
     "claude",
     "codex",
     "opencode",

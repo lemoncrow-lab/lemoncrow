@@ -60,6 +60,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "hosts/lemoncode-install",
+        },
+        {
+          type: "doc",
           id: "hosts/cursor-install",
         },
         {

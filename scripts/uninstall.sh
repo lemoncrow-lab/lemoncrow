@@ -271,7 +271,7 @@ fi
 
 # ---- per-host uninstallers --------------------------------------------------
 if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
-    for host in claude codex opencode copilot antigravity cursor hermes; do
+    for host in claude codex opencode lemoncode copilot antigravity cursor hermes; do
         script="${SCRIPT_DIR}/uninstall_${host}.sh"
         [ -f "$script" ] || continue
         printf "%b│%b\n" "$C_FRAME" "$C_RESET"

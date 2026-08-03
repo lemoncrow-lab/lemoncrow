@@ -97,3 +97,20 @@ def test_opencode_global_agents_swap(tmp_path: pytest.TempPathFactory, monkeypat
 
     reset_lemoncrow_global_dormancy("opencode", dormant=False)
     assert (home / "agents" / "lemoncrow.code.md").exists()
+
+
+def test_lemoncode_global_agents_swap(tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """LemonCode reads its own $LEMONCODE_CONFIG_HOME, not opencode's."""
+    home = Path(tmp_path) / "lc_home"  # type: ignore[arg-type]
+    (home / "agents").mkdir(parents=True)
+    (home / "agents" / "lemoncrow.code.md").write_text("ours\n", encoding="utf-8")
+    (home / "agents" / "user.md").write_text("keep\n", encoding="utf-8")
+    monkeypatch.setenv("LEMONCODE_CONFIG_HOME", str(home))
+    monkeypatch.setenv("OPENCODE_CONFIG_HOME", str(Path(tmp_path) / "unrelated_oc_home"))  # type: ignore[arg-type]
+
+    reset_lemoncrow_global_dormancy("lemoncode", dormant=True)
+    assert not (home / "agents" / "lemoncrow.code.md").exists()
+    assert (home / "agents" / "user.md").exists()
+
+    reset_lemoncrow_global_dormancy("lemoncode", dormant=False)
+    assert (home / "agents" / "lemoncrow.code.md").exists()

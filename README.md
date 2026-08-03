@@ -21,6 +21,7 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
 [![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
 [![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
+[![LemonCode](https://img.shields.io/badge/LemonCode-supported-blue?style=flat-square)](integrations/lemoncode)
 [![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
 
@@ -319,7 +320,8 @@ that returns a concrete delete-list — code to remove, not rewrite.
 
 - **Operating systems:** Linux and macOS (primary); Windows is partially, never tested.
 - **Runtime:** Python 3.12–3.13, managed with [`uv`](https://docs.astral.sh/uv/).
-- **Agent hosts:** Claude Code, Codex and opencode today;
+- **Agent hosts:** Claude Code, Codex, opencode and LemonCode today — LemonCode is
+  LemonCrow's own fork of opencode, so the frontend itself can be optimized;
   Copilot, Cursor, Hermes, and Antigravity are in progress. Any MCP-compatible agent can
   connect to the same tools.
 - **Build requirements:** `uv`, a C toolchain (only if you opt into the `mypyc`

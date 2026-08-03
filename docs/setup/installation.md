@@ -333,6 +333,7 @@ After installation, use the host-specific guides if you want to inspect or custo
 - [hosts/copilot-install.md](../hosts/copilot-install.md)
 - [hosts/codex-install.md](../hosts/codex-install.md)
 - [hosts/opencode-install.md](../hosts/opencode-install.md)
+- [hosts/lemoncode-install.md](../hosts/lemoncode-install.md)
 - [hosts/antigravity-install.md](../hosts/antigravity-install.md)
 
 ### Optional Zoekt Backend

@@ -1360,7 +1360,7 @@ export interface SessionReport extends SessionSummary {
 
 export interface MemoryFact {
   fact_id: string;
-  vendor: "claude" | "codex" | "gemini" | "copilot" | "opencode";
+  vendor: "claude" | "codex" | "gemini" | "copilot" | "opencode" | "lemoncode";
   source_path: string;
   source_kind: string;
   content: string;

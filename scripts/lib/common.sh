@@ -1030,6 +1030,7 @@ contains_any_host_flag() {
     has_flag "--claude" && return 0
     has_flag "--codex" && return 0
     has_flag "--opencode" && return 0
+    has_flag "--lemoncode" && return 0
     has_flag "--cursor" && return 0
     return 1
 }
@@ -1082,6 +1083,18 @@ detect_hosts() {
         HOST_CHOICES+=("Cursor (use cli for more savings)|not found")
     fi
     HOST_DEFAULT_SELECTION+=(1)
+
+    # LemonCode: rebranded opencode fork. Appended last so the existing menu
+    # numbering (1-4) stays stable for anyone with muscle memory.
+    if command -v lemoncode >/dev/null 2>&1; then
+        HOST_SUMMARY+=("LemonCode (detected)")
+        HOST_CHOICES+=("LemonCode|detected")
+        HOST_DEFAULT_SELECTION+=(1)
+    else
+        HOST_SUMMARY+=("LemonCode (not found)")
+        HOST_CHOICES+=("LemonCode|not found")
+        HOST_DEFAULT_SELECTION+=(0)
+    fi
 }
 join_with_comma_space() {
     local joined=""
@@ -1127,6 +1140,7 @@ host_wizard() {
                     1) HOST_FLAGS+=(--codex) ;;
                     2) HOST_FLAGS+=(--opencode) ;;
                     3) HOST_FLAGS+=(--cursor) ;;
+                    4) HOST_FLAGS+=(--lemoncode) ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1137,6 +1151,7 @@ host_wizard() {
         printf "│  2) %s\n" "${HOST_SUMMARY[1]}"
         printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
         printf "│  4) %s\n" "${HOST_SUMMARY[3]}"
+        printf "│  5) %s\n" "${HOST_SUMMARY[4]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -1160,6 +1175,7 @@ host_wizard() {
                         2) HOST_FLAGS+=(--codex) ;;
                         3) HOST_FLAGS+=(--opencode) ;;
                         4) HOST_FLAGS+=(--cursor) ;;
+                        5) HOST_FLAGS+=(--lemoncode) ;;
                     esac
                 done
                 [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1448,6 +1464,7 @@ host_target_for_name() {
         claude)      printf "%s" "~/.claude" ;;
         codex)       printf "%s" "~/.codex" ;;
         opencode)    printf "%s" "~/.config/opencode" ;;
+        lemoncode)   printf "%s" "~/.config/lemoncode" ;;
         *)           printf "%s" "~/.config" ;;
     esac
 }
@@ -2479,7 +2496,7 @@ run_setup() {
         else
             # No explicit selection (e.g. non-interactive run): cap to the
             # supported set so copilot/antigravity are never auto-installed.
-            host_install_args+=(--claude --codex --opencode)
+            host_install_args+=(--claude --codex --opencode --lemoncode)
         fi
         if [[ ${#HOST_SCOPE_ARGS[@]} -gt 0 ]]; then
             host_install_args+=("${HOST_SCOPE_ARGS[@]}")

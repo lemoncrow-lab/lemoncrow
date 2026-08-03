@@ -11,7 +11,7 @@ flowchart TB
         Codex["Codex"]
         Cursor["Cursor"]
         Copilot["Copilot"]
-        OC["opencode, others"]
+        OC["opencode / LemonCode, others"]
     end
 
     subgraph Behavior["Agent Personas, Skills & Hooks"]
@@ -204,7 +204,7 @@ flowchart TB
 
 | Technology                           | What it is                  | Why LemonCrow uses it                                                                                                    |
 | -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **MCP SDK** (Model Context Protocol) | Agent ⇄ tool wire protocol | How every host (Claude Code, Codex, Cursor, Copilot, opencode, …) talks to LemonCrow                                    |
+| **MCP SDK** (Model Context Protocol) | Agent ⇄ tool wire protocol | How every host (Claude Code, Codex, Cursor, Copilot, opencode, LemonCode, …) talks to LemonCrow                                    |
 | **hatchling**                        | Build backend               | Wheel builds + force-includes (integrations, lexicons) and the mypyc build hook                                        |
 | **PyInstaller**                      | Portable binary builds      | The release distribution (`lemoncrow-distribution-*.tar.gz`)                                                             |
 | **uv**                               | Dependency / venv manager   | Reproducible installs; the installer runs`uv tool install`                                                             |

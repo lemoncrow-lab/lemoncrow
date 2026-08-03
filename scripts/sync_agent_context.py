@@ -582,6 +582,12 @@ def build_mode_outputs(
             profile=HostInstructionProfile(tool_prefix=_OPENCODE_TOOL_PREFIX),
         )
 
+        # lemoncode is a rebranded opencode fork -- same agent markdown format,
+        # same tool prefix, same `.opencode/agents` workspace layout. It reuses
+        # the opencode projection so the two surfaces can never drift apart.
+        lemoncode_path = repo_root / "integrations" / "lemoncode" / "agents" / f"{opencode_projection.output_name}.md"
+        outputs[lemoncode_path] = outputs[opencode_path]
+
         copilot_projection = registry.projection(role_id, "copilot_agent")
         copilot_path = repo_root / "integrations" / "copilot" / "agents" / f"{copilot_projection.output_name}.agent.md"
         outputs[copilot_path] = render_copilot_agent(role, mode_doc, copilot_projection)

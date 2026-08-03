@@ -204,6 +204,7 @@ def _servicectl_refresh_host_status(root: Path) -> dict[str, str]:
         ("claude", "claude"),
         ("codex", "codex"),
         ("opencode", None),
+        ("lemoncode", "lemoncode"),
         ("copilot", None),
         ("antigravity", "agy"),
     ]

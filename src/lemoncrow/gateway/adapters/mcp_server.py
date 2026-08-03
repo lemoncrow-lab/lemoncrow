@@ -1641,7 +1641,7 @@ def _default_workflow_agent_executor(
 
 def _workflow_runner_profile() -> str:
     detected = _detect_agent()
-    if detected in {"claude", "codex", "copilot", "opencode"}:
+    if detected in {"claude", "codex", "copilot", "opencode", "lemoncode"}:
         return detected
     return "claude"
 

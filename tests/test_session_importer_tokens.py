@@ -21,6 +21,10 @@ from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter
 from lemoncrow.gateway.hosts.session_parsers.codex import CodexImporter
 from lemoncrow.gateway.hosts.session_parsers.copilot import CopilotImporter
 from lemoncrow.gateway.hosts.session_parsers.cursor import CursorImporter
+from lemoncrow.gateway.hosts.session_parsers.lemoncode import (
+    LemonCodeImporter,
+    default_lemoncode_db_path,
+)
 from lemoncrow.gateway.hosts.session_parsers.opencode import OpenCodeImporter
 from lemoncrow.infra.runtime.session_report import load_report
 from lemoncrow.infra.storage.bundle import StoreBundle
@@ -1605,3 +1609,30 @@ class TestOpenCodeImporterTokens:
         active_trace = store.history.get_trace("opencode-s-active")
         assert active_trace is not None
         assert active_trace.workspace_path == "/repo/active"
+
+    def test_lemoncode_reuses_the_opencode_parser_with_its_own_stamps(self, store: StoreBundle, tmp_path: Path) -> None:
+        """LemonCode forks OpenCode without changing the on-disk shapes, so the
+        subclass must produce identical token extraction under its own host id."""
+        db_path = tmp_path / "opencode.db"
+        self._create_db(db_path)
+
+        importer = LemonCodeImporter(store)
+        session_row = {"id": "test-session", "title": "test lemoncode session", "time_created": self.TS_MS}
+        assert importer.import_session(session_row, db_path, force=True) == "lemoncode-test-session"
+
+        trace = _get_trace(store, "lemoncode")
+        assert trace.host == "lemoncode"
+        assert trace.input_tokens == 180
+        assert trace.output_tokens == 80
+
+        artifact = store.history.get_raw_artifact("lemoncode-test-session")
+        assert artifact is not None
+        assert artifact.source == "lemoncode"
+        assert artifact.content_path == "raw/lemoncode/test-session.jsonl"
+
+    def test_lemoncode_default_db_path_follows_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("XDG_DATA_HOME", "/xdg-data")
+        # The fork rebranded the XDG app dir but NOT the db filename.
+        assert default_lemoncode_db_path() == Path("/xdg-data/lemoncode/opencode.db")
+        monkeypatch.delenv("XDG_DATA_HOME")
+        assert default_lemoncode_db_path() == Path.home() / ".local/share/lemoncode/opencode.db"

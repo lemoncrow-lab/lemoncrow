@@ -1,0 +1,29 @@
+{
+  "model": "lc/lemoncrow",
+  "provider": {
+    "lc": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LemonCrow",
+      "options": {
+        "baseURL": "http://127.0.0.1:8787/v1",
+        "apiKey": "local"
+      },
+      "models": {
+        "lemoncrow": {
+          "name": "LemonCrow",
+          "limit": { "context": 200000, "output": 7600 }
+        }
+      }
+    }
+  },
+  "mcp": {
+    "lc": {
+      "type": "local",
+      "command": ["lemoncrow", "mcp", "--host", "lemoncode"],
+      "environment": {
+        "LEMONCROW_WORKSPACE_ROOT": "<WORKSPACE_ROOT>",
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
+      }
+    }
+  }
+}

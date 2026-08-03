@@ -40,7 +40,7 @@ def expected_visible_skill_names() -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "lemoncode", "copilot", "antigravity"])
 def test_install_script_exists(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     assert script.exists(), f"Missing: scripts/install_{host}.sh"
@@ -275,6 +275,7 @@ def test_makefile_has_single_verify_target() -> None:
         "claude-code-install.md",
         "codex-install.md",
         "opencode-install.md",
+        "lemoncode-install.md",
         "copilot-install.md",
         "antigravity-install.md",
         "all-agent-clis.md",
@@ -292,7 +293,7 @@ def test_host_install_doc_exists(doc: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["claude", "codex", "opencode", "copilot", "antigravity"])
+@pytest.mark.parametrize("host", ["claude", "codex", "opencode", "lemoncode", "copilot", "antigravity"])
 def test_integrations_install_symlink(host: str) -> None:
     link = INTEGRATIONS / host / "install.sh"
     assert link.exists(), f"Missing integrations/{host}/install.sh"
@@ -316,6 +317,16 @@ def test_opencode_example_has_mcp_key() -> None:
     data = json.loads(example.read_text())
     assert "mcp" in data, "opencode example must have 'mcp' key"
     assert "lc" in data["mcp"], "opencode example must have 'mcp.lemoncrow' key"
+
+
+def test_lemoncode_example_has_mcp_key() -> None:
+    example = INTEGRATIONS / "lemoncode" / "lemoncode.lemoncrow.template.json"
+    assert example.exists(), "integrations/lemoncode/lemoncode.lemoncrow.template.json must exist"
+    data = json.loads(example.read_text())
+    assert "mcp" in data, "lemoncode example must have 'mcp' key"
+    assert "lc" in data["mcp"], "lemoncode example must have 'mcp.lc' key"
+    # The fork registers under its own host id so MCP tool profiles resolve.
+    assert data["mcp"]["lc"]["command"] == ["lemoncrow", "mcp", "--host", "lemoncode"]
 
 
 ANTIGRAVITY_INTEGRATION = INTEGRATIONS / "antigravity"
@@ -390,14 +401,14 @@ def test_codex_agents_lemoncrow_md_mentions_mcp() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "lemoncode", "copilot", "antigravity"])
 def test_install_script_has_dry_run(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     content = script.read_text()
     assert "--dry-run" in content, f"scripts/install_{host}.sh missing --dry-run support"
 
 
-@pytest.mark.parametrize("host", ["codex", "opencode", "copilot", "antigravity"])
+@pytest.mark.parametrize("host", ["codex", "opencode", "lemoncode", "copilot", "antigravity"])
 def test_install_script_has_print_only(host: str) -> None:
     script = SCRIPTS / f"install_{host}.sh"
     content = script.read_text()
@@ -590,6 +601,7 @@ def test_copilot_tasks_include_preflight_wrapper() -> None:
     [
         ("codex", "codex"),
         ("opencode", "opencode"),
+        ("lemoncode", "lemoncode"),
         ("copilot", "code"),
         ("antigravity", "antigravity"),
     ],

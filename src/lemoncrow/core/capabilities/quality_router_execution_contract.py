@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ExecutionMode = Literal["advisory", "wrapper_enforced", "provider_enforced"]
 
-_KNOWN_HOSTS = frozenset({"claude", "codex", "copilot", "opencode", "antigravity"})
+_KNOWN_HOSTS = frozenset({"claude", "codex", "copilot", "opencode", "lemoncode", "antigravity"})
 
 # Per-host defaults derived from the host-capability-matrix.md contract.
 # Each entry: (mode, can_block_start, can_force_model, can_require_verification,
@@ -76,6 +76,18 @@ _HOST_CONTRACTS: dict[str, dict[str, str | bool | list[str]]] = {
         "host_native_owner": "model,edit,compact,agent_orchestration",
     },
     "opencode": {
+        "mode": "wrapper_enforced",
+        "supported_tiers": ["cheap", "mid", "premium", "deterministic"],
+        "can_block_start": True,
+        "can_force_model": False,
+        "can_require_verification": True,
+        "fallback_mode": "advisory",
+        "unsupported_reason": ("cross-host hook parity is unsupported; provider_enforced is future-only and disabled"),
+        "host_native_owner": "model,edit,agent_orchestration",
+    },
+    # LemonCode is the OpenCode fork LemonCrow controls: same wrapper surface,
+    # so the same enforcement contract as opencode.
+    "lemoncode": {
         "mode": "wrapper_enforced",
         "supported_tiers": ["cheap", "mid", "premium", "deterministic"],
         "can_block_start": True,
@@ -147,7 +159,7 @@ def route_execution_contract(host: str) -> RouteExecutionContract:
     """Return the ``RouteExecutionContract`` for the named host.
 
     Raises ``ValueError`` for unknown hosts.  Known hosts:
-    ``claude``, ``codex``, ``copilot``, ``opencode``, ``antigravity``.
+    ``claude``, ``codex``, ``copilot``, ``opencode``, ``lemoncode``, ``antigravity``.
 
     The ``provider_enforced`` mode is **never** returned as the active ``mode``
     because no provider execution packet exists yet.

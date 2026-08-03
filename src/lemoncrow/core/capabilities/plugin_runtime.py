@@ -1487,7 +1487,7 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
 
 def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant: bool) -> str:
     """Stash (dormant) or restore (active) the LemonCrow agent files for Codex/
-    OpenCode so a dormant session degrades to the host's BUILTIN agent.
+    OpenCode/LemonCode so a dormant session degrades to the host's BUILTIN agent.
 
     Layer-2 parity with Claude (which pops the ``agent`` host-setting): Codex and
     OpenCode instead select their agent from files on disk
@@ -1500,7 +1500,12 @@ def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant:
     never raises. Effect is next-session (the host reads agents at start); the
     MCP server hiding all tools (Layer 1) covers the current session.
     """
-    rel = {"codex": (".codex", "agents"), "opencode": (".opencode", "agents")}.get(host)
+    # lemoncode shares opencode's workspace dir (the fork did not rebrand it).
+    rel = {
+        "codex": (".codex", "agents"),
+        "opencode": (".opencode", "agents"),
+        "lemoncode": (".opencode", "agents"),
+    }.get(host)
     if rel is None:
         return "noop"
     return _stash_agent_files(Path(workspace) / rel[0] / rel[1], dormant=dormant)
@@ -1541,6 +1546,15 @@ def _opencode_config_home() -> Path:
         return Path(env)
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "opencode"
+
+
+def _lemoncode_config_home() -> Path:
+    """Global LemonCode config dir; the fork rebranded the XDG app name only."""
+    env = os.environ.get("LEMONCODE_CONFIG_HOME")
+    if env:
+        return Path(env)
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "lemoncode"
 
 
 def _swap_global_skills(skills_dir: Path, *, dormant: bool) -> str:
@@ -1614,7 +1628,7 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
     """Reliably swap GLOBAL-mode LemonCrow surfaces in/out for dormancy.
 
     Global installs write wholly-LemonCrow-owned files under the host CONFIG HOME
-    ($CODEX_HOME, $OPENCODE_CONFIG_HOME), so — unlike a project's own AGENTS.md,
+    ($CODEX_HOME, $OPENCODE_CONFIG_HOME, $LEMONCODE_CONFIG_HOME), so — unlike a project's own AGENTS.md,
     which is soft-gated — we edit/move them directly. Each surface is idempotent
     and independent, so a partial or crashed run self-heals on the next call:
 
@@ -1622,6 +1636,7 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
       the $CODEX_HOME/AGENTS.md managed block (regenerated from source).
     - opencode: $OPENCODE_CONFIG_HOME/agents/lemoncrow.* stash (no global
       AGENTS.md / skills bundle is installed for opencode).
+    - lemoncode: the same, under $LEMONCODE_CONFIG_HOME.
 
     Every step no-ops when its target is absent, so a workspace-only install is
     untouched. Best-effort; never raises into a hook.
@@ -1638,6 +1653,8 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
             )
         if host == "opencode":
             return "agents:" + _stash_agent_files(_opencode_config_home() / "agents", dormant=dormant)
+        if host == "lemoncode":
+            return "agents:" + _stash_agent_files(_lemoncode_config_home() / "agents", dormant=dormant)
         return "noop"
     except Exception:
         return "error"

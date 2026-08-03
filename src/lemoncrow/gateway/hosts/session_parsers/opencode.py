@@ -142,13 +142,24 @@ def serialize_opencode_session(session_id: str, db_path: Path) -> str:
 
 
 class OpenCodeImporter:
-    """OpenCode session importer."""
+    """OpenCode session importer.
+
+    ``source`` and ``_default_db_path`` are the only host-specific parts:
+    LemonCode forks OpenCode without changing the on-disk shapes, so
+    :class:`~lemoncrow.gateway.hosts.session_parsers.lemoncode.LemonCodeImporter`
+    subclasses this and overrides just those two.
+    """
+
+    source = "opencode"
 
     def __init__(self, store: StoreBundle) -> None:
         self.store = store
 
+    def _default_db_path(self) -> Path:
+        return Path.home() / ".local/share/opencode/opencode.db"
+
     def import_all(self, db_path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
-        resolved_db_path = db_path or (Path.home() / ".local/share/opencode/opencode.db")
+        resolved_db_path = db_path or self._default_db_path()
         if not resolved_db_path.exists():
             return []
 
@@ -188,7 +199,7 @@ class OpenCodeImporter:
 
     def import_session(self, session_row: dict[str, Any], db_path: Path, *, force: bool = False) -> str | None:
         session_id: str = session_row["id"]
-        artifact_id = f"opencode-{session_id}"
+        artifact_id = f"{self.source}-{session_id}"
         existing = self.store.history.get_raw_artifact(artifact_id)
         # time_created is immutable; an active session keeps landing new
         # turns under the same id with a bumped time_updated. Keying the
@@ -205,11 +216,11 @@ class OpenCodeImporter:
 
         artifact = RawArtifact(
             id=artifact_id,
-            source="opencode",
+            source=self.source,
             source_session_id=session_id,
             kind="session.jsonl",
             relative_path=f"{session_id}.jsonl",
-            content_path=f"raw/opencode/{session_id}.jsonl",
+            content_path=f"raw/{self.source}/{session_id}.jsonl",
             sha256_original=_sha256(raw_content),
             sha256_redacted=_sha256(redacted),
             byte_count_original=len(raw_content.encode("utf-8")),
@@ -386,7 +397,7 @@ class OpenCodeImporter:
             id=artifact_id,
             session_id=session_id,
             agent="lemoncrow:code",
-            host="opencode",
+            host=self.source,
             domain="coding",
             task=redact(str(session_row.get("title") or "untitled opencode session")),
             status="success",
@@ -423,7 +434,7 @@ class OpenCodeImporter:
         # Best-effort: snapshot current on-disk state of every edited file
         file_records = [r for r in files_touched.values() if isinstance(r, FileEditRecord)]
         if file_records:
-            snapshot_edited_files(self.store, file_records, session_id=session_id, source="opencode")
+            snapshot_edited_files(self.store, file_records, session_id=session_id, source=self.source)
 
         return trace.id
 
