@@ -1069,21 +1069,20 @@ detect_hosts() {
         HOST_CHOICES+=("OpenCode (Ink LemonCrow provider)|not found")
         HOST_DEFAULT_SELECTION+=(0)
     fi
-
-    # Cursor: offered but never default-selected. Cursor cannot hide its
-    # built-in tools, so LemonCrow is a pure prompt addition there - faster,
-    # but costlier on small tasks. Opt in explicitly.
+    # Cursor: offered and now default-selected. CLI saves ~40% vs baseline
+    # (SWE-bench Lite, same model); IDE path did not match that saving.
+    # Recommend CLI for better savings. Built-ins can't be replaced, so LemonCrow
+    # is additive there - prompt addition only.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
-        HOST_SUMMARY+=("Cursor (saves in API move, doesn't save in auto mode) (detected)")
-        HOST_CHOICES+=("Cursor (saves in API move, doesn't save in auto mode)|detected")
+        HOST_SUMMARY+=("Cursor (use cli for more savings) (detected)")
+        HOST_CHOICES+=("Cursor (use cli for more savings)|detected")
     else
-        HOST_SUMMARY+=("Cursor (saves in API move, doesn't save in auto mode) (not found)")
-        HOST_CHOICES+=("Cursor (saves in API move, doesn't save in auto mode)|not found")
+        HOST_SUMMARY+=("Cursor (use cli for more savings) (not found)")
+        HOST_CHOICES+=("Cursor (use cli for more savings)|not found")
     fi
-    HOST_DEFAULT_SELECTION+=(0)
+    HOST_DEFAULT_SELECTION+=(1)
 }
-
 join_with_comma_space() {
     local joined=""
     local item
