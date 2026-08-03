@@ -668,6 +668,32 @@ def ensure_universal_ctags() -> tuple[Path, Path]:
     return ctags, readtags
 
 
+GRAFT_PACKAGE = os.environ.get("GRAFT_BENCH_PACKAGE", "@nanonets/graft@0.8.2")
+
+
+def ensure_graft() -> Path:
+    """Provision the pinned Graft CLI under the shared benchmark-tools root.
+
+    The package is installed locally rather than globally so retrieval evals do
+    not depend on (or mutate) the developer's machine-wide npm environment.
+    """
+
+    prefix = bench_tools_root() / "graft"
+    graft_bin = prefix / "node_modules" / ".bin" / "graft"
+    if graft_bin.exists():
+        return graft_bin
+    prefix.mkdir(parents=True, exist_ok=True)
+    proc = run_cmd(
+        ["npm", "install", "--prefix", str(prefix), "--no-audit", "--no-fund", GRAFT_PACKAGE],
+        timeout=900,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[:1200] or proc.stdout[:1200])
+    if not graft_bin.exists():
+        raise RuntimeError(f"Graft install did not produce {graft_bin}")
+    return graft_bin
+
+
 GRAPHIFY_PACKAGE = "graphifyy"  # PyPI package name; the console script is `graphify`.
 
 
