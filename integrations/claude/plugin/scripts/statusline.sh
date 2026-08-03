@@ -489,7 +489,32 @@ if [ -z "${STALE_SEG:-}" ] && [ -n "${_TODAY}" ]; then
   fi
 fi
 
-printf '%s%s%s %s %s ctx %s %s%%%s%s%s%s%s\n' \
+# --- Optional block-art logo (LEMONCROW_STATUSLINE_LOGO=1) ---
+# Claude renders the statusline as text: no image protocol survives, so the mark
+# is pre-rasterized to half-block cells (U+2580, one cell = 2 vertical pixels)
+# with truecolor SGR -- the only route the statusline documents. It needs 4 rows
+# to stay legible, which is why it is opt-in: the default line is a single row.
+# The status text rides on the last row so the logo reads as a left-hand mark.
+LOGO_PREFIX=""
+if [ "${LEMONCROW_STATUSLINE_LOGO:-}" = "1" ] && [ -z "${LEMONCROW_NO_COLOR:-}" ]; then
+  _LOGO_FILE="$(dirname "${BASH_SOURCE[0]}")/lemoncode-logo.ansi"
+  if [ -f "${_LOGO_FILE}" ]; then
+    _LOGO_LINES=()
+    while IFS= read -r _L; do _LOGO_LINES+=("${_L}"); done <"${_LOGO_FILE}"
+    _LAST=$(( ${#_LOGO_LINES[@]} - 1 ))
+    if [ "${_LAST}" -ge 0 ]; then
+      _I=0
+      while [ "${_I}" -lt "${_LAST}" ]; do
+        printf '%s\n' "${_LOGO_LINES[$_I]}"
+        _I=$(( _I + 1 ))
+      done
+      LOGO_PREFIX="${_LOGO_LINES[$_LAST]} "
+    fi
+  fi
+fi
+
+printf '%s%s%s%s %s %s ctx %s %s%%%s%s%s%s%s\n' \
+  "${LOGO_PREFIX}" \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$ACTUAL_CTX_F" "$PCT_INT" \
   "${DYNAMIC_SEG}" "$TASKS_SEG" "${UPDATE_SEG}" "${STALE_SEG}" "${TIP_SEG}"
