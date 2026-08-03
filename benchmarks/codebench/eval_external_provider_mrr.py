@@ -2,7 +2,7 @@
 the same stdio/CLI surface. No provider gets in-process shortcuts.
 
 Providers: lemoncrow / ctags / ast-grep / serena / code-index-mcp / jcodemunch /
-cg / rg / cmm / fff / graphify. Same gold set and output JSON format as the
+cg / rg / cmm / fff / graphify / graft. Same gold set and output JSON format as the
 retired fitness_explore_mrr.py; history + delta reporting live here now.
 
 Run via:
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -169,6 +170,8 @@ class _JsonRpcLineClient:
 sys.path.insert(0, "src")
 sys.path.insert(0, ".")
 
+from benchmarks.codebench.graft_eval import parse_find_all_paths, parse_find_code_paths  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -189,6 +192,7 @@ _parser.add_argument(
         "fff",
         "ccc",
         "graphify",
+        "graft",
     ],
 )
 _parser.add_argument("--full", action="store_true")
@@ -199,7 +203,7 @@ _parser.add_argument(
     type=int,
     default=int(os.environ.get("EVAL_WORKERS", "1")),
     help="Parallel repo workers (1 = sequential). Each worker spawns its own provider instance "
-    "so repos with independent start/stop (lemoncrow, rg, cmm, fff, ctags, ast-grep, jcodemunch) "
+    "so repos with independent start/stop (lemoncrow, graft, rg, cmm, fff, ctags, ast-grep, jcodemunch) "
     "benefit. CgProvider/SerenaProvider use a shared MCP server class-level singleton and will "
     "race connection state with >1 worker — use --workers 1 for those.",
 )
@@ -1285,6 +1289,122 @@ class CgProvider(Provider):
 
 
 # ---------------------------------------------------------------------------
+# Graft -- deterministic tree-sitter graph, queried over its shipped MCP server
+# ---------------------------------------------------------------------------
+
+
+class GraftProvider(Provider):
+    """NanoNets Graft through its persistent MCP surface.
+
+    Each repo gets an external graph directory so the benchmark does not touch
+    the provisioned snapshot's ``.gitignore``/``.ignore``.  ``graft build`` is
+    untimed and incremental; timed calls use ``graft_find_code`` for ranked
+    retrieval and ``graft_find_all`` for content/regex search.
+    """
+
+    name = "graft"
+
+    def __init__(self) -> None:
+        self._client: _JsonRpcLineClient | None = None
+        self._graft_bin: Path | None = None
+        self._graph_dir: Path | None = None
+
+    @staticmethod
+    def _graph_dir_for(ws: Path) -> Path:
+        from benchmarks.mcp_tools.bench_external_indexers import bench_tools_root
+
+        key = hashlib.sha256(str(ws.resolve()).encode("utf-8")).hexdigest()[:16]
+        root = bench_tools_root() / "graft-graphs"
+        root.mkdir(parents=True, exist_ok=True)
+        return root / f"{ws.name}-{key}"
+
+    def _start_client(self, ws: Path, *, warm: bool) -> None:
+        if self._graft_bin is None or self._graph_dir is None:
+            raise RuntimeError("Graft provider was not built before MCP startup")
+        client = _JsonRpcLineClient(
+            [str(self._graft_bin), "--dir", str(self._graph_dir), "mcp", str(ws)],
+            cwd=ws,
+        )
+        client.start()
+        self._client = client
+        if warm:
+            with contextlib.suppress(Exception):
+                self._tool_text("graft_find_code", {"query": ws.name, "limit": 1}, timeout=180)
+            with contextlib.suppress(Exception):
+                self._tool_text(
+                    "graft_find_all",
+                    {"pattern": "__graft_benchmark_warmup__", "fixed": True},
+                    timeout=180,
+                )
+
+    def start(self, ws: Path) -> None:
+        from benchmarks.mcp_tools.bench_external_indexers import ensure_graft
+
+        self._graft_bin = ensure_graft()
+        self._graph_dir = self._graph_dir_for(ws)
+        self._graph_dir.mkdir(parents=True, exist_ok=True)
+        print(f"{_TAG} graft build {ws.name} ...", file=sys.stderr, flush=True)
+        t1 = time.perf_counter()
+        proc = subprocess.run(
+            [str(self._graft_bin), "--dir", str(self._graph_dir), "build", str(ws)],
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"graft build failed: {(proc.stderr or proc.stdout)[:800]}")
+        print(f"{_TAG} graft build done in {time.perf_counter() - t1:.1f}s", file=sys.stderr)
+        self._start_client(ws, warm=True)
+
+    def stop(self) -> None:
+        if self._client is not None:
+            with contextlib.suppress(Exception):
+                self._client.stop()
+        self._client = None
+
+    def _tool_text(self, name: str, arguments: dict[str, Any], *, timeout: float = 120) -> str:
+        if self._client is None:
+            return ""
+        response = self._client.call(
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            timeout=timeout,
+        )
+        if response.get("error"):
+            return ""
+        result = response.get("result", {})
+        if result.get("isError"):
+            return ""
+        return "\n".join(
+            chunk.get("text", "")
+            for chunk in result.get("content", [])
+            if isinstance(chunk, dict) and chunk.get("type") == "text"
+        )
+
+    def _recover_client(self, ws: Path) -> None:
+        self.stop()
+        with contextlib.suppress(Exception):
+            self._start_client(ws, warm=False)
+
+    def search_symbol(self, query: str, ws: Path) -> list[str]:
+        try:
+            text = self._tool_text("graft_find_code", {"query": query, "limit": 20})
+        except Exception:
+            self._recover_client(ws)
+            return []
+        return [_rel(path, ws) for path in parse_find_code_paths(text)]
+
+    def search_text(self, query: str, ws: Path) -> list[str]:
+        try:
+            text = self._tool_text("graft_find_all", {"pattern": query})
+        except Exception:
+            self._recover_client(ws)
+            return []
+        return [_rel(path, ws) for path in parse_find_all_paths(text)]
+
+
+# ---------------------------------------------------------------------------
 # graphify -- deterministic tree-sitter knowledge graph, queried over MCP
 # ---------------------------------------------------------------------------
 
@@ -2254,6 +2374,7 @@ _PROVIDERS: dict[str, type[Provider]] = {
     "fff": FffProvider,
     "ccc": CccProvider,
     "graphify": GraphifyProvider,
+    "graft": GraftProvider,
 }
 
 # ---------------------------------------------------------------------------

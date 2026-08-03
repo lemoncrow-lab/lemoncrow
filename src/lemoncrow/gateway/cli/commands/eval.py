@@ -30,7 +30,7 @@ def _gpu_supports_embedder(min_free_mb: int = 512) -> tuple[bool, str]:
         return True, f"{free_mb} MB free VRAM"
     except FileNotFoundError:
         pass  # nvidia-smi not installed; fall through to torch
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, f"nvidia-smi error: {exc}"
 
     # Fallback: torch (only available when torch is installed in this env)
@@ -46,7 +46,7 @@ def _gpu_supports_embedder(min_free_mb: int = 512) -> tuple[bool, str]:
         return True, f"{free_mb} MB free VRAM"
     except ImportError:
         return False, "nvidia-smi not found and torch not installed"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, f"GPU check failed: {exc}"
 
 
@@ -122,6 +122,7 @@ _EXTERNAL_CHANNELS = [
     "fff",
     "ccc",
     "graphify",
+    "graft",
 ]
 _RETRIEVAL_CHANNELS = _LEMONCROW_CHANNELS + _EXTERNAL_CHANNELS
 _ALL_CHANNEL = "all"
@@ -541,7 +542,7 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
     "Use 'all' to run every channel. "
     "LemonCrow (env-toggled variants of the shipped MCP surface): zoekt, "
     "semantic, lexical, lexical+zoekt, lexical+zoekt+semantic. "
-    "External: cg, ctags, ast-grep, serena, code-index-mcp, jcodemunch, rg, cmm, fff, graphify.",
+    "External: cg, ctags, ast-grep, serena, code-index-mcp, jcodemunch, rg, cmm, fff, graphify, graft.",
 )
 @click.option("--full", is_flag=True, default=False, help="Run all available query pairs (no cap).")
 @click.option("--sample", type=int, default=0, help="Total queries to sample across repos (0 = default 500).")
@@ -669,7 +670,7 @@ def eval_retrieval(
                 if not json_output:
                     click.echo(f"[eval] resume channel={ch} (cached {cache})", err=True)
                 return ch, cached
-            except Exception:  # noqa: BLE001 — corrupt cache: fall through and re-run
+            except Exception:  # Corrupt cache: fall through and re-run.
                 if not json_output:
                     click.echo(f"[eval] cache for channel={ch} unreadable — re-running", err=True)
         cmd, env, _ = _channel_cmd_env(
@@ -705,7 +706,7 @@ def eval_retrieval(
                 if cache is not None:
                     try:
                         cache.write_text(json.dumps(result))
-                    except Exception:  # noqa: BLE001 — caching is best-effort
+                    except Exception:  # Caching is best-effort.
                         pass
                 if not json_output:
                     click.echo(f"[eval] done  channel={ch}", err=True)

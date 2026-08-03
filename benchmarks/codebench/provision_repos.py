@@ -498,6 +498,24 @@ def provision_linux(
 # ── Eval auto-provision ──────────────────────────────────────────────────────
 
 
+def _workspace_has_checkout(ws: Path) -> bool:
+    """Return true when *ws* contains checked-out files, not only ``.git``.
+
+    A failed shallow fetch leaves an initialized ``.git`` directory behind.
+    Treating that partial directory as ready makes every provider silently skip
+    the repository on the next run.
+    """
+
+    return ws.exists() and any(entry.name != ".git" for entry in ws.iterdir())
+
+
+def _local_lemoncrow_checkout() -> Path | None:
+    """Return this source checkout when running the benchmark from the repo."""
+
+    root = Path(__file__).resolve().parents[2]
+    return root if (root / ".git").exists() else None
+
+
 def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
     """Clone + index repos from gold files whose workspaces/indexes are missing.
 
@@ -525,13 +543,16 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
     for prefix, repo in MISSING_REPOS.items():
         url_map[prefix] = f"https://github.com/{repo}.git"
     url_map[_LINUX_PREFIX] = _LINUX_URL
+    # Both prefixes exist in historical gold files. The current canonical golds
+    # use ``lemoncrow__lemoncrow``; retain the older alias for reproducibility.
     url_map["lemoncrow__lc"] = _LEMONCROW_URL
+    url_map["lemoncrow__lemoncrow"] = _LEMONCROW_URL
 
     for prefix, meta in sorted(repos.items()):
         ws = Path(meta["ws"])
         db_path = Path(meta.get("db", "")) if meta.get("db") else None
 
-        ws_missing = not ws.exists() or not any(ws.iterdir())
+        ws_missing = not _workspace_has_checkout(ws)
         db_missing = db_path is not None and not db_path.exists()
 
         if not ws_missing and not db_missing:
@@ -557,21 +578,55 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
                     check=True,
                     timeout=60,
                 )
-                subprocess.run(
-                    ["git", "-C", str(ws), "fetch", "--quiet", "--depth", "1", "origin", base_commit],
-                    check=True,
-                    timeout=1200,
-                )
-                subprocess.run(
-                    ["git", "-C", str(ws), "checkout", "--quiet", "FETCH_HEAD"],
-                    check=True,
-                    timeout=300,
-                )
+                try:
+                    subprocess.run(
+                        ["git", "-C", str(ws), "fetch", "--quiet", "--depth", "1", "origin", base_commit],
+                        check=True,
+                        timeout=1200,
+                    )
+                    subprocess.run(
+                        ["git", "-C", str(ws), "checkout", "--quiet", "FETCH_HEAD"],
+                        check=True,
+                        timeout=300,
+                    )
+                except subprocess.CalledProcessError:
+                    # Historical LemonCrow golds predate the public mirror and
+                    # reference tags that exist in the development checkout but
+                    # were never pushed. Reproduce that exact snapshot locally
+                    # rather than substituting public HEAD and invalidating golds.
+                    local_source = _local_lemoncrow_checkout() if prefix.startswith("lemoncrow__") else None
+                    local_ref_ok = False
+                    if local_source is not None:
+                        probe = subprocess.run(
+                            ["git", "-C", str(local_source), "rev-parse", "--verify", f"{base_commit}^{{commit}}"],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        local_ref_ok = probe.returncode == 0
+                    if local_source is None or not local_ref_ok:
+                        raise
+                    print(
+                        f"[provision] remote lacks {base_commit}; cloning exact local tag from {local_source}",
+                        flush=True,
+                    )
+                    if ws.exists():
+                        shutil.rmtree(ws)
+                    subprocess.run(
+                        ["git", "clone", "--quiet", "--no-checkout", str(local_source), str(ws)],
+                        check=True,
+                        timeout=300,
+                    )
+                    subprocess.run(
+                        ["git", "-C", str(ws), "checkout", "--quiet", base_commit],
+                        check=True,
+                        timeout=300,
+                    )
             else:
                 print(f"[provision] no URL mapping for {prefix}, skip clone", flush=True)
 
         # ── Build index DB ───────────────────────────────────────────────
-        if db_missing and db_path is not None and ws.exists() and any(ws.iterdir()):
+        if db_missing and db_path is not None and _workspace_has_checkout(ws):
             isolated_dir = db_path.parent
             isolated_dir.mkdir(parents=True, exist_ok=True)
             print(f"[provision] indexing {prefix} -> {db_path}", flush=True)
@@ -620,7 +675,10 @@ def ensure_eval_workspaces(gold_paths: list[Path]) -> None:
                 print(f"[provision] index done {prefix}", flush=True)
 
         if ws_missing or db_missing:
-            print(f"[provision] ready {prefix}", flush=True)
+            ws_ready = _workspace_has_checkout(ws)
+            db_ready = db_path is None or db_path.exists()
+            state = "ready" if ws_ready and db_ready else "NOT READY"
+            print(f"[provision] {state} {prefix}", flush=True)
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────

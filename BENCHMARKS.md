@@ -307,6 +307,7 @@ Pure retrieval quality was measured against common CLI and MCP code-search tools
 | LemonCrow +zoekt              |     0.676 |     0.582 |     0.700 |     0.743 |   125ms |    359ms | 7213 |
 | **LemonCrow +semantic (BGE)** | **0.727** | **0.650** | **0.757** | **0.783** |   390ms |   1057ms | 7213 |
 | cocoindex-code              |     0.557 |     0.457 |     0.567 |     0.625 |   595ms |   2061ms | 7213 |
+| Graft 0.8.2                 |     0.514 |     0.433 |     0.521 |     0.566 |  1770ms |   2759ms | 7213 |
 | codebase-memory-mcp         |     0.502 |     0.437 |     0.511 |     0.553 |   541ms |   1817ms | 7213 |
 | fff-mcp                     |     0.430 |     0.388 |     0.434 |     0.456 |    46ms |    207ms | 7213 |
 | serena                      |     0.401 |     0.359 |     0.405 |     0.424 |  3834ms | 269001ms | 7213 |
@@ -317,7 +318,7 @@ Pure retrieval quality was measured against common CLI and MCP code-search tools
 | codegraph                   |     0.296 |     0.267 |     0.299 |     0.316 |    17ms |    532ms | 7213 |
 | universal-ctags             |     0.237 |     0.226 |     0.242 |     0.245 | **1ms** | **12ms** | 7213 |
 
-Both `LemonCrow lexical` and `+semantic` rows are 2026-07-06 re-runs after a latency fix (an unbounded ANN-matrix cache-miss path) and a harness measurement bug (the bench server was paying its own statusline pipeline inside timed queries); other rows' latencies predate that fix and may be pessimistic.
+Both `LemonCrow lexical` and `+semantic` rows are 2026-07-06 re-runs after a latency fix (an unbounded ANN-matrix cache-miss path) and a harness measurement bug (the bench server was paying its own statusline pipeline inside timed queries); other rows' latencies predate that fix and may be pessimistic. The Graft row is a 2026-08-03 run of pinned `@nanonets/graft@0.8.2` through its shipped persistent MCP server, using `graft_find_code` plus `graft_find_all` for every timed query and the same 7,213-pair gold snapshot as the table.
 
 Raw data and per-repo details: [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05)
 
