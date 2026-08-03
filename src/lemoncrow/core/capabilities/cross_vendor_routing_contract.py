@@ -27,6 +27,7 @@ SUPPORTED_ROUTE_VENDORS = (
     "ollama",
     "together",
     "fireworks",
+    "zen",
 )
 
 EditMode = Literal["pin-actual-vendor", "allow-cross-vendor"]

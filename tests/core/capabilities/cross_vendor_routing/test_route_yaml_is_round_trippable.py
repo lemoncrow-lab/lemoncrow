@@ -45,4 +45,6 @@ def test_detect_configured_vendors_uses_installed_host_clis(monkeypatch) -> None
         lambda command: f"/usr/bin/{command}" if command in {"claude", "codex", "agy"} else None,
     )
 
-    assert detect_configured_vendors({}) == ("anthropic", "openai", "google")
+    # Host CLIs alone cannot execute an owned turn (they need a real API key),
+    # so the keyless Zen public tier stays available as the executable fallback.
+    assert detect_configured_vendors({}) == ("anthropic", "openai", "google", "zen")
