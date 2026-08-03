@@ -42,6 +42,81 @@ def _mcp_session_file() -> Path:
     return _lemoncrow_root() / "mcp_sessions" / f"{_MCP_ID}.json"
 
 
+def pid_is_running(pid: int) -> bool:
+    """True only for a process that is still executing — zombies are not.
+
+    ``os.kill(pid, 0)`` succeeds for a zombie (exited, but its parent has not
+    ``wait()``ed yet), so a signal probe alone reports leaked children of an
+    agent host as live servers for as long as that host runs. On Linux the
+    state field in ``/proc/<pid>/stat`` settles it; elsewhere the probe stands.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(") ", 1)[-1].split(maxsplit=1)[0]
+    except (OSError, IndexError):
+        return True  # not Linux, or raced with exit: trust the signal probe
+    return state != "Z"
+
+
+def mcp_pid_is_live(pid: int) -> bool:
+    """True only if ``pid`` is still *this* MCP server, not a recycled PID.
+
+    Registrations outlive crashed servers, and the kernel reuses PIDs — a
+    5-day-old registration was found pointing at a freshly started
+    ``gitstatusd``, which a liveness probe alone reports as "running". The
+    command line settles identity: only a ``lemoncrow``/``lc ... mcp`` process
+    can be one of ours.
+    """
+    if not pid_is_running(pid):
+        return False
+    cmdline = Path(f"/proc/{pid}/cmdline")
+    if not cmdline.exists():
+        return True  # not Linux: liveness is all we can check
+    try:
+        parts = [part for part in cmdline.read_bytes().split(b"\0") if part]
+    except OSError:
+        return False
+    text = " ".join(part.decode("utf-8", errors="ignore") for part in parts)
+    return ("lemoncrow" in text or "lc" in text) and "mcp" in text
+
+
+def prune_stale_mcp_sessions(root: Path | None = None) -> int:
+    """Delete registration files whose process is gone; return how many.
+
+    A clean shutdown removes its own file, but a killed — or zombied — server
+    never gets there, and the leftovers are what made ``lc mcp list`` show
+    day-old "servers". Nobody can reap another process's zombie (only its
+    parent can ``wait()``), so owning *our* registry is the part that is
+    actually fixable: this reclaims it instead of filtering the corpses out of
+    one view and leaving them on disk for every other reader.
+    """
+    sessions_dir = (Path(root) if root is not None else _lemoncrow_root()) / "mcp_sessions"
+    if not sessions_dir.is_dir():
+        return 0
+    pruned = 0
+    for entry in sorted(sessions_dir.glob("*.json")):
+        try:
+            data = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        pid = data.get("pid") if isinstance(data, dict) else None
+        if isinstance(pid, int) and mcp_pid_is_live(pid):
+            continue
+        try:
+            entry.unlink()
+            pruned += 1
+        except OSError:
+            logger.debug("failed to prune stale mcp session file: %s", entry, exc_info=True)
+    return pruned
+
+
 def _mutate_mcp_managed_bash(*, record: dict[str, Any] | None = None, remove_id: str = "") -> None:
     """Atomically update live Bash ownership in this MCP registration."""
     path = _mcp_session_file()

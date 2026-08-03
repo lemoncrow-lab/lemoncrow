@@ -192,7 +192,19 @@ same code — nothing to re-type. Use `--new-pairing-code` to rotate it, or
 
 Use `--persistent` so the URL survives restarts too — a rotating quick-tunnel
 URL has to be re-pasted every run, and some clients drop the connector when it
-changes.
+changes. `--persistent` also **registers the server as a background service**
+(systemd on Linux, launchd on macOS) bound to the directory you started it in:
+it keeps running after you close the terminal and comes back on reboot, with
+the same URL and the same pairing code. Add `--foreground` to run it in the
+terminal instead.
+
+```bash
+lc mcp serve --persistent --hostname mcp.example.com   # install + start, prints the code
+lc mcp service list                                     # every installed server, URL, workspace, state
+lc mcp service restart mcp.example.com --new-pairing-code
+lc mcp service logs mcp.example.com
+lc mcp service stop|start|remove mcp.example.com
+```
 
 Most clients register themselves with the server automatically. For the ones
 that ask you to supply an OAuth client ID instead, `lc mcp client` mints a
@@ -204,7 +216,8 @@ stable one; pass `--redirect-uri` if your client shows a per-app callback URL
 | Flag                        | Effect                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
-| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating. Each hostname gets its own tunnel, state and OAuth store, so several projects can serve at once. |
+| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating, and installs it as an always-on user service for that directory. Each hostname gets its own tunnel, state, OAuth store and service, so several projects can serve at once. |
+| `--foreground`              | With `--persistent`: serve in this terminal instead of registering the background service.                                |
 | `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
 | `--new-pairing-code`        | Rotate the stored pairing code. Already-authorized clients keep working; only re-pairing needs the new one.               |
 

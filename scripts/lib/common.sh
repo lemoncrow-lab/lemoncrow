@@ -1062,12 +1062,12 @@ detect_hosts() {
     fi
 
     if command -v opencode >/dev/null 2>&1; then
-        HOST_SUMMARY+=("OpenCode (Ink LemonCrow provider) (detected)")
-        HOST_CHOICES+=("OpenCode (Ink LemonCrow provider)|detected")
+        HOST_SUMMARY+=("OpenCode (detected)")
+        HOST_CHOICES+=("OpenCode|detected")
         HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("OpenCode (Ink LemonCrow provider) (not found)")
-        HOST_CHOICES+=("OpenCode (Ink LemonCrow provider)|not found")
+        HOST_SUMMARY+=("OpenCode (not found)")
+        HOST_CHOICES+=("OpenCode|not found")
         HOST_DEFAULT_SELECTION+=(0)
     fi
     # Cursor: offered and now default-selected. CLI saves ~40% vs baseline
@@ -1079,8 +1079,8 @@ detect_hosts() {
         HOST_SUMMARY+=("Cursor (use cli for more savings) (detected)")
         HOST_CHOICES+=("Cursor (use cli for more savings)|detected")
     else
-        HOST_SUMMARY+=("Cursor (use cli for more savings) (not found)")
-        HOST_CHOICES+=("Cursor (use cli for more savings)|not found")
+        HOST_SUMMARY+=("Cursor (not found)")
+        HOST_CHOICES+=("Cursor|not found")
     fi
     HOST_DEFAULT_SELECTION+=(1)
 
