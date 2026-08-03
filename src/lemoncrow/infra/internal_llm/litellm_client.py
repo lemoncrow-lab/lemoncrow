@@ -43,6 +43,13 @@ def _resolve_model(model: str | None) -> str:
     return model or os.environ.get("LEMONCROW_LITELLM_MODEL") or "gpt-4o-mini"
 
 
+def _with_zen_transport(request_kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite ``zen/<model>`` requests into litellm's OpenAI-compatible form."""
+    from lemoncrow.core.capabilities.providers.zen import apply_zen_transport
+
+    return apply_zen_transport(request_kwargs)
+
+
 def _content(response: Any) -> str:
     try:
         return str(response.choices[0].message.content or "")
@@ -86,9 +93,13 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
     )
     try:
         response = litellm.completion(
-            model=chosen_model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
+            **_with_zen_transport(
+                {
+                    "model": chosen_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                }
+            )
         )
     except Exception as exc:
         if isinstance(exc, LiteLLMUnavailable):
@@ -126,6 +137,7 @@ def chat_with_result(
         request_kwargs["api_key"] = api_key
     if extra_kwargs:
         request_kwargs.update(extra_kwargs)
+    request_kwargs = _with_zen_transport(request_kwargs)
     try:
         if json_schema is None:
             response = litellm.completion(**request_kwargs)
@@ -135,7 +147,7 @@ def chat_with_result(
                     **request_kwargs,
                     response_format={"type": "json_object"},
                 )
-            except Exception:  # noqa: BLE001 - provider may reject response_format; retry plain
+            except Exception:
                 response = litellm.completion(**request_kwargs)
     except Exception as exc:
         if isinstance(exc, LiteLLMUnavailable):
@@ -192,10 +204,14 @@ def tool_completion(
     """
     litellm = _litellm_module()
     return litellm.completion(
-        model=_resolve_model(model),
-        messages=messages,
-        tools=tools,
-        tool_choice=tool_choice,
+        **_with_zen_transport(
+            {
+                "model": _resolve_model(model),
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": tool_choice,
+            }
+        )
     )
 
 

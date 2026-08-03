@@ -56,7 +56,7 @@ def _fetch_openai_compat(
                 continue
             ids.append(_litellm_id(provider, mid))
         return ids
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery %s: %s", provider, exc)
         return []
 
@@ -86,7 +86,7 @@ def _fetch_anthropic(cfg: Any) -> list[str]:
             if mid:
                 models.append(mid)
         return models
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery anthropic: %s", exc)
         return []
 
@@ -112,7 +112,7 @@ def _fetch_google(cfg: Any) -> list[str]:
             if mid:
                 models.append(mid)
         return models
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery google: %s", exc)
         return []
 
@@ -131,7 +131,7 @@ def _fetch_ollama(cfg: Any) -> list[str]:
             if name:
                 models.append(f"ollama/{name}")
         return models
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery ollama: %s", exc)
         return []
 
@@ -164,7 +164,7 @@ def _fetch_bedrock(cfg: Any) -> list[str]:
     except botocore.exceptions.NoCredentialsError:
         logger.debug("model discovery bedrock: no credentials found")
         return []
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery bedrock: %s", exc)
         return []
 
@@ -245,7 +245,7 @@ def _fetch_vertex(cfg: Any) -> list[str]:
             if mid:
                 models.append(f"vertex_ai/{mid}")
         return models
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery vertex: %s", exc)
         return []
 
@@ -270,9 +270,39 @@ def _fetch_azure(cfg: Any) -> list[str]:
             if did:
                 models.append(f"azure/{did}")
         return models
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("model discovery azure: %s", exc)
         return []
+
+
+def _fetch_zen(cfg: Any) -> list[str]:
+    """List Zen models, restricted to the zero-cost set on the public tier."""
+    import urllib.request
+
+    from .zen import ZEN_BASE_URL, ZEN_PREFIX, ZEN_USER_AGENT, free_model_ids, has_account_key, zen_api_key
+
+    req = urllib.request.Request(
+        f"{ZEN_BASE_URL}/models",
+        headers={
+            "Authorization": f"Bearer {zen_api_key(cfg)}",
+            "Content-Type": "application/json",
+            "User-Agent": ZEN_USER_AGENT,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data: dict[str, Any] = json.loads(resp.read())
+    except Exception as exc:
+        logger.debug("model discovery zen: %s", exc)
+        return []
+    allowed = None if has_account_key(cfg) else set(free_model_ids())
+    models = []
+    for item in data.get("data") or []:
+        mid = item.get("id") or ""
+        if not mid or (allowed is not None and mid not in allowed):
+            continue
+        models.append(f"{ZEN_PREFIX}{mid}")
+    return models
 
 
 async def _discover_all(cfg: Any) -> list[str]:
@@ -324,6 +354,9 @@ async def _discover_all(cfg: Any) -> list[str]:
     # Azure OpenAI
     if cfg.is_configured("azure"):
         tasks.append(asyncio.to_thread(_fetch_azure, cfg))
+    # OpenCode Zen (keyless public tier, or the user's own account key)
+    if cfg.is_configured("zen"):
+        tasks.append(asyncio.to_thread(_fetch_zen, cfg))
     results = await asyncio.gather(*tasks, return_exceptions=True)
     models: list[str] = []
     seen: set[str] = set()

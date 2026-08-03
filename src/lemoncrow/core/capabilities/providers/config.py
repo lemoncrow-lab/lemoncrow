@@ -31,6 +31,9 @@ LITELLM_PREFIX: dict[str, str] = {
     "deepinfra": "deepinfra/",
     "perplexity": "perplexity/",
     "openrouter": "openrouter/",
+    # Zen keeps its own namespace; providers/zen.py rewrites it to openai/ +
+    # api_base at the litellm call site.
+    "zen": "zen/",
 }
 
 
@@ -88,6 +91,7 @@ class ProviderConfig:
         "ollama": {"base_url": "OLLAMA_HOST"},
         "together": {"api_key": "TOGETHER_API_KEY"},
         "fireworks": {"api_key": "FIREWORKS_API_KEY"},
+        "zen": {"api_key": "OPENCODE_API_KEY"},
     }
 
     def __init__(self, raw: dict[str, Any]) -> None:
@@ -112,6 +116,12 @@ class ProviderConfig:
                 return True
         if provider == "ollama":
             return bool(self.get("ollama", "base_url"))
+        if provider == "zen":
+            # Zen serves its zero-cost models against the literal "public"
+            # bearer token, so it is reachable with no credential at all.
+            from .zen import public_tier_enabled
+
+            return public_tier_enabled()
         return False
 
     def configured_providers(self) -> list[str]:
