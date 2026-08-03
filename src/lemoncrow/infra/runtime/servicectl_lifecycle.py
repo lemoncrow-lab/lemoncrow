@@ -32,11 +32,6 @@ logger = logging.getLogger(__name__)
 _WORKSPACE_PRUNE_INTERVAL_SECONDS = 86_400
 _WORKSPACE_PRUNE_MAX_AGE_DAYS = 10
 
-# Flush the Stop hook's locally-queued public rollup deltas into a single
-# aggregated request once a day, so the public counters endpoint sees at
-# most one POST per user per day instead of one per Stop-hook firing.
-_PUBLIC_ROLLUP_INTERVAL_SECONDS = 86_400
-
 
 def _servicectl_dir(root: Path) -> Path:
     return Path(root) / "servicectl"
@@ -862,21 +857,25 @@ def _servicectl_tick(
             periodic[WORKSPACE_PRUNE_KEY] = now.isoformat()
         pruned_workspaces = pruned or {}
 
+    # Public savings rollup: the schedule (24 h on success, 15 min -> 6 h
+    # backoff on failure) and the checkpoint now live in the rollup's own
+    # durable state file, so a dropped POST retries in minutes instead of
+    # costing a whole day, and a machine that is only briefly awake still
+    # catches up on wake. Ticking every pass is cheap: a not-due check is one
+    # small JSON read that no-ops.
     PUBLIC_ROLLUP_KEY = "public_rollup"
-    last_public_rollup_at = _periodic_timestamp(PUBLIC_ROLLUP_KEY)
-    public_rollup_due = (
-        last_public_rollup_at is None
-        or (now - last_public_rollup_at).total_seconds() >= _PUBLIC_ROLLUP_INTERVAL_SECONDS
-    )
     public_rollup_checkpoint_day = state.get("public_rollup_checkpoint_day")
-    if public_rollup_due:
-        with suppress(Exception):
-            from lemoncrow.core.service.telemetry.public_rollup import flush_daily_public_rollup
+    try:
+        from lemoncrow.core.service.telemetry.public_rollup import maybe_flush_public_rollup
 
-            _, public_rollup_checkpoint_day = flush_daily_public_rollup(
-                root, checkpoint_day=public_rollup_checkpoint_day
-            )
-        periodic[PUBLIC_ROLLUP_KEY] = now.isoformat()
+        rollup_result = maybe_flush_public_rollup(root, legacy_checkpoint_day=public_rollup_checkpoint_day)
+        public_rollup_checkpoint_day = rollup_result.get("checkpoint_day") or public_rollup_checkpoint_day
+        if rollup_result.get("reason") not in {"not_due", "locked"}:
+            periodic[PUBLIC_ROLLUP_KEY] = now.isoformat()
+        if rollup_result.get("reason") in {"post_failed", "error"}:
+            logger.warning("public rollup flush incomplete: %s", rollup_result)
+    except Exception:
+        logger.exception("public rollup flush error")
 
     job_queue_health_before = store.jobs.job_queue_health()
     enqueued: list[str] = []
