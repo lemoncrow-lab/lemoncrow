@@ -2783,7 +2783,6 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     # Supplemental bench-calibrated savings rows (plugin-level logic; pricing
     # resolves per model). Written BEFORE build_savings_report so the fresh rows
     # land in the aggregate.
-    _codex_turns_avoided = 0
     with suppress(Exception):
         _codex_state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
         _codex_usage = _as_dict(_codex_state.get("usage"))
@@ -2793,7 +2792,9 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
             "output_tokens": _codex_usage.get("output_tokens"),
             "last_model": _codex_state.get("last_model") or _codex_state.get("model"),
         }
-        _codex_turns_avoided = write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex") or 0
+        # Turn-cut credit is written to the ledger (the daily rollup reads it
+        # from there); nothing here consumes the returned count.
+        write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex")
         write_stop_hook_input_style_row(root, session_id, _codex_row_stats, agent="codex")
         credit_rtk_gain(root, session_id, _codex_row_stats, workspace=_codex_workspace_root(payload), agent="codex")
         write_stop_hook_output_style_row(
@@ -2836,36 +2837,12 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     ):
         return {"no_output": True}
 
-    with suppress(Exception):
-        from lemoncrow.core.capabilities.savings_summary import estimate_time_saved_seconds
-        from lemoncrow.core.service.telemetry.public_rollup import publish_public_savings_rollup
-
-        started_at_ms = int(state.get("started_at_ms", 0) or 0)
-        last_event_at_ms = int(state.get("last_event_at_ms", 0) or 0)
-        time_spent_seconds = (
-            max(0.0, (last_event_at_ms - started_at_ms) / 1000) if started_at_ms and last_event_at_ms else 0.0
-        )
-
-        publish_public_savings_rollup(
-            session_id=session_id,
-            saved_usd=saved_usd,
-            tokens_saved=tokens_saved,
-            calls_avoided=calls_avoided,
-            turn_count=llm_turns,
-            turns_avoided=_codex_turns_avoided,
-            source="codex",
-            carry_usd=carry_usd,
-            carry_tokens=carry_tokens,
-            time_saved_seconds=estimate_time_saved_seconds(
-                calls_avoided=calls_avoided,
-                output_saved_tokens=output_saved_tokens,
-            ),
-            output_saved_tokens=output_saved_tokens,
-            output_saved_usd=output_saved_usd,
-            tokens_processed=total_tokens,
-            calls_made=total_tool_calls,
-            time_spent_seconds=time_spent_seconds,
-        )
+    # Public rollup: NOT pushed from here. This hook used to post the codex
+    # session live, but the servicectl daemon's daily flush already folds
+    # every locally-tracked host -- codex included -- into one per-day
+    # aggregate, so posting here double counted every codex session in the
+    # public counters (once live, once inside the day's digest).
+    # See lemoncrow.core.service.telemetry.public_rollup.
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
     real_cost = _codex_payload_cost_usd(payload) or statusline_cost

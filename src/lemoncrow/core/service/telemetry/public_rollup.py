@@ -12,10 +12,11 @@ import hashlib
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,27 @@ def _hash_hex(value: str) -> str:
 
 
 DEFAULT_PUBLIC_ROLLUP_ENDPOINT = "https://lemoncrow.com/api/telemetry/rollup"
+# Session-hook default: this runs inline on a Stop hook, so it must never add
+# perceptible latency -- one attempt, sub-second.
 DEFAULT_TIMEOUT_SECONDS = 0.75
+# Background daemon default: nothing is waiting on it, and a dropped post costs
+# a whole day of reporting, so give it a realistic budget and real retries.
+# (Measured round-trip to the production endpoint is ~0.2-0.6s, i.e. right at
+# the hook timeout -- a single slow TLS handshake used to lose the day.)
+FLUSH_TIMEOUT_SECONDS = 5.0
+FLUSH_ATTEMPTS = 3
+_RETRY_SLEEP_SECONDS = (0.5, 1.5)
+
+# Durable flush state (checkpoint + retry schedule) lives next to the store so
+# ANY process can run the daily flush, not just the servicectl daemon, and so a
+# failure reschedules in minutes instead of silently waiting another full day.
+_STATE_RELPATH = ("telemetry", "public_rollup_state.json")
+_LOCK_RELPATH = ("telemetry", "public_rollup.lock")
+FLUSH_INTERVAL_SECONDS = 86_400
+_RETRY_BASE_SECONDS = 900  # 15 min after the first failure ...
+_RETRY_MAX_SECONDS = 21_600  # ... doubling up to 6 h
+_LOCK_STALE_SECONDS = 900
+_FAILURE_REASONS = frozenset({"post_failed", "error"})
 
 
 def publish_public_savings_rollup(
@@ -66,6 +87,8 @@ def publish_public_savings_rollup(
     tokens_processed: int = 0,
     calls_made: int = 0,
     time_spent_seconds: float = 0.0,
+    timeout_s: float | None = None,
+    attempts: int = 1,
 ) -> bool:
     """Publish one sanitized savings rollup (a single session, or one daily aggregate).
 
@@ -109,7 +132,12 @@ def publish_public_savings_rollup(
         )
         if payload is None:
             return False
-        return _post_json(endpoint, payload, timeout_s=public_rollup_timeout_seconds())
+        return _post_json(
+            endpoint,
+            payload,
+            timeout_s=public_rollup_timeout_seconds() if timeout_s is None else max(0.1, float(timeout_s)),
+            attempts=max(1, int(attempts)),
+        )
     except Exception as exc:
         logger.debug("public_rollup.publish_failed", extra={"error": str(exc)})
         return False
@@ -232,8 +260,10 @@ def _payload(
     }
 
 
-def _post_json(endpoint: str, payload: dict[str, Any], *, timeout_s: float) -> bool:
+def _post_json(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    # The User-Agent is load-bearing, not cosmetic: the production endpoint
+    # sits behind a bot filter that 403s the default `Python-urllib/x.y`.
     request = urllib.request.Request(
         endpoint,
         data=data,
@@ -243,12 +273,22 @@ def _post_json(endpoint: str, payload: dict[str, Any], *, timeout_s: float) -> b
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            return 200 <= int(response.status) < 300
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
-        logger.debug("public_rollup.post_failed", extra={"error": str(exc)})
-        return False
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                return 200 <= int(response.status) < 300
+        except urllib.error.HTTPError as exc:
+            # 4xx is a verdict on the payload -- retrying sends the identical
+            # bytes and gets the identical answer. Only retry 429/5xx.
+            code = int(getattr(exc, "code", 0) or 0)
+            logger.debug("public_rollup.post_failed", extra={"error": str(exc), "status": code})
+            if code < 500 and code != 429:
+                return False
+        except (OSError, urllib.error.URLError) as exc:
+            logger.debug("public_rollup.post_failed", extra={"error": str(exc)})
+        if attempt + 1 < attempts:
+            time.sleep(_RETRY_SLEEP_SECONDS[min(attempt, len(_RETRY_SLEEP_SECONDS) - 1)])
+    return False
 
 
 def _service_version() -> str:
@@ -297,7 +337,7 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
 
     from lemoncrow.core.capabilities.savings_summary import (
         aggregate_savings_by_day,
-        aggregate_usage_totals_since_day,
+        aggregate_usage_totals_by_day,
         estimate_time_saved_seconds,
     )
 
@@ -306,23 +346,24 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         return {"flushed": False, "reason": "no_new_days"}, checkpoint_day
 
     # Independent pass (real per-session transcript parse, not the $-savings
-    # ledger) -- see aggregate_usage_totals_since_day's docstring for why this
+    # ledger) -- see aggregate_usage_totals_by_day's docstring for why this
     # is deliberately not folded into the per-day totals above. Best-effort: a
     # transcript-read failure here must not block the $ figures below from
     # reporting, so a raise here degrades to "not reported" (0), not a
-    # skipped flush. Attributed to the newest day only (it's a whole-range
-    # total, not itself day-bucketed) rather than repeated on every day.
-    usage_totals: dict[str, float | int] = {"tokens_processed": 0, "calls_made": 0, "time_spent_seconds": 0.0}
+    # skipped flush. Bucketed per day (by each session's first-activity day)
+    # so every day carries its own real totals instead of the whole window's
+    # sum riding on the newest day -- that lump also blew past the ingest
+    # endpoint's per-post real-total caps and was silently stored as 0.
+    usage_by_day: dict[str, dict[str, float | int]] = {}
     with suppress(Exception):
-        usage_totals = aggregate_usage_totals_since_day(root, since_day=checkpoint_day, today=today)
+        usage_by_day = aggregate_usage_totals_by_day(root, since_day=checkpoint_day, today=today)
 
     days_in_order = sorted(by_day)
-    newest_day = days_in_order[-1]
     checkpoint = checkpoint_day
     flushed_through: str | None = None
     for day in days_in_order:
         totals = by_day[day]
-        is_newest = day == newest_day
+        usage = usage_by_day.get(day) or {}
         ok = publish_public_savings_rollup(
             session_id=f"daily-rollup-{day}",
             saved_usd=float(totals["saved_usd"]),
@@ -331,7 +372,13 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
             turn_count=int(totals["turn_count"]),
             turns_avoided=int(totals["turns_avoided"]),
             source="claude",
+            # Stamp the day being reported, not "now": a backlog (sleeping
+            # laptop, stuck checkpoint) would otherwise pile every backfilled
+            # day onto the flush date, and the public per-day breakdown
+            # buckets on occurred_at.
+            occurred_at=_day_midpoint(day),
             carry_usd=float(totals["carry_usd"]),
+            carry_tokens=int(totals.get("carry_tokens", 0) or 0),
             est_cost_usd=float(totals["est_cost_usd"]),
             time_saved_seconds=estimate_time_saved_seconds(
                 calls_avoided=int(totals["calls_avoided"]),
@@ -339,9 +386,11 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
             ),
             output_saved_tokens=int(totals.get("output_saved_tokens", 0) or 0),
             output_saved_usd=float(totals.get("output_saved_usd", 0.0) or 0.0),
-            tokens_processed=int(usage_totals["tokens_processed"]) if is_newest else 0,
-            calls_made=int(usage_totals["calls_made"]) if is_newest else 0,
-            time_spent_seconds=float(usage_totals["time_spent_seconds"]) if is_newest else 0.0,
+            tokens_processed=int(usage.get("tokens_processed", 0) or 0),
+            calls_made=int(usage.get("calls_made", 0) or 0),
+            time_spent_seconds=float(usage.get("time_spent_seconds", 0.0) or 0.0),
+            timeout_s=FLUSH_TIMEOUT_SECONDS,
+            attempts=FLUSH_ATTEMPTS,
         )
         if not ok:
             # This day (and everything after it) is retried on the next
@@ -356,3 +405,163 @@ def flush_daily_public_rollup(root: str | Path, *, checkpoint_day: str | None) -
         checkpoint = day
         flushed_through = day
     return {"flushed": True, "through_day": flushed_through}, checkpoint
+
+
+def _day_midpoint(day: str) -> datetime:
+    """Midday UTC of an ISO ``YYYY-MM-DD`` day (noon, so no rounding or clock
+    skew on either side can push the stamp into an adjacent calendar day)."""
+    return datetime.strptime(day, "%Y-%m-%d").replace(hour=12, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# Durable flush scheduling (checkpoint + retry backoff)
+# ---------------------------------------------------------------------------
+
+
+def _state_path(root: Path) -> Path:
+    return root.joinpath(*_STATE_RELPATH)
+
+
+def _lock_path(root: Path) -> Path:
+    return root.joinpath(*_LOCK_RELPATH)
+
+
+def read_public_rollup_state(root: str | Path) -> dict[str, Any]:
+    """Persisted flush state; ``{}`` when absent or unreadable (fail-open:
+    a corrupt file must degrade to "flush now", never to "never flush")."""
+    path = _state_path(Path(root))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_state(root: Path, payload: dict[str, Any]) -> None:
+    path = _state_path(root)
+    with suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _acquire_lock(root: Path, now: datetime) -> bool:
+    """Best-effort cross-process lock so two hosts/daemons cannot post the same
+    day twice. A lock older than ``_LOCK_STALE_SECONDS`` (crashed holder) is
+    reclaimed rather than wedging the flush forever."""
+    path = _lock_path(root)
+    with suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            try:
+                age = now.timestamp() - path.stat().st_mtime
+            except OSError:
+                return False
+            if age < _LOCK_STALE_SECONDS:
+                return False
+            with suppress(OSError):
+                path.unlink()
+            continue
+        except OSError:
+            return False
+        with suppress(OSError):
+            os.write(fd, f"{os.getpid()} {now.isoformat()}".encode())
+        with suppress(OSError):
+            os.close(fd)
+        return True
+    return False
+
+
+def _release_lock(root: Path) -> None:
+    with suppress(OSError):
+        _lock_path(root).unlink()
+
+
+def _next_delay_seconds(failures: int) -> int:
+    if failures <= 0:
+        return FLUSH_INTERVAL_SECONDS
+    return int(min(_RETRY_MAX_SECONDS, _RETRY_BASE_SECONDS * (2 ** (failures - 1))))
+
+
+def maybe_flush_public_rollup(
+    root: str | Path,
+    *,
+    force: bool = False,
+    legacy_checkpoint_day: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Run the daily flush if it is due, and reschedule it durably.
+
+    Owns everything the caller used to own (when to run, what the checkpoint
+    is, what to do after a failure) so a flush is safe to trigger from any
+    process -- the servicectl tick, a CLI command, a hook -- without two of
+    them double-posting a day.
+
+    Scheduling: success -> next attempt in 24 h. Failure -> 15 min, doubling to
+    a 6 h ceiling, because the old "mark it done and try again tomorrow"
+    behaviour turned one dropped POST (a flaky network, a laptop suspending
+    mid-request) into a whole lost day, and a machine that is only awake in
+    bursts could miss the window indefinitely. ``next_attempt_at`` is wall-clock
+    and persisted, so a sleeping laptop simply flushes on wake.
+    """
+    root_path = Path(root)
+    now = now or datetime.now(UTC)
+    state = read_public_rollup_state(root_path)
+    checkpoint_day = state.get("checkpoint_day")
+    if not isinstance(checkpoint_day, str) or not checkpoint_day:
+        # One-time migration from the servicectl-owned state key, so the
+        # cutover does not resend (or re-baseline) an existing install.
+        checkpoint_day = legacy_checkpoint_day if isinstance(legacy_checkpoint_day, str) else None
+
+    next_attempt_at = _parse_iso(state.get("next_attempt_at"))
+    if not force and next_attempt_at is not None and now < next_attempt_at:
+        return {
+            "flushed": False,
+            "reason": "not_due",
+            "checkpoint_day": checkpoint_day,
+            "next_attempt_at": next_attempt_at.isoformat(),
+        }
+
+    if not _acquire_lock(root_path, now):
+        return {"flushed": False, "reason": "locked", "checkpoint_day": checkpoint_day}
+
+    try:
+        result, checkpoint_day = flush_daily_public_rollup(root_path, checkpoint_day=checkpoint_day)
+    except Exception as exc:  # never raise into a hook or the daemon tick
+        logger.debug("public_rollup.flush_failed", extra={"error": str(exc)})
+        result = {"flushed": False, "reason": "error", "error": str(exc)}
+    finally:
+        _release_lock(root_path)
+
+    failures = int(state.get("consecutive_failures") or 0) + 1 if result.get("reason") in _FAILURE_REASONS else 0
+    delay = _next_delay_seconds(failures)
+    _write_state(
+        root_path,
+        {
+            "checkpoint_day": checkpoint_day,
+            "consecutive_failures": failures,
+            "last_attempt_at": now.isoformat(),
+            "next_attempt_at": (now + timedelta(seconds=delay)).isoformat(),
+            "last_result": result,
+        },
+    )
+    return {
+        **result,
+        "checkpoint_day": checkpoint_day,
+        "consecutive_failures": failures,
+        "next_attempt_at": (now + timedelta(seconds=delay)).isoformat(),
+    }

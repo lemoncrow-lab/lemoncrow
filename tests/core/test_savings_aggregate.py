@@ -19,6 +19,8 @@ from lemoncrow.core.capabilities import savings_summary as ss
 from lemoncrow.core.capabilities.savings_summary import (
     _read_historical_savings_many,
     _window_from_aggregate,
+    aggregate_savings_by_day,
+    aggregate_usage_totals_by_day,
     aggregate_usage_totals_since_day,
     recompute_savings_aggregate,
     reconcile_savings_aggregate,
@@ -250,6 +252,71 @@ def test_aggregate_usage_totals_since_day_reads_real_transcript_usage(
     assert totals["tokens_processed"] == 260  # (100+50) + (80+30), old session excluded
     assert totals["calls_made"] == 1  # one tool_use, in the in-range session only
     assert totals["time_spent_seconds"] == pytest.approx(330.0)
+
+
+def test_aggregate_usage_totals_bucket_per_first_activity_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real usage is bucketed by each session's first-activity day, so the
+    daily public rollup can post each day's own totals instead of hanging the
+    whole window's sum on the newest day (which the ingest endpoint caps)."""
+    root = tmp_path / ".lemoncrow"
+    claude_root = tmp_path / "claude_home"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_root))
+
+    older_ts = NOW - 3 * DAY
+    newer_ts = NOW - 1 * DAY
+    _append(root, "aggtest-day-a", [_end_row(older_ts, 1.0)])
+    _write_transcript(
+        claude_root,
+        "aggtest-day-a",
+        [_assistant_turn(older_ts, in_t=100, out_t=50, tool="Bash")],
+    )
+    _append(root, "aggtest-day-b", [_end_row(newer_ts, 1.0)])
+    _write_transcript(
+        claude_root,
+        "aggtest-day-b",
+        [_assistant_turn(newer_ts, in_t=7, out_t=3)],
+    )
+
+    since_day = ss._day_key(NOW - 5 * DAY)
+    today = ss._day_key(NOW)
+    by_day = aggregate_usage_totals_by_day(root, since_day=since_day, today=today)
+
+    assert set(by_day) == {ss._day_key(older_ts), ss._day_key(newer_ts)}
+    assert by_day[ss._day_key(older_ts)]["tokens_processed"] == 150
+    assert by_day[ss._day_key(older_ts)]["calls_made"] == 1
+    assert by_day[ss._day_key(newer_ts)]["tokens_processed"] == 10
+    # The whole-window wrapper still sums to the same thing.
+    totals = aggregate_usage_totals_since_day(root, since_day=since_day, today=today)
+    assert totals["tokens_processed"] == 160
+    assert totals["calls_made"] == 1
+
+
+def test_aggregate_savings_by_day_reports_carry_tokens(tmp_path: Path) -> None:
+    """carry_tokens rides along in the per-day buckets -- the daily public
+    rollup reports it, and it was previously always 0 on that path."""
+    root = tmp_path / ".lemoncrow"
+    ts = NOW - 2 * DAY
+    _append(
+        root,
+        "aggtest-carry-tokens",
+        [
+            _row(ts, 400, 0.4),
+            json.dumps(
+                {
+                    "ts": _iso(ts + 60),
+                    "kind": "session_end",
+                    "est_cost_usd": 2.0,
+                    "carry_usd": 1.0,
+                    "carry_tokens": 1234,
+                }
+            ),
+        ],
+    )
+
+    by_day = aggregate_savings_by_day(root, since_day=ss._day_key(NOW - 5 * DAY), today=ss._day_key(NOW))
+    day = ss._day_key(ts)
+    assert by_day[day]["carry_tokens"] == 1234
+    assert by_day[day]["carry_usd"] == pytest.approx(1.0)
 
 
 def test_first_savings_ts_folds_min(tmp_path: Path) -> None:

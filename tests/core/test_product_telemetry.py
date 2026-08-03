@@ -11,11 +11,18 @@ import pytest
 
 from lemoncrow.core.foundation.identity import get_anon_id
 from lemoncrow.core.service.telemetry import emit_product
+from lemoncrow.core.service.telemetry import public_rollup as public_rollup_mod
 from lemoncrow.core.service.telemetry.banner import maybe_show_banner
 from lemoncrow.core.service.telemetry.config import load_telemetry_config, save_telemetry_config
 from lemoncrow.core.service.telemetry.frustration import match_frustration
 from lemoncrow.core.service.telemetry.local_store import LocalTelemetryStore
-from lemoncrow.core.service.telemetry.public_rollup import _payload, publish_public_savings_rollup
+from lemoncrow.core.service.telemetry.public_rollup import (
+    _payload,
+    flush_daily_public_rollup,
+    maybe_flush_public_rollup,
+    publish_public_savings_rollup,
+    read_public_rollup_state,
+)
 from lemoncrow.core.service.telemetry.schema import EVENTS
 from lemoncrow.core.service.telemetry.scrubber import scrub_string
 
@@ -161,7 +168,7 @@ def test_public_rollup_is_gated_by_remote_opt_in(
     they have."""
     calls: list[dict[str, Any]] = []
 
-    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float) -> bool:
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
         calls.append(payload)
         return True
 
@@ -207,7 +214,7 @@ def test_public_rollup_posts_correct_payload(
 ) -> None:
     calls: list[tuple[str, dict[str, Any], float]] = []
 
-    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float) -> bool:
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
         calls.append((endpoint, payload, timeout_s))
         return True
 
@@ -461,3 +468,203 @@ def test_async_emit_stays_off_hot_path_and_persists_after_flush(
 
     events = LocalTelemetryStore(telemetry_env).list_events(limit=10)
     assert [event["event"] for event in events] == ["cli_command_invoked"]
+
+
+# ---------------------------------------------------------------------------
+# Daily public rollup: per-day posts, durable retry schedule, no double count
+# ---------------------------------------------------------------------------
+
+
+def _enable_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", "https://example.test/rollup")
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ALLOW_IN_TESTS", "1")
+    monkeypatch.delenv("LEMONCROW_TELEMETRY", raising=False)
+    save_telemetry_config(remote_enabled=True)
+
+
+def test_daily_flush_stamps_each_day_and_reports_its_own_real_totals(
+    telemetry_env: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One post per day, stamped with THAT day (not the flush time), carrying
+    that day's carry_tokens and its own real-usage totals."""
+    from lemoncrow.core.capabilities import savings_summary as ss
+
+    posts: list[tuple[dict[str, Any], float, int]] = []
+
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
+        posts.append((payload, timeout_s, attempts))
+        return True
+
+    monkeypatch.setattr(public_rollup_mod, "_post_json", fake_post)
+    _enable_remote(monkeypatch)
+
+    by_day = {
+        "2026-07-30": {
+            "saved_usd": 299.82,
+            "tokens_saved": 61_623_274,
+            "calls_avoided": 1433,
+            "turn_count": 179,
+            "turns_avoided": 1158,
+            "est_cost_usd": 466.05,
+            "carry_usd": 20.18,
+            "carry_tokens": 4242,
+            "output_saved_tokens": 23_318,
+            "output_saved_usd": 1.2,
+        },
+        "2026-07-31": {
+            "saved_usd": 156.92,
+            "tokens_saved": 37_535_446,
+            "calls_avoided": 1417,
+            "turn_count": 664,
+            "turns_avoided": 224,
+            "est_cost_usd": 155.93,
+            "carry_usd": 71.44,
+            "carry_tokens": 11,
+            "output_saved_tokens": 8718,
+            "output_saved_usd": 0.46,
+        },
+    }
+    usage_by_day = {
+        "2026-07-30": {"tokens_processed": 900_000_000, "calls_made": 4000, "time_spent_seconds": 1_000_000.0},
+        "2026-07-31": {"tokens_processed": 412_202_178, "calls_made": 2908, "time_spent_seconds": 871_896.7},
+    }
+    monkeypatch.setattr(ss, "aggregate_savings_by_day", lambda root, *, since_day, today: by_day)
+    monkeypatch.setattr(ss, "aggregate_usage_totals_by_day", lambda root, *, since_day, today: usage_by_day)
+
+    result, checkpoint = flush_daily_public_rollup(tmp_path, checkpoint_day="2026-07-29")
+
+    assert result == {"flushed": True, "through_day": "2026-07-31"}
+    assert checkpoint == "2026-07-31"
+    assert len(posts) == 2
+    first, second = posts[0][0], posts[1][0]
+    assert first["occurred_at"] == "2026-07-30T12:00:00Z"
+    assert second["occurred_at"] == "2026-07-31T12:00:00Z"
+    # carry_tokens used to be dropped on this path (always 0).
+    assert first["carry_tokens"] == 4242
+    assert second["carry_tokens"] == 11
+    # Real usage is per-day, not the whole window piled onto the newest day.
+    assert first["tokens_processed"] == 900_000_000
+    assert second["tokens_processed"] == 412_202_178
+    assert second["calls_made"] == 2908
+    # Background flush gets a realistic budget and real retries.
+    assert posts[0][1] == public_rollup_mod.FLUSH_TIMEOUT_SECONDS
+    assert posts[0][2] == public_rollup_mod.FLUSH_ATTEMPTS
+
+
+def test_maybe_flush_retries_in_minutes_after_failure_and_daily_after_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dropped POST must not cost a whole day: reschedule in 15 min, doubling
+    to a ceiling, and reset to the 24 h cadence once a flush lands."""
+    from datetime import timedelta
+
+    root = tmp_path / ".lemoncrow"
+    root.mkdir()
+    outcome: dict[str, Any] = {"value": ({"flushed": False, "reason": "post_failed", "stuck_day": "2026-07-30"}, None)}
+
+    def fake_flush(target: Any, *, checkpoint_day: str | None) -> tuple[dict[str, Any], str | None]:
+        result, new_checkpoint = outcome["value"]
+        return result, (new_checkpoint if new_checkpoint is not None else checkpoint_day)
+
+    monkeypatch.setattr(public_rollup_mod, "flush_daily_public_rollup", fake_flush)
+    now = datetime(2026, 8, 2, 12, 0, tzinfo=UTC)
+
+    first = maybe_flush_public_rollup(root, legacy_checkpoint_day="2026-07-29", now=now)
+    assert first["reason"] == "post_failed"
+    assert first["consecutive_failures"] == 1
+    # Legacy servicectl checkpoint is migrated, not re-baselined.
+    assert first["checkpoint_day"] == "2026-07-29"
+    assert read_public_rollup_state(root)["next_attempt_at"] == (now + timedelta(seconds=900)).isoformat()
+
+    # Not due yet: no attempt, schedule untouched.
+    skipped = maybe_flush_public_rollup(root, now=now + timedelta(seconds=300))
+    assert skipped["reason"] == "not_due"
+
+    second = maybe_flush_public_rollup(root, now=now + timedelta(seconds=900))
+    assert second["consecutive_failures"] == 2
+    assert (
+        read_public_rollup_state(root)["next_attempt_at"]
+        == (now + timedelta(seconds=900) + timedelta(seconds=1800)).isoformat()
+    )
+
+    outcome["value"] = ({"flushed": True, "through_day": "2026-08-01"}, "2026-08-01")
+    done = maybe_flush_public_rollup(root, now=now + timedelta(seconds=3000))
+    assert done["checkpoint_day"] == "2026-08-01"
+    assert done["consecutive_failures"] == 0
+    state = read_public_rollup_state(root)
+    assert state["checkpoint_day"] == "2026-08-01"
+    assert state["next_attempt_at"] == (now + timedelta(seconds=3000 + 86_400)).isoformat()
+
+
+def test_maybe_flush_survives_a_raising_flush_and_reschedules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / ".lemoncrow"
+    root.mkdir()
+
+    def boom(target: Any, *, checkpoint_day: str | None) -> tuple[dict[str, Any], str | None]:
+        raise RuntimeError("transcript store exploded")
+
+    monkeypatch.setattr(public_rollup_mod, "flush_daily_public_rollup", boom)
+    now = datetime(2026, 8, 2, 12, 0, tzinfo=UTC)
+
+    result = maybe_flush_public_rollup(root, legacy_checkpoint_day="2026-07-29", now=now)
+
+    assert result["reason"] == "error"
+    assert result["consecutive_failures"] == 1
+    # Checkpoint preserved, lock released, retry scheduled soon.
+    assert result["checkpoint_day"] == "2026-07-29"
+    assert not (root / "telemetry" / "public_rollup.lock").exists()
+
+
+def test_post_json_retries_transient_failures_but_not_a_rejected_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import urllib.error
+
+    monkeypatch.setattr(public_rollup_mod.time, "sleep", lambda _seconds: None)
+
+    class _Response:
+        status = 200
+
+        def __enter__(self) -> _Response:
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+    attempts: list[int] = []
+
+    def flaky(request: Any, timeout: float) -> Any:
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise urllib.error.URLError("connection reset")
+        return _Response()
+
+    monkeypatch.setattr(public_rollup_mod.urllib.request, "urlopen", flaky)
+    assert public_rollup_mod._post_json("https://example.test/rollup", {}, timeout_s=1.0, attempts=3) is True
+    assert len(attempts) == 3
+
+    rejected: list[int] = []
+
+    def bad_request(request: Any, timeout: float) -> Any:
+        rejected.append(1)
+        raise urllib.error.HTTPError("https://example.test/rollup", 400, "Bad Request", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(public_rollup_mod.urllib.request, "urlopen", bad_request)
+    assert public_rollup_mod._post_json("https://example.test/rollup", {}, timeout_s=1.0, attempts=3) is False
+    # 4xx is a verdict on the bytes; resending them is pointless.
+    assert len(rejected) == 1
+
+
+def test_codex_stop_hook_does_not_publish_its_own_public_rollup() -> None:
+    """The daily flush already folds codex sessions into the day's aggregate;
+    a live per-session push from the codex Stop hook double counted them."""
+    source = (Path(__file__).resolve().parents[2] / "src/lemoncrow/core/capabilities/plugin_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "publish_public_savings_rollup(" not in source

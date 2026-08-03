@@ -2941,6 +2941,7 @@ def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) ->
                 "turns_avoided": 0,
                 "est_cost_usd": 0.0,
                 "carry_usd": 0.0,
+                "carry_tokens": 0,
                 "output_saved_tokens": 0,
                 "output_saved_usd": 0.0,
             },
@@ -2964,6 +2965,7 @@ def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) ->
             b["turn_count"] = int(b["turn_count"]) + int(vals[3])
             b["est_cost_usd"] = float(b["est_cost_usd"]) + float(vals[4])
             b["carry_usd"] = float(b["carry_usd"]) + float(vals[5])
+            b["carry_tokens"] = int(b["carry_tokens"]) + int(vals[9] if len(vals) > 9 else 0)
             b["output_saved_tokens"] = int(b["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
             b["output_saved_usd"] = float(b["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
             b["turns_avoided"] = int(b["turns_avoided"]) + int(vals[12] if len(vals) > 12 else 0)
@@ -2994,6 +2996,7 @@ def aggregate_savings_since_day(
         "turns_avoided": 0,
         "est_cost_usd": 0.0,
         "carry_usd": 0.0,
+        "carry_tokens": 0,
         "output_saved_tokens": 0,
         "output_saved_usd": 0.0,
     }
@@ -3005,6 +3008,7 @@ def aggregate_savings_since_day(
         totals["turn_count"] = int(totals["turn_count"]) + int(vals["turn_count"])
         totals["est_cost_usd"] = float(totals["est_cost_usd"]) + float(vals["est_cost_usd"])
         totals["carry_usd"] = float(totals["carry_usd"]) + float(vals["carry_usd"])
+        totals["carry_tokens"] = int(totals["carry_tokens"]) + int(vals.get("carry_tokens", 0) or 0)
         totals["output_saved_tokens"] = int(totals["output_saved_tokens"]) + int(vals["output_saved_tokens"])
         totals["output_saved_usd"] = float(totals["output_saved_usd"]) + float(vals["output_saved_usd"])
         totals["turns_avoided"] = int(totals["turns_avoided"]) + int(vals["turns_avoided"])
@@ -3076,9 +3080,9 @@ def _session_real_usage(host: str, session_id: str) -> tuple[int, int, float]:
     return tokens, calls, span
 
 
-def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today: str) -> dict[str, float | int]:
-    """Real (not saved) tokens processed / calls made / session time, across
-    EVERY host's sessions, for the daily public rollup window.
+def aggregate_usage_totals_by_day(root: str | Path, *, since_day: str, today: str) -> dict[str, dict[str, float | int]]:
+    """Per-day real (not saved) tokens processed / calls made / session time,
+    across EVERY host's sessions, for the daily public rollup window.
 
     Per session, the whole session's real usage is attributed to its
     FIRST-activity day (earliest savings day-bucket) and counted only in the
@@ -3088,17 +3092,18 @@ def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today:
     accounting, other hosts via the shared ``parse_session_turns`` classifier),
     so codex/opencode/copilot are no longer silently dropped.
 
+    Day-bucketed rather than one window total because the public rollup posts
+    one request PER DAY: a whole window's real usage attached to a single day
+    both mis-attributes it and can exceed the ingest endpoint's per-post
+    real-total caps (which store an over-cap value as "not reported").
+
     Independent of :func:`aggregate_savings_since_day`'s bucket/cache machinery
     on purpose: this must never risk the $ figures the statusline, ``/savings``,
     and cap-gating already rely on being exactly right.
     """
     root_path = Path(root)
     agg = reconcile_savings_aggregate(root_path)
-    totals: dict[str, float | int] = {
-        "tokens_processed": 0,
-        "calls_made": 0,
-        "time_spent_seconds": 0.0,
-    }
+    by_day: dict[str, dict[str, float | int]] = {}
 
     for session_key, entry in agg.get("sessions", {}).items():
         days = entry.get("days") or {}
@@ -3110,9 +3115,28 @@ def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today:
         key_path = Path(str(session_key))
         host = key_path.parent.name or "claude"
         tokens, calls, seconds = _session_real_usage(host, key_path.name)
-        totals["tokens_processed"] = int(totals["tokens_processed"]) + tokens
-        totals["calls_made"] = int(totals["calls_made"]) + calls
-        totals["time_spent_seconds"] = float(totals["time_spent_seconds"]) + seconds
+        bucket = by_day.setdefault(
+            first_day,
+            {"tokens_processed": 0, "calls_made": 0, "time_spent_seconds": 0.0},
+        )
+        bucket["tokens_processed"] = int(bucket["tokens_processed"]) + tokens
+        bucket["calls_made"] = int(bucket["calls_made"]) + calls
+        bucket["time_spent_seconds"] = float(bucket["time_spent_seconds"]) + seconds
+    return by_day
+
+
+def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today: str) -> dict[str, float | int]:
+    """Whole-window sum of :func:`aggregate_usage_totals_by_day` -- kept for
+    callers that want one total rather than the per-day breakdown."""
+    totals: dict[str, float | int] = {
+        "tokens_processed": 0,
+        "calls_made": 0,
+        "time_spent_seconds": 0.0,
+    }
+    for vals in aggregate_usage_totals_by_day(root, since_day=since_day, today=today).values():
+        totals["tokens_processed"] = int(totals["tokens_processed"]) + int(vals["tokens_processed"])
+        totals["calls_made"] = int(totals["calls_made"]) + int(vals["calls_made"])
+        totals["time_spent_seconds"] = float(totals["time_spent_seconds"]) + float(vals["time_spent_seconds"])
     return totals
 
 
