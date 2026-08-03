@@ -265,6 +265,8 @@ def _argv_for_program(prog_name: str, argv: list[str]) -> list[str]:
         return ["mcp", *argv]
     if prog_name == "lemoncode":
         return ["code", *argv]
+    if prog_name == "lc" and not argv:
+        return ["code"]
     return argv
 
 
