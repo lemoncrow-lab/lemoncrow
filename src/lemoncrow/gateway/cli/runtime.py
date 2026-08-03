@@ -19,6 +19,12 @@ from lemoncrow.core.capabilities.mcp_integration.loader import (
     MCPServerProcess,
     MCPTool,
 )
+from lemoncrow.core.capabilities.statusline_sidecar import (
+    StatusSnapshot,
+    configured_status_path,
+    read_index_status,
+    write_status_snapshot,
+)
 from lemoncrow.gateway.cli.events import (
     AssistantDelta,
     AssistantMessage,
@@ -162,6 +168,11 @@ class InteractiveRuntime:
         self._project_root = Path.cwd().resolve()
         self._sessions: dict[str, list[dict[str, Any]]] = {}
         self._session_costs: dict[str, float] = {}
+        # Structured sidebar snapshot for rich frontends; cumulative for the
+        # life of this gateway process (the HTTP adapter mints a fresh session
+        # id per request, so per-session totals would reset every turn).
+        self._status_snapshot = StatusSnapshot()
+        self._status_path = configured_status_path()
         self._pending_permissions: dict[str, dict[str, Any]] = {}
         self._active_tools: list[str] | None = None
         self._current_mode: str = "code"
@@ -324,6 +335,9 @@ class InteractiveRuntime:
         """Call LiteLLM with bounded exponential backoff for provider throttling."""
         import litellm
 
+        from lemoncrow.core.capabilities.providers.zen import apply_zen_transport
+
+        request_kwargs = apply_zen_transport(request_kwargs)
         max_retries = max(0, int(os.environ.get("LEMONCROW_LLM_MAX_RETRIES", "6")))
         base_delay = max(1.0, float(os.environ.get("LEMONCROW_LLM_RETRY_BASE_SECONDS", "8")))
         for attempt in range(max_retries + 1):
@@ -342,6 +356,35 @@ class InteractiveRuntime:
                 await asyncio.sleep(min(120.0, base_delay * (2**attempt)))
         raise RuntimeError("unreachable retry state")
 
+    def _publish_status_snapshot(
+        self,
+        *,
+        model: str,
+        input_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+        output_tokens: int,
+        cost_usd: float,
+        saved_usd: float,
+        cache_efficiency_pct: float,
+    ) -> None:
+        """Refresh the sidebar snapshot; a frontend without one costs nothing."""
+        if self._status_path is None:
+            return
+        self._status_snapshot.add_turn(
+            provider=self._provider_override or "",
+            model=model,
+            input_tokens=input_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            saved_usd=saved_usd,
+            cache_efficiency_pct=cache_efficiency_pct,
+        )
+        self._status_snapshot.index = read_index_status(self._project_root)
+        write_status_snapshot(self._status_path, self._status_snapshot)
+
     async def _execute_tool_call(
         self,
         tool_name: str,
@@ -349,6 +392,7 @@ class InteractiveRuntime:
         session_id: str = "",
     ) -> tuple[str, bool]:
         """Execute one built-in, exposed MCP, or fallback-broker call."""
+        self._status_snapshot.record_tool_call(tool_name)
         try:
             if tool_name == "mcp_tool":
                 result_str = await asyncio.to_thread(self._dispatch_mcp_broker, tool_args)
@@ -520,7 +564,9 @@ class InteractiveRuntime:
                 reason=route_reason,
             )
         except Exception:
-            selected_model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
+            from lemoncrow.core.capabilities.providers.zen import fallback_model as _fallback_model
+
+            selected_model = _fallback_model()
             initial_route_trace = {
                 "proposed": {"model": selected_model},
                 "actual": {"model": selected_model},
@@ -787,6 +833,10 @@ class InteractiveRuntime:
             tool_calls_acc: dict[int, dict[str, Any]] = {}
             finish_reason = ""
             iter_input = iter_output = iter_cache_read = iter_cache_write = 0
+            # Reasoning models spend the same max_tokens budget on hidden
+            # reasoning, so a truncation on those needs a bigger allowance than
+            # the single doubling that suffices for a plain completion.
+            iter_reasoning = 0
             base_output_limit = output_token_limit(budget_hint, state.phase)
             phase_output_limit = next_output_limit or base_output_limit
             next_output_limit = None
@@ -876,7 +926,9 @@ class InteractiveRuntime:
             except Exception as exc:
                 err_str = str(exc)
                 blocked = "API_KEY_SERVICE_BLOCKED" in err_str or "PERMISSION_DENIED" in err_str or "403" in err_str
-                fallback_model = os.environ.get("LEMONCROW_LITELLM_MODEL", "gpt-4o-mini")
+                from lemoncrow.core.capabilities.providers.zen import fallback_model as _fallback_model
+
+                fallback_model = _fallback_model()
                 if blocked and current_model != fallback_model:
                     yield RuntimeErrorEvent(
                         type="error",
@@ -929,6 +981,9 @@ class InteractiveRuntime:
                     iter_output += output
                     iter_cache_read += cached
                     iter_cache_write += cache_write
+                    completion_details = getattr(usage, "completion_tokens_details", None)
+                    if completion_details is not None:
+                        iter_reasoning += int(getattr(completion_details, "reasoning_tokens", 0) or 0)
 
                 choice = chunk.choices[0] if chunk.choices else None
                 if choice is None:
@@ -1037,10 +1092,19 @@ class InteractiveRuntime:
                     success=False,
                     cost_usd=iteration_cost,
                 )
-                extended = min(max(phase_output_limit + 256, phase_output_limit * 2), base_output_limit * 4)
+                # A reasoning model reports its hidden tokens in
+                # completion_tokens_details; the visible answer only gets what is
+                # left, so grow the cap past the reasoning spend instead of
+                # doubling a budget reasoning already consumed.
+                reasoning_headroom = iter_reasoning * 2 if iter_reasoning else 0
+                extended = min(
+                    max(phase_output_limit + 256, phase_output_limit * 2, reasoning_headroom),
+                    base_output_limit * 8 if iter_reasoning else base_output_limit * 4,
+                )
                 if max_output_tokens is not None and max_output_tokens > 0:
                     extended = min(extended, max_output_tokens)
-                if truncation_extensions < 1 and extended > phase_output_limit:
+                max_extensions = 3 if iter_reasoning else 1
+                if truncation_extensions < max_extensions and extended > phase_output_limit:
                     truncation_extensions += 1
                     next_output_limit = extended
                     trace.record_truncation_extension()
@@ -1339,6 +1403,16 @@ class InteractiveRuntime:
                 cache_efficiency_pct=efficiency,
                 cost_usd=total_cost,
                 stem_version=STEM_VERSION,
+            )
+            self._publish_status_snapshot(
+                model=current_model,
+                input_tokens=total_input,
+                cache_read_tokens=total_cache_read,
+                cache_write_tokens=total_cache_write,
+                output_tokens=total_output,
+                cost_usd=total_cost,
+                saved_usd=max(0.0, total_naive_cost - total_cost),
+                cache_efficiency_pct=efficiency,
             )
 
         if total_cache_read > total_input // 2 and total_input > 0:

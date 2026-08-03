@@ -20,6 +20,8 @@ from typing import Literal
 
 import click
 
+from lemoncrow.core.capabilities.statusline_sidecar import STATUS_FILE_ENV, status_file_path
+
 EngineName = Literal["auto", "lemoncode", "codex", "claude", "native"]
 _UPSTREAM_ENGINES = ("lemoncode", "codex", "claude")
 
@@ -72,11 +74,16 @@ def _build_engine_launch(
     budget: str,
     prompt: str | None,
     resume: str | None,
+    status_file: Path | None = None,
     base_env: dict[str, str] | None = None,
 ) -> EngineLaunch:
     """Build a shell-free invocation for one supported upstream CLI."""
     env = dict(base_env or os.environ)
     env["LEMONCROW_GATEWAY_TOKEN"] = token
+    env["NO_PROXY"] = _no_proxy_with_loopback()
+    env["no_proxy"] = env["NO_PROXY"]
+    if status_file is not None:
+        env[STATUS_FILE_ENV] = str(status_file)
     output_ceiling = _output_ceiling(budget)
 
     if engine in {"lemoncode", "opencode"}:
@@ -99,7 +106,9 @@ def _build_engine_launch(
                     },
                     "models": {
                         "lemoncrow": {
-                            "name": "LemonCode",
+                            # Distinct from the provider name: the frontend
+                            # status line renders "<provider> <model>".
+                            "name": "Auto",
                             "limit": {
                                 "context": 200_000,
                                 "output": output_ceiling,
@@ -201,11 +210,15 @@ def _free_loopback_port() -> int:
 
 def _wait_for_gateway(process: subprocess.Popen[bytes], health_url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
+    # The gateway is on loopback: never send its health probe through an ambient
+    # HTTP(S)_PROXY (corporate proxy, or the hermetic benchmark mitmproxy). urllib
+    # honours those env vars by default, which makes readiness always time out.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"gateway exited during startup with status {process.returncode}")
         try:
-            with urllib.request.urlopen(health_url, timeout=0.5) as response:
+            with opener.open(health_url, timeout=0.5) as response:
                 if response.status == 200:
                     return
         except (OSError, urllib.error.URLError):
@@ -213,10 +226,21 @@ def _wait_for_gateway(process: subprocess.Popen[bytes], health_url: str, timeout
     raise RuntimeError(f"gateway did not become ready within {timeout:g}s")
 
 
+def _no_proxy_with_loopback() -> str:
+    """Existing NO_PROXY plus the loopback names the gateway is reached by."""
+    existing = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    entries = [item.strip() for item in existing.split(",") if item.strip()]
+    for host in ("127.0.0.1", "localhost", "::1"):
+        if host not in entries:
+            entries.append(host)
+    return ",".join(entries)
+
+
 @contextmanager
 def _managed_gateway(
     *,
     store_root: Path,
+    status_file: Path,
     project_root: Path,
     provider: str,
     model: str,
@@ -243,6 +267,11 @@ def _managed_gateway(
             "LEMONCROW_WORKSPACE_ROOT": str(project_root),
             "CLAUDE_WORKSPACE_ROOT": str(project_root),
             "LEMONCROW_GATEWAY_TOKEN": token,
+            # Frontend -> gateway traffic is loopback; an ambient proxy must never
+            # intercept it (it cannot route back into this host's localhost).
+            "NO_PROXY": _no_proxy_with_loopback(),
+            "no_proxy": _no_proxy_with_loopback(),
+            STATUS_FILE_ENV: str(status_file),
             "LEMONCROW_CODE_BUDGET": budget,
             "LEMONCROW_CODE_CACHE_POLICY": cache_policy,
             "LEMONCROW_CODE_MCP": "1" if mcp_enabled else "0",
@@ -366,8 +395,13 @@ def run_coding_engine(
     empty_mcp.parent.mkdir(parents=True, exist_ok=True)
     empty_mcp.write_text('{"mcpServers":{}}\n', encoding="utf-8")
 
+    # One structured snapshot path per run, shared by the gateway (writer) and
+    # the frontend sidebar (reader).
+    status_file = status_file_path(store_root, f"code-{os.getpid()}")
+
     with _managed_gateway(
         store_root=store_root,
+        status_file=status_file,
         project_root=project_root,
         provider=provider,
         model=model,
@@ -390,6 +424,7 @@ def run_coding_engine(
             budget=budget,
             prompt=prompt,
             resume=resume,
+            status_file=status_file,
         )
         try:
             completed = subprocess.run(
