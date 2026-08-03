@@ -27,6 +27,8 @@
 
 set -euo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/managed_context.sh"
+
 if [[ -t 1 ]]; then
     C_RESET="$(printf '\033[0m')"
     C_DIM="$(printf '\033[2m')"
@@ -103,7 +105,9 @@ host_is_detected() {
         claude) command -v claude >/dev/null 2>&1 ;;
         codex) command -v codex >/dev/null 2>&1 ;;
         opencode) command -v opencode >/dev/null 2>&1 ;;
-        lemoncode) command -v lemoncode >/dev/null 2>&1 ;;
+        # The LemonCode *host binary*, not the `lemoncode` wheel console script
+        # (an alias for `lc code`) that ships with every LemonCrow install.
+        lemoncode) lemoncrow_lemoncode_host_installed ;;
         copilot) command -v code >/dev/null 2>&1 ;;
         antigravity) command -v antigravity >/dev/null 2>&1 || command -v agy >/dev/null 2>&1 ;;
         cursor) command -v cursor >/dev/null 2>&1 || command -v cursor-agent >/dev/null 2>&1 || [ -d "${HOME}/.cursor" ] ;;

@@ -142,6 +142,8 @@ STACK_STARTED=0
 # Falls back to in-usage defaults if the file is absent.
 # shellcheck source=versions.sh
 [[ -r "${BASH_SOURCE[0]%/*}/versions.sh" ]] && source "${BASH_SOURCE[0]%/*}/versions.sh"
+# shellcheck source=managed_context.sh
+[[ -r "${BASH_SOURCE[0]%/*}/managed_context.sh" ]] && source "${BASH_SOURCE[0]%/*}/managed_context.sh"
 PASSTHROUGH=()
 WARNINGS=()
 ERRORS=()
@@ -1086,15 +1088,18 @@ detect_hosts() {
 
     # LemonCode: rebranded opencode fork. Appended last so the existing menu
     # numbering (1-4) stays stable for anyone with muscle memory.
-    if command -v lemoncode >/dev/null 2>&1; then
+    #
+    # LemonCode is the host this project ships, so it is default-selected even
+    # when absent: selecting it downloads the host binary rather than skipping.
+    # Detection therefore only changes the label, never the default.
+    if lemoncrow_lemoncode_host_installed; then
         HOST_SUMMARY+=("LemonCode (detected)")
         HOST_CHOICES+=("LemonCode|detected")
-        HOST_DEFAULT_SELECTION+=(1)
     else
-        HOST_SUMMARY+=("LemonCode (not found)")
-        HOST_CHOICES+=("LemonCode|not found")
-        HOST_DEFAULT_SELECTION+=(0)
+        HOST_SUMMARY+=("LemonCode (not found, will be installed)")
+        HOST_CHOICES+=("LemonCode|will be installed")
     fi
+    HOST_DEFAULT_SELECTION+=(1)
 }
 join_with_comma_space() {
     local joined=""

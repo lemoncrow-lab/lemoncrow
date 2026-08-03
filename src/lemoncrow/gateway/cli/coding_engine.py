@@ -35,6 +35,29 @@ class EngineLaunch:
     env: dict[str, str]
 
 
+def _provision_lemoncode_host(store_root: Path) -> str:
+    """Return the LemonCode host binary, downloading it if it is not present yet.
+
+    LemonCode is the host this project ships, so asking for it is taken as
+    permission to install it. Third-party engines are never auto-installed.
+    """
+    from lemoncrow.gateway.cli.lemoncode_host import install_host_release, resolve_host_binary
+
+    executable = resolve_host_binary(store_root)
+    if executable is not None:
+        return executable
+    click.echo("  LemonCode host not found - installing it now...", err=True)
+    try:
+        installed = install_host_release(store_root)
+    except click.ClickException as exc:
+        raise click.ClickException(
+            f"LemonCode host is not installed and could not be downloaded ({exc.format_message()}); "
+            "run `lc code host install` or build it with `lc code host build --source opencode`"
+        ) from exc
+    click.echo(f"  ✓ LemonCode host installed: {installed}", err=True)
+    return str(installed)
+
+
 def _resolve_engine(requested: EngineName, *, store_root: Path) -> tuple[str, str | None]:
     normalized = requested.strip().lower()
     if normalized == "opencode":
@@ -45,10 +68,10 @@ def _resolve_engine(requested: EngineName, *, store_root: Path) -> tuple[str, st
     from lemoncrow.gateway.cli.lemoncode_host import resolve_host_binary
 
     if normalized != "auto":
-        executable = resolve_host_binary(store_root) if normalized == "lemoncode" else shutil.which(normalized)
+        if normalized == "lemoncode":
+            return normalized, _provision_lemoncode_host(store_root)
+        executable = shutil.which(normalized)
         if executable is None:
-            if normalized == "lemoncode":
-                raise click.ClickException("LemonCode host is not installed; run `lc code host install`")
             raise click.ClickException(f"{normalized} is not installed; install it or use --engine native")
         return normalized, executable
 
