@@ -742,6 +742,14 @@ def _servicectl_tick(
 
         prune_stale_daemons(root)
 
+    # Same for per-session registrations: an agent host that leaks its `lc mcp`
+    # child leaves a zombie whose registration file otherwise lingers for as
+    # long as that host runs. Cheap glob; fail-open.
+    with suppress(Exception):
+        from lemoncrow.gateway.adapters.mcp.session_state import prune_stale_mcp_sessions
+
+        prune_stale_mcp_sessions(root)
+
     now = datetime.now(UTC)
     state = _read_servicectl_state(root)
     periodic = state.setdefault("periodic_jobs", {})

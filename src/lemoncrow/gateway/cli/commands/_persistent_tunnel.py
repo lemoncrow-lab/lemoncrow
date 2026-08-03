@@ -352,27 +352,26 @@ def start_named_tunnel_process(binary: str, tunnel_ref: str, port: int, credenti
     return proc
 
 
-def setup_persistent_tunnel(
+def provision_persistent_tunnel(
     *,
-    port: int,
     hostname: str,
     existing_state: TunnelState | None,
     state_path: Path,
     binary: str,
     narrate: Callable[[str], None],
-) -> subprocess.Popen[str]:
-    """Full ``--persistent`` setup (or fast-path reuse), then launch
-    ``cloudflared tunnel run``.
+) -> TunnelState:
+    """Resolve (creating if needed) the named tunnel for ``hostname``, without
+    starting ``cloudflared tunnel run``.
 
-    Assumes the caller (``mcp_serve.py``) already resolved ``hostname`` and
-    loaded ``existing_state`` from that hostname's own state file — this
-    function only orchestrates cloudflared. ``narrate`` is called with short
-    progress messages so the operator isn't staring at a silent hang during
-    the interactive browser login step.
+    Split out of :func:`setup_persistent_tunnel` because the boot-persistent
+    service path has to do the *interactive* half (browser login, tunnel
+    create, DNS route) in the operator's own terminal and then hand the
+    non-interactive half — running the tunnel — to systemd/launchd. Once this
+    returns, the persisted state is complete, so every later start is silent.
     """
     if existing_state is not None:
         narrate(f"Using persisted tunnel {existing_state.tunnel_name!r} (id={existing_state.tunnel_id}).")
-        return start_named_tunnel_process(binary, existing_state.tunnel_id, port, existing_state.credentials_path)
+        return existing_state
 
     if not is_logged_in():
         narrate("Not logged in to Cloudflare — launching `cloudflared tunnel login`…")
@@ -394,8 +393,36 @@ def setup_persistent_tunnel(
     narrate(f"Routing DNS: {hostname} → {tunnel_name}…")
     route_dns(binary, tunnel_name, hostname)
 
-    save_tunnel_state(
-        state_path,
-        TunnelState(tunnel_name=tunnel_name, tunnel_id=tunnel_id, hostname=hostname, credentials_path=credentials_path),
+    state = TunnelState(
+        tunnel_name=tunnel_name, tunnel_id=tunnel_id, hostname=hostname, credentials_path=credentials_path
     )
-    return start_named_tunnel_process(binary, tunnel_id, port, credentials_path)
+    save_tunnel_state(state_path, state)
+    return state
+
+
+def setup_persistent_tunnel(
+    *,
+    port: int,
+    hostname: str,
+    existing_state: TunnelState | None,
+    state_path: Path,
+    binary: str,
+    narrate: Callable[[str], None],
+) -> subprocess.Popen[str]:
+    """Full ``--persistent`` setup (or fast-path reuse), then launch
+    ``cloudflared tunnel run``.
+
+    Assumes the caller (``mcp_serve.py``) already resolved ``hostname`` and
+    loaded ``existing_state`` from that hostname's own state file — this
+    function only orchestrates cloudflared. ``narrate`` is called with short
+    progress messages so the operator isn't staring at a silent hang during
+    the interactive browser login step.
+    """
+    state = provision_persistent_tunnel(
+        hostname=hostname,
+        existing_state=existing_state,
+        state_path=state_path,
+        binary=binary,
+        narrate=narrate,
+    )
+    return start_named_tunnel_process(binary, state.tunnel_id, port, state.credentials_path)

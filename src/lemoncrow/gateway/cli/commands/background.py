@@ -52,6 +52,21 @@ from lemoncrow.infra.runtime.stack_lifecycle import (
 )
 
 
+# Per-hostname MCP services are installed by `lc mcp serve --persistent`, not by
+# `background install` — they are still LemonCrow background units, so the
+# status/restart/uninstall verbs here have to see them.
+def _mcp_units() -> list[str]:
+    from lemoncrow.gateway.cli.commands._mcp_service import installed_units
+
+    return installed_units()
+
+
+def _mcp_labels() -> list[str]:
+    from lemoncrow.gateway.cli.commands._mcp_service import installed_labels
+
+    return installed_labels()
+
+
 @click.group("background", hidden=True)
 def background_group() -> None:
     """Manage LemonCrow background services (systemd on Linux, launchd on macOS)."""
@@ -496,7 +511,7 @@ WantedBy=default.target
 def background_uninstall(ctx: click.Context) -> None:
     """Stop and remove LemonCrow background units."""
     if _is_linux():
-        for unit in [CONTROLLER_UNIT, STACK_UNIT, LETTA_UNIT, OPENMEMORY_UNIT, ZOEKT_UNIT]:
+        for unit in [CONTROLLER_UNIT, STACK_UNIT, LETTA_UNIT, OPENMEMORY_UNIT, ZOEKT_UNIT, *_mcp_units()]:
             path = SYSTEMD_USER_DIR / unit
             if path.exists():
                 subprocess.run(["systemctl", "--user", "disable", "--now", unit], check=False)
@@ -505,7 +520,7 @@ def background_uninstall(ctx: click.Context) -> None:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, ZOEKT_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, ZOEKT_LABEL, *_mcp_labels()]:
             plist = LAUNCHD_USER_DIR / f"{label}.plist"
             if plist.exists():
                 subprocess.run(["launchctl", "unload", str(plist)], check=False)
@@ -529,12 +544,13 @@ def background_status(ctx: click.Context) -> None:
             units.append(LETTA_UNIT)
         if (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).exists():
             units.append(OPENMEMORY_UNIT)
+        units.extend(_mcp_units())
         for unit in units:
             click.echo(f"--- {unit} ---")
             subprocess.run(["systemctl", "--user", "status", unit, "--no-pager"], check=False)
             click.echo("")
     elif _is_macos():
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, *_mcp_labels()]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 click.echo(f"--- {label} ---")
                 subprocess.run(["launchctl", "list", label], check=False)
@@ -555,12 +571,13 @@ def background_restart(ctx: click.Context) -> None:
             units.append(LETTA_UNIT)
         if (SYSTEMD_USER_DIR / OPENMEMORY_UNIT).exists():
             units.append(OPENMEMORY_UNIT)
+        units.extend(_mcp_units())
         for unit in units:
             subprocess.run(["systemctl", "--user", "restart", unit], check=True)
             click.echo(f"Restarted {unit}")
     elif _is_macos():
         uid = os.getuid()
-        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL]:
+        for label in [CONTROLLER_LABEL, STACK_LABEL, LETTA_LABEL, OPENMEMORY_LABEL, *_mcp_labels()]:
             if (LAUNCHD_USER_DIR / f"{label}.plist").exists():
                 subprocess.run(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], check=False)
                 click.echo(f"Restarted {label}")
