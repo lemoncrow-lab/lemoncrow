@@ -1515,7 +1515,7 @@ def benchmark_telegraphic_cmd(
 )
 @click.option(
     "--driver",
-    type=click.Choice(["claude", "cursor"]),
+    type=click.Choice(["claude", "cursor", "lemoncode"]),
     default="claude",
     show_default=True,
     help="Agent CLI inside each container: claude or cursor-agent (needs a host `cursor-agent login`).",

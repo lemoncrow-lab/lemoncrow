@@ -320,7 +320,9 @@ def run(args: argparse.Namespace) -> int:
     # the default cap of 4, total parallelism is 8 (4 per token).
     # OAuth-token rotation is claude-only; cursor authenticates from auth.json and
     # parallelizes via --jobs.
-    tokens = [] if args.driver == "cursor" else _resolve_oauth_tokens(agent_env)
+    # OAuth-token rotation is claude-only: cursor authenticates from auth.json,
+    # and the lemoncode driver runs on Zen's keyless public tier.
+    tokens = [] if args.driver in ("cursor", "lemoncode") else _resolve_oauth_tokens(agent_env)
     per_token = max(1, args.jobs_per_token)
     token_slots: queue.Queue[str] | None = None
     if tokens:
@@ -500,7 +502,7 @@ def main() -> int:
     p.add_argument("-a", "--arms", nargs="*", default=list(ARMS), choices=ARMS)
     p.add_argument(
         "--driver",
-        choices=["claude", "cursor"],
+        choices=["claude", "cursor", "lemoncode"],
         default="claude",
         help="Agent CLI run inside each container: claude (default) or cursor-agent. "
         "cursor requires a host `cursor-agent login` (auth.json is mounted in).",
