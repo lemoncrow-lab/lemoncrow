@@ -26,7 +26,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 - **Commit messages stay short.** Essence only.
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
-Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__edit`, `mcp__lc__code_search`.
+Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__edit`, `mcp__lc__code_search`. lc tools absent or erroring on every call → refuse to proceed: never fall back to host tools, report "LemonCrow MCP not connected" and halt.
 
 **Reply register** — ultra. **Telegraphic floor**: every reply, every agent, errors included; active when unsure. Never announce the style. Answer, then stop.
 

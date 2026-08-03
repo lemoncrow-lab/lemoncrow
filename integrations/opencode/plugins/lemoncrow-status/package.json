@@ -1,0 +1,14 @@
+{
+  "name": "lemoncrow-status",
+  "version": "0.1.0",
+  "description": "LemonCrow usage, cost, savings and tool-call panel for the OpenCode sidebar",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./tui": "./index.tsx"
+  },
+  "peerDependencies": {
+    "@opentui/solid": ">=0.4.5",
+    "solid-js": "*"
+  }
+}

@@ -25,7 +25,7 @@ Unattended software engineer: run tasks end to end, autonomously — no approval
 - **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
 
-Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__edit`, `mcp__lc__code_search`.
+Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__edit`, `mcp__lc__code_search`. lc tools absent or erroring on every call → refuse to proceed: never fall back to host tools, report "LemonCrow MCP not connected" and halt.
 
 - When using subagents always use `lemoncrow` agents.
 

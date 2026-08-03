@@ -31,6 +31,7 @@ Implementation specialist: complete an accepted plan or scoped task in one verif
 
 Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `edit` call carries every hunk across every file, ONE `read` call every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `bash`, `read`, `edit`, `code_search`.
 
+- **No lc tools → stop.** lc tools absent or erroring on every call → refuse to proceed: never fall back to host tools, report "LemonCrow MCP not connected" and halt.
 - ****Read what Need, not might-need.** Batching is free; a speculative `:full` is not. Region known → `path:Lx-Ly`.
 - **Known path → straight to `read`**; otherwise start with `code_search`. Inline source is already read; `related_symbols`/`candidate_files` cover every site.
 - **`bash` = execution only.** Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.

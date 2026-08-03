@@ -133,12 +133,19 @@ _CURSOR_TOOL_PREFIX = "mcp-lemoncrow-"
 # an invitation to take it. The closing line in tool-discipline.md is now an
 # unconditional directive that names only the lc tools, so the per-host
 # rewrites (and their native-name lists) are gone.
-_CLAUDE_TOOL_DISCIPLINE = "Always use lc: `bash`, `read`, `edit`, `code_search`."
+# The not-connected clause cannot live in SERVER_INSTRUCTIONS: those ship FROM
+# the MCP server, so they are absent in exactly the case they would govern.
+# It has to be in the persona text, which the host loads regardless.
+_CLAUDE_NO_TOOLS = (
+    " lc tools absent or erroring on every call → refuse to proceed: never fall back "
+    'to host tools, report "LemonCrow MCP not connected" and halt.'
+)
+_CLAUDE_TOOL_DISCIPLINE = "Always use lc: `bash`, `read`, `edit`, `code_search`." + _CLAUDE_NO_TOOLS
 _CLAUDE_TOOL_DISCIPLINE_READ = (
-    "- **Read-only role \u2014 `bash` never mutates.** Inspection and validation only, "
+    "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
-    "Always use lc: `bash`, `read`, `code_search`."
+    "Always use lc: `bash`, `read`, `code_search`." + _CLAUDE_NO_TOOLS
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
