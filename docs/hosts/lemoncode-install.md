@@ -14,11 +14,20 @@ gateway-native routing.
 ## Quick Install
 
 ```bash
-lc code host install
+lc code --engine lemoncode
 ```
 
-This downloads a checksummed release of the host binary into
-`<store>/bin/lemoncode-host`. To install the LemonCrow host config as well:
+That is the whole install. LemonCode is the host this project ships, so asking
+for it is taken as permission to provision it: if the host binary is missing,
+a checksummed release is downloaded into `<store>/bin/lemoncode-host` before
+the host launches. Selecting LemonCode in the installer wizard does the same,
+whether or not it was detected — no separate step, and no need to have it
+installed beforehand.
+
+`lc code host install` remains available to provision the binary on its own
+(prefetching, or an image build), but it is not a prerequisite.
+
+To install the LemonCrow host config as well:
 
 ```bash
 make install
@@ -30,7 +39,8 @@ By default this installs LemonCode user/global config. For a project-local insta
 bash scripts/install_lemoncode.sh --workspace /path/to/workspace
 ```
 
-One-command run (auto-start gateway, launch LemonCode):
+One-command run (provision the host if needed, auto-start gateway, launch
+LemonCode):
 
 ```bash
 lc code --engine lemoncode
@@ -131,7 +141,7 @@ lc code host status --json
 
 | Problem                       | Fix                                                                                                                     |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `lemoncode` host not found    | Run `lc code host install`, or build from the vendored checkout with `lc code host build` (requires `bun`)              |
+| Host download failed          | `lc code --engine lemoncode` provisions the host automatically; if the download fails, retry `lc code host install` or build from the vendored checkout with `lc code host build` (requires `bun`) |
 | Checksum verification failed  | Re-run `lc code host install`; if it persists, build from source instead                                                |
 | Host keeps auto-updating      | Set `LEMONCODE_HOST_UPDATE=off`                                                                                         |
 | MCP tools not showing         | Restart LemonCode after install                                                                                         |
