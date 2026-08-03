@@ -37,6 +37,12 @@ _CACHE_WRITE_KEYS = (
     "cacheWriteInputTokens",
     "cacheWriteInputTokenCount",
 )
+# OpenAI-compatible spellings (OpenAI, OpenRouter, Groq, OpenCode Zen, ...).
+# ``prompt_tokens`` counts cached tokens too, unlike Anthropic's
+# ``input_tokens``, so the cached part is subtracted out below.
+_OPENAI_PROMPT_KEYS = ("prompt_tokens", "promptTokens")
+_OPENAI_COMPLETION_KEYS = ("completion_tokens", "completionTokens")
+_OPENAI_CACHED_KEYS = ("cached_tokens", "cachedTokens")
 
 
 @dataclass
@@ -80,7 +86,34 @@ def _first_int(d: dict, keys: tuple[str, ...]) -> int | None:
     return None
 
 
+def _merge_openai_usage(u: Usage, usage: dict, *, update_inputs: bool, update_output: bool) -> bool:
+    """Fold an OpenAI-shaped ``usage`` object into *u*; True when it applied.
+
+    Returns False for Anthropic/Bedrock payloads so the caller keeps its own
+    (more detailed) handling.
+    """
+    prompt = _first_int(usage, _OPENAI_PROMPT_KEYS)
+    completion = _first_int(usage, _OPENAI_COMPLETION_KEYS)
+    if prompt is None and completion is None:
+        return False
+    if update_inputs and prompt is not None:
+        details = usage.get("prompt_tokens_details")
+        cached = _first_int(details, _OPENAI_CACHED_KEYS) if isinstance(details, dict) else None
+        if cached is None:
+            cached = _first_int(usage, ("prompt_cache_hit_tokens",))
+        cached = max(0, cached or 0)
+        u.cache_read_input_tokens = cached
+        # Cache *writes* are implicit on OpenAI-compatible endpoints -- there is
+        # no separate creation count to report.
+        u.input_tokens = max(0, prompt - cached)
+    if update_output and completion is not None:
+        u.output_tokens = completion
+    return True
+
+
 def _merge_usage_dict(u: Usage, usage: dict, *, update_inputs: bool, update_output: bool) -> None:
+    if _merge_openai_usage(u, usage, update_inputs=update_inputs, update_output=update_output):
+        return
     if update_inputs:
         iv = _first_int(usage, _INPUT_KEYS)
         if iv is not None:
@@ -110,6 +143,11 @@ def _apply_event(u: Usage, event: dict) -> None:
     Converse emits a ``metadata`` event with the full breakdown.
     """
     etype = event.get("type")
+    if etype is None and isinstance(event.get("usage"), dict) and "choices" in event:
+        # OpenAI-compatible SSE: the terminal chunk carries the whole usage
+        # object (Anthropic instead splits it across message_start/_delta).
+        _merge_usage_dict(u, event["usage"], update_inputs=True, update_output=True)
+        return
     if etype == "message_start":
         msg = event.get("message")
         if isinstance(msg, dict) and isinstance(msg.get("usage"), dict):

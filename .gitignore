@@ -329,6 +329,9 @@ build_dist/
 # per clone, never shared: keep it untracked.
 /.githooks/prepare-commit-msg
 
+# tree-sitter grammar cache written by codebench containers (root-owned, per-run)
+/benchmarks/codebench/.tree-sitter-cache/
+
 # LibreOffice/soffice lock files (created while a CSV is open in a spreadsheet app)
 .~lock.*#
 docs/assets/screenshots/session-replay.gif

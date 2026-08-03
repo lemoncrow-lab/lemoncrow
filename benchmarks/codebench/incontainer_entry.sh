@@ -63,6 +63,14 @@ export BASH_ENV="$_act"
 ARM="${CODEBENCH_ARM:-baseline}"
 MODEL="${CODEBENCH_MODEL:-opus}"
 DRIVER="${CODEBENCH_DRIVER:-claude}"
+# The lemoncode/lemoncrow arm makes its provider calls from Python (the gateway),
+# not from node, so NODE_EXTRA_CA_CERTS alone leaves httpx/requests unable to
+# verify the hermetic mitmproxy's certificate -- every upstream call would fail
+# TLS and the agent would finish with an empty patch.
+if [ -f /mnt/mitm.pem ]; then
+  export SSL_CERT_FILE=/mnt/mitm.pem
+  export REQUESTS_CA_BUNDLE=/mnt/mitm.pem
+fi
 # LemonCrow MCP host: claude|cursor (which adapter the lc server speaks). Both
 # drivers share the lc index/prewarm below; only the agent CLI + MCP wiring differ.
 HOST="${CODEBENCH_HOST:-claude}"
@@ -153,7 +161,24 @@ if [ "$DRIVER" = "cursor" ]; then
 ${prompt}"
 fi
 
-if [ "$DRIVER" = "cursor" ]; then
+if [ "$DRIVER" = "lemoncode" ]; then
+  # Stock OpenCode (baseline) vs the LemonCode fork driven by LemonCrow. Both
+  # arms run the same Zen model, so the only variable is LemonCrow itself.
+  LC_MODEL="${CODEBENCH_LEMONCODE_MODEL:-big-pickle}"
+  # Cold container: index prewarm + MCP boot can exceed the 30s default.
+  export LEMONCROW_CODE_GATEWAY_START_TIMEOUT="${LEMONCROW_CODE_GATEWAY_START_TIMEOUT:-180}"
+  if [ "$ARM" = "lemoncrow" ]; then
+    # LemonCrow owns routing, tools, cache and output limits; it starts its own
+    # gateway plus the managed LemonCode host (mounted at
+    # /root/.lemoncrow/bin/lemoncode-host).
+    (cd "$REPO" && lemoncrow code --engine lemoncode --project-root "$REPO" --model "zen/$LC_MODEL" --optimization-mode enforce -p "$prompt") 2>&1 | tee /tmp/lemoncode-arm.log
+  else
+    # Unmodified upstream OpenCode against Zen's keyless public tier.
+    export OPENCODE_DISABLE_AUTOUPDATE=true
+    (cd "$REPO" && opencode run --model "opencode/$LC_MODEL" "$prompt")
+  fi
+  rm -rf "$REPO/.opencode"
+elif [ "$DRIVER" = "cursor" ]; then
   # stream-json: every tool_call event on stdout so the host can attribute
   # native vs MCP routing (plain json only emits the final result envelope).
   cargs=(-p "$prompt" --force --output-format stream-json)
