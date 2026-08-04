@@ -98,9 +98,9 @@ and [docs/benchmarks/results.md](docs/benchmarks/results.md).
 LemonCrow keeps your existing coding agent and changes the working set around it:
 
 <p align="center">
-  <img src="docs/assets/screenshots/source-map.jpg" alt="LemonCrow source map showing a full repository code universe: 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, with one function focused to show its callers and callees." width="720">
+  <img src="docs/assets/screenshots/source-map.jpg" alt="LemonGraph, LemonCrow's local code graph, showing a full repository code universe: 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, with one function focused to show its callers and callees." width="720">
 </p>
-<p align="center"><sub>Your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
+<p align="center"><sub>LemonGraph — your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
 
 | Stage      | Runtime behavior                                                                                              |
 | ------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -123,14 +123,14 @@ strongest equivalent controls they expose.
 
 | LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
 | ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source — no grep-loop-then-read-whole-file. Ranked by call-graph centrality over a tree-sitter symbol table |
+| `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source — no grep-loop-then-read-whole-file. Ranked by LemonGraph centrality over a tree-sitter symbol table |
 | `read`         | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                                                                                       |
 | `edit`         | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                                                                                       |
 | `bash`         | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                                                                                        |
 | `web_fetch`    | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                                                                                                |
 
 What's unchanged: the host, the model, your workflow. Full internals:
-[Architecture](docs/architecture.md).
+[Architecture](docs/reference/architecture.md).
 
 **Caveat — Cursor (CLI vs IDE).** Built-ins can't be hidden there, so
 LemonCrow is additive — Claude Code and Codex can displace most of their
@@ -327,7 +327,7 @@ that returns a concrete delete-list — code to remove, not rewrite.
   key. There is no crash reporting.
 - Apart from that rollup, the only network calls the runtime makes are ones you
   initiate (`lc update`, which checks GitHub Releases).
-- Full detail: [docs/privacy.md](docs/privacy.md).
+- Full detail: [docs/setup/privacy.md](docs/setup/privacy.md).
 
 ## Supported environments
 
@@ -340,7 +340,7 @@ that returns a concrete delete-list — code to remove, not rewrite.
 - **Build requirements:** `uv`, a C toolchain (only if you opt into the `mypyc`
   performance build; a pure-Python build works without it), and `git`.
 - **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
-  and [Troubleshooting](docs/troubleshooting.md).
+  and [Troubleshooting](docs/setup/troubleshooting.md).
 
 ## Roadmap — Savings Optimization
 
@@ -352,20 +352,20 @@ measurement-pending; MCP exposure is adapted-complete without a mandatory
 search-first call.
 
 See the
-[detailed savings optimization status and roadmap](docs/savings-optimization-roadmap.md)
+[detailed savings optimization status and roadmap](docs/planning/savings-optimization-roadmap.md)
 for shipped behavior, missing work, original estimates, acceptance gates, and
 the proposed implementation order. Planning estimates there are non-additive
 and are not presented as measured savings.
 
 ## Learn more
 
-- [Installation](docs/installation.md)
-- [Troubleshooting](docs/troubleshooting.md)
+- [Installation](docs/setup/installation.md)
+- [Troubleshooting](docs/setup/troubleshooting.md)
 - [Benchmarks](BENCHMARKS.md) · [full results with methodology](docs/benchmarks/results.md)
-- [CLI reference](docs/cli.md)
-- [Architecture](docs/architecture.md)
-- [Privacy & network behavior](docs/privacy.md)
-- [Maintenance-mode transition (audit & rationale)](docs/maintenance-mode-transition.md)
+- [CLI reference](docs/reference/cli.md)
+- [Architecture](docs/reference/architecture.md)
+- [Privacy & network behavior](docs/setup/privacy.md)
+- [Maintenance-mode transition (audit & rationale)](docs/operations/maintenance-mode-transition.md)
 
 ## Removal
 
@@ -397,7 +397,7 @@ So I built LemonCrow. Every number below is an absolute-dollar measurement
 
 ## Development & Building from Source
 
-If you want to build LemonCrow from source or run a local development setup, clone the repository and run the local installation script (see [Installation](docs/installation.md) for full details):
+If you want to build LemonCrow from source or run a local development setup, clone the repository and run the local installation script (see [Installation](docs/setup/installation.md) for full details):
 
 ```bash
 git clone https://github.com/lemoncrow-lab/lemoncrow

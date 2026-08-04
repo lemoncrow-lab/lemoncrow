@@ -30,7 +30,7 @@ allowlisted.
 
 ## Scope boundaries
 
-LemonCrow is governance for AI-assisted coding. It does not own the agent loop, replace CI, replace linting, become a Slack/GitHub bot, auto-apply lesson candidates, or add a web editor for Playbooks. Before proposing adoption tooling, read [docs/architecture/POSITIONING_AND_ADOPTION.md](docs/architecture/POSITIONING_AND_ADOPTION.md), especially the "What NOT to build" list.
+LemonCrow is governance for AI-assisted coding. It does not own the agent loop, replace CI, replace linting, become a Slack/GitHub bot, auto-apply lesson candidates, or add a web editor for Playbooks. Before proposing adoption tooling, keep this scope in mind (the "What NOT to build" list above).
 
 Before opening a pull request, please run:
 
