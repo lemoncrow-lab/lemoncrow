@@ -1234,19 +1234,22 @@ detect_hosts() {
         HOST_CHOICES+=("OpenCode|not found")
         HOST_DEFAULT_SELECTION+=(0)
     fi
-    # Cursor: offered and now default-selected. CLI saves ~40% vs baseline
-    # (SWE-bench Lite, same model); IDE path did not match that saving.
-    # Recommend CLI for better savings. Built-ins can't be replaced, so LemonCrow
-    # is additive there - prompt addition only.
+    # Cursor: offered, default-selected only when detected. CLI saves ~40%
+    # vs baseline (SWE-bench Lite, same model); IDE path did not match that
+    # saving. Recommend CLI for better savings. Built-ins can't be replaced,
+    # so LemonCrow is additive there - prompt addition only. Unlike LemonCode
+    # below, selecting Cursor when absent doesn't install anything useful (no
+    # binary to fetch), so absence should deselect it like Claude/Codex/OpenCode.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
         HOST_SUMMARY+=("Cursor (use cli for most savings) (detected)")
         HOST_CHOICES+=("Cursor (use cli for most savings)|detected")
+        HOST_DEFAULT_SELECTION+=(1)
     else
         HOST_SUMMARY+=("Cursor (not found)")
         HOST_CHOICES+=("Cursor|not found")
+        HOST_DEFAULT_SELECTION+=(0)
     fi
-    HOST_DEFAULT_SELECTION+=(1)
 
     # LemonCode: rebranded opencode fork. Appended last so the existing menu
     # numbering (1-4) stays stable for anyone with muscle memory.
