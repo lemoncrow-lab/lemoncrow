@@ -733,6 +733,24 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
     show_default=True,
     help="Use 'arm' only for throughput experiments; 'task' preserves fair per-task comparisons.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["cost", "budget", "ceiling"]),
+    default="cost",
+    show_default=True,
+    help=(
+        "cost: same task on both arms, compare spend. "
+        "budget: same spend cap on both arms, compare finished work (needs --budget-usd). "
+        "ceiling: only tasks marked 'ceiling: true', compare completion rate."
+    ),
+)
+@click.option(
+    "--budget-usd",
+    type=click.FloatRange(min=0),
+    default=0,
+    show_default=True,
+    help="Per-arm spend cap in USD; no new run starts for an arm once it is reached. 0 disables.",
+)
 @click.option("--judge", is_flag=True, help="Score correctness with an LLM judge.")
 @click.option("--judge-model", default=None)
 @click.option("--judge-agent-command", default=None)
@@ -836,6 +854,8 @@ def benchmark_codebench_cmd(
     cli_driver: str,
     jobs: int,
     parallel_scope: str,
+    mode: str,
+    budget_usd: float,
     judge: bool,
     judge_model: str | None,
     judge_agent_command: str | None,
@@ -965,6 +985,10 @@ def benchmark_codebench_cmd(
             str(jobs),
             "--parallel-scope",
             parallel_scope,
+            "--mode",
+            mode,
+            "--budget-usd",
+            str(budget_usd),
             "--agent-command",
             agent_command,
             *forwarded_cli_extra_args,

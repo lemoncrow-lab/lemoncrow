@@ -95,6 +95,7 @@ def evaluate_codebench_gate(
     candidate_arm: str = "lemoncrow",
     margin: float = 0.05,
     confidence: float = 0.95,
+    mode: str = "cost",
 ) -> dict[str, Any]:
     results_path = run_dir / "results.jsonl"
     if not results_path.is_file():
@@ -128,7 +129,15 @@ def evaluate_codebench_gate(
         )
     baseline_cost = sum(float(row.get("cost_usd") or 0.0) for row in baseline_rows)
     candidate_cost = sum(float(row.get("cost_usd") or 0.0) for row in candidate_rows)
-    if candidate_cost >= baseline_cost:
+    if mode == "ceiling":
+        # Ceiling tasks are sized so the baseline cannot finish them at all, so a
+        # candidate that finishes more work legitimately spends more. Gate on
+        # completion instead; cost is not comparable across unfinished runs.
+        baseline_rate = baseline_correct / len(baseline_rows)
+        candidate_rate = candidate_correct / len(candidate_rows)
+        if candidate_rate <= baseline_rate:
+            reasons.append("candidate did not complete more ceiling tasks than baseline")
+    elif candidate_cost >= baseline_cost:
         reasons.append("candidate did not reduce measured cost versus baseline")
     pairwise_rows = _load_csv(run_dir / "pairwise_quality.csv")
     selected_pairwise = [
@@ -152,7 +161,8 @@ def evaluate_codebench_gate(
         "reasons": reasons,
         "checks": {
             "quality_metric": "judge correct rate",
-            "cost_metric": "cost_usd_sum",
+            "cost_metric": "completion rate" if mode == "ceiling" else "cost_usd_sum",
+            "mode": mode,
             "margin": margin,
             "confidence": confidence,
             "baseline_arm": baseline_arm,

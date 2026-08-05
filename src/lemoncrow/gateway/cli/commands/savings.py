@@ -64,6 +64,8 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         _live_in = int(_env_num("LEMONCROW_STATUSLINE_LIVE_IN_TOK"))
         _live_cache = int(_env_num("LEMONCROW_STATUSLINE_LIVE_CACHE_TOK"))
         _live_out = int(_env_num("LEMONCROW_STATUSLINE_LIVE_OUT_TOK"))
+        _live_ctx_pct = _env_num("LEMONCROW_STATUSLINE_CTX_PCT")
+        _live_ctx_tok = int(_env_num("LEMONCROW_STATUSLINE_CTX_TOK"))
         if _status_host == "codex":
             from lemoncrow.core.capabilities.plugin_runtime import record_codex_statusline_snapshot
 
@@ -100,6 +102,8 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
                 live_in_tok=_live_in,
                 live_cache_tok=_live_cache,
                 live_out_tok=_live_out,
+                live_ctx_pct=_live_ctx_pct,
+                live_ctx_tok=_live_ctx_tok,
                 no_color=_no_color,
             )
         )

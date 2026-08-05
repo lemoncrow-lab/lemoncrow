@@ -134,6 +134,18 @@ export LEMONCROW_STATUSLINE_COST_USD="${COST:-0}"
 export LEMONCROW_STATUSLINE_LIVE_IN_TOK="$(( IN_INT + CACHE_W_INT ))"
 export LEMONCROW_STATUSLINE_LIVE_CACHE_TOK="${CACHE_R_INT:-0}"
 export LEMONCROW_STATUSLINE_LIVE_OUT_TOK="${OUT_INT:-0}"
+export LEMONCROW_STATUSLINE_CTX_PCT="${PCT_INT:-0}"
+export LEMONCROW_STATUSLINE_CTX_TOK="${USED_INT:-0}"
+# Park the live window reading for the out-of-process frame builders (MCP
+# sidecar, `lc savings --segment`): only this script sees real occupancy, and
+# the transcript carries cumulative tokens, a different quantity. Atomic rename
+# so a concurrent render never reads a torn file.
+_CTX_SID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
+if [ -n "${_CTX_SID}" ]; then
+  _CTX_STATE="${LEMONCROW_STATUS_ROOT}/statusline_ctx_pct_${_CTX_SID}"
+  printf '%s %s' "${PCT_INT:-0}" "${USED_INT:-0}" > "${_CTX_STATE}.$$" 2>/dev/null \
+    && mv -f "${_CTX_STATE}.$$" "${_CTX_STATE}" 2>/dev/null || true
+fi
 [ -n "${LEMONCROW_NO_COLOR:-}" ] && export LEMONCROW_STATUSLINE_NO_COLOR=1
 if [ -n "${CODEX_WORKSPACE_ROOT:-}" ]; then
   export CLAUDE_WORKSPACE_ROOT="${CODEX_WORKSPACE_ROOT}"
