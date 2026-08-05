@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.foundation.identity import get_anon_id
+from lemoncrow.core.foundation.telemetry_cadence import TELEMETRY_PUSH_INTERVAL_SECONDS
 
 logger = logging.getLogger("lemoncrow.product.telemetry.public_rollup")
 
@@ -53,7 +54,9 @@ _RETRY_SLEEP_SECONDS = (0.5, 1.5)
 # failure reschedules in minutes instead of silently waiting another full day.
 _STATE_RELPATH = ("telemetry", "public_rollup_state.json")
 _LOCK_RELPATH = ("telemetry", "public_rollup.lock")
-FLUSH_INTERVAL_SECONDS = 86_400
+# Kept in sync with usage_report.REPORT_INTERVAL_SECONDS via the shared
+# constant -- see telemetry_cadence's module docstring for why.
+FLUSH_INTERVAL_SECONDS = TELEMETRY_PUSH_INTERVAL_SECONDS
 _RETRY_BASE_SECONDS = 900  # 15 min after the first failure ...
 _RETRY_MAX_SECONDS = 21_600  # ... doubling up to 6 h
 _LOCK_STALE_SECONDS = 900
@@ -511,7 +514,9 @@ def maybe_flush_public_rollup(
     process -- the servicectl tick, a CLI command, a hook -- without two of
     them double-posting a day.
 
-    Scheduling: success -> next attempt in 24 h. Failure -> 15 min, doubling to
+    Scheduling: success -> next attempt in 1 h (``FLUSH_INTERVAL_SECONDS``, so a
+    day that finishes elapsing mid-cycle surfaces on the public page within
+    the hour instead of sitting a day behind). Failure -> 15 min, doubling to
     a 6 h ceiling, because the old "mark it done and try again tomorrow"
     behaviour turned one dropped POST (a flaky network, a laptop suspending
     mid-request) into a whole lost day, and a machine that is only awake in

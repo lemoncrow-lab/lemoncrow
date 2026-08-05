@@ -48,15 +48,27 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---- install LemonCrow from bundled wheel ------------------------------------
+# ---- install LemonCrow from bundled wheel ------------------------------------
 install_lemoncrow_from_wheel() {
-    local wheel
-    # Pick the highest-versioned wheel when multiple exist (old releases accumulate
-    # in the bin dir across installs). `sort -V` sorts by version number so tail -1
-    # always picks the newest regardless of filesystem directory order.
+    local wheel="" source_dir=""
+    # `make prod` must install the wheel it just built. Selecting by highest
+    # version instead lets a leftover release wheel in the install tree win
+    # (same or higher version, older code), so when this run came from a local
+    # bundle, take that bundle's wheel by path and ignore everything else.
+    [[ "${_INSTALL_TREE_SOURCE:-}" == local:* ]] && source_dir="${_INSTALL_TREE_SOURCE#local:}"
+    if [[ -n "$source_dir" && -d "$source_dir/bin" ]]; then
+        wheel="$(find "${source_dir}/bin" -maxdepth 1 -name "lemoncrow-*.whl" 2>/dev/null | sort -V | tail -1 || true)"
+        [[ -n "$wheel" ]] && verbose "Installing the wheel built by this run: ${wheel}"
+    fi
+    # Distribution install (or a bundle without bin/): fall back to the extracted
+    # tree. Pick the highest-versioned wheel when several have accumulated;
+    # `sort -V` sorts by version so tail -1 wins regardless of directory order.
     # `|| true`: under set -euo pipefail a missing bin/ dir (e.g. a re-run from
     # a repo checkout) would abort the whole install instead of falling through
     # to the "no bundled wheel" path.
-    wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name "lemoncrow-*.whl" 2>/dev/null | sort -V | tail -1 || true)"
+    if [[ -z "${wheel}" ]]; then
+        wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name "lemoncrow-*.whl" 2>/dev/null | sort -V | tail -1 || true)"
+    fi
     if [[ -z "${wheel}" ]]; then
         verbose "No bundled wheel found — assuming LemonCrow already installed"
         persist_install_record
@@ -96,7 +108,10 @@ install_lemoncrow_from_wheel() {
         constraints_arg=(-c "${constraints_file}")
     fi
 
-    local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename"
+    # litellm is NOT optional in practice: the owned runtime's completion path
+    # (gateway/cli/runtime.py) imports it for every model turn, so `lc code`
+    # dies with "No module named 'litellm'" without it.
+    local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename,litellm"
     stop_existing_lemoncrow_processes
     UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
         uv tool uninstall lemoncrow >/dev/null 2>&1 || true
@@ -133,6 +148,7 @@ install_lemoncrow_from_wheel() {
 # ---- main -------------------------------------------------------------------
 main() {
     need_cmd bash
+    assert_install_tree_consistent
 
     print_installer_header
     host_wizard
@@ -153,6 +169,7 @@ main() {
     install_uv_if_needed
     install_node_if_needed
     _capture_install_previous_version
+    assert_install_tree_unchanged "before-wheel-install"
     install_lemoncrow_from_wheel
 
     # Prevent set -e from aborting on partial failures (degrade() sets

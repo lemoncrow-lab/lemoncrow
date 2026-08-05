@@ -22,12 +22,14 @@ skip flag -- unset (or LEMONCROW_ENABLE_MYPYC=0) is the pure-Python build.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -66,6 +68,39 @@ class _ParallelSourceBuildExt(build_ext):
             compiler.compile = original_compile  # type: ignore[method-assign]
 
 
+def _acquire_build_lock(repo: pathlib.Path) -> Any:
+    """Block until this checkout's compiled build is exclusively ours.
+
+    Returns the held file handle, or None where locking is unavailable
+    (non-POSIX): the build then proceeds unserialized, as it always did.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows
+        return None
+    digest = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:16]
+    lock_path = pathlib.Path(tempfile.gettempdir()) / f"lemoncrow-mypyc-{digest}.lock"
+    handle = lock_path.open("w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"[hatch-mypyc] waiting for the compiled build holding {lock_path} …", flush=True)
+        fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+
+def _release_build_lock(handle: Any) -> None:
+    if handle is None:
+        return
+    try:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    except (ImportError, OSError):  # pragma: no cover
+        pass
+    handle.close()
+
+
 def _mypyc_importable() -> bool:
     try:
         import importlib.util
@@ -87,6 +122,12 @@ _NO_REDEF_RE = re.compile(r"# type: ignore\[no-redef\]")
 _RUNTIME_CHECKABLE_RE = re.compile(r"@runtime_checkable")
 # mypyc: Click decorators add __dict__ attrs to functions; C extension functions have no __dict__
 _CLICK_RE = re.compile(r"@(?:click|_click)\.")
+# mypyc: FastAPI DI defaults (Header()/Depends()/Query()/...) are sentinel objects that
+# violate the compiled parameter's type annotation, so the module raises
+# "str object expected; got fastapi.params.Header" at import time. Both regexes must
+# match: the bare call names alone collide with pathlib.Path()/Query() elsewhere.
+_FASTAPI_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+fastapi\b", re.M)
+_FASTAPI_DI_RE = re.compile(r"=\s*(?:Header|Depends|Query|Body|Form|Cookie|File|Path|Security)\s*\(")
 _SKIP_DIRS = {"__pycache__", "_vendor", "bench"}
 # Files that cause mypyc cross-module Any errors when pydantic files are excluded
 _SKIP_FILES = {
@@ -177,6 +218,13 @@ class CustomBuildHook(BuildHookInterface):
         src_dir = repo / "src"
         lemoncrow_src = src_dir / "lemoncrow"
 
+        # 0. Serialize compiled builds of this checkout. src/build and the
+        # in-place .so tree are shared mutable state: a second compiled build
+        # rmtree'ing them mid-compile makes the first one fail with
+        # "can't create build/temp.../__native_*.o: No such file or directory".
+        # Held until finalize().
+        self._build_lock = _acquire_build_lock(repo)
+
         # 1. Clean stale artifacts from previous failed runs to prevent conflicts.
         build_dir = src_dir / "build"
         if build_dir.exists():
@@ -233,21 +281,31 @@ class CustomBuildHook(BuildHookInterface):
         repo = pathlib.Path(self.root)
         src_dir = repo / "src"
 
-        # Restore .py source files
-        for py, content in getattr(self, "_deleted_py", {}).items():
-            py.write_text(content, encoding="utf-8")
+        # Only the compiled build owns src/build and the src/**/*.so tree, so only
+        # it may clean them. A pure-Python or editable build (any concurrent
+        # `uv run` / `uv sync`, which rebuilds the editable install) used to wipe
+        # both here -- deleting a parallel `uv build --wheel`'s object directory
+        # mid-compile: "Fatal error: can't create build/temp.../__native_*.o: No
+        # such file or directory". Such a build compiled nothing, so it has
+        # nothing to restore or clean.
+        if os.environ.get("LEMONCROW_ENABLE_MYPYC") == "1" and version != "editable":
+            # Restore .py source files
+            for py, content in getattr(self, "_deleted_py", {}).items():
+                py.write_text(content, encoding="utf-8")
 
-        # Clean up build artifacts
-        for so in list(src_dir.rglob("*.so")):
-            so.unlink(missing_ok=True)
-        build_dir = src_dir / "build"
-        if build_dir.exists():
-            shutil.rmtree(build_dir, ignore_errors=True)
-        mypy_cache = repo / ".mypy_cache"
-        if mypy_cache.exists():
-            shutil.rmtree(mypy_cache, ignore_errors=True)
+            # Clean up build artifacts
+            for so in list(src_dir.rglob("*.so")):
+                so.unlink(missing_ok=True)
+            build_dir = src_dir / "build"
+            if build_dir.exists():
+                shutil.rmtree(build_dir, ignore_errors=True)
+            mypy_cache = repo / ".mypy_cache"
+            if mypy_cache.exists():
+                shutil.rmtree(mypy_cache, ignore_errors=True)
 
-        print("[hatch-mypyc] source restored, artifacts cleaned", flush=True)
+            print("[hatch-mypyc] source restored, artifacts cleaned", flush=True)
+            _release_build_lock(getattr(self, "_build_lock", None))
+            self._build_lock = None
 
         # Source-leak guard: a compiled wheel must never ship the source it just
         # replaced, AND a build that ASKED to compile (LEMONCROW_ENABLE_MYPYC=1)
@@ -350,6 +408,8 @@ def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list
                 reason = "@runtime_checkable"
             elif _CLICK_RE.search(text):
                 reason = "click decorator"
+            elif _FASTAPI_IMPORT_RE.search(text) and _FASTAPI_DI_RE.search(text):
+                reason = "FastAPI DI default"
         if reason:
             if is_pro:
                 pro_uncompilable.append((rel, reason))

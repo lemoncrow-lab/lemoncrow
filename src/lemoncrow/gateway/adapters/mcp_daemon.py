@@ -53,6 +53,9 @@ _DEFAULT_IDLE_GRACE_SECONDS = 600.0
 # path, so the port is usually listenable within a second or two).
 _SPAWN_HEALTH_TIMEOUT_SECONDS = 30.0
 _HEARTBEAT_INTERVAL_SECONDS = 30.0
+# Bound on the local connect() used to tell a live daemon's socket from the
+# orphan a crashed one left behind (see _socket_has_listener).
+_SOCKET_CONNECT_PROBE_SECONDS = 0.5
 # A bridge that stops pinging for longer than this is treated as detached (covers
 # an ungraceful bridge death that never sent /session/close). Must exceed the
 # bridge ping interval (see mcp_bridge._PING_INTERVAL_SECONDS) with margin.
@@ -140,6 +143,79 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _registration_owner(path: Path) -> int | None:
+    """The *live* pid recorded in the registration at *path*, else ``None``.
+
+    ``None`` covers every case where no other daemon is currently claiming the
+    file: missing, unreadable, or naming a pid that has since died.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    pid = data.get("pid") if isinstance(data, dict) else None
+    if not isinstance(pid, int) or not _pid_alive(pid):
+        return None
+    return pid
+
+
+def _socket_identity(path: Path) -> tuple[int, int] | None:
+    """``(st_dev, st_ino)`` of *path*, or ``None`` when it cannot be stat'ed."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+def _socket_has_listener(path: str) -> bool:
+    """True unless *path* is provably an orphan nobody is serving.
+
+    ``connect()`` on an AF_UNIX stream socket is the cheap positive liveness
+    signal: it succeeds only against a live listener, while the socket file a
+    crashed daemon left behind refuses with ``ECONNREFUSED``. A timeout means a
+    listener is there but its backlog is full, so it counts as alive -- the
+    caller unlinks only on evidence of orphanhood, never on the absence of a
+    reply.
+    """
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(_SOCKET_CONNECT_PROBE_SECONDS)
+        client.connect(path)
+    except TimeoutError:
+        return True
+    except OSError:
+        return False
+    finally:
+        client.close()
+    return True
+
+
+def _unlink_owned_socket(path: Path, bound: tuple[int, int] | None, *, still_registered: bool) -> bool:
+    """Unlink *path* only while this process is still this workspace's daemon.
+
+    Deleting the socket a *live* daemon serves strands every attached bridge on a
+    path nothing listens to, so two independent guards apply -- neither is
+    sufficient alone:
+
+    * ``still_registered``: the registration file is claimed together with the
+      socket bind (under the startup lock), so a file that no longer names this
+      pid means a rival took the workspace over and owns whatever is at *path*.
+    * inode identity: the path we bound may already have been replaced. Necessary
+      but not sufficient -- the filesystem is free to hand a rival the very same
+      inode number right after our unlink.
+    """
+    if not still_registered:
+        return False
+    if bound is None or _socket_identity(path) != bound:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def read_daemon_registration(root: Path, ws_hash: str) -> dict[str, Any] | None:
     """Return the live registration for *ws_hash*, or ``None``.
 
@@ -180,18 +256,33 @@ def daemon_client(reg: dict[str, Any], *, timeout: Any = 2.0) -> Any:
 
 
 def _probe_healthy(reg: dict[str, Any], *, timeout: float = 2.0) -> bool:
-    """True if the daemon answers its health route.
+    """True if the daemon answers *and* accepts the token recorded in *reg*.
 
-    Liveness only (the registration's pid + a listenable socket); token
-    correctness is guaranteed because the bridge reads the token from the same
-    file the daemon wrote, so the health route stays unauthenticated + cheap.
+    Liveness alone is not enough. When two daemons briefly served one workspace,
+    both rewrote the shared registration with their own bearer token, so the file
+    could name a token the socket owner rejects. ``/healthz`` is unauthenticated
+    and still answered 200, ``ensure_daemon`` called that daemon usable, and every
+    authed ``POST /mcp`` came back 403 forever because the respawn path never ran.
+    So the probe also POSTs ``/session/ping`` with the registration's token: a
+    401/403 means these credentials are unusable, i.e. respawn.
+
+    The ping carries no bridge header, so it registers no phantom session.
     """
+    token = reg.get("token")
+    if not isinstance(token, str) or not token:
+        return False
     try:
         with daemon_client(reg, timeout=timeout) as client:
             resp = client.get(_UDS_BASE_URL + _HEALTHZ_PATH)
+            if resp.status_code != 200:
+                return False
+            authed = client.post(
+                _UDS_BASE_URL + _SESSION_PING_PATH,
+                headers={"Authorization": f"Bearer {token}"},
+            )
     except Exception:
         return False
-    return resp.status_code == 200
+    return authed.status_code == 200
 
 
 # ── spawn-race lock ──────────────────────────────────────────────────────────
@@ -493,6 +584,10 @@ def run_daemon(
         sock.bind(str(sock_path))
         with contextlib.suppress(OSError):
             os.chmod(sock_path, 0o600)
+        # Identity of the socket THIS process bound, so teardown can tell "my
+        # socket" from "the path a rival daemon has since rebound" (see
+        # _unlink_owned_socket).
+        bound_socket = _socket_identity(sock_path)
         token = secrets.token_urlsafe(32)
         _write_registration(root, ws_hash, socket_path=str(sock_path), token=token, workspace=workspace)
 
@@ -588,9 +683,12 @@ def run_daemon(
         exit_code = 1
     finally:
         stop.set()
+        # Ownership-scoped teardown: a daemon that lost this workspace (two ever
+        # raced for it) must not delete the winner's state. Read ownership BEFORE
+        # cleanup, which removes our own registration.
+        still_ours = _registration_owner(daemon_registration_path(root, ws_hash)) == os.getpid()
         _shutdown_cleanup(root, ws_hash, mcp_server)
-        with contextlib.suppress(OSError):
-            sock_path.unlink()
+        _unlink_owned_socket(sock_path, bound_socket, still_registered=still_ours)
     _log.info("MCP daemon stopped: pid=%d exit_code=%d", os.getpid(), exit_code)
     # uvicorn / anyio / OTel can leave non-daemon threads that would keep the
     # interpreter resident after an idle self-reap, so the process must never
@@ -603,9 +701,10 @@ def run_daemon(
 def _shutdown_cleanup(root: Path, ws_hash: str, mcp_server: Any) -> None:
     """Best-effort teardown, bounded so a stuck exporter flush can't wedge exit.
 
-    Registration removal must always happen; the telemetry flushes are allowed to
-    run but are abandoned (daemon thread) if they exceed the deadline, after
-    which the caller force-terminates.
+    Registration removal is attempted first (and is a no-op unless this process
+    still owns the file -- see :func:`_remove_registration`); the telemetry
+    flushes are allowed to run but are abandoned (daemon thread) if they exceed
+    the deadline, after which the caller force-terminates.
     """
     _remove_registration(root, ws_hash)
 
@@ -711,9 +810,36 @@ def _start_heartbeat(
     workspace: str,
     stop: threading.Event,
 ) -> None:
+    """Refresh this daemon's registration until *stop*, or until it loses it.
+
+    Ownership-scoped: see the stand-down guard below.
+    """
+
     def _loop() -> None:
+        path = daemon_registration_path(root, ws_hash)
         while not stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
-            _write_registration(root, ws_hash, socket_path=socket_path, token=token, workspace=workspace)
+            if _write_registration(
+                root,
+                ws_hash,
+                socket_path=socket_path,
+                token=token,
+                workspace=workspace,
+                only_if_owner=True,
+            ):
+                continue
+            # Declined: the file names a different, still-live daemon. When two
+            # daemons served one workspace, both heartbeats kept re-stamping this
+            # shared file with their OWN bearer token, so whichever did not own
+            # the socket poisoned the token and every authed POST /mcp got 403.
+            # Losing the file means losing the race -- log once and stand down
+            # rather than fighting over the credential.
+            _log.warning(
+                "MCP daemon: registration for workspace %s now owned by pid=%s; standing down heartbeat (pid=%d)",
+                workspace,
+                _registration_owner(path),
+                os.getpid(),
+            )
+            return
 
     threading.Thread(target=_loop, daemon=True, name="mcp-daemon-heartbeat").start()
 
@@ -728,10 +854,22 @@ def _write_registration(
     socket_path: str,
     token: str,
     workspace: str,
-) -> None:
+    only_if_owner: bool = False,
+) -> bool:
+    """Publish this daemon's registration; return False if the write was declined.
+
+    ``only_if_owner`` (heartbeat path) declines when the file already names a
+    different, still-live pid -- overwriting it would replace that daemon's
+    bearer token with ours. A transient write error still returns ``True``: the
+    file is ours, so the next heartbeat simply retries.
+    """
     from lemoncrow.gateway.adapters import mcp_server
 
     path = daemon_registration_path(root, ws_hash)
+    if only_if_owner:
+        owner = _registration_owner(path)
+        if owner is not None and owner != os.getpid():
+            return False
     payload = {
         "pid": os.getpid(),
         "socket": socket_path,
@@ -756,6 +894,7 @@ def _write_registration(
         tmp.replace(path)
     except OSError:
         _log.debug("MCP daemon registration write failed", exc_info=True)
+    return True
 
 
 def _existing_started_at(path: Path) -> float:
@@ -769,6 +908,15 @@ def _existing_started_at(path: Path) -> float:
 
 
 def _remove_registration(root: Path, ws_hash: str) -> None:
+    """Remove the registration -- but only while it still names THIS process.
+
+    Two daemons can briefly coexist for one workspace (a direct ``lc mcp daemon``
+    racing a bridge respawn). The loser exiting used to delete the winner's
+    registration on its way out, leaving every bridge with nothing to dial.
+    Never delete another daemon's state.
+    """
+    if _registration_owner(daemon_registration_path(root, ws_hash)) != os.getpid():
+        return
     with contextlib.suppress(OSError):
         daemon_registration_path(root, ws_hash).unlink(missing_ok=True)
 
@@ -816,7 +964,13 @@ def prune_stale_daemons(root: Path | None = None) -> int:
             with contextlib.suppress(OSError):
                 entry.unlink()
                 removed += 1
-            if isinstance(sock, str) and sock:
+            # A dead pid licenses removing its registration, but NOT the socket:
+            # the path is deterministic per workspace, so the live successor that
+            # replaced this daemon is already bound to the very path the dead one
+            # registered. Unlinking it there strands every bridge for the
+            # workspace on a path nothing listens to, while the daemon keeps
+            # serving a socket no one can reach. Unlink only a proven orphan.
+            if isinstance(sock, str) and sock and not _socket_has_listener(sock):
                 with contextlib.suppress(OSError):
                     Path(sock).unlink()
     return removed

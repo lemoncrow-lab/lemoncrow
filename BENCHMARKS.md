@@ -298,6 +298,8 @@ Same 20 prompts, fresh single-rep LemonCrow run on the current build (baseline u
 
 Cache write is the one metric that regressed (+38.0%) -- worth another look if it persists on a repeat run. No golden patch here, so no resolved/correctness row. Raw data: local only (scratch-repo run, not yet copied into the repo or mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
+
+## Retrieval - Heigher the better in context retrieval
 Pure retrieval quality was measured against common CLI and MCP code-search tools on the same 14 repos and roughly 7.2k query/gold pairs. LemonCrow reports three internal channels: lexical default, optional `+zoekt`, and optional `+semantic`. Every provider is scored across all 5 gold kinds (definition, content, semantic, swebench, sessions) -- a provider with no content/text-search capability (codegraph, universal-ctags) scores 0 on the kinds it cannot answer rather than being excluded from them, so `n` is uniform (7213) across every row in the table and MRR is directly comparable throughout.
 
 

@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -124,7 +125,27 @@ def _get_node_dir(npm_path: str | None = None) -> str | None:
 
 
 def _stack_frontend_dir() -> Path:
-    return _project_root() / "frontend"
+    """Locate the Vite app directory.
+
+    The installed tree (``~/.lemoncrow/install/frontend``) ships only static
+    assets -- index.html, logos, a stub package-lock.json -- with no
+    ``package.json`` and no ``src/``. Returning it unconditionally made the
+    dependency preflight run ``npm install`` against a non-app directory (exit
+    254), killing the supervisor before vite ever bound the frontend port. Take
+    the first candidate that actually holds a ``package.json``.
+    """
+    candidates: list[Path] = []
+    env_dir = os.environ.get("LEMONCROW_FRONTEND_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    workspace = os.environ.get("LEMONCROW_WORKSPACE_ROOT")
+    if workspace:
+        candidates.append(Path(workspace) / "frontend")
+    candidates.append(_project_root() / "frontend")
+    for candidate in candidates:
+        if (candidate / "package.json").exists():
+            return candidate
+    return candidates[-1]
 
 
 def _stack_install_command(npm_path: str, frontend_dir: Path) -> list[str]:
@@ -135,6 +156,11 @@ def _stack_install_command(npm_path: str, frontend_dir: Path) -> list[str]:
 def _ensure_stack_frontend_dependencies(frontend_dir: Path) -> None:
     if not frontend_dir.exists():
         raise click.ClickException(f"frontend directory not found: {frontend_dir}")
+    if not (frontend_dir / "package.json").exists():
+        raise click.ClickException(
+            f"no frontend app in {frontend_dir} (package.json missing); "
+            "point LEMONCROW_FRONTEND_DIR at a checkout that has one"
+        )
     npm_path = _get_npm_path()
     if npm_path == "npm" and not shutil.which("npm"):
         raise click.ClickException("npm is required to run the optional LemonCrow frontend stack")
@@ -145,6 +171,21 @@ def _ensure_stack_frontend_dependencies(frontend_dir: Path) -> None:
     subprocess.run(_stack_install_command(npm_path, frontend_dir), cwd=frontend_dir, check=True)
 
 
+def _port_is_serving(host: str, port: int, timeout: float = 0.5) -> bool:
+    """True when something already accepts TCP connections on ``host:port``.
+
+    Used to detect a service the stack does not own (systemd's
+    ``lemoncrow-stack.service`` binds 8787 too) so the supervisor adopts it
+    instead of spawning a duplicate that dies on EADDRINUSE and takes the
+    frontend down with it.
+    """
+    target = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    with contextlib.suppress(OSError):
+        with socket.create_connection((target, port), timeout=timeout):
+            return True
+    return False
+
+
 def _stack_status_payload(root: Path) -> dict[str, Any]:
     state = _read_stack_state(root)
     runner_pid = _read_pidfile(_stack_pid_path(root))
@@ -153,6 +194,12 @@ def _stack_status_payload(root: Path) -> dict[str, Any]:
     runner_running = bool(runner_pid is not None and _pid_is_running(runner_pid))
     service_running = bool(service_pid is not None and _pid_is_running(service_pid))
     frontend_running = bool(frontend_pid is not None and _pid_is_running(frontend_pid))
+    if not service_running and state.get("service_adopted"):
+        # Externally-supervised service (systemd): no pid of ours to poll.
+        service_running = _port_is_serving(
+            str(state.get("service_host") or "localhost"),
+            int(state.get("service_port") or DEFAULT_STACK_SERVICE_PORT),
+        )
     return {
         "running": runner_running and service_running and frontend_running,
         "runner_pid": runner_pid,
@@ -160,6 +207,7 @@ def _stack_status_payload(root: Path) -> dict[str, Any]:
         "frontend_pid": frontend_pid,
         "runner_running": runner_running,
         "service_running": service_running,
+        "service_adopted": bool(state.get("service_adopted")),
         "frontend_running": frontend_running,
         "pid_file": str(_stack_pid_path(root)),
         "service_pid_file": str(_stack_service_pid_path(root)),

@@ -123,3 +123,21 @@ def test_store_root_for_workspace_uses_marker(tmp_path: Path, monkeypatch: pytes
     assert result.parent.name == DEFAULT_STORE_DIRNAME
     assert result.name == "workspace"
     assert result.parent.parent == project.resolve()
+
+
+def test_store_bundle_builds_in_unregistered_non_git_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Global read-only surfaces (`lc savings`, ...) construct the store bundle just
+    to read store-root data -- that must not require a git repo or `lc init`."""
+    _clear_host_env(monkeypatch)
+    monkeypatch.delenv("LEMONCROW_LESSONS_ROOT", raising=False)
+    elsewhere = tmp_path / "not-a-repo"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    from lemoncrow.infra.storage.factory import create_store
+
+    # The global store root (~/.lemoncrow, home pinned to tmp_path here) -- the
+    # exact root the CLI passes, and one that carries no workspace hint.
+    store_root = tmp_path / DEFAULT_STORE_DIRNAME
+    store = create_store(store_root)
+    assert store.knowledge.blocks_dir == store_root / "blocks"

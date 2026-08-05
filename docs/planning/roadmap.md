@@ -33,7 +33,7 @@ the six cost levers, see the
 
 - Symbol-first code index with multi-language support
 - AST pattern matching (ast-grep) with rewrite support
-- Call graph (callers/callees) with centrality scoring
+- LemonGraph — call graph (callers/callees) with centrality scoring
 - Usages and reference resolution
 - Cross-language edge resolution (ctypes, subprocess, dynamic import)
 - Git history analysis (blame, graveyard, renames, walker)
@@ -84,6 +84,7 @@ commitments, dated deliverables, or shipped features.
 | Benchmark publication | One-command export to publishable JSON + markdown                                        |
 | Local agentic search  | Small local model runs the explore/search loop; only exact matched spans are passed up to the frontier model |
 | Multi-turn retrieval  | Iterative retrieval that returns the exact document the model asked for instead of top-k chunks |
+| LemonGraph viewer     | Hosted, browser-based visualization of the local call/knowledge graph                            |
 
 ## Not planned
 

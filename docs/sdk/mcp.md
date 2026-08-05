@@ -59,7 +59,7 @@ names:
 - `memory` uses an `op` field such as `block_upsert`, `block_get`, `archive`, and `recall`.
 - `compact` uses `op=output`, `op=session`, or `op=advise`.
 - `route` uses `op=decide` and `op=verify`.
-- `code` uses `op=index`, `op=search`, `op=blame`, `op=hover`, `op=symbol`, `op=outline`, `op=files`, `op=explore`, `op=routes`, `op=status`, `op=context`, `op=pattern`, `op=rename`, `op=cache_status`, or `op=cache_invalidate`. (Call-graph and reference relations — callers, callees, usages — are returned folded into `op=explore`.)
+- `code` uses `op=index`, `op=search`, `op=blame`, `op=hover`, `op=symbol`, `op=outline`, `op=files`, `op=explore`, `op=routes`, `op=status`, `op=context`, `op=pattern`, `op=rename`, `op=cache_status`, or `op=cache_invalidate`. (LemonGraph — call-graph and reference relations — callers, callees, usages — are returned folded into `op=explore`.)
 
 ## Remote Mode Coverage
 

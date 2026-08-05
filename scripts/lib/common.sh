@@ -69,8 +69,41 @@ ACTIVE_BAR="┃"
 if [[ "${LC_ALL:-${LANG:-}}" != *"UTF-8"* && "${LC_ALL:-${LANG:-}}" != *"utf8"* ]]; then
     ACTIVE_BAR="|"
 fi
-
 LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
+# Sibling scripts/ of this library — the tree the running installer actually
+# came from. $LEMONCROW_INSTALL_DIR may point at an older extracted
+# distribution (e.g. a previous `make prod`), and delegating to *its*
+# install_hosts.sh dies with "Unknown option: --lemoncode" the moment this
+# wizard offers a host that tree predates. Prefer our own siblings — every
+# delegated script resolves its payloads from its own SCRIPT_DIR, so the
+# sibling tree is self-consistent — and fall back to the install dir.
+LEMONCROW_SCRIPTS_DIR="$(cd "${BASH_SOURCE[0]%/*}/.." 2>/dev/null && pwd)"
+[[ -n "$LEMONCROW_SCRIPTS_DIR" && -f "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh" ]] \
+    || LEMONCROW_SCRIPTS_DIR="${LEMONCROW_INSTALL_DIR}/scripts"
+
+# Refuse to half-install across two trees. The wheel comes from
+# $LEMONCROW_INSTALL_DIR/bin and the host payloads from
+# $LEMONCROW_INSTALL_DIR/integrations, so running this library out of a
+# different checkout mixes a new wizard with an old payload set: hosts the
+# install dir predates fail ("Unknown option: --lemoncode") and the wheel
+# installed is not the one just built. Every supported entrypoint keeps the
+# two in sync (local.sh sets the install dir to the checkout; install.sh
+# copies bundle/ into it before running its bundle.sh), so a mismatch always
+# means a stale or hand-pointed install dir.
+assert_install_tree_consistent() {
+    local expected="${LEMONCROW_INSTALL_DIR}/scripts"
+    [[ "$LEMONCROW_SCRIPTS_DIR" == "$expected" ]] && return 0
+    if [[ "${LEMONCROW_STRICT_TREE:-0}" == "1" ]]; then
+        fail "Installer tree mismatch — refusing to install a mix of two trees.
+  running scripts: $LEMONCROW_SCRIPTS_DIR
+  install dir:     $LEMONCROW_INSTALL_DIR (wheel + integrations come from here)
+Re-run the installer that owns this tree:
+  from a checkout:     make prod   (build.sh + install.sh --local)
+  from a distribution: bash $LEMONCROW_INSTALL_DIR/scripts/bundle.sh"
+    fi
+    # Never abort on skew: say which two trees are mixed and keep going.
+    warn "Installer tree skew — running scripts=$LEMONCROW_SCRIPTS_DIR, install dir=$LEMONCROW_INSTALL_DIR; continuing (LEMONCROW_STRICT_TREE=1 to abort)."
+}
 LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
 LEMONCROW_NODE_DIR="${LEMONCROW_NODE_DIR:-${HOME}/.lemoncrow/node}"
 LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"
@@ -78,6 +111,123 @@ LEMONCROW_INSTALL_RECORD="${LEMONCROW_INSTALL_RECORD:-${HOME}/.lemoncrow/install
 LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
 LEMONCROW_NO_SERVICECTL="${LEMONCROW_NO_SERVICECTL:-0}"
 LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
+
+# ---- install forensics -------------------------------------------------------
+# One install produces one log; make that log answer "which tree ran, was it
+# still ours, and who else was installing" without a second reproduction.
+LEMONCROW_INSTALL_STAMP_FILE="${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-install-stamp"
+
+_install_debug() {
+    [[ -n "${LEMONCROW_INSTALL_LOG_FILE:-}" ]] || return 0
+    printf '[debug %s] %s\n' "$(date -Iseconds 2>/dev/null || date)" "$*" \
+        >>"$LEMONCROW_INSTALL_LOG_FILE" 2>/dev/null || true
+}
+
+_file_id() {
+    # size + mtime + checksum: enough to prove a file was swapped, cheap enough
+    # to call at every phase.
+    local path="$1"
+    [[ -e "$path" ]] || { printf 'absent'; return 0; }
+    printf '%s bytes, mtime %s, cksum %s' \
+        "$(wc -c <"$path" 2>/dev/null | tr -d ' ')" \
+        "$(date -r "$path" -Iseconds 2>/dev/null || echo '?')" \
+        "$(cksum "$path" 2>/dev/null | awk '{print $1}')"
+}
+
+_install_tree_fingerprint() {
+    printf '%s|%s' \
+        "$(cat "$LEMONCROW_INSTALL_STAMP_FILE" 2>/dev/null | tr -d '\n')" \
+        "$(_file_id "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh")"
+}
+
+_install_debug_snapshot() {
+    local phase="$1"
+    _install_debug "--- phase: ${phase} ---"
+    _install_debug "pid=$$ ppid=${PPID:-0} entry=${0} cwd=$(pwd)"
+    _install_debug "install_dir=$LEMONCROW_INSTALL_DIR scripts_dir=$LEMONCROW_SCRIPTS_DIR bin_dir=$LEMONCROW_BIN_DIR tool_dir=$LEMONCROW_TOOL_DIR"
+    _install_debug "stamp: $(cat "$LEMONCROW_INSTALL_STAMP_FILE" 2>/dev/null || echo 'none')"
+    _install_debug "install_hosts.sh: $(_file_id "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh")"
+    _install_debug "lib/common.sh: $(_file_id "$LEMONCROW_SCRIPTS_DIR/lib/common.sh")"
+    local wheel
+    wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name 'lemoncrow-*.whl' 2>/dev/null | sort -V | tail -1)"
+    _install_debug "wheel: ${wheel:-none} $( [[ -n "$wheel" ]] && _file_id "$wheel" )"
+    # Any other installer alive right now is the prime suspect for a tree swap.
+    local others
+    others="$(ps -eo pid,ppid,etime,args 2>/dev/null \
+        | grep -E '(install|bundle|local)\.sh' | grep -v grep | grep -v " $$ " | head -5)"
+    _install_debug "other installers: ${others:-none}"
+}
+
+# Tree identity as first seen by this process; compared again at each phase.
+_INSTALL_TREE_FINGERPRINT="$(_install_tree_fingerprint)"
+_INSTALL_TREE_STAMP="$(cat "$LEMONCROW_INSTALL_STAMP_FILE" 2>/dev/null || true)"
+# Where this tree came from, as recorded by install.sh ("local:<dir>" or
+# "release:<url>"). Read from the environment first: the stamp on disk is the
+# very thing a racing installer overwrites.
+_INSTALL_TREE_SOURCE="${LEMONCROW_INSTALL_SOURCE:-${_INSTALL_TREE_STAMP##*source=}}"
+
+# Put our own tree back instead of aborting. For a local install the payload we
+# came from is still on disk, so re-copying it undoes the other installer's
+# clobber and this run continues with the wheel and host scripts it built.
+_restore_install_tree() {
+    local src="${_INSTALL_TREE_SOURCE#local:}" src_abs
+    [[ "$_INSTALL_TREE_SOURCE" == local:* ]] || return 1
+    [[ -f "$src/scripts/install_hosts.sh" ]] || return 1
+    src_abs="$(cd "$src" 2>/dev/null && pwd)" || return 1
+    # local.sh installs in place: the tree is the source, nothing to copy back.
+    [[ "$src_abs" == "$(cd "$LEMONCROW_INSTALL_DIR" 2>/dev/null && pwd)" ]] && return 0
+    cp -r "$src_abs/." "${LEMONCROW_INSTALL_DIR%/}/" 2>/dev/null || return 1
+    [[ -n "$_INSTALL_TREE_STAMP" ]] &&
+        printf '%s\n' "$_INSTALL_TREE_STAMP" >"$LEMONCROW_INSTALL_STAMP_FILE" 2>/dev/null
+    return 0
+}
+
+# Name the process that rewrote the tree: the stamp records the pid that wrote
+# it (and its parent), and any installer still alive is the other suspect.
+_install_tree_culprit() {
+    local stamp pid ppid line="" out=""
+    stamp="$(cat "$LEMONCROW_INSTALL_STAMP_FILE" 2>/dev/null || true)"
+    pid="$(printf '%s' "$stamp" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')"
+    ppid="$(printf '%s' "$stamp" | sed -n 's/.*ppid=\([0-9]*\).*/\1/p')"
+    if [[ -n "$pid" && "$pid" != "$$" ]]; then
+        line="$(ps -o lstart=,args= -p "$pid" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
+        out="stamp pid=$pid${line:+ ($line)}"
+        line="$(ps -o args= -p "${ppid:-0}" 2>/dev/null | head -1)"
+        [[ -n "$line" ]] && out="$out, launched by ppid=$ppid ($line)"
+    fi
+    line="$(ps -eo pid,lstart,args 2>/dev/null | grep -E '(install|bundle|local)\.sh' \
+        | grep -v grep | grep -v "^[[:space:]]*$$ " | head -3 | sed 's/^[[:space:]]*//' | tr '\n' ';')"
+    [[ -n "$line" ]] && out="${out:+$out | }installers alive now: $line"
+    printf '%s' "${out:-unknown (writer already exited and left no stamp)}"
+}
+
+assert_install_tree_unchanged() {
+    local phase="${1:-checkpoint}" now culprit
+    now="$(_install_tree_fingerprint)"
+    _install_debug_snapshot "$phase"
+    [[ "$now" == "$_INSTALL_TREE_FINGERPRINT" ]] && return 0
+    culprit="$(_install_tree_culprit)"
+    _install_debug "TREE CHANGED: was [$_INSTALL_TREE_FINGERPRINT] now [$now]"
+    _install_debug "CULPRIT: $culprit"
+    if [[ "${LEMONCROW_STRICT_TREE:-0}" == "1" ]]; then
+        fail "Install tree changed mid-install at '${phase}' — another installer rewrote ${LEMONCROW_INSTALL_DIR} while this one was running.
+  at start: $_INSTALL_TREE_FINGERPRINT
+  now:      $now
+  culprit:  $culprit
+Full forensics in ${LEMONCROW_INSTALL_LOG_FILE:-the install log}."
+    fi
+    if _restore_install_tree; then
+        # Self-healed: the run continues with exactly the tree it built, so this
+        # is bookkeeping, not news. Forensics go to the install log only.
+        _install_debug "TREE RESTORED from ${_INSTALL_TREE_SOURCE}"
+    else
+        warn "Another installer rewrote ${LEMONCROW_INSTALL_DIR} during '${phase}' — cannot restore (source: ${_INSTALL_TREE_SOURCE:-unknown}); continuing with the tree now on disk."
+        warn "  culprit: $culprit"
+        _install_debug "TREE CHANGE ACCEPTED (no restorable source)"
+    fi
+    # Adopt the current tree as the baseline so later phases compare against it.
+    _INSTALL_TREE_FINGERPRINT="$(_install_tree_fingerprint)"
+}
 
 persist_install_record() {
     local record_dir
@@ -174,6 +324,13 @@ fi
 mkdir -p "$(dirname "$LEMONCROW_INSTALL_LOG_FILE")" 2>/dev/null || true
 : >"$LEMONCROW_INSTALL_LOG_FILE" 2>/dev/null || true
 exec > >(tee -a "$LEMONCROW_INSTALL_LOG_FILE") 2>&1
+
+# First lines of every install log: what this process is, which tree it will
+# use, and who else is installing right now.
+_install_debug "lemoncrow installer starting"
+_install_debug "argv0=${0} args=${*:-} user=$(id -un 2>/dev/null) host=$(uname -n 2>/dev/null) os=$(uname -sr 2>/dev/null)"
+_install_debug "env: LEMONCROW_LOCAL=${LEMONCROW_LOCAL:-} NON_INTERACTIVE=${LEMONCROW_NON_INTERACTIVE:-} DRY_RUN=${LEMONCROW_DRY_RUN:-} NO_HOSTS=${LEMONCROW_NO_HOSTS:-} LOCK_HELD=${LEMONCROW_INSTALL_LOCK_HELD:-0}"
+_install_debug_snapshot "start"
 
 trap '[[ -f "$LEMONCROW_SPINNER_PID_FILE" ]] && { _SPINNER_PID=$(cat "$LEMONCROW_SPINNER_PID_FILE" 2>/dev/null); [[ -n "$_SPINNER_PID" ]] && kill "$_SPINNER_PID" 2>/dev/null; rm -f "$LEMONCROW_SPINNER_PID_FILE"; } || true' EXIT INT TERM
 
@@ -714,13 +871,18 @@ render_multi_select() {
             local raw_status="${label##*|}"
             if [[ "$raw_status" == "detected" ]]; then
                 badge="  ${C_DIM}✓${C_RESET}"
-            else
+            elif [[ "$raw_status" == "not found" || -z "$raw_status" ]]; then
                 badge="  ${C_DIM}—${C_RESET}"
                 # Dim undetected options slightly
                 name="${C_DIM}${name}${C_RESET}"
+            else
+                # Anything else is an explanatory status (e.g. LemonCode's
+                # "will be installed"): absent but shipped with LemonCrow, so
+                # selecting it downloads the host. Show the words — a bare "—"
+                # reads as "unavailable".
+                badge="  ${C_DIM}↓ ${raw_status}${C_RESET}"
             fi
         fi
-
         if [[ "$is_cursor" == "1" ]]; then
             prefix="${C_PURPLE}❯${C_RESET}"
             if [[ "$is_locked" == "1" ]]; then
@@ -1078,8 +1240,8 @@ detect_hosts() {
     # is additive there - prompt addition only.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
-        HOST_SUMMARY+=("Cursor (use cli for more savings) (detected)")
-        HOST_CHOICES+=("Cursor (use cli for more savings)|detected")
+        HOST_SUMMARY+=("Cursor (use cli for most savings) (detected)")
+        HOST_CHOICES+=("Cursor (use cli for most savings)|detected")
     else
         HOST_SUMMARY+=("Cursor (not found)")
         HOST_CHOICES+=("Cursor|not found")
@@ -2487,6 +2649,7 @@ run_setup() {
 
     if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
         step_start "Installing host integrations"
+        assert_install_tree_unchanged "before-host-install"
         local host_install_args=()
         local passthrough
         for passthrough in "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; do
@@ -2532,17 +2695,42 @@ run_setup() {
             has_flag "--dry-run" && agents_install_args+=(--dry-run)
             has_flag "--print-only" && agents_install_args+=(--print-only)
             if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] bash $LEMONCROW_INSTALL_DIR/scripts/install_agents.sh ${agents_install_args[*]}"
+                echo "[dry-run] bash $LEMONCROW_SCRIPTS_DIR/install_agents.sh ${agents_install_args[*]}"
             else
                 if [[ "$LEMONCROW_VERBOSE" == "1" ]]; then
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}"
+                    bash "$LEMONCROW_SCRIPTS_DIR/install_agents.sh" "${agents_install_args[@]}"
                 else
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_agents.sh" "${agents_install_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
+                    bash "$LEMONCROW_SCRIPTS_DIR/install_agents.sh" "${agents_install_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
                 fi
             fi
         fi
+        # A host tree older than this wizard exits on the first flag it has
+        # never heard of ("Unknown option: --lemoncode") and installs NOTHING.
+        # Drop flags its parser cannot match, so an unknown host costs that one
+        # host instead of every host.
+        local hosts_script="$LEMONCROW_SCRIPTS_DIR/install_hosts.sh"
+        if [[ -f "$hosts_script" ]]; then
+            local supported_args=() dropped_args=() harg
+            for harg in "${host_install_args[@]+"${host_install_args[@]}"}"; do
+                if [[ "$harg" == --* ]] \
+                   && ! grep -qE -- "(^|[[:space:]|])${harg}[)|]" "$hosts_script"; then
+                    dropped_args+=("$harg")
+                    continue
+                fi
+                supported_args+=("$harg")
+            done
+            if [[ ${#dropped_args[@]} -gt 0 ]]; then
+                warn "$(basename "$hosts_script") does not support: ${dropped_args[*]} — those hosts are skipped. Update this install tree ($LEMONCROW_SCRIPTS_DIR) to get them."
+                host_install_args=("${supported_args[@]+"${supported_args[@]}"}")
+            fi
+        fi
+        # Always on the record: which tree actually ran, with which flags.
+        # Without it a stale install dir is invisible in the log and every
+        # failure looks like a code bug.
+        printf 'host installer: %s %s\n' "$hosts_script" "${host_install_args[*]+${host_install_args[*]}}" \
+            >>"$LEMONCROW_INSTALL_LOG_FILE" 2>/dev/null || true
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] bash $LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh ${host_install_args[*]+${host_install_args[*]}}"
+            echo "[dry-run] bash $LEMONCROW_SCRIPTS_DIR/install_hosts.sh ${host_install_args[*]+${host_install_args[*]}}"
         else
             local host_output host_output_file host_ret
             host_output_file="${TMPDIR:-/tmp}/lemoncrow-hosts.$(date +%Y%m%dT%H%M%S).$$.log"
@@ -2550,9 +2738,9 @@ run_setup() {
             set +e
             if [[ "$LEMONCROW_VERBOSE" == "1" ]]; then
                 if [[ -n "$C_RESET" ]]; then
-                    FORCE_COLOR=1 bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
+                    FORCE_COLOR=1 bash "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 else
-                    bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
+                    bash "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | tee "$host_output_file"
                 fi
                 host_ret=${PIPESTATUS[0]}
             else
@@ -2565,7 +2753,7 @@ run_setup() {
                 fi
                 _SPINNER_MSG="Installing host integrations"                _SPINNER_ACTIVE=1
                 _spinner_run
-                LEMONCROW_HOST_STATUS_STREAM=1 bash "$LEMONCROW_INSTALL_DIR/scripts/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | while IFS= read -r line; do
+                LEMONCROW_HOST_STATUS_STREAM=1 bash "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh" "${host_install_args[@]+"${host_install_args[@]}"}" 2>&1 | while IFS= read -r line; do
                     printf "%s\n" "$line" >>"$host_output_file"
                     if [[ "$line" =~ ^@@LEMONCROW_HOST_STATUS@@[[:space:]]+([A-Z]+)[[:space:]]+(.+)$ ]]; then
                         local status="${BASH_REMATCH[1]}"
@@ -2624,8 +2812,12 @@ run_setup() {
             set -e
             host_output="$(cat "$host_output_file")"
             collect_issues_from_output "$host_output"
+            _install_debug "host installer exit=$host_ret log=$host_output_file"
             if [[ $host_ret -ne 0 ]]; then
-                ERRORS+=("One or more host integrations failed")
+                # Post-mortem right where the failure is: a tree swapped during
+                # the host step shows up here as a changed fingerprint.
+                _install_debug_snapshot "after-host-install-failure"
+                ERRORS+=("One or more host integrations failed (see $host_output_file and $LEMONCROW_INSTALL_LOG_FILE)")
                 FINAL_EXIT_CODE=1
                 # Dump the full host output inline so failures are visible
                 # even when sub-scripts don't stream verbose output.
@@ -2644,8 +2836,8 @@ run_setup() {
             fi
         fi
         # Persist host detection results for the local service/UI surfaces
-        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$LEMONCROW_INSTALL_DIR/scripts/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_SCRIPTS_DIR/status.sh" ]]; then
+            bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -2653,8 +2845,8 @@ run_setup() {
         step_start "Installing host integrations"
         info "Skipped (LEMONCROW_NO_HOSTS=1)"
         # Still persist current detection state even when skipping install
-        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_INSTALL_DIR/scripts/status.sh" ]]; then
-            bash "$LEMONCROW_INSTALL_DIR/scripts/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+        if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_SCRIPTS_DIR/status.sh" ]]; then
+            bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -2795,7 +2987,7 @@ run_setup() {
 
     # Open-source runtime: no account, no savings cap, and no login prompt.
     # Local savings are tracked and shown regardless (see `lc session stats`).
-    printf "%b💰 Savings tracking:%b all local. '%s account login' to opt in to see savings online.\n\n" "$C_PURPLE" "$C_RESET" "$cli"
+    printf "%b💰 Savings tracking:%b all local. '%b%s account login%b' to opt in to see savings online.\n\n" "$C_PURPLE" "$C_RESET" "$C_BOLD" "$cli" "$C_RESET"
 
     return "$FINAL_EXIT_CODE"
 }

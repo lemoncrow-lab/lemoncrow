@@ -596,7 +596,10 @@ def test_maybe_flush_retries_in_minutes_after_failure_and_daily_after_success(
     assert done["consecutive_failures"] == 0
     state = read_public_rollup_state(root)
     assert state["checkpoint_day"] == "2026-08-01"
-    assert state["next_attempt_at"] == (now + timedelta(seconds=3000 + 86_400)).isoformat()
+    assert (
+        state["next_attempt_at"]
+        == (now + timedelta(seconds=3000 + public_rollup_mod.FLUSH_INTERVAL_SECONDS)).isoformat()
+    )
 
 
 def test_maybe_flush_survives_a_raising_flush_and_reschedules(

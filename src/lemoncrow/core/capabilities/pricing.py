@@ -154,32 +154,66 @@ _PLACEHOLDER_MODEL_IDS = frozenset({"", "_default", "<synthetic>"})
 _warned_unknown_models: set[str] = set()
 
 
+def _litellm_price_map_path() -> Path | None:
+    """Locate litellm's bundled price map without importing the package.
+
+    ``find_spec`` resolves the package directory without executing its
+    ``__init__`` -- the whole point (see :func:`_load_litellm_model_cost`).
+    """
+    import importlib.util
+
+    try:
+        spec = importlib.util.find_spec("litellm")
+    except (ImportError, ValueError):
+        return None
+    locations = list(getattr(spec, "submodule_search_locations", None) or []) if spec else []
+    if not locations:
+        return None
+    candidate = Path(locations[0]) / "model_prices_and_context_window_backup.json"
+    return candidate if candidate.is_file() else None
+
+
 def _load_litellm_model_cost() -> dict[str, object]:
     """Load the model pricing catalog.
 
-    Uses litellm's live ``model_cost`` dict when the package is installed
-    (fresher data, includes any runtime overrides).  Falls back to the
-    bundled ``model_prices.json`` snapshot so pricing works without litellm.
+    Reads litellm's bundled price map straight off disk. ``import litellm``
+    costs ~1.1s of module init and, by default, an extra remote fetch of the
+    price map (~0.7s, and it fails closed offline) -- far too much for a CLI
+    that only needs a JSON dict. The file read is ~15ms and carries the same
+    data the import would expose with ``LITELLM_LOCAL_MODEL_COST_MAP=True``.
+
+    Set ``LEMONCROW_PRICING_LIVE=1`` to pay the import and get litellm's live
+    map instead (remote-refreshed catalogue, plus any runtime overrides a
+    caller registered on ``litellm.model_cost``). Falls back to the bundled
+    ``model_prices.json`` snapshot when litellm is not installed.
     """
-    import importlib
     import json
 
-    previous_litellm_log = os.environ.get("LITELLM_LOG")
-    if previous_litellm_log is None:
-        os.environ["LITELLM_LOG"] = "ERROR"
+    if os.environ.get("LEMONCROW_PRICING_LIVE", "").strip().lower() in {"1", "true", "yes"}:
+        import importlib
 
-    try:
-        litellm = importlib.import_module("litellm")
-        model_cost = getattr(litellm, "model_cost", None)
-        if model_cost:
-            return cast(dict[str, object], model_cost)
-    except Exception:
-        pass  # fall through to bundled snapshot
-    finally:
+        previous_litellm_log = os.environ.get("LITELLM_LOG")
         if previous_litellm_log is None:
-            os.environ.pop("LITELLM_LOG", None)
-        else:
-            os.environ["LITELLM_LOG"] = previous_litellm_log
+            os.environ["LITELLM_LOG"] = "ERROR"
+        try:
+            litellm = importlib.import_module("litellm")
+            model_cost = getattr(litellm, "model_cost", None)
+            if model_cost:
+                return cast(dict[str, object], model_cost)
+        except Exception:
+            pass  # fall through to the on-disk maps
+        finally:
+            if previous_litellm_log is None:
+                os.environ.pop("LITELLM_LOG", None)
+            else:
+                os.environ["LITELLM_LOG"] = previous_litellm_log
+
+    price_map = _litellm_price_map_path()
+    if price_map is not None:
+        try:
+            return cast(dict[str, object], json.loads(price_map.read_text()))
+        except (OSError, ValueError):
+            logger.warning("Unreadable litellm price map at %s; using bundled snapshot", price_map)
 
     # Bundled snapshot — refreshed at release build time from the locked litellm
     # version; always available offline, no litellm import required at runtime.

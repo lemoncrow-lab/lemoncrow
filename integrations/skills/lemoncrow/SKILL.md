@@ -53,9 +53,17 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
 
    Unknown key → run `lc settings show`, relay the valid keys.
 
-5. **Any other verb** (e.g. "run benchmark X") → discover first, then run: `lc <topic> --help` (or `lc help <topic>`) to find the exact subcommand and flags, execute it, relay output. Never guess flags.
-6. Relay the command's real stdout/stderr to the user verbatim — it already states the token-cost delta and the result. Don't restate or recompute the cost, and don't add your own yes/no confirmation step: the user's `/lemoncrow ...` message _is_ the confirmation. `--yes` only skips the CLI's interactive re-prompt, which cannot run in a non-interactive tool call anyway.
-7. Fails in both dimensions → surface the CLI's own error (it lists the valid choices). Don't guess further.
+5. **"what are my savings?" / cost questions** — shell available (Claude Code, Codex CLI): run `lc savings` (add `detail` for the per-operation breakdown) and relay it. No shell (chat-only host): call the broker by exact name — it returns a markdown panel, relay it verbatim:
+
+   ```json
+   {"name": "tool", "arguments": {"action": "call", "name": "statusline_segment", "arguments": {"format": "markdown"}}}
+   ```
+
+   `format` accepts `markdown` (chat panel), `json` (raw report), `segment` (one statusline frame). Never recompute or restate the numbers.
+
+6. **Any other verb** (e.g. "run benchmark X") → discover first, then run: `lc <topic> --help` (or `lc help <topic>`) to find the exact subcommand and flags, execute it, relay output. Never guess flags.
+7. Relay the command's real stdout/stderr to the user verbatim — it already states the token-cost delta and the result. Don't restate or recompute the cost, and don't add your own yes/no confirmation step: the user's `/lemoncrow ...` message _is_ the confirmation. `--yes` only skips the CLI's interactive re-prompt, which cannot run in a non-interactive tool call anyway.
+8. Fails in both dimensions → surface the CLI's own error (it lists the valid choices). Don't guess further.
 
 ## Guardrails
 

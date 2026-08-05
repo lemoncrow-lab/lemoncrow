@@ -42,13 +42,29 @@ _INSTALLER_ASSET = "install.sh"
 # ---------------------------------------------------------------------------
 
 
+def _is_lemoncrow_checkout(candidate: Path) -> bool:
+    """True only for a real lemoncrow git checkout.
+
+    A bare ``.git`` existence check misfires on the distribution tree
+    (``~/.lemoncrow/install``), which can carry a leftover ``.git`` directory
+    from an older install: update then takes the git path, runs git commands in
+    a non-repository, and never applies the release update it should have.
+    """
+    if not (candidate / ".git").exists() or not (candidate / "pyproject.toml").exists():
+        return False
+    try:
+        return 'name = "lemoncrow"' in (candidate / "pyproject.toml").read_text("utf-8")
+    except OSError:
+        return False
+
+
 def _git_project_root() -> Path | None:
     """Resolve the git project root, if installed from a git checkout."""
     # 1. Check install record written by local.sh
     record = Path.home() / ".lemoncrow" / "install_dir"
     if record.exists():
         candidate = Path(record.read_text("utf-8").strip())
-        if (candidate / ".git").exists():
+        if _is_lemoncrow_checkout(candidate):
             return candidate.resolve()
     # 2. Walk up from this file (dev install without record)
     candidate = Path(__file__).resolve()
@@ -94,7 +110,7 @@ def _github_latest_version() -> str | None:
         data = json.loads(resp.read().decode())
         tag = data.get("tag_name", "")
         return tag.lstrip("v") or None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

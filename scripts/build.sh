@@ -113,13 +113,21 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/install_antigravity.sh scripts/install_claude.sh \
           scripts/install_codex.sh scripts/install_copilot.sh \
           scripts/install_cursor.sh scripts/install_hermes.sh \
-          scripts/install_opencode.sh \
+          scripts/install_lemoncode.sh scripts/install_opencode.sh \
           scripts/uninstall_antigravity.sh scripts/uninstall_claude.sh \
           scripts/uninstall_codex.sh scripts/uninstall_copilot.sh \
           scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
-          scripts/uninstall_opencode.sh \
+          scripts/uninstall_lemoncode.sh scripts/uninstall_opencode.sh \
           scripts/build_host_skills.sh scripts/sync_agent_context.py; do
     [[ -f "$s" ]] && cp -f "$s" "bundle/scripts/$(basename "$s")"
+done
+# Every host install_hosts.sh can dispatch to must ship, or the install dies at
+# "installer script not found" for that host only — a partial install reported
+# as "One or more host integrations failed". Fail the build instead.
+for host in $(grep -oE '^\s+--(antigravity|claude|codex|copilot|cursor|hermes|lemoncode|opencode)\)' scripts/install_hosts.sh \
+                | tr -d ' )-' | sort -u); do
+    [[ -f "bundle/scripts/install_${host}.sh" ]] \
+        || { echo "✗ bundle/scripts/install_${host}.sh missing — add it to the bundling list above" >&2; exit 1; }
 done
 # Bundle lib/ (shared installer functions + managed context helpers).
 mkdir -p bundle/scripts/lib
@@ -130,7 +138,7 @@ cp -f scripts/lib/versions.sh bundle/scripts/lib/versions.sh
 # Bundle integration files (pre-generated .md/.json/.sh per-host configs).
 echo "◆ Bundling host integration configs..."
 mkdir -p bundle/integrations
-for host in agents antigravity claude codex copilot copilot-cli cursor hermes opencode shared skills; do
+for host in agents antigravity claude codex copilot copilot-cli cursor hermes lemoncode opencode shared skills; do
     [[ -d "integrations/$host" ]] && cp -r "integrations/$host" "bundle/integrations/$host"
 done
 # Top-level files (e.g. AGENTS.lemoncrow.md) used by install_codex.sh and install_agents.sh

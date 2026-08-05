@@ -294,6 +294,11 @@ while [[ $# -gt 0 ]]; do
             CODEX_EXTRA_ARGS+=("$1" "$2")
             shift
             ;;
+        --*)
+            # Never hard-fail on a flag a newer caller knows and this tree does
+            # not: one unknown host must not abort every other host install.
+            print_message "$C_YELLOW" "Ignoring unknown option: $1" >&2
+            ;;
         *) print_message "$C_RED" "Unknown option: $1" >&2; exit 1 ;;
     esac
     shift

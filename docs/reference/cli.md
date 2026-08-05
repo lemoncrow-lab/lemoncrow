@@ -216,8 +216,8 @@ runner path today.
 Code retrieval, file reads, grep/search, and symbol lookup are exposed as
 LemonCrow **MCP tools** (`read`, `grep`, `search`, `explore`, `codemod`)
 rather than standalone CLI commands. Invoke them through your agent host or via
-`lc tools call <name>`. (Call-graph and reference relations — callers,
-callees, usages — fold into one `explore` call.)
+`lc tools call <name>`. (LemonGraph — call-graph and reference relations —
+callers, callees, usages — fold into one `explore` call.)
 
 | Command         | Purpose                                                               |
 | --------------- | --------------------------------------------------------------------- |

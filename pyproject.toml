@@ -63,6 +63,10 @@ dependencies = [
     "regex>=2026.5.9",
     "aiohttp>=3.14.1",
     "sqliteai-vector>=1.0.0",
+    # .gitignore filtering in the code-context engine. Reached dev-only via
+    # black/mypy before this was declared, so prod installs silently indexed
+    # ignored trees (node_modules, .venv).
+    "pathspec>=0.12",
 ]
 
 [project.optional-dependencies]
