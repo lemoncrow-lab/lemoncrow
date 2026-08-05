@@ -215,6 +215,19 @@ fmt_ctx() {
 }
 ACTUAL_CTX_F=$(fmt_ctx "${LIVE_CTX_TOK}")
 
+# Park the live window reading where the out-of-process frame builders can find
+# it. Only this script sees real occupancy: the MCP sidecar and `lc savings
+# --segment` build frames elsewhere, and the transcript carries *cumulative*
+# tokens, which is a different quantity from what is in the window right now.
+# Atomic rename so a concurrent render never reads a torn file.
+if [ -n "${SESSION_ID:-}" ]; then
+  _CTX_STATE="${LEMONCROW_STATUS_ROOT}/statusline_ctx_pct_${SESSION_ID}"
+  printf '%s %s' "${PCT_INT:-0}" "${LIVE_CTX_TOK:-0}" > "${_CTX_STATE}.$$" 2>/dev/null \
+    && mv -f "${_CTX_STATE}.$$" "${_CTX_STATE}" 2>/dev/null || true
+fi
+export LEMONCROW_STATUSLINE_CTX_PCT="${PCT_INT:-0}"
+export LEMONCROW_STATUSLINE_CTX_TOK="${LIVE_CTX_TOK:-0}"
+
 # --- Rotating dynamic segment from backend ---
 # Export live cost + token counts so the backend can build frame 0.
 export LEMONCROW_STATUSLINE_COST_USD="${COST:-0}"

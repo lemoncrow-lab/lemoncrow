@@ -904,6 +904,9 @@ class SavingsSummary:
     read_saved_tokens: int = 0
     est_cost_usd: float = 0.0  # baseline cost from terminated session transcript
     total_tokens: int = 0  # cumulative session tokens (in+out+cR+cW) from transcript
+    # Distinct assistant turns so far. Drives the runway frame: context burn per
+    # turn is what converts "tokens saved" into "turns you still have left".
+    turns: int = 0
     display_input_tokens: int = 0  # cumulative fresh input = input + cache_write
     display_cache_tokens: int = 0  # cumulative cache reads
     display_output_tokens: int = 0  # cumulative output
@@ -1715,6 +1718,7 @@ def compute_savings_summary(
     if stats is not None:
         result.est_cost_usd = stats.est_cost_usd
         result.total_tokens = stats.total_tokens
+        result.turns = stats.turns
         result.display_input_tokens = stats.input_tokens + stats.cache_write_tokens
         result.display_cache_tokens = stats.cache_read_tokens
         result.display_output_tokens = stats.output_tokens
@@ -3305,6 +3309,69 @@ def _resolve_lemoncrow_root(lemoncrow_root: str | Path | None) -> Path:
 # at display time rather than at build time).
 _LOGIN_NUDGE_MARK = "/lemoncrow account login"
 
+# Minimum assistant turns before the runway estimate is shown. Below this the
+# burn-per-turn denominator is one or two samples and the extrapolation swings
+# wildly between renders -- a number that jumps 200 -> 12 -> 80 teaches the user
+# to ignore the segment, which is worse than not showing it.
+_RUNWAY_MIN_TURNS = 5
+# Absurd-value clamp: at 1% context used the linear model predicts hundreds of
+# turns, which is technically what the math says and useless as a signal.
+_RUNWAY_MAX_TURNS = 999
+
+
+def _ctx_state_path(session_id: str, root: Path) -> Path:
+    """Where statusline.sh parks the live context reading for this session.
+
+    Only the host statusline knows the real window occupancy -- the sidecar and
+    the CLI both build frames out of process, and the transcript only carries
+    *cumulative* tokens, which is a different quantity from what is in the
+    window right now. So the statusline writes it down and the frame builders
+    read it back. Flat and session-keyed, mirroring statusline_segment_cache_*.
+    """
+    return root / f"statusline_ctx_pct_{session_id}"
+
+
+def _read_ctx_state(session_id: str, root: Path) -> tuple[float, int]:
+    """Read ``(context_used_pct, context_tokens)`` written by statusline.sh.
+
+    Returns ``(0.0, 0)`` when absent or malformed -- every caller treats that as
+    "no runway estimate available" and simply omits the frame.
+    """
+    if not session_id:
+        return 0.0, 0
+    try:
+        raw = _ctx_state_path(session_id, root).read_text(encoding="utf-8").split()
+        return float(raw[0]), int(raw[1])
+    except (OSError, ValueError, IndexError):
+        return 0.0, 0
+
+
+def _runway_turns(pct: float, turns: int) -> int:
+    """Turns left before the context window fills, at the current burn rate.
+
+    ``pct`` percent of the window bought ``turns`` turns, so the remaining
+    ``100 - pct`` percent buys ``turns * (100 - pct) / pct`` more. Deliberately
+    expressed in percent rather than tokens: it needs no window size, so it is
+    correct on every model without a lookup table to keep in sync.
+    """
+    if turns < _RUNWAY_MIN_TURNS or pct <= 0 or pct >= 100:
+        return 0
+    return min(int(turns * (100.0 - pct) / pct), _RUNWAY_MAX_TURNS)
+
+
+def _runway_turns_from_lemoncrow(ctx_saved: int, ctx_tokens: int, turns: int) -> int:
+    """How many of those remaining turns exist because context stayed lean.
+
+    ``ctx_tokens`` of context bought ``turns`` turns, so the ``ctx_saved``
+    tokens never placed in the window are worth ``ctx_saved * turns /
+    ctx_tokens`` turns on the same burn rate. This is the same conservative
+    ``ctx_saved`` figure the savings frame prices in dollars -- restated in the
+    unit the user actually spends.
+    """
+    if ctx_saved <= 0 or ctx_tokens <= 0 or turns < _RUNWAY_MIN_TURNS:
+        return 0
+    return min(int(ctx_saved * turns / ctx_tokens), _RUNWAY_MAX_TURNS)
+
 
 def savings_frames(
     session_id: str = "",
@@ -3314,6 +3381,8 @@ def savings_frames(
     live_in_tok: int = 0,
     live_cache_tok: int = 0,
     live_out_tok: int = 0,
+    live_ctx_pct: float = 0.0,
+    live_ctx_tok: int = 0,
     no_color: bool = False,
 ) -> list[str]:
     """Return EVERY pre-formatted statusline frame, weighted, ready to print.
@@ -3325,10 +3394,11 @@ def savings_frames(
 
     Frames (non-empty only):
       0  cost + I/C/O breakdown, then total saved (realized+output+routing+carry, usage-gated) w/ recycle+carry+output+routing breakdown (weighted 3x)
-      1  1-day historical savings
-      2  7-day historical savings
-      3  30-day historical savings
-      4  status tip / update notice
+      1  runway: turns left at the current burn + turns LemonCrow bought (weighted 3x)
+      2  1-day historical savings
+      3  7-day historical savings
+      4  30-day historical savings
+      5  status tip / update notice
     """
     root = _resolve_lemoncrow_root(lemoncrow_root)
 
@@ -3400,6 +3470,26 @@ def savings_frames(
         if summary.time_saved_seconds >= 60:
             combined += f" {C_BRAND}⚡ ~{fmt_duration(summary.time_saved_seconds)} faster{C_RESET}"
     frames.append((True, combined))
+
+    # Frame 1: runway. "Can I finish in this session, or should I cut now?" is a
+    # live decision the user makes many times a day; "what did I save" is
+    # retrospective. Same weight as frame 0 so the actionable number is never the
+    # one they miss. Explicit live_* args win over the file statusline.sh parks,
+    # so the in-process CLI path does not depend on a previous render.
+    ctx_pct, ctx_tok = _read_ctx_state(session_id, root)
+    if live_ctx_pct > 0:
+        ctx_pct = live_ctx_pct
+    if live_ctx_tok > 0:
+        ctx_tok = live_ctx_tok
+    runway_idx: int | None = None
+    turns_left = _runway_turns(ctx_pct, summary.turns)
+    if turns_left > 0:
+        runway = f"{C_DIM}~{turns_left} turns left{C_RESET}"
+        from_lc = _runway_turns_from_lemoncrow(summary.ctx_saved, ctx_tok, summary.turns)
+        if from_lc > 0:
+            runway += f" {C_GREEN}(+{from_lc} from lc){C_RESET}"
+        runway_idx = len(frames)
+        frames.append((False, runway))
 
     def _hist_frame(label: str, usd: float, calls: int, spend: float, carry: float, routing: float) -> str:
         """Format: label: ↑ $spent ↓ $total_saved · N turns (spend + carry + routing combined)."""
@@ -3475,11 +3565,14 @@ def savings_frames(
                 (False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow account login{C_DIM} to unlock Pro{C_RESET}")
             )
 
-    # Frame 0 (cost+savings+carry) gets 3 slots at 5s each = ~15s; others get 5s
-    # each. Weighting frame 0 higher than this made the line feel static — the
-    # render path refreshes every 5-10s at best (sidecar rate-limit / cache TTL),
-    # so a 30s hold on one frame read as "not rotating at all".
-    weighted = [frames[0]] * 3 + frames[1:] if frames else frames
+    # Frame 0 (cost+savings+carry) and, when present, frame 1 (runway) each get 3
+    # slots at 5s each = ~15s; others get 5s each. Weighting either higher than
+    # this made the line feel static — the render path refreshes every 5-10s at
+    # best (sidecar rate-limit / cache TTL), so a 30s hold on one frame read as
+    # "not rotating at all". The runway frame is always appended directly after
+    # frame 0, so the heavy prefix is contiguous.
+    heavy = 2 if runway_idx == 1 else 1
+    weighted = [f for f in frames[:heavy] for _ in range(3)] + frames[heavy:] if frames else frames
 
     # Review verdict: pinned — appended to every frame, never rotated away.
     pin = ""
@@ -3501,6 +3594,8 @@ def savings_segment(
     live_in_tok: int = 0,
     live_cache_tok: int = 0,
     live_out_tok: int = 0,
+    live_ctx_pct: float = 0.0,
+    live_ctx_tok: int = 0,
     no_color: bool = False,
 ) -> str:
     """Return ONE pre-formatted rotating statusline frame.
@@ -3518,6 +3613,8 @@ def savings_segment(
         live_in_tok=live_in_tok,
         live_cache_tok=live_cache_tok,
         live_out_tok=live_out_tok,
+        live_ctx_pct=live_ctx_pct,
+        live_ctx_tok=live_ctx_tok,
         no_color=no_color,
     )
     if not frames:

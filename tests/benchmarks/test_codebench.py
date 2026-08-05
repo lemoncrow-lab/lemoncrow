@@ -885,3 +885,216 @@ def test_is_content_invalid_excludes_timeouts_but_flags_off_topic() -> None:
 
     assert CODEBENCH._is_content_invalid(timed_out) is False
     assert CODEBENCH._is_content_invalid(off_topic) is True
+
+
+# --- capacity metrics: finished work per budget -------------------------------
+
+
+def _result(arm: str, cost: float, **overrides: Any) -> Any:
+    fields: dict[str, Any] = {
+        "task": "task-1",
+        "arm": arm,
+        "rep": 0,
+        "ok": True,
+        "cost_usd": cost,
+        "duration_ms": 10,
+        "duration_api_ms": 9,
+        "num_turns": 1,
+        "input_tokens": 10,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+        "output_tokens": 5,
+        "models": ["sonnet"],
+        "is_error": False,
+        "result_excerpt": "ok",
+        "flow_path": f"{arm}.flow",
+    }
+    fields.update(overrides)
+    return CODEBENCH.ArmResult(**fields)
+
+
+def test_completed_requires_clean_run_and_a_gate_that_did_not_fail() -> None:
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0)) is True
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0, correct=True)) is True
+    # A failed verify gate is ground truth: the run finished, the task did not.
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0, correct=False)) is False
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0, timed_out=True)) is False
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0, ok=False)) is False
+    assert CODEBENCH._completed(_result("lemoncrow", 1.0, valid=False)) is False
+
+
+def test_capacity_table_reports_completions_per_dollar() -> None:
+    results = [
+        _result("baseline", 1.0, correct=True),
+        _result("baseline", 1.0, correct=False),
+        _result("lemoncrow", 0.5, correct=True),
+        _result("lemoncrow", 0.5, correct=True),
+    ]
+
+    text = CODEBENCH.report(results, mode="budget")
+
+    assert "=== Capacity (finished work per budget) ===" in text
+    # baseline: 1 completion for $2.00 -> 0.50/$ ; lemoncrow: 2 for $1.00 -> 2.00/$
+    assert "| baseline | 1 | 2 | 50.0% | $2.0000 | 0.50 |" in text
+    assert "| lemoncrow | 2 | 2 | 100.0% | $1.0000 | 2.00 |" in text
+    assert "Budget mode" in text
+    # Cost mode keeps the capacity table but drops the mode-specific caveat.
+    assert "Budget mode" not in CODEBENCH.report(results)
+    assert "Ceiling mode" in CODEBENCH.report(results, mode="ceiling")
+
+
+def test_summary_row_carries_capacity_columns() -> None:
+    results = [_result("lemoncrow", 0.5, correct=True), _result("lemoncrow", 0.5, correct=False)]
+
+    row = CODEBENCH._summary_row(results, "lemoncrow")
+
+    assert row["completed_runs"] == 1
+    assert row["completed_per_usd"] == 1.0
+
+
+def test_task_is_ceiling_reads_the_config_flag(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEBENCH_TASKS_DIR", str(tmp_path))
+    task_root = tmp_path / "tasks" / "big"
+    task_root.mkdir(parents=True)
+    plain_root = tmp_path / "tasks" / "small"
+    plain_root.mkdir(parents=True)
+    (plain_root / "config.yaml").write_text("verify:\n  command: pytest -q\n", encoding="utf-8")
+
+    ceiling = TASKS.Task("big", "python", ("empty",), 1, "big")
+    plain = TASKS.Task("small", "python", ("empty",), 1, "small")
+    missing = TASKS.Task("gone", "python", ("empty",), 1, "gone")
+
+    assert CODEBENCH._task_is_ceiling(ceiling) is False
+    (task_root / "config.yaml").write_text("ceiling: true\nverify:\n  command: pytest -q\n", encoding="utf-8")
+    assert CODEBENCH._task_is_ceiling(ceiling) is True
+    assert CODEBENCH._task_is_ceiling(plain) is False
+    assert CODEBENCH._task_is_ceiling(missing) is False
+
+
+def _install_fake_arm(monkeypatch: MonkeyPatch, calls: list[tuple[str, str, int]], cost: float) -> None:
+    """Replace run_arm with a costed no-op and neuter the prereq shell-outs."""
+
+    def fake_run_arm(
+        task_obj: Any,
+        arm: str,
+        rep: int,
+        model: str,
+        out_dir: Path,
+        timeout: int,
+        agent_command: str = "claude",
+        cli_driver: str = "claude",
+        agent_env: dict[str, str] | None = None,
+        cli_extra_args: list[str] | tuple[str, ...] = (),
+        resume_state: bool = False,
+        capture: bool = True,
+    ) -> Any:
+        del (model, out_dir, timeout, agent_command, cli_driver, agent_env, cli_extra_args, resume_state, capture)
+        calls.append((task_obj.id, arm, rep))
+        return _result(arm, cost, task=task_obj.id, rep=rep)
+
+    monkeypatch.setattr(CODEBENCH, "run_arm", fake_run_arm)
+    monkeypatch.setattr(CODEBENCH, "check_prereqs", lambda tasks: True)
+
+
+def test_budget_mode_stops_an_arm_once_its_cap_is_reached(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    tasks = [TASKS.Task(f"task-{i}", "python", ("empty",), 1, f"task{i}") for i in range(3)]
+    monkeypatch.setattr(CODEBENCH, "TASKS", tasks)
+    monkeypatch.setattr(CODEBENCH, "BY_ID", {t.id: t for t in tasks})
+    calls: list[tuple[str, str, int]] = []
+    _install_fake_arm(monkeypatch, calls, cost=0.5)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run.py",
+            *[t.id for t in tasks],
+            "--arms",
+            "lemoncrow",
+            "--reps",
+            "1",
+            "--mode",
+            "budget",
+            "--budget-usd",
+            "1.0",
+            "--out",
+            str(run_dir),
+        ],
+    )
+
+    assert CODEBENCH.main() == 0
+
+    # Two runs at $0.50 exhaust the $1.00 cap; the third never starts.
+    assert calls == [("task-0", "lemoncrow", 0), ("task-1", "lemoncrow", 0)]
+
+
+def test_budget_mode_rejects_a_missing_cap(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run.py", "all", "--mode", "budget", "--out", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit):
+        CODEBENCH.main()
+
+
+def test_ceiling_mode_runs_only_tasks_marked_ceiling(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    tasks_root = tmp_path / "catalog"
+    monkeypatch.setenv("CODEBENCH_TASKS_DIR", str(tasks_root))
+    for name, body in (("big", "ceiling: true\n"), ("small", "verify:\n  command: true\n")):
+        task_root = tasks_root / "tasks" / name
+        task_root.mkdir(parents=True)
+        (task_root / "config.yaml").write_text(body, encoding="utf-8")
+    tasks = [
+        TASKS.Task("big", "python", ("empty",), 1, "big"),
+        TASKS.Task("small", "python", ("empty",), 1, "small"),
+    ]
+    monkeypatch.setattr(CODEBENCH, "TASKS", tasks)
+    monkeypatch.setattr(CODEBENCH, "BY_ID", {t.id: t for t in tasks})
+    calls: list[tuple[str, str, int]] = []
+    _install_fake_arm(monkeypatch, calls, cost=0.25)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run.py",
+            "big",
+            "small",
+            "--arms",
+            "baseline",
+            "--reps",
+            "1",
+            "--mode",
+            "ceiling",
+            "--out",
+            str(run_dir),
+        ],
+    )
+
+    assert CODEBENCH.main() == 0
+    assert calls == [("big", "baseline", 0)]
+
+
+def test_ceiling_mode_aborts_when_no_task_is_marked(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    tasks_root = tmp_path / "catalog"
+    monkeypatch.setenv("CODEBENCH_TASKS_DIR", str(tasks_root))
+    (tasks_root / "tasks" / "small").mkdir(parents=True)
+    tasks = [TASKS.Task("small", "python", ("empty",), 1, "small")]
+    monkeypatch.setattr(CODEBENCH, "TASKS", tasks)
+    monkeypatch.setattr(CODEBENCH, "BY_ID", {t.id: t for t in tasks})
+    calls: list[tuple[str, str, int]] = []
+    _install_fake_arm(monkeypatch, calls, cost=0.25)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run.py", "small", "--arms", "baseline", "--reps", "1", "--mode", "ceiling", "--out", str(run_dir)],
+    )
+
+    assert CODEBENCH.main() == 1
+    assert calls == []

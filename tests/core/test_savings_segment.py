@@ -167,6 +167,117 @@ def test_review_verdict_consumed_ignored(lemoncrow_root: Path) -> None:
     assert _read_review_verdict(sid, lemoncrow_root) == ""
 
 
+def _runway_frames(
+    lemoncrow_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    turns: int = 20,
+    ctx_saved: int = 30_000,
+    ctx_pct: float = 35.0,
+    ctx_tok: int = 60_000,
+) -> list[str]:
+    from lemoncrow.core.capabilities.savings_summary import SavingsSummary, savings_frames
+
+    summary = SavingsSummary(saved_usd=1.0, ctx_saved=ctx_saved, turns=turns)
+    monkeypatch.setattr(
+        "lemoncrow.core.capabilities.savings_summary.compute_savings_summary",
+        lambda *a, **k: summary,
+    )
+    return savings_frames(
+        "runway-session",
+        lemoncrow_root=lemoncrow_root,
+        no_color=True,
+        live_in_tok=10_000,
+        live_cache_tok=50_000,
+        live_ctx_pct=ctx_pct,
+        live_ctx_tok=ctx_tok,
+    )
+
+
+def test_runway_frame_reports_turns_left_and_the_share_lemoncrow_bought(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """20 turns filled 35% of the window, so ~37 remain; 30k of saved context is
+    worth 10 more turns at the same burn."""
+    frames = _runway_frames(lemoncrow_root, monkeypatch)
+
+    runway = [f for f in frames if "turns left" in f]
+    assert runway, f"expected a runway frame in {frames!r}"
+    assert "~37 turns left" in runway[0]
+    assert "(+10 from lc)" in runway[0]
+
+
+def test_runway_frame_carries_the_same_weight_as_the_savings_frame(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frames = _runway_frames(lemoncrow_root, monkeypatch)
+
+    assert frames[0] == frames[1] == frames[2]  # savings frame: 3 slots
+    assert frames[3] == frames[4] == frames[5]  # runway frame: 3 slots
+    assert "turns left" in frames[3]
+    assert "turns left" not in frames[0]
+
+
+def test_runway_suppressed_until_the_burn_rate_has_enough_samples(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Below the minimum turn count the extrapolation swings wildly; omit it."""
+    frames = _runway_frames(lemoncrow_root, monkeypatch, turns=4)
+
+    assert not any("turns left" in f for f in frames)
+    assert frames[0] == frames[1] == frames[2]
+    # Weighting falls back to frame 0 alone holding the 3 slots.
+    assert frames == [frames[0]] * 3
+
+
+def test_runway_omits_the_lemoncrow_share_when_nothing_was_saved(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frames = _runway_frames(lemoncrow_root, monkeypatch, ctx_saved=0)
+
+    runway = [f for f in frames if "turns left" in f]
+    assert runway and "from lc" not in runway[0]
+
+
+def test_runway_falls_back_to_the_state_file_statusline_parks(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The MCP sidecar builds frames with no live_* args, so the reading written
+    by statusline.sh is the only source of window occupancy it has."""
+    from lemoncrow.core.capabilities.savings_summary import SavingsSummary, savings_frames
+
+    (lemoncrow_root / "statusline_ctx_pct_sidecar-session").write_text("35 60000", encoding="utf-8")
+    summary = SavingsSummary(saved_usd=1.0, ctx_saved=30_000, turns=20)
+    monkeypatch.setattr(
+        "lemoncrow.core.capabilities.savings_summary.compute_savings_summary",
+        lambda *a, **k: summary,
+    )
+
+    frames = savings_frames("sidecar-session", lemoncrow_root=lemoncrow_root, no_color=True)
+
+    runway = [f for f in frames if "turns left" in f]
+    assert runway, f"expected a runway frame from the parked state in {frames!r}"
+    assert "~37 turns left" in runway[0]
+    assert "(+10 from lc)" in runway[0]
+
+
+def test_runway_state_file_missing_or_malformed_is_not_fatal(
+    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.core.capabilities.savings_summary import SavingsSummary, savings_frames
+
+    (lemoncrow_root / "statusline_ctx_pct_bad-session").write_text("not a number", encoding="utf-8")
+    summary = SavingsSummary(saved_usd=1.0, ctx_saved=30_000, turns=20)
+    monkeypatch.setattr(
+        "lemoncrow.core.capabilities.savings_summary.compute_savings_summary",
+        lambda *a, **k: summary,
+    )
+
+    frames = savings_frames("bad-session", lemoncrow_root=lemoncrow_root, no_color=True)
+
+    assert frames and not any("turns left" in f for f in frames)
+
+
 def test_savings_frames_weighted_and_segment_consistent(lemoncrow_root: Path) -> None:
     """savings_frames returns the full weighted list (frame 0 x3) and
     savings_segment always returns one of its entries — the MCP sidecar and

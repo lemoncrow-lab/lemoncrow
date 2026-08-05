@@ -10,6 +10,45 @@ from lemoncrow.core.capabilities.benchmark_gate import (
 )
 
 
+def test_codebench_ceiling_mode_gates_on_completion_not_cost(tmp_path: Path) -> None:
+    """Ceiling tasks are sized past baseline capacity, so finishing more costs more."""
+    run_dir = tmp_path / "ceiling"
+    run_dir.mkdir()
+    rows = [
+        {"arm": "baseline", "correct": False, "cost_usd": 1.0, "valid": True},
+        {"arm": "lemoncrow", "correct": True, "cost_usd": 3.0, "valid": True},
+    ]
+    (run_dir / "results.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    cost_mode = evaluate_codebench_gate(run_dir)
+    ceiling_mode = evaluate_codebench_gate(run_dir, mode="ceiling")
+
+    assert "candidate did not reduce measured cost versus baseline" in cost_mode["reasons"]
+    assert "candidate did not reduce measured cost versus baseline" not in ceiling_mode["reasons"]
+    assert "candidate did not complete more ceiling tasks than baseline" not in ceiling_mode["reasons"]
+    assert ceiling_mode["checks"]["cost_metric"] == "completion rate"
+
+
+def test_codebench_ceiling_mode_fails_when_candidate_completes_no_more(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ceiling-flat"
+    run_dir.mkdir()
+    rows = [
+        {"arm": "baseline", "correct": True, "cost_usd": 1.0, "valid": True},
+        {"arm": "lemoncrow", "correct": True, "cost_usd": 0.5, "valid": True},
+    ]
+    (run_dir / "results.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    verdict = evaluate_codebench_gate(run_dir, mode="ceiling")
+
+    assert "candidate did not complete more ceiling tasks than baseline" in verdict["reasons"]
+
+
 def test_evaluate_terminalbench_gate_passes_with_noninferior_cheaper_candidate(tmp_path: Path) -> None:
     run_dir = tmp_path / "terminalbench"
     run_dir.mkdir()

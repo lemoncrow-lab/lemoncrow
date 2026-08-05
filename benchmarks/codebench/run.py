@@ -746,6 +746,23 @@ def _result_total_tokens(result: ArmResult) -> int:
     return result.input_tokens + result.cache_read_tokens + result.cache_creation_tokens + result.output_tokens
 
 
+def _completed(result: ArmResult) -> bool:
+    """Did this run actually finish the task it was given?
+
+    This is the numerator of every capacity metric: cost mode asks what one task
+    cost, capacity mode asks how many tasks a budget bought, and that inversion
+    only means something if "finished" is defined once and strictly.
+
+    A run counts only when it terminated cleanly (``ok``), stayed on task
+    (``valid``) and did not run out the clock (``timed_out``). Where the task
+    carries a verify gate, that gate is ground truth and a failed gate is not a
+    completion; unverified tasks fall back to the clean-termination signal.
+    """
+    if not result.ok or not result.valid or result.timed_out:
+        return False
+    return result.correct is not False
+
+
 def _apply_savings(results: list[ArmResult]) -> None:
     """Backfill real cross-arm savings in place.
 
@@ -784,6 +801,24 @@ def _task_verify(task: Task) -> tuple[str | None, str]:
         mode = "floor" if verify.get("mode") == "floor" else "binary"
         return str(verify["command"]), mode
     return None, "binary"
+
+
+def _task_is_ceiling(task: Task) -> bool:
+    """True when the task declares ``ceiling: true`` in its config.yaml.
+
+    A ceiling task is deliberately sized past what the baseline arm can hold in
+    one context window, so the question it answers is "did the arm finish at
+    all", not "what did it cost". Declared in config.yaml rather than on the
+    frozen ``Task`` dataclass so the CLI catalog loader keeps validating.
+    """
+    config_path = task.prompt_path().parent / "config.yaml"
+    if not config_path.exists():
+        return False
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return False
+    return bool(data.get("ceiling")) if isinstance(data, dict) else False
 
 
 def _run_verify(task: Task, command: str, workspace: str) -> tuple[bool, str]:
@@ -2521,13 +2556,56 @@ def _agg(results: list[ArmResult], arm: str) -> dict[str, Any]:
         "thinking_tokens": sum(r.thinking_tokens for r in rs),
         "num_turns": sum(r.num_turns for r in rs),
         "timed_out": sum(1 for r in rs if r.timed_out),
+        "completed": sum(1 for r in rs if _completed(r)),
         "saved_usd": round(sum(r.saved_usd for r in rs), 4),
         "saved_tokens": sum(r.saved_tokens for r in rs),
         "model_usage": aggregated_model_usage,
     }
 
 
-def report(results: list[ArmResult]) -> str:
+def _render_capacity_table(results: list[ArmResult], *, mode: str = "cost") -> str:
+    """Work-finished-per-budget table -- the capacity view of a run.
+
+    Cost mode answers "same task, what did it cost". This answers the inverted
+    question: for the budget actually spent, how much finished work came out.
+    In ceiling mode the completion rate is the headline, because the tasks are
+    chosen so the baseline arm cannot finish them at all and a cost comparison
+    between a finished run and an unfinished one means nothing.
+    """
+    arms = _ordered_arms(results)
+    if not arms:
+        return ""
+    lines = [
+        "",
+        "=== Capacity (finished work per budget) ===",
+        "",
+        "| Arm | Completed | Runs | Completion rate | Cost | Completed per $ |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for arm in arms:
+        rs = [r for r in results if r.arm == arm]
+        if not rs:
+            continue
+        done = sum(1 for r in rs if _completed(r))
+        cost = sum(r.cost_usd for r in rs)
+        rate = done / len(rs) * 100.0
+        per_usd = f"{done / cost:.2f}" if cost > 0 else "n/a"
+        lines.append(f"| {arm} | {done} | {len(rs)} | {rate:.1f}% | ${cost:.4f} | {per_usd} |")
+    if mode == "ceiling":
+        lines.append("")
+        lines.append(
+            "Ceiling mode: tasks are sized past baseline capacity, so completion rate is the "
+            "headline and cost is not comparable across arms that did not finish."
+        )
+    elif mode == "budget":
+        lines.append("")
+        lines.append(
+            "Budget mode: every arm was given the same cap, so 'Completed' is the result and cost is the constant."
+        )
+    return "\n".join(lines)
+
+
+def report(results: list[ArmResult], *, mode: str = "cost") -> str:
     arms = _ordered_arms(results)
     aggregates = {arm: _agg(results, arm) for arm in arms}
     baseline = aggregates.get("baseline")
@@ -2633,6 +2711,9 @@ def report(results: list[ArmResult]) -> str:
             )
             lines.append(f"{arm} cost saving : {cost_save:+.1f}%  (Eval target ~47-50%)")
             lines.append(f"{arm} time saving : {time_save:+.1f}%  (Eval target ~40%)")
+    capacity_table = _render_capacity_table(results, mode=mode)
+    if capacity_table:
+        lines.append(capacity_table)
     task_tables = _render_task_metric_tables(results)
     if task_tables:
         lines.append(task_tables)
@@ -3287,6 +3368,12 @@ def _summary_row(results: list[ArmResult], arm: str) -> dict[str, object]:
         "failed_runs": sum(1 for result in arm_results if not result.ok),
         "valid_runs": sum(1 for result in arm_results if result.valid),
         "correct_runs": sum(1 for result in arm_results if result.correct is True),
+        "completed_runs": sum(1 for result in arm_results if _completed(result)),
+        "completed_per_usd": (
+            round(sum(1 for result in arm_results if _completed(result)) / arm_cost, 2)
+            if (arm_cost := sum(result.cost_usd for result in arm_results)) > 0
+            else ""
+        ),
         "avg_score": (
             round(sum(float(result.score or 0.0) for result in judged) / len(judged), 3)
             if (judged := [result for result in arm_results if result.score is not None])
@@ -3420,6 +3507,8 @@ def write_csv_artifacts(
             "failed_runs",
             "valid_runs",
             "correct_runs",
+            "completed_runs",
+            "completed_per_usd",
             "avg_score",
             "cost_usd",
             "duration_ms",
@@ -3567,6 +3656,7 @@ def _run_task_rep(
     resume_state: bool,
     capture: bool = True,
     on_result: Callable[[ArmResult], None] | None = None,
+    budget_gate: Callable[[str], bool] | None = None,
 ) -> list[ArmResult]:
     task = BY_ID[task_id]
     results: list[ArmResult] = []
@@ -3574,6 +3664,12 @@ def _run_task_rep(
         if task.capability not in ARM_SPECS[arm].persona_by_capability:
             print(
                 f"[skip] {task_id} {arm} rep{rep} — not applicable to capability '{task.capability}'",
+                flush=True,
+            )
+            continue
+        if budget_gate is not None and not budget_gate(arm):
+            print(
+                f"[budget] {task_id} {arm} rep{rep} — arm budget exhausted, not started",
                 flush=True,
             )
             continue
@@ -3653,8 +3749,9 @@ def _run_single_arm(
     resume_state: bool,
     capture: bool = True,
     on_result: Callable[[ArmResult], None] | None = None,
-) -> ArmResult:
-    return _run_task_rep(
+    budget_gate: Callable[[str], bool] | None = None,
+) -> ArmResult | None:
+    rs = _run_task_rep(
         task_id,
         rep,
         arms=[arm],
@@ -3668,7 +3765,10 @@ def _run_single_arm(
         resume_state=resume_state,
         capture=capture,
         on_result=on_result,
-    )[0]
+        budget_gate=budget_gate,
+    )
+    # Empty when the arm was skipped (capability mismatch or exhausted budget).
+    return rs[0] if rs else None
 
 
 def main() -> int:
@@ -3684,6 +3784,22 @@ def main() -> int:
     p.add_argument("--reps", type=int, default=1)
     p.add_argument("--model", default="sonnet")
     p.add_argument("--timeout", type=int, default=1800)
+    p.add_argument(
+        "--mode",
+        choices=["cost", "budget", "ceiling"],
+        default="cost",
+        help=(
+            "cost: same task on both arms, compare spend (default). "
+            "budget: same spend cap on both arms, compare finished work (needs --budget-usd). "
+            "ceiling: only tasks marked 'ceiling: true' in config.yaml, compare completion rate."
+        ),
+    )
+    p.add_argument(
+        "--budget-usd",
+        type=float,
+        default=0.0,
+        help="Per-arm spend cap in USD; no new run starts for an arm once it is reached. 0 disables.",
+    )
     p.add_argument(
         "--rate-limit-rpm",
         "--rate-limit",
@@ -3871,7 +3987,7 @@ def main() -> int:
         _apply_savings(report_results)
         _write_results_jsonl(rdir, report_results)
         write_csv_artifacts(rdir, report_results, pairwise_rows)
-        rep_txt = report(report_results)
+        rep_txt = report(report_results, mode=args.mode)
         (rdir / "report.txt").write_text(rep_txt)
         print(rep_txt)
         return 0
@@ -3985,8 +4101,29 @@ def main() -> int:
             return 1
     if args.jobs < 1:
         p.error("--jobs must be >= 1")
+    if args.mode == "budget" and args.budget_usd <= 0:
+        p.error("--mode budget needs a positive --budget-usd (that cap is the whole experiment)")
+    if args.budget_usd < 0:
+        p.error("--budget-usd must be >= 0")
     if args.retry_failed and not args.resume:
         p.error("--retry-failed requires --resume")
+
+    if args.mode == "ceiling":
+        # Ceiling mode is only meaningful on tasks built to exceed baseline
+        # capacity, so run those and nothing else rather than silently diluting
+        # the completion rate with tasks both arms finish comfortably.
+        ceiling_ids = [tid for tid in task_ids if tid in BY_ID and _task_is_ceiling(BY_ID[tid])]
+        if not ceiling_ids:
+            print(
+                "Aborting: --mode ceiling selected but no task in this selection declares "
+                "'ceiling: true' in its config.yaml.",
+                flush=True,
+            )
+            return 1
+        skipped = len(task_ids) - len(ceiling_ids)
+        if skipped:
+            print(f"[ceiling] running {len(ceiling_ids)} ceiling task(s); skipped {skipped} normal task(s)", flush=True)
+        task_ids = ceiling_ids
 
     # Verify required binaries are present for the selected tasks before
     # spending time on workspace setup or model API calls. Ad-hoc BYO repos
@@ -4014,6 +4151,11 @@ def main() -> int:
             jl.write(json.dumps(asdict(res)) + "\n")
         jl.flush()
     result_lock = threading.Lock()
+    budget_usd = float(args.budget_usd or 0.0)
+    # Seed from rows already on disk so a resumed run does not re-spend the cap.
+    spend_by_arm: dict[str, float] = {}
+    for res in results:
+        spend_by_arm[res.arm] = spend_by_arm.get(res.arm, 0.0) + res.cost_usd
 
     def record_result(res: ArmResult) -> None:
         with result_lock:
@@ -4021,8 +4163,21 @@ def main() -> int:
                 return
             results.append(res)
             completed.add(_result_key(res))
+            spend_by_arm[res.arm] = spend_by_arm.get(res.arm, 0.0) + res.cost_usd
             jl.write(json.dumps(asdict(res)) + "\n")
             jl.flush()
+
+    def budget_gate(arm: str) -> bool:
+        """Whether this arm may start another run under the fixed budget.
+
+        Checked before dispatch, not mid-run: a run already in flight is allowed
+        to finish, so the arm can overshoot by at most one run. Overshoot is
+        reported rather than hidden -- see the capacity table.
+        """
+        with result_lock:
+            return spend_by_arm.get(arm, 0.0) < budget_usd
+
+    arm_budget_gate = budget_gate if budget_usd > 0 else None
 
     try:
         pending_trials: list[tuple[str, int, list[str]]] = []
@@ -4056,6 +4211,7 @@ def main() -> int:
                     resume_state=args.resume,
                     capture=capture,
                     on_result=record_result,
+                    budget_gate=arm_budget_gate,
                 )
         elif args.parallel_scope == "task":
             with ThreadPoolExecutor(max_workers=args.jobs) as executor:
@@ -4075,6 +4231,7 @@ def main() -> int:
                         resume_state=args.resume,
                         capture=capture,
                         on_result=record_result,
+                        budget_gate=arm_budget_gate,
                     ): (tid, rep)
                     for tid, rep, pending_arms in pending_trials
                 }
@@ -4096,6 +4253,7 @@ def main() -> int:
                     resume_state=args.resume,
                     capture=capture,
                     on_result=record_result,
+                    budget_gate=arm_budget_gate,
                 )
         else:
             with ThreadPoolExecutor(max_workers=args.jobs) as executor:
@@ -4115,6 +4273,7 @@ def main() -> int:
                         resume_state=args.resume,
                         capture=capture,
                         on_result=record_result,
+                        budget_gate=arm_budget_gate,
                     ): (tid, rep, arm)
                     for tid, rep, arm in pending_arms
                 }
@@ -4150,7 +4309,7 @@ def main() -> int:
     _apply_savings(results)
     _write_results_jsonl(run_dir, results)
     write_csv_artifacts(run_dir, results, pairwise_rows)
-    rep_txt = report(results)
+    rep_txt = report(results, mode=args.mode)
     (run_dir / "report.txt").write_text(rep_txt)
     print(rep_txt)
     print(f"\nResults: {run_dir}")
