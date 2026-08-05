@@ -317,10 +317,13 @@ def _managed_gateway(
     else:
         env.pop("LEMONCROW_CODE_MAX_COST", None)
 
+    # `-m` needs a code object, which a mypyc-compiled module (.so, no .py) does
+    # not have -- runpy fails with "No code object available for ...". Import the
+    # entrypoint instead so compiled and pure-Python installs both launch.
     command = [
         sys.executable,
-        "-m",
-        "lemoncrow.gateway.openai_gateway.serve",
+        "-c",
+        "from lemoncrow.gateway.openai_gateway.serve import main; main()",
         "--host",
         "127.0.0.1",
         "--port",

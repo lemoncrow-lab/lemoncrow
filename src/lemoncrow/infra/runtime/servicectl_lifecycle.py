@@ -409,7 +409,15 @@ def _git_project_root() -> Path | None:
     record_path = Path.home() / ".lemoncrow" / "install_dir"
     if record_path.exists():
         candidate = Path(record_path.read_text(encoding="utf-8").strip())
-        if (candidate / ".git").exists():
+        # Bare `.git` existence misfires on ~/.lemoncrow/install when an older
+        # install left a stray .git there: auto-update would then run git in a
+        # non-repository forever instead of taking the release path.
+        if (candidate / ".git").exists() and (candidate / "pyproject.toml").exists():
+            try:
+                if 'name = "lemoncrow"' in (candidate / "pyproject.toml").read_text(encoding="utf-8"):
+                    return candidate.resolve()
+            except OSError:
+                pass
             return candidate.resolve()
     # Fallback: traverse up from this file
     candidate = Path(__file__).resolve()

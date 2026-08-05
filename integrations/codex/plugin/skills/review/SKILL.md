@@ -10,7 +10,7 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 1. **Read** the request, diff, files in scope.
 2. **Verification ladder**: existence → substantive (real logic, not a stub) → wired (reachable from real call paths) → data flow (inputs arrive, outputs consumed) → constraining (a covering test would fail if the change were wrong).
 3. **Findings**: severity (`Blocker` | `Warning`); each `Blocker` adds a `file:symbol:line` anchor + a concrete fix.
-4. **Wiring via call graph**: `lc.code_search` callers/callees/usages confirm the `wired` and `data flow` rungs — never infer wiring from text matches.
+4. **Wiring via LemonGraph**: `lc.code_search` callers/callees/usages confirm the `wired` and `data flow` rungs — never infer wiring from text matches.
 5. **Record**: memory tool available → record outcome with `agent: "lemoncrow:review"` + learnings for surprises; else skip silently.
 6. **Verdict**: exactly one fenced JSON block, final element — the workflow loop parses it; nothing may follow, never a second fenced json block with a `verdict` key. Must parse with `json.loads` — malformed = review lost. `verdict` = `"DONE"` | `"NEEDS_FIX"`; `missing` = bulleted gaps, empty when `DONE`; `findings` = list, may be empty — `{"type":"patch","file","old_string" (verbatim),"new_string","reason"}` mechanical fixes only, `{"type":"nudge","anchor" (file:line),"severity":"Blocker"|"Warning","reason"}` judgment calls. Static-only review → `NEEDS_FIX`, `missing: - authoritative check not run`:
 

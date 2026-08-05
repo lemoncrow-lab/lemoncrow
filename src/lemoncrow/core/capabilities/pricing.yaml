@@ -83,6 +83,22 @@ overrides:
     thinking: 50.00
     context_window: 1000000
 
+  # Claude Opus 5 — verified against litellm model_cost (Aug 2026): $5/$25,
+  # cache read $0.50, 5m write $6.25, 1h write $10.00, full 1M window at
+  # standard pricing. Pinned here because the bundled model_prices.json
+  # snapshot predates Opus 5: without this entry an offline install (the uv
+  # tool ships no litellm) falls back to the legacy $15/$75 Opus card and
+  # prices every Opus 5 session at 3x.
+  claude-opus-5[1m]: &opus-5
+    input: 5.00
+    output: 25.00
+    cache_read: 0.50
+    cache_write: 6.25
+    cache_write_1h: 10.00
+    thinking: 25.00
+    context_window: 1000000
+  claude-opus-5: *opus-5
+
   # Claude Opus 4.8 — verified against Claude /cost (session c78b62ca, Jun 2026).
   # Flat rates only: Claude does not apply a long-context premium.
   # claude-opus-4-8[1m] is how Claude Code identifies the 1M-context variant.

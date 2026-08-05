@@ -2073,6 +2073,99 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_savings_markdown(payload: dict[str, Any]) -> str:
+    """Render the ``lc savings`` figures as chat-renderable markdown.
+
+    Same payload and same numbers as :func:`render_savings_summary`; only the
+    presentation differs -- no ANSI, no fixed-width columns -- so hosts that
+    render markdown (chat UIs, no terminal) show a real table instead of a
+    mangled box. Consumed by the ``statusline_segment`` MCP tool
+    (``format="markdown"``), which is how the lemoncrow skill answers "what are
+    my savings?" where no shell is available to run ``lc savings``.
+    """
+
+    def _int(v: Any) -> str:
+        return f"{int(v or 0):,}"
+
+    saved = float(payload.get("saved_usd") or 0.0)
+    breakdown = payload.get("summary_breakdown") or {}
+    d30 = breakdown.get("30D") or {}
+    spend30 = float(d30.get("spend") or 0.0)
+
+    lines: list[str] = ["## LemonCrow savings", ""]
+    if spend30 > 0:
+        # Same-window ratio (30d saved / 30d spend), matching the text view:
+        # the headline `saved` figure is lifetime and would inflate the pct.
+        saved30 = float(d30.get("usd") or 0.0)
+        lines.append(
+            f"**{_fmt_usd(saved)} saved** — {_fmt_pct(saved30 / spend30 * 100)} of {_fmt_usd(spend30)} spend (30d)"
+        )
+    else:
+        lines.append(f"**{_fmt_usd(saved)} saved**")
+
+    lines.append("")
+    lines.append("| metric | value |")
+    lines.append("| --- | ---: |")
+    lines.append(f"| Calls avoided | {_int(payload.get('calls_avoided'))} |")
+    lines.append(f"| Tokens kept out | {_fmt_tok(int(payload.get('tokens_saved') or 0))} |")
+    faster_s = float(payload.get("time_saved_seconds") or 0.0)
+    if faster_s >= 60:
+        lines.append(f"| Faster (est.) | ~{fmt_duration(faster_s)} (fewer round-trips) |")
+    routing_total = float((payload.get("live") or {}).get("routing_saved_usd") or 0.0)
+    if routing_total > 0:
+        lines.append(f"| Routing saved | {_fmt_usd(routing_total)} (model routing · included in saved) |")
+
+    if breakdown:
+        has_routing = any(float((breakdown.get(k) or {}).get("routing") or 0.0) > 0 for k in ("1D", "7D", "30D"))
+        lines.append("")
+        lines.append("| window | calls | saved | tokens |" + (" routing |" if has_routing else ""))
+        lines.append("| --- | ---: | ---: | ---: |" + (" ---: |" if has_routing else ""))
+        for key, label in (("1D", "1 day"), ("7D", "7 days"), ("30D", "30 days")):
+            w = breakdown.get(key) or {}
+            row = (
+                f"| {label} | {_int(w.get('calls'))} | {_fmt_usd(float(w.get('usd') or 0.0))} "
+                f"| {_fmt_tok(int(w.get('tokens') or 0))} |"
+            )
+            if has_routing:
+                row += f" {_fmt_usd(float(w.get('routing') or 0.0))} |"
+            lines.append(row)
+
+    sub = payload.get("subscription") or {}
+    if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
+        plan = str(sub.get("plan") or "free").strip() or "free"
+        status = str(sub.get("status") or "").strip().lower()
+        source = "server" if sub.get("savingsMeterSource") == "server" else "local est."
+        lines.append("")
+        lines.append(f"- **Plan** {plan}" + (f" ({status})" if status else ""))
+        cap = sub.get("monthlySavingsCapInUsd")
+        if cap is None:
+            lines.append(f"- **Cap** uncapped _[{source}]_")
+        else:
+            cap_usd = float(cap)
+            saved_cycle = float(sub.get("monthlySavingsInUsd") or 0.0)
+            window_days = int(sub.get("windowDays") or 30)
+            if sub.get("savingsOverCap"):
+                lines.append(
+                    f"- **Cap** {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d) — "
+                    f"**CAP REACHED · LemonCrow dormant** _[{source}]_"
+                )
+            else:
+                remaining = sub.get("savingsRemainingUsd")
+                remaining_usd = float(remaining) if remaining is not None else max(0.0, cap_usd - saved_cycle)
+                frac = sub.get("savingsCapFraction")
+                pct = float(frac) * 100 if frac is not None else (saved_cycle / cap_usd * 100 if cap_usd > 0 else 0.0)
+                lines.append(
+                    f"- **Cap** {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d) · "
+                    f"{_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left _[{source}]_"
+                )
+
+    note = str(payload.get("local_note") or "").strip()
+    if note:
+        lines.append("")
+        lines.append(f"_{note}_")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Rotating statusline segment
 # ---------------------------------------------------------------------------

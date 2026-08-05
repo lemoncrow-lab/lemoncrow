@@ -26,7 +26,7 @@ flowchart TB
     subgraph CodeIntel["Code Intelligence"]
         TS["tree-sitter"]
         SG["ast-grep"]
-        CG["Call-graph engine"]
+        CG["LemonGraph engine"]
         Fuzzy["rapidfuzz"]
         Diff["diff-match-patch"]
         Rope["rope"]
@@ -123,9 +123,9 @@ flowchart TB
 
 | Technology                                      | What it is                                                                            | Why LemonCrow uses it                                                                                                                                   |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **tree-sitter** + **tree-sitter-language-pack** | Incremental, error-tolerant parsers for 40+ languages                                 | Builds the symbol table, file outlines, and call graph behind`code_search`/`read`/`explore` — language-agnostic, no per-language LSP server required |
+| **tree-sitter** + **tree-sitter-language-pack** | Incremental, error-tolerant parsers for 40+ languages                                 | Builds the symbol table, file outlines, and LemonGraph (call graph) behind`code_search`/`read`/`explore` — language-agnostic, no per-language LSP server required |
 | **ast-grep** | Structural AST-based code search and pattern matching (single Rust binary, zero deps) | Precision layer for post-edit rename verification and security scanning — matches code*structure*, not text; catches eval/exec/subprocess-injection patterns and finds actual code refs during rename, dropping comment/string false positives |
-| **Call-graph engine** (in-house)                | Resolves definitions, callers, callees, usages; ranks symbols by call-graph centrality via degree-normalized, macro-aware PageRank | Returns the exact symbol and its neighborhood in one call instead of grep-then-read loops — the core of the token savings; centrality ranking (out-degree-normalized so a promiscuous caller can't outrank a real hub, C macro invocations excluded from callee counts) powers the `graph(kind="centrality")` tool and reranker-training features |
+| **LemonGraph engine** (in-house)                | Resolves definitions, callers, callees, usages; ranks symbols by call-graph centrality via degree-normalized, macro-aware PageRank | Returns the exact symbol and its neighborhood in one call instead of grep-then-read loops — the core of the token savings; centrality ranking (out-degree-normalized so a promiscuous caller can't outrank a real hub, C macro invocations excluded from callee counts) powers the `graph(kind="centrality")` tool and reranker-training features |
 | **Source projection** (in-house)                | Six`read` views — `summary` / `exact` / `range` / `outline` / `compact` / `minified` | Shapes what a read returns per request — outline or minified body instead of the raw file, full text only when the task actually needs it            |
 | **rapidfuzz**                                   | Fast fuzzy string matching                                                            | Fuzzy symbol lookup and the edit tool's fuzzy anchor matching                                                                                         |
 | **diff-match-patch**                            | Myers diff / patch                                                                    | Deterministic, conflict-tolerant file edits                                                                                                           |
@@ -223,7 +223,7 @@ flowchart TB
 
 - **MCP-native, 5-tool surface** — fewer advertised tools means fewer decisions per turn, so the agent leads with the right primitive.
 - **Telegraphic instruction surface** — every LLM-facing string (tool/param descriptions, agent personas, skill bodies) is written telegraphically: articles, copulas, and filler dropped; content words, defaults, and behavior contracts kept. Roughly 30–45% fewer instruction tokens on every turn with zero contract loss (examples in the [section below](#telegraphic-instruction-surface)).
-- **Grounded retrieval over blind reading** — a call graph + symbol index replace grep-and-read navigation.
+- **Grounded retrieval over blind reading** — LemonGraph (call graph) + symbol index replace grep-and-read navigation.
 - **Token budgeting everywhere** — every tool caps and structures output, spilling to disk instead of dumping into context.
 - **Host-lane parity for output shrinking** — PostToolUse hooks apply that same compaction pipeline to the host's builtin Bash tool (≥2K chars with ≥500 saved) and to oversized results from any other (non-LemonCrow) MCP server (32 KiB default, `LEMONCROW_SHADOW_SHRINK_CHARS`), so the savings aren't confined to LemonCrow's own MCP lane. Fail-open by construction: any hook error leaves the original result untouched.
 - **One proxy for foreign MCPs** — `mcp(server=…, tool=…, params=…)` runs any configured stdio MCP server behind the gateway with lazy spawn and an on-demand catalog, replacing N×M tool schemas with one and giving every third-party result the same spill/compact bounding; deliberately hidden — the host keeps MCP lifecycle, updates, permissions, and status UX, and the shadow hooks cover the token side with no routing change.

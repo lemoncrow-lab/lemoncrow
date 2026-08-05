@@ -345,11 +345,11 @@ that returns a concrete delete-list — code to remove, not rewrite.
 ## Roadmap — Savings Optimization
 
 The LemonCode host/control plane and all six savings-runtime implementations
-are shipped locally: closed-loop routing, Output Governor V2, provider-aware
-cache economics, the bounded local retrieval firewall, hybrid MCP exposure, and
-verified cross-session reuse. The five learned/policy levers remain
-measurement-pending; MCP exposure is adapted-complete without a mandatory
-search-first call.
+are shipped locally: closed-loop routing (**LemonRoute**), Output Governor V2,
+provider-aware cache economics, the bounded local retrieval firewall
+(**LemonScout**), hybrid MCP exposure, and verified cross-session reuse. The
+five learned/policy levers remain measurement-pending; MCP exposure is
+adapted-complete without a mandatory search-first call.
 
 See the
 [detailed savings optimization status and roadmap](docs/planning/savings-optimization-roadmap.md)

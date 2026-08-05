@@ -27,7 +27,11 @@ from typing import Any
 import yaml
 
 from lemoncrow.core.foundation.models import Playbook, PlaybookStatus, Rubric, to_jsonable
-from lemoncrow.core.foundation.paths import resolve_lessons_root, resolve_workspace_store_dir
+from lemoncrow.core.foundation.paths import (
+    WorkspaceNotRegisteredError,
+    resolve_lessons_root,
+    resolve_workspace_store_dir,
+)
 from lemoncrow.core.foundation.sqlite_base import SqliteTableStore
 
 logger = logging.getLogger(__name__)
@@ -81,7 +85,6 @@ class KnowledgeStore(SqliteTableStore):
         db_name: str = "lemoncrow_knowledge.db",
     ) -> None:
         super().__init__(root, db_name=db_name)
-
         # Blocks/rubrics default to the workspace-scoped runtime mirror under
         # the global store (resolve_workspace_store_dir) -- kept isolated per
         # project, not Git-tracked. An explicit lessons_root (constructor arg
@@ -90,7 +93,14 @@ class KnowledgeStore(SqliteTableStore):
         if lessons_root is not None or os.environ.get("LEMONCROW_LESSONS_ROOT", "").strip():
             _k_root = resolve_lessons_root(self.root, lessons_root)
         else:
-            _k_root = resolve_workspace_store_dir(self.root)
+            try:
+                _k_root = resolve_workspace_store_dir(self.root)
+            except WorkspaceNotRegisteredError:
+                # Constructing a store must never require a workspace: global,
+                # read-only surfaces (`lc savings`, `lc status`, ...) build the
+                # bundle just to read store-root data and would otherwise die in
+                # any non-git, un-`lc init`-ed cwd. Mirror beside the DB instead.
+                _k_root = self.root
         self.blocks_dir = _k_root / "blocks"
         self.rubrics_dir = _k_root / "rubrics"
 

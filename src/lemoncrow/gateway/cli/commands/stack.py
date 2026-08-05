@@ -36,6 +36,7 @@ from lemoncrow.infra.runtime.stack_lifecycle import (
     _ensure_stack_frontend_dependencies,
     _get_node_dir,
     _get_npm_path,
+    _port_is_serving,
     _read_stack_state,
     _signal_process_group,
     _stack_dir,
@@ -188,6 +189,11 @@ def stack_run(
 
     _stack_dir(root).mkdir(parents=True, exist_ok=True)
     _stack_pid_path(root).write_text(f"{os.getpid()}\n", encoding="utf-8")
+    # systemd's lemoncrow-stack.service (``background service start``) binds the
+    # same port. Spawning a second uvicorn there exits 3 on EADDRINUSE, which
+    # the loop below treats as a fatal service exit and tears the frontend down
+    # with it -- so the UI never stays up. Adopt the live service instead.
+    adopted_service = _port_is_serving(service_host, service_port)
     _write_stack_state(
         root,
         {
@@ -195,6 +201,9 @@ def stack_run(
             "last_exit_reason": None,
             "service_url": f"http://localhost:{service_port}",
             "frontend_url": f"http://localhost:{frontend_port}",
+            "service_adopted": adopted_service,
+            "service_host": service_host,
+            "service_port": service_port,
         },
     )
 
@@ -219,24 +228,31 @@ def stack_run(
     if _node_dir:
         frontend_env["PATH"] = f"{_node_dir}:{frontend_env.get('PATH', '')}"
 
-    service_proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "lemoncrow.gateway.cli",
-            "--root",
-            str(root),
-            "service",
-            "start",
-            "--host",
-            service_host,
-            "--port",
-            str(service_port),
-        ],
-        cwd=_project_root(),
-        env=service_env,
-        start_new_session=True,
-    )
+    service_proc: subprocess.Popen[bytes] | None = None
+    if adopted_service:
+        print(
+            f"[stack] service already listening on {service_host}:{service_port}; supervising frontend only",
+            flush=True,
+        )
+    else:
+        service_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "lemoncrow.gateway.cli",
+                "--root",
+                str(root),
+                "service",
+                "start",
+                "--host",
+                service_host,
+                "--port",
+                str(service_port),
+            ],
+            cwd=_project_root(),
+            env=service_env,
+            start_new_session=True,
+        )
     frontend_proc = subprocess.Popen(
         [
             _npm_path,
@@ -253,7 +269,8 @@ def stack_run(
         env=frontend_env,
         start_new_session=True,
     )
-    _stack_service_pid_path(root).write_text(f"{service_proc.pid}\n", encoding="utf-8")
+    if service_proc is not None:
+        _stack_service_pid_path(root).write_text(f"{service_proc.pid}\n", encoding="utf-8")
     _stack_frontend_pid_path(root).write_text(f"{frontend_proc.pid}\n", encoding="utf-8")
 
     stopping = False
@@ -269,7 +286,7 @@ def stack_run(
     exit_code = 0
     try:
         while True:
-            service_code = service_proc.poll()
+            service_code = service_proc.poll() if service_proc is not None else None
             frontend_code = frontend_proc.poll()
             if stopping:
                 break
@@ -283,13 +300,14 @@ def stack_run(
                 break
             time.sleep(1)
     finally:
-        for proc in (frontend_proc, service_proc):
+        owned = [proc for proc in (frontend_proc, service_proc) if proc is not None]
+        for proc in owned:
             if proc.poll() is None:
                 _signal_process_group(proc.pid, signal.SIGTERM)
         deadline = time.time() + 5
-        while time.time() < deadline and any(proc.poll() is None for proc in (frontend_proc, service_proc)):
+        while time.time() < deadline and any(proc.poll() is None for proc in owned):
             time.sleep(0.1)
-        for proc in (frontend_proc, service_proc):
+        for proc in owned:
             if proc.poll() is None:
                 _signal_process_group(proc.pid, signal.SIGKILL)
         signal.signal(signal.SIGTERM, previous_sigterm)

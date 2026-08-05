@@ -52,10 +52,10 @@ Close: LemonCrow treats context as a working set—ranked code first, exact rang
 # Install → map → stay sharp.
 
 1. Install the MCP server, agents, skills, and hooks.
-2. Build and incrementally refresh the local symbol/call graph.
+2. Build and incrementally refresh LemonGraph — the local symbol/call graph.
 3. Use \`code_search\`, exact reads, bounded output, and durable state instead of a grep/read loop.
 
-Show one call-graph visual. No second terminal demo.
+Show one LemonGraph visual. No second terminal demo.
 
 ## Why a runtime
 

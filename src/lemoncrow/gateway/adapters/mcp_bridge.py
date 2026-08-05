@@ -104,32 +104,44 @@ class _DaemonHandle:
             return self._reg
 
 
+def _daemon_identity(reg: dict[str, Any]) -> tuple[str, Any]:
+    """Client identity of a registration: socket path *and* the daemon that owns it.
+
+    The path alone is not enough. A replacement daemon for the same workspace
+    unlinks and rebinds the SAME per-workspace path, so the path string never
+    moves while the inode does -- a pooled keep-alive connection would keep
+    talking to the vacated daemon (which rejects the new token), and the 403
+    retry could never recover. The pid moves on every respawn, so include it.
+    """
+    return (str(reg["socket"]), reg.get("pid"))
+
+
 class _ClientPool:
-    """Keeps the daemon client pointed at the socket the registration reports.
+    """Keeps the daemon client pointed at the daemon the registration reports.
 
     A respawned daemon can bind a different socket path than the one this bridge
     started against. A client pinned for the session's lifetime then dials a
     vacated socket forever -- every call fails with "daemon unreachable" though a
-    healthy daemon is running -- so the client is rebuilt whenever the path moves.
-    Retired clients are closed at shutdown, not on swap: other threads may still
-    be mid-request on them.
+    healthy daemon is running -- so the client is rebuilt whenever the identity
+    moves. Retired clients are closed at shutdown, not on swap: other threads may
+    still be mid-request on them.
     """
 
     def __init__(self, reg: dict[str, Any], factory: Any, timeout: Any) -> None:
         self._factory = factory
         self._timeout = timeout
         self._lock = threading.Lock()
-        self._socket = str(reg["socket"])
+        self._identity = _daemon_identity(reg)
         self._client = factory(reg, timeout=timeout)
         self._retired: list[Any] = []
 
     def for_registration(self, reg: dict[str, Any]) -> Any:
-        socket_path = str(reg["socket"])
+        identity = _daemon_identity(reg)
         with self._lock:
-            if socket_path != self._socket:
+            if identity != self._identity:
                 self._retired.append(self._client)
                 self._client = self._factory(reg, timeout=self._timeout)
-                self._socket = socket_path
+                self._identity = identity
             return self._client
 
     def close(self) -> None:
@@ -207,7 +219,12 @@ def run_bridge(root: str | os.PathLike[str] | None = None) -> None:
                 except ValueError:
                     return _jsonrpc_error(request_id, -32603, "invalid daemon response")
             if resp.status_code in (401, 403) and attempt == 0:
-                handle.respawn(reg)  # token rotated by a respawn between calls
+                # Token rotated by a respawn between calls -- or the registration
+                # was clobbered by a rival daemon. ensure_daemon's probe is
+                # authenticated, so a rejected token now fails liveness and this
+                # respawn genuinely replaces the daemon instead of handing back
+                # the same poisoned registration.
+                handle.respawn(reg)
                 continue
             return _jsonrpc_error(request_id, -32000, f"MCP daemon HTTP {resp.status_code}")
         return _jsonrpc_error(request_id, -32000, "MCP daemon unreachable")

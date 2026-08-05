@@ -117,8 +117,18 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         # (see _latest_ledger_path). A flat glob never matches anything here.
         for p in runs.glob("*/*/*/*/*/run.json"):
             try:
-                snap = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                raw = p.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            # Parsing every ledger (thousands of files) to find two event kinds
+            # costs more than the whole rest of the report. Nearly none contain
+            # either kind, and both are literal JSON keys -- a substring test
+            # rejects the misses without building the object graph.
+            if "watchdog_alert" not in raw and "rubric_run" not in raw:
+                continue
+            try:
+                snap = json.loads(raw)
+            except json.JSONDecodeError:
                 continue
             for ev in snap.get("events", []):
                 kind = ev.get("kind")
@@ -130,7 +140,7 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
                     rubric_failures += 1
     payload = build_savings_report(ctx.obj["root"])
     store = _load_store(ctx.obj["root"])
-    payload["optimization"] = build_trace_optimization_report(store.history.list_traces(limit=5000), days=7)
+    payload["optimization"] = build_trace_optimization_report(_recent_traces(store, days=7), days=7)
     payload["bad_plans_blocked"] = bad_plans_blocked
     payload["rescue_events"] = rescue_events
     payload["rubric_failures_caught"] = rubric_failures
@@ -142,11 +152,24 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         click.echo(render_savings_summary(payload))
 
 
+def _recent_traces(store: Any, *, days: int) -> list[Any]:
+    """Traces inside the report window, filtered in SQL.
+
+    Every consumer below discards anything older than ``days`` anyway; letting
+    SQLite apply the cutoff avoids deserializing thousands of out-of-window
+    payloads through pydantic (the dominant cost of `lc savings`).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    since = datetime.now(UTC) - timedelta(days=max(1, days))
+    return list(store.history.list_traces(since=since, limit=5000))
+
+
 def _legacy_optimize_report(ctx: click.Context, host: str | None, days: int, limit: int) -> dict[str, Any]:
     from lemoncrow.pro.capabilities.session_optimizer import build_trace_optimization_report
 
     store = _load_store(ctx.obj["root"])
-    return build_trace_optimization_report(store.history.list_traces(limit=5000), days=days, host=host, limit=limit)
+    return build_trace_optimization_report(_recent_traces(store, days=days), days=days, host=host, limit=limit)
 
 
 def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
@@ -154,9 +177,7 @@ def _advisor_result(ctx: click.Context, host: str | None, days: int) -> Any:
 
     store = _load_store(ctx.obj["root"])
     current_policy = load_current_policy(ctx.obj["root"])
-    return optimize_from_traces(
-        store.history.list_traces(limit=5000), current_policy=current_policy, days=days, host=host
-    )
+    return optimize_from_traces(_recent_traces(store, days=days), current_policy=current_policy, days=days, host=host)
 
 
 def _benchmark_evidence_from_options(

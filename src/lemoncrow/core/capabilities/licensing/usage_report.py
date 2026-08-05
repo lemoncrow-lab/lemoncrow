@@ -23,8 +23,11 @@ from typing import Any
 
 from lemoncrow.core.capabilities.licensing import store
 from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
+from lemoncrow.core.foundation.telemetry_cadence import TELEMETRY_PUSH_INTERVAL_SECONDS
 
-REPORT_INTERVAL_SECONDS = 60 * 60
+# Kept in sync with public_rollup.FLUSH_INTERVAL_SECONDS via the shared
+# constant -- see telemetry_cadence's module docstring for why.
+REPORT_INTERVAL_SECONDS = TELEMETRY_PUSH_INTERVAL_SECONDS
 VERDICT_REFRESH_SECONDS = 2 * 60 * 60
 _LIFETIME_DAYS = 36_500
 

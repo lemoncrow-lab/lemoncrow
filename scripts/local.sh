@@ -28,7 +28,10 @@ LEMONCROW_LOCAL=1
 # ---- source-only: Python package install ------------------------------------
 # (install_uv_if_needed lives in lib/common.sh, shared with bundle.sh.)
 install_console_scripts() {
-    local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename"
+    # litellm is NOT optional in practice: the owned runtime's completion path
+    # (gateway/cli/runtime.py) imports it for every model turn, so `lc code`
+    # dies with "No module named 'litellm'" without it.
+    local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename,litellm"
     local package_spec="${LEMONCROW_INSTALL_DIR}[${extras}]"
 
     if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then

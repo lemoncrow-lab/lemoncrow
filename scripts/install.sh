@@ -258,7 +258,40 @@ else
     DOWNLOAD_CMD=(wget -qO-)
 fi
 
-# ---- managed install tree cleanup -------------------------------------------
+# ---- single-installer lock ---------------------------------------------------
+# Two installers on one machine share $LEMONCROW_INSTALL_DIR as mutable state:
+# `make prod` (local bundle), the published curl installer, `lc update`, and the
+# controller's auto-update all clean and repopulate that tree. Whichever starts
+# second overwrites the first one's tree *while it is running*, so the first
+# installs the other's wheel and delegates to the other's host scripts (the
+# "Unknown option: --lemoncode" failure). Serialize instead: later installers
+# wait rather than clobber. Held for this whole script, bundle.sh included.
+_acquire_install_lock() {
+    [[ "${LEMONCROW_INSTALL_LOCK_HELD:-0}" == "1" ]] && return 0
+    command -v flock >/dev/null 2>&1 || return 0
+    mkdir -p "$(dirname "$LEMONCROW_INSTALL_DIR")" 2>/dev/null || true
+    exec 9>"${LEMONCROW_INSTALL_DIR%/}.lock" 2>/dev/null || return 0
+    if ! flock -n 9 2>/dev/null; then
+        info "Another LemonCrow installer is running — waiting for it to finish…"
+        flock 9 || return 0
+    fi
+    export LEMONCROW_INSTALL_LOCK_HELD=1
+}
+_acquire_install_lock
+
+# ---- install-tree fingerprint ------------------------------------------------
+# Record who wrote this tree. bundle.sh re-checks it before installing the wheel
+# and before installing hosts, so a tree swapped out mid-run names the process
+# that did it instead of surfacing as a confusing error from an older script
+# ("Unknown option: --lemoncode").
+_write_install_stamp() {
+    # Exported so bundle.sh/lib/common.sh can restore this tree if another
+    # installer overwrites it mid-run — the on-disk stamp is what gets clobbered.
+    export LEMONCROW_INSTALL_SOURCE="${1:-unknown}"
+    printf 'pid=%s ppid=%s written=%s source=%s\n' \
+        "$$" "${PPID:-0}" "$(date -Iseconds 2>/dev/null || date)" "${1:-unknown}" \
+        >"${LEMONCROW_INSTALL_DIR}/.lemoncrow-install-stamp" 2>/dev/null || true
+}
 _clean_managed_install_tree() {
     # The distribution is extracted as a directory tree, not as a versioned
     # package directory. Remove managed top-level payloads first so files deleted
@@ -290,6 +323,7 @@ if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
         _clean_managed_install_tree
         cp -r "${LOCAL_SRC_ABS}/." "${INSTALL_DIR_ABS}/"
     fi
+    _write_install_stamp "local:${LOCAL_SRC_ABS}"
 elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
     echo "  [dry-run] ${DOWNLOAD_CMD[*]} $RELEASE_URL > /tmp/${ASSET_NAME}"
     echo "  [dry-run] tar -xzf /tmp/${ASSET_NAME} -C $LEMONCROW_INSTALL_DIR"
@@ -317,6 +351,7 @@ else
 
     printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
     _extract_progress "$TMP_ARCHIVE" "$LEMONCROW_INSTALL_DIR"
+    _write_install_stamp "release:${RELEASE_URL}"
 
     info "Distribution extracted to: ${LEMONCROW_INSTALL_DIR}"
 fi
@@ -336,7 +371,10 @@ if [[ "$LEMONCROW_NO_HOSTS" != "1" && -f "$BUNDLE_SH" ]]; then
     # rather than /dev/tty, so it fails silently and arrow keys echo as ^[[A.
     # Redirect stdin from /dev/tty for bundle.sh so interactive menus get a
     # real TTY as fd 0 and `read -s` works correctly.
-    if [[ ! -t 0 && -e /dev/tty ]]; then
+    # `-e /dev/tty` is true even where opening it fails (cron, CI, containers,
+    # non-interactive agent shells); the redirect would then abort bundle.sh
+    # and `|| true` would swallow it, silently skipping the entire setup.
+    if [[ ! -t 0 ]] && : </dev/tty 2>/dev/null; then
         LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
         LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
         bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty || true

@@ -9509,13 +9509,29 @@ def tool_blame(
 
 
 @mcp_tool(name="statusline_segment")
-def tool_statusline_segment() -> str:
-    """Return the pre-computed savings segment for the active session.
+def tool_statusline_segment(format: str = "segment") -> str:
+    """Savings surface for the active session.
 
-    Hidden from agents (see HIDDEN_LLM_TOOLS).  statusline.sh reads the
-    sessions/<id>/statusline_segment sidecar file directly; this tool refreshes
-    that file and returns its content — useful for debugging or forced refresh.
+    - ``format="segment"`` (default): the pre-computed rotating statusline
+      frame. statusline.sh reads the sessions/<id>/statusline_segment sidecar
+      directly; this path refreshes that file and returns its content.
+    - ``format="markdown"``: the full `lc savings` panel as markdown, for hosts
+      that render chat markdown and have no shell to run the CLI.
+    - ``format="json"``: the raw savings report payload, JSON-encoded.
+
+    Hidden from tools/list (see HIDDEN_LLM_TOOLS) but callable by exact name
+    through the `tool` broker (see _BROKER_HIDDEN_CALLABLE), which is how the
+    lemoncrow skill answers "what are my savings?" without a shell.
     """
+    fmt = (format or "segment").strip().lower()
+    if fmt in {"markdown", "md", "json"}:
+        from lemoncrow.core.capabilities.plugin_runtime import build_savings_report
+        from lemoncrow.core.capabilities.savings_summary import render_savings_markdown
+
+        payload = build_savings_report(_lemoncrow_root())
+        if fmt == "json":
+            return json.dumps(payload, indent=2, sort_keys=True, default=str)
+        return render_savings_markdown(payload)
     try:
         sidecar = _get_host_session_sidecar_path()
         seg_path = sidecar.parent / "statusline_segment"
@@ -10737,6 +10753,12 @@ _TOOL_BROKER_DESCRIPTION = (
     "search for those. Use search once for a rare capability, then call its exact name."
 )
 
+# Hidden tools (HIDDEN_LLM_TOOLS) reachable by EXACT name via the broker's
+# `call` action. `search` still never lists them, so the advertised surface is
+# unchanged -- only a caller that already knows the name and arguments (a skill
+# that documents the exact call) can reach one. Keep this set tiny.
+_BROKER_HIDDEN_CALLABLE = frozenset({"statusline_segment"})
+
 
 def _tool_broker_handler(args: dict[str, Any]) -> dict[str, Any] | Any:
     """Search or invoke the rare-tool registry without global registration."""
@@ -10770,7 +10792,7 @@ def _tool_broker_handler(args: dict[str, Any]) -> dict[str, Any] | Any:
         if target in _CORE_MCP_TOOLS:
             raise _ToolArgumentError(f"{target!r} is already exposed; call it directly")
         call_spec = TOOLS.get(target)
-        if call_spec is None or not _tool_visible_to_llm(target, call_spec):
+        if call_spec is None or not (_tool_visible_to_llm(target, call_spec) or target in _BROKER_HIDDEN_CALLABLE):
             raise _ToolArgumentError(f"unknown or unavailable tool: {target}")
         arguments = args.get("arguments") or {}
         if not isinstance(arguments, dict):

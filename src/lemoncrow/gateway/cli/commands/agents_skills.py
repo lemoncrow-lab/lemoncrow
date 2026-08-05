@@ -33,7 +33,6 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
 )
 from lemoncrow.core.environment import skill_visible
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
-from lemoncrow.pro.foundation.retriever import count_tokens
 
 # Hosts that support on-demand agent roles vs. skills are not identical:
 # OpenCode (and its LemonCode fork) has no skills concept; Antigravity has no
@@ -162,10 +161,19 @@ def _installed_skill_names(host: str, workspace: Path | None) -> tuple[str, ...]
 # --------------------------------------------------------------------------- #
 
 
+def _count_tokens(text: str) -> int:
+    # Imported per call, not at module scope: `retriever` drags in archival_recall
+    # -> numpy -> code_context (~66ms) on every CLI start, for two token counts
+    # only `lc agent cost` / `lc skill cost` ever ask for.
+    from lemoncrow.pro.foundation.retriever import count_tokens
+
+    return int(count_tokens(text))
+
+
 def _role_cost(role_id: str, repo_root: Path) -> int:
     registry = build_default_registry(repo_root)
     role = registry.roles[role_id]
-    return count_tokens(f"{role_id}: {role.agent_description}")
+    return _count_tokens(f"{role_id}: {role.agent_description}")
 
 
 def _skill_description(name: str, repo_root: Path) -> str:
@@ -177,7 +185,7 @@ def _skill_description(name: str, repo_root: Path) -> str:
 
 
 def _skill_cost(name: str, repo_root: Path) -> int:
-    return count_tokens(f"{name}: {_skill_description(name, repo_root)}")
+    return _count_tokens(f"{name}: {_skill_description(name, repo_root)}")
 
 
 # --------------------------------------------------------------------------- #
