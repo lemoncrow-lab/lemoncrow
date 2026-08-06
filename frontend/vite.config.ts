@@ -16,6 +16,12 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 3125,
+    // Containerised previews watch the workspace across a mount-namespace
+    // boundary, where inotify events never arrive — those need polling. Opt-in
+    // so native `npm run dev` keeps the cheaper default watcher.
+    watch: process.env.VITE_USE_POLLING
+      ? { usePolling: true, interval: 200 }
+      : undefined,
     proxy: {
       "/api": {
         target: apiTarget,
