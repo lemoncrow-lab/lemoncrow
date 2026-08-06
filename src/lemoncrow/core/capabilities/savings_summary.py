@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC
+from itertools import pairwise
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -3414,7 +3415,7 @@ def _burn_rates(
     saves: list[float] = []
     turns_base = 0
     saved_base = 0
-    for (t0, k0, s0), (t1, k1, s1) in zip(samples, samples[1:], strict=False):
+    for (t0, k0, s0), (t1, k1, s1) in pairwise(samples):
         if t1 <= t0:
             continue
         if k1 < k0:  # window reset -- rebase, and drop the pre-reset rates
