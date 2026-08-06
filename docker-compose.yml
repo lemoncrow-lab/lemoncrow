@@ -1,0 +1,71 @@
+# ShipIt preview stack for the LemonCrow reasoning dashboard.
+#
+# Mirrors the native `make start` stack (`lemoncrow stack start`):
+#   api      — FastAPI service (lemoncrow.core.service.api) on 8787
+#   frontend — Vite + React dashboard on 3125, proxying /api -> api:8787
+services:
+  api:
+    image: python:3.13
+    working_dir: /app
+    # Python deps are installed HERE, not in `agent.install`: a virtualenv is
+    # hard-pinned to the interpreter that created it, and this container's
+    # python is not the agent container's. Both venvs live outside the mounted
+    # workspace so this service never clobbers the agent's own ./.venv (the one
+    # `uv run` uses, per CLAUDE.md). `uv sync --frozen` honours uv.lock and
+    # never rewrites it, so the checkout stays clean.
+    #
+    # --no-install-project installs the dependencies but not lemoncrow itself;
+    # the app is imported from the mounted source via PYTHONPATH instead. That
+    # is required today because [tool.hatch.build.targets.wheel.force-include]
+    # names src/lemoncrow/pro/capabilities/code_context/explore_reranker_model.json,
+    # which is not in the repo, so every wheel/editable build fails. It is also
+    # the better preview shape: source edits are live, with no reinstall.
+    command: >
+      sh -c "test -d /tmp/uvenv || python -m venv /tmp/uvenv;
+      /tmp/uvenv/bin/pip install -q uv &&
+      UV_PROJECT_ENVIRONMENT=/tmp/venv /tmp/uvenv/bin/uv sync --frozen --no-dev --no-install-project &&
+      exec /tmp/venv/bin/uvicorn --factory lemoncrow.core.service.api:create_app --host 0.0.0.0 --port 8787"
+    ports: ["8787:8787"]
+    environment:
+      LEMONCROW_SERVICE_HOST: "0.0.0.0"
+      LEMONCROW_SERVICE_PORT: "8787"
+      # The service fails closed when it binds a non-loopback host: without
+      # this, every protected route answers 503 until LEMONCROW_API_KEY is set,
+      # and the dashboard renders empty. Safe only because a ShipIt preview is
+      # a single-user sandbox — do not copy this into a shared deployment.
+      LEMONCROW_REQUIRE_AUTH: "0"
+      # Keep the SQLite store and caches out of the git working tree.
+      LEMONCROW_ROOT: /tmp/lemoncrow-store
+      HOME: /tmp/lemoncrow-home
+      # lemoncrow is not pip-installed here (see command); import it from source.
+      PYTHONPATH: /app/src
+    volumes:
+      - .:/app
+    # Opt-in, not auto: `lemoncrow.core.service.api` imports `lemoncrow.pro`
+    # (327 references across src/), which is a private subpackage absent from
+    # this checkout and not a submodule — so the service cannot boot from the
+    # open-source repo alone and would only crash-loop behind the preview pane.
+    # In a checkout that does have src/lemoncrow/pro, `shipit service start api`
+    # brings up the full dashboard stack.
+    x-shipit-preview: manual
+    # No agent.install step produces anything this service needs.
+    x-shipit-depends-on-install: false
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app/frontend
+    command: npm run dev
+    ports: ["3125:3125"]
+    environment:
+      VITE_API_URL: http://api:8787
+      # inotify does not cross the agent/service mount-namespace boundary, so
+      # the watcher must poll to see the agent's edits (see vite.config.ts).
+      VITE_USE_POLLING: "1"
+    volumes:
+      - .:/app
+    # Deliberately no `depends_on: api` — that would drag the manual api
+    # service up with the preview. The dashboard shell renders without it;
+    # /api requests fail until api is started explicitly.
+    x-shipit-preview: auto
+    # Needs frontend/node_modules from agent.install.
+    x-shipit-depends-on-install: true
