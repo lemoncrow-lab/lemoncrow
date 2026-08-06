@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -3346,37 +3347,121 @@ def _read_ctx_state(session_id: str, root: Path) -> tuple[float, int]:
         return 0.0, 0
 
 
-def _runway_turns(pct: float, turns: int) -> int:
-    """Turns left before the context window fills, at the current burn rate.
+# --- Burn-rate sampler -----------------------------------------------------
+# Session-average tokens/turn is reset-blind: /compact and /clear drop the
+# window but not the turn count, so the average keeps quoting a burn the
+# session no longer has -- the source of the runway numbers that read as noise.
+# Sample the window every time it is rendered instead and take the burn off the
+# recent deltas.
+_RUNWAY_HIST_SAMPLES = 8  # ring size kept on disk
+_RUNWAY_BURN_WINDOW = 5  # most recent deltas that set the rate
 
-    ``pct`` percent of the window bought ``turns`` turns, so the remaining
-    ``100 - pct`` percent buys ``turns * (100 - pct) / pct`` more. Deliberately
-    expressed in percent rather than tokens: it needs no window size, so it is
-    correct on every model without a lookup table to keep in sync.
+
+def _ctx_hist_path(session_id: str, root: Path) -> Path:
+    """Ring of recent ``(turns, ctx_tok, ctx_saved)`` samples for this session."""
+    return root / f"statusline_ctx_hist_{session_id}"
+
+
+def _record_ctx_sample(
+    session_id: str, root: Path, turns: int, ctx_tok: int, ctx_saved: int
+) -> list[tuple[int, int, int]]:
+    """Append this reading to the ring and return it, oldest first.
+
+    The statusline re-renders many times per turn, so a reading for a turn that
+    is already recorded overwrites it instead of piling up zero-delta rows that
+    would drag the median burn to zero.
     """
-    if turns < _RUNWAY_MIN_TURNS or pct <= 0 or pct >= 100:
+    if not session_id or turns <= 0 or ctx_tok <= 0:
+        return []
+    path = _ctx_hist_path(session_id, root)
+    samples: list[tuple[int, int, int]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 3:
+                samples.append((int(parts[0]), int(parts[1]), int(parts[2])))
+    except (OSError, ValueError):
+        samples = []
+    if samples and samples[-1][0] >= turns:
+        samples[-1] = (turns, ctx_tok, ctx_saved)
+    else:
+        samples.append((turns, ctx_tok, ctx_saved))
+    samples = samples[-_RUNWAY_HIST_SAMPLES:]
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}")
+        tmp.write_text("".join(f"{t} {k} {s}\n" for t, k, s in samples), encoding="utf-8")
+        tmp.replace(path)  # atomic: a concurrent render never reads a torn ring
+    except OSError:
+        pass
+    return samples
+
+
+def _burn_rates(
+    samples: list[tuple[int, int, int]], turns: int, ctx_tok: int, ctx_saved: int
+) -> tuple[float, float, int]:
+    """``(window tokens/turn, kept-out tokens/turn, tokens kept out of THIS window)``.
+
+    Rates are the median of the deltas across the most recent
+    ``_RUNWAY_BURN_WINDOW`` sample pairs. A negative window delta is a reset
+    (/compact, /clear): the pair contributes no rate and everything before it
+    is discarded, so both numbers describe the window on screen rather than the
+    whole session. With too few samples to form a delta, fall back to the
+    average over the turns since that reset -- never the session average, which
+    is what made the old estimate run away.
+    """
+    burns: list[float] = []
+    saves: list[float] = []
+    turns_base = 0
+    saved_base = 0
+    for (t0, k0, s0), (t1, k1, s1) in zip(samples, samples[1:], strict=False):
+        if t1 <= t0:
+            continue
+        if k1 < k0:  # window reset -- rebase, and drop the pre-reset rates
+            turns_base, saved_base = t0, s0
+            burns.clear()
+            saves.clear()
+            continue
+        burns.append((k1 - k0) / (t1 - t0))
+        saves.append(max(0.0, (s1 - s0) / (t1 - t0)))
+    burn = median(burns[-_RUNWAY_BURN_WINDOW:]) if burns else 0.0
+    saved_rate = median(saves[-_RUNWAY_BURN_WINDOW:]) if saves else 0.0
+    saved_in_window = max(0, ctx_saved - saved_base)
+    turns_in_window = max(1, turns - turns_base)
+    if burn <= 0:
+        burn = ctx_tok / turns_in_window
+    if saved_rate <= 0:
+        saved_rate = saved_in_window / turns_in_window
+    return burn, saved_rate, saved_in_window
+
+
+def _runway_turns(ctx_tok: int, pct: float, turns: int, burn: float) -> int:
+    """Turns left before the context window fills, at the measured burn rate.
+
+    ``ctx_tok`` is ``pct`` percent of the window, which is the only place the
+    window size comes from -- no per-model lookup table to keep in sync. What
+    is left of it divided by ``burn`` (see ``_burn_rates``) is the runway.
+    """
+    if turns < _RUNWAY_MIN_TURNS or ctx_tok <= 0 or pct <= 0 or pct >= 100 or burn <= 0:
         return 0
-    return min(int(turns * (100.0 - pct) / pct), _RUNWAY_MAX_TURNS)
+    remaining = ctx_tok * (100.0 - pct) / pct
+    return min(int(remaining / burn), _RUNWAY_MAX_TURNS)
 
 
-def _runway_turns_from_lemoncrow(ctx_saved: int, ctx_tokens: int, turns: int, turns_left: int) -> int:
+def _runway_turns_from_lemoncrow(saved_in_window: int, turns_left: int, burn: float, saved_rate: float) -> int:
     """How many of ``turns_left`` exist only because context stayed lean.
 
-    Without lc the same ``turns`` would have put ``ctx_tokens + ctx_saved`` in
-    the window: a heavier per-turn burn against a window that is already
-    ``ctx_saved`` fuller. The gap between that runway and the real one is what
-    lc bought, so the figure is a subset of ``turns_left`` by construction.
-    The old ``ctx_saved * turns / ctx_tokens`` ratio was not bounded by the
-    window at all -- on a long session (cumulative ``ctx_saved`` over a window
-    trimmed by /compact) it pinned to the clamp and rendered a
-    sentinel-looking ``+999``.
+    Without lc this window would already hold ``saved_in_window`` more tokens
+    and would be filling at ``burn + saved_rate`` per turn. The gap between
+    that runway and the real one is what lc bought, so the figure is a subset
+    of ``turns_left`` by construction -- the old ``ctx_saved * turns /
+    ctx_tokens`` ratio had no window in it at all and pinned itself to the
+    clamp (a sentinel-looking ``+999``) on any long session.
     """
-    if ctx_saved <= 0 or ctx_tokens <= 0 or turns < _RUNWAY_MIN_TURNS or turns_left <= 0:
+    if saved_in_window <= 0 or turns_left <= 0 or burn <= 0:
         return 0
-    burn = ctx_tokens / turns  # tokens per turn, with lc
-    heavy_burn = (ctx_tokens + ctx_saved) / turns  # ... and without it
     remaining = turns_left * burn
-    without_lc = max(0.0, (remaining - ctx_saved) / heavy_burn)
+    without_lc = max(0.0, (remaining - saved_in_window) / (burn + saved_rate))
     return int(turns_left - without_lc)
 
 
@@ -3489,10 +3574,15 @@ def savings_frames(
     if live_ctx_tok > 0:
         ctx_tok = live_ctx_tok
     runway_idx: int | None = None
-    turns_left = _runway_turns(ctx_pct, summary.turns)
+    # Sample first, then read the burn off the ring: both numbers below are
+    # measured over recent turns, so /compact rebases them instead of skewing
+    # them for the rest of the session.
+    _samples = _record_ctx_sample(session_id, root, summary.turns, ctx_tok, summary.ctx_saved)
+    burn, saved_rate, saved_in_window = _burn_rates(_samples, summary.turns, ctx_tok, summary.ctx_saved)
+    turns_left = _runway_turns(ctx_tok, ctx_pct, summary.turns, burn)
     if turns_left > 0:
         runway = f"{C_DIM}~{turns_left} turns left{C_RESET}"
-        from_lc = _runway_turns_from_lemoncrow(summary.ctx_saved, ctx_tok, summary.turns, turns_left)
+        from_lc = _runway_turns_from_lemoncrow(saved_in_window, turns_left, burn, saved_rate)
         if from_lc > 0:
             runway += f" {C_GREEN}(+{from_lc} from lc){C_RESET}"
         runway_idx = len(frames)
