@@ -1,0 +1,15 @@
+version: 1
+
+agent:
+  # Only the dashboard's JS deps are installed here. Python deps deliberately
+  # are NOT: they belong to the `api` compose service's own interpreter (see
+  # docker-compose.yml), and the agent's ./.venv is managed by `uv run`.
+  install:
+    - npm ci --prefix frontend
+  install-inputs:
+    - frontend/package.json
+    - frontend/package-lock.json
+  dep-dirs:
+    - frontend/node_modules
+
+compose: docker-compose.yml
