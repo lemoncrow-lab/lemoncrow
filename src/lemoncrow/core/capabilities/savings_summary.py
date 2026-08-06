@@ -3359,18 +3359,25 @@ def _runway_turns(pct: float, turns: int) -> int:
     return min(int(turns * (100.0 - pct) / pct), _RUNWAY_MAX_TURNS)
 
 
-def _runway_turns_from_lemoncrow(ctx_saved: int, ctx_tokens: int, turns: int) -> int:
-    """How many of those remaining turns exist because context stayed lean.
+def _runway_turns_from_lemoncrow(ctx_saved: int, ctx_tokens: int, turns: int, turns_left: int) -> int:
+    """How many of ``turns_left`` exist only because context stayed lean.
 
-    ``ctx_tokens`` of context bought ``turns`` turns, so the ``ctx_saved``
-    tokens never placed in the window are worth ``ctx_saved * turns /
-    ctx_tokens`` turns on the same burn rate. This is the same conservative
-    ``ctx_saved`` figure the savings frame prices in dollars -- restated in the
-    unit the user actually spends.
+    Without lc the same ``turns`` would have put ``ctx_tokens + ctx_saved`` in
+    the window: a heavier per-turn burn against a window that is already
+    ``ctx_saved`` fuller. The gap between that runway and the real one is what
+    lc bought, so the figure is a subset of ``turns_left`` by construction.
+    The old ``ctx_saved * turns / ctx_tokens`` ratio was not bounded by the
+    window at all -- on a long session (cumulative ``ctx_saved`` over a window
+    trimmed by /compact) it pinned to the clamp and rendered a
+    sentinel-looking ``+999``.
     """
-    if ctx_saved <= 0 or ctx_tokens <= 0 or turns < _RUNWAY_MIN_TURNS:
+    if ctx_saved <= 0 or ctx_tokens <= 0 or turns < _RUNWAY_MIN_TURNS or turns_left <= 0:
         return 0
-    return min(int(ctx_saved * turns / ctx_tokens), _RUNWAY_MAX_TURNS)
+    burn = ctx_tokens / turns  # tokens per turn, with lc
+    heavy_burn = (ctx_tokens + ctx_saved) / turns  # ... and without it
+    remaining = turns_left * burn
+    without_lc = max(0.0, (remaining - ctx_saved) / heavy_burn)
+    return int(turns_left - without_lc)
 
 
 def savings_frames(
@@ -3485,7 +3492,7 @@ def savings_frames(
     turns_left = _runway_turns(ctx_pct, summary.turns)
     if turns_left > 0:
         runway = f"{C_DIM}~{turns_left} turns left{C_RESET}"
-        from_lc = _runway_turns_from_lemoncrow(summary.ctx_saved, ctx_tok, summary.turns)
+        from_lc = _runway_turns_from_lemoncrow(summary.ctx_saved, ctx_tok, summary.turns, turns_left)
         if from_lc > 0:
             runway += f" {C_GREEN}(+{from_lc} from lc){C_RESET}"
         runway_idx = len(frames)

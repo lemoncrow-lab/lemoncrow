@@ -197,14 +197,15 @@ def _runway_frames(
 def test_runway_frame_reports_turns_left_and_the_share_lemoncrow_bought(
     lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """20 turns filled 35% of the window, so ~37 remain; 30k of saved context is
-    worth 10 more turns at the same burn."""
+    """20 turns filled 35% of the window, so ~37 remain; without the 30k of saved
+    context the burn would have been 1.5x heavier against a fuller window, leaving
+    18 -- so 19 of the 37 remaining turns are lc's."""
     frames = _runway_frames(lemoncrow_root, monkeypatch)
 
     runway = [f for f in frames if "turns left" in f]
     assert runway, f"expected a runway frame in {frames!r}"
     assert "~37 turns left" in runway[0]
-    assert "(+10 from lc)" in runway[0]
+    assert "(+19 from lc)" in runway[0]
 
 
 def test_runway_frame_carries_the_same_weight_as_the_savings_frame(
@@ -258,7 +259,7 @@ def test_runway_falls_back_to_the_state_file_statusline_parks(
     runway = [f for f in frames if "turns left" in f]
     assert runway, f"expected a runway frame from the parked state in {frames!r}"
     assert "~37 turns left" in runway[0]
-    assert "(+10 from lc)" in runway[0]
+    assert "(+19 from lc)" in runway[0]
 
 
 def test_runway_state_file_missing_or_malformed_is_not_fatal(
