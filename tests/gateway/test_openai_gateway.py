@@ -48,6 +48,15 @@ class _Usage:
     output_tokens = 10
 
 
+class _Route:
+    type = "route.selected"
+
+    def __init__(self, provider, model) -> None:
+        self.provider = provider
+        self.model = model
+        self.reason = "test"
+
+
 async def _stream(*events) -> AsyncIterator:
     for ev in events:
         yield ev
@@ -177,6 +186,52 @@ def test_chat_streaming(client):
         if line.startswith("data: ") and line.strip() != "data: [DONE]":
             obj = json.loads(line[6:])
             assert "choices" in obj, f"Missing choices in chunk: {line}"
+
+
+def test_chat_nonstreaming_surfaces_real_route_model(client):
+    """The response's `model` must be the real backend the runtime routed to
+    (e.g. a Zen or local model), never the virtual "lemoncrow" model the
+    client requested -- that echo was the reported "blind" model choice."""
+    c, rt = client
+    rt.handle_user_message = MagicMock(
+        return_value=_stream(_Route("zen", "big-pickle"), _Delta("Hello"), _Message("Hello world"))
+    )
+
+    resp = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "lemoncrow-default",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["model"] == "zen/big-pickle"
+
+
+def test_chat_streaming_surfaces_real_route_model(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(
+        return_value=_stream(_Route("ollama", "llama3"), _Delta("tok1"), _Message("tok1"), _Usage())
+    )
+
+    resp = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "lemoncrow-default",
+            "messages": [{"role": "user", "content": "stream test"}],
+            "stream": True,
+        },
+        headers={"Accept": "text/event-stream"},
+    )
+    assert resp.status_code == 200
+    raw = resp.text
+    models_seen = {
+        json.loads(line[6:])["model"]
+        for line in raw.splitlines()
+        if line.startswith("data: ") and line.strip() != "data: [DONE]"
+    }
+    assert models_seen == {"ollama/llama3"}
 
 
 def test_empty_messages(client):

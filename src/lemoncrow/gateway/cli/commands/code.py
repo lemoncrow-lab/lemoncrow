@@ -476,8 +476,21 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
     show_default=True,
     help="Frontend engine; auto prefers the controlled LemonCode host, then Codex, then Claude.",
 )
-@click.option("--provider", default="", help="Preferred model provider (optional).")
-@click.option("--model", default="", help="Fixed LiteLLM model; omit for phase-aware routing.")
+@click.option(
+    "--provider",
+    default="",
+    help="Preferred model provider (optional), e.g. anthropic, openai, ollama, zen.",
+)
+@click.option(
+    "--model",
+    default="",
+    help=(
+        "Fixed LiteLLM model; omit for phase-aware auto routing (which may pick local "
+        "or Zen models without asking). Pins the model for every turn -- "
+        "e.g. '--provider zen --model big-pickle' for a free, keyless Zen model, or "
+        "'--provider ollama --model llama3' for a local model."
+    ),
+)
 @click.option(
     "--budget",
     type=click.Choice(["cheap", "balanced", "best"]),

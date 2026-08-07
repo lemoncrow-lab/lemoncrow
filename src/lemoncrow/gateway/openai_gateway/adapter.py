@@ -163,6 +163,21 @@ async def _prepare_runtime_events(
     return session_id, events
 
 
+def _route_label(event: Any) -> str | None:
+    """Human-visible ``provider/model`` (or bare model) from a route.selected event.
+
+    This is the one place that turns the runtime's internal routing decision
+    (which vendor -- local, Zen, or a keyed provider -- actually served the
+    turn) into the string a client displays, so "which backend just ran" is
+    never a guess.
+    """
+    model_id = getattr(event, "model", None)
+    if not model_id:
+        return None
+    provider = getattr(event, "provider", None)
+    return f"{provider}/{model_id}" if provider else str(model_id)
+
+
 async def lemoncrow_events_to_sse(
     events: AsyncIterator[LemonCrowEvent],
     model: str,
@@ -173,11 +188,19 @@ async def lemoncrow_events_to_sse(
     The runtime's final usage/cache events arrive after the assistant message;
     consuming through exhaustion is required both for correct accounting and
     for session compaction/finalization.
+
+    ``model`` is the client-requested id (almost always the virtual
+    "lemoncrow" model). It is only a placeholder: the runtime always emits a
+    ``route.selected`` event before any assistant text, naming the real
+    backend (local/Zen/keyed vendor) chosen for this turn, and every chunk
+    from that point on reports that real model instead.
     """
     chunk_id = chunk_id or f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
     usage: dict[str, Any] | None = None
     had_error = False
+    resolved_model = model
+    role_sent = False
 
     def _chunk(
         delta: DeltaContent,
@@ -187,15 +210,20 @@ async def lemoncrow_events_to_sse(
         chunk = ChatCompletionChunk(
             id=chunk_id,
             created=created,
-            model=model,
+            model=resolved_model,
             choices=[DeltaChoice(index=0, delta=delta, finish_reason=finish_reason)],
             usage=chunk_usage,
         )
         return f"data: {chunk.model_dump_json()}\n\n"
 
-    yield _chunk(DeltaContent(role="assistant"))
     async for event in events:
         event_type = getattr(event, "type", "")
+        if event_type == "route.selected":
+            resolved_model = _route_label(event) or resolved_model
+            continue
+        if not role_sent:
+            yield _chunk(DeltaContent(role="assistant"))
+            role_sent = True
         if event_type == "assistant.delta":
             yield _chunk(DeltaContent(content=getattr(event, "text", "")))
         elif event_type == "permission.requested":
@@ -210,6 +238,8 @@ async def lemoncrow_events_to_sse(
             if event_usage is not None:
                 usage = event_usage
 
+    if not role_sent:
+        yield _chunk(DeltaContent(role="assistant"))
     if not had_error:
         yield _chunk(DeltaContent(content=""), finish_reason="stop", chunk_usage=usage)
     yield "data: [DONE]\n\n"
@@ -247,10 +277,13 @@ async def run_chat_completion(runtime: Any, req: ChatCompletionRequest) -> Any:
 
     content_parts: list[str] = []
     usage: dict[str, Any] | None = None
+    resolved_model = response_model
     try:
         async for event in events:
             event_type = getattr(event, "type", "")
-            if event_type == "assistant.delta":
+            if event_type == "route.selected":
+                resolved_model = _route_label(event) or resolved_model
+            elif event_type == "assistant.delta":
                 content_parts.append(getattr(event, "text", ""))
             elif event_type == "permission.requested":
                 content_parts.append(_permission_note(event))
@@ -270,7 +303,7 @@ async def run_chat_completion(runtime: Any, req: ChatCompletionRequest) -> Any:
             "id": chunk_id,
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": response_model,
+            "model": resolved_model,
             "choices": [
                 {
                     "index": 0,

@@ -567,12 +567,25 @@ class InteractiveRuntime:
             from lemoncrow.core.capabilities.providers.zen import fallback_model as _fallback_model
 
             selected_model = _fallback_model()
+            # Previously silent: a routing failure (no configured vendor, Zen
+            # public tier disabled, pricing table error, ...) fell back to a
+            # keyless default with zero trace anywhere the user could see it --
+            # the exact "why did it just switch providers" blindness reported
+            # against lemoncode. Log it and still emit route.selected so the
+            # OpenAI-gateway adapter can surface the real model it fell back to.
+            logger.warning("owned route selection failed; falling back to %s", selected_model, exc_info=True)
             initial_route_trace = {
                 "proposed": {"model": selected_model},
                 "actual": {"model": selected_model},
                 "reason": "owned route fallback",
                 "eligible": False,
             }
+            yield RouteSelected(
+                type="route.selected",
+                provider=None,
+                model=selected_model,
+                reason="owned route selection failed; fell back to keyless default",
+            )
 
         async for event in self._agent_loop(
             session_id,
