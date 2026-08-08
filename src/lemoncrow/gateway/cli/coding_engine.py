@@ -90,8 +90,8 @@ def _picker_model_entries(store_root: Path) -> list[tuple[str, str, str]]:
     """Real, currently-runnable (litellm model id, provider, raw model) triples.
 
     Best-effort: any failure here (no configured provider, pro module
-    unavailable, catalog error) just yields nothing -- the picker still has
-    "Auto" and launch must never fail because of this.
+    unavailable, catalog error) just yields nothing -- Zen's free default is
+    always added separately, so launch must never fail because of this.
     """
     try:
         from lemoncrow.gateway.cli.commands.run import _resolve_litellm_model
@@ -123,22 +123,32 @@ def _picker_model_entries(store_root: Path) -> list[tuple[str, str, str]]:
 def _picker_models(store_root: Path, output_ceiling: int) -> dict[str, dict[str, Any]]:
     """opencode.json `provider.lc.models`.
 
-    "Auto" plus every real, currently runnable provider/model pair, so the
-    host's own model picker can switch mid-session instead of only ever
-    offering the single "Auto" placeholder.
+    Every real, currently runnable provider/model pair -- no "Auto"
+    placeholder. Selecting one always pins that exact model (never falls
+    into blind server-side auto-routing); Zen's keyless free tier is
+    guaranteed present so there is always at least one entry.
     """
+    from lemoncrow.core.capabilities.providers.zen import ZEN_DEFAULT_FREE_MODEL
+
     limit = {"context": 200_000, "output": output_ceiling}
     models: dict[str, dict[str, Any]] = {
-        "lemoncrow": {
-            # Distinct from the provider name: the frontend status line
-            # renders "<provider> <model>".
-            "name": "Auto",
+        ZEN_DEFAULT_FREE_MODEL: {
+            "name": f"zen · {ZEN_DEFAULT_FREE_MODEL.removeprefix('zen/')}",
             "limit": limit,
         }
     }
     for resolved_model, provider, label in _picker_model_entries(store_root):
         models[resolved_model] = {"name": f"{provider} · {label}", "limit": limit}
     return models
+
+
+def _default_picker_model(models: dict[str, dict[str, Any]]) -> str:
+    """Launch model key: Zen's free default when present, else whatever is."""
+    from lemoncrow.core.capabilities.providers.zen import ZEN_DEFAULT_FREE_MODEL
+
+    if ZEN_DEFAULT_FREE_MODEL in models:
+        return ZEN_DEFAULT_FREE_MODEL
+    return next(iter(models))
 
 
 def _build_engine_launch(
@@ -166,9 +176,11 @@ def _build_engine_launch(
     output_ceiling = _output_ceiling(budget)
 
     if engine in {"lemoncode", "opencode"}:
+        picker_models = _picker_models(store_root, output_ceiling)
+        default_model = _default_picker_model(picker_models)
         config = {
             "$schema": "https://opencode.ai/config.json",
-            "model": "lc/lemoncrow",
+            "model": f"lc/{default_model}",
             "default_agent": "build",
             "enabled_providers": ["lc"],
             "share": "disabled",
@@ -183,7 +195,7 @@ def _build_engine_launch(
                         "baseURL": f"{base_url}/v1",
                         "apiKey": token,
                     },
-                    "models": _picker_models(store_root, output_ceiling),
+                    "models": picker_models,
                 }
             },
         }
@@ -201,7 +213,7 @@ def _build_engine_launch(
             executable,
             "--pure",
             "--model",
-            "lc/lemoncrow",
+            f"lc/{default_model}",
             "--agent",
             "build",
         ]
