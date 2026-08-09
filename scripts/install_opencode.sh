@@ -142,16 +142,9 @@ if $WORKSPACE_SET; then
   "provider": {
     "lc": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "LemonCrow",
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
         "apiKey": "local"
-      },
-      "models": {
-        "lemoncrow": {
-          "name": "LemonCrow",
-          "limit": {"context": 200000, "output": 7600}
-        }
       }
     }
   },
@@ -186,16 +179,9 @@ else
   "provider": {
     "lc": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "LemonCrow",
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
         "apiKey": "local"
-      },
-      "models": {
-        "lemoncrow": {
-          "name": "LemonCrow",
-          "limit": {"context": 200000, "output": 7600}
-        }
       }
     }
   },
