@@ -45,6 +45,12 @@ def test_detect_configured_vendors_uses_installed_host_clis(monkeypatch) -> None
         lambda command: f"/usr/bin/{command}" if command in {"claude", "codex", "agy"} else None,
     )
 
+    # claude/codex have real owned-execution runners, so their presence is a
+    # valid "configured" signal. google has no host-CLI runner at all -- an
+    # owned turn always executes over litellm's direct Vertex/Gemini transport,
+    # which needs a real API key -- so agy/antigravity presence must NOT enable
+    # it (that previously caused "auto" turns to fail with a missing-Gemini-key
+    # error on machines that only have the antigravity CLI installed).
     # Host CLIs alone cannot execute an owned turn (they need a real API key),
     # so the keyless Zen public tier stays available as the executable fallback.
-    assert detect_configured_vendors({}) == ("anthropic", "openai", "google", "zen")
+    assert detect_configured_vendors({}) == ("anthropic", "openai", "zen")
