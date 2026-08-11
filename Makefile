@@ -51,7 +51,7 @@ release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP
  uv lock; \
  git add pyproject.toml uv.lock; \
  git commit --no-verify -m "chore: bump to $$TAG" || echo "  → nothing new to commit, continuing..."; \
- git push --no-verify || echo "  → nothing to push, continuing..."; \
+ git push --no-verify -u origin HEAD || echo "  → nothing to push, continuing..."; \
  if [ "$$FORCE" = "1" ]; then \
    git tag -d $$TAG 2>/dev/null || true; \
    git push --no-verify --delete origin $$TAG 2>/dev/null || true; \
@@ -68,7 +68,9 @@ release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP
    gh auth setup-git >/dev/null 2>&1 || true; \
  fi; \
  echo "Mirroring to public repo..."; \
- LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror; \
+ MIRROR_FORCE_ARG=; \
+ [ "$$FORCE" = "1" ] && MIRROR_FORCE_ARG=--force; \
+ LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror $$MIRROR_FORCE_ARG; \
  PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
  git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
  echo "✓ Released $$TAG (dev + public)"
