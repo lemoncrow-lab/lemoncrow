@@ -1,7 +1,7 @@
 [submodule "landing"]
 	path = landing
 	url = git@github.com:lemoncrow-lab/landing.git
-[submodule "opencode"]
-	path = opencode
+[submodule "lemoncode"]
+	path = lemoncode
 	url = https://github.com/lemoncrow-lab/lemoncode.git
 	branch = dev

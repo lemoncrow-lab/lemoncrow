@@ -4,7 +4,7 @@
 
 LemonCode is LemonCrow's own fork of opencode
 ([`lemoncrow-lab/lemoncode`](https://github.com/lemoncrow-lab/lemoncode), vendored
-as the `opencode/` submodule). Because the project controls the frontend, it can
+as the `lemoncode/` submodule). Because the project controls the frontend, it can
 apply optimizations that are impossible in a third-party host: prompt and tool
 stripping before the gateway call, a built-in LemonCrow telemetry panel, and
 gateway-native routing.
@@ -94,7 +94,7 @@ MCP entry:
 lc code host status              # installed version, commit, resolved path, update policy
 lc code host install             # download + checksum-verify the latest release
 lc code host update              # same, on demand
-lc code host build --source opencode  # build from the vendored checkout (requires bun)
+lc code host build --source lemoncode  # build from the vendored checkout (requires bun)
 lc code host remove              # delete the managed binary
 ```
 

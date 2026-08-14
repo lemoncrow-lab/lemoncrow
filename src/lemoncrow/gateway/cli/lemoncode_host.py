@@ -72,7 +72,7 @@ def _source_binary() -> Path | None:
     except click.ClickException:
         return None
     repository = Path(__file__).resolve().parents[4]
-    candidate = repository / "opencode" / "packages" / "opencode" / "dist"
+    candidate = repository / "lemoncode" / "packages" / "opencode" / "dist"
     candidate = candidate / f"lemoncode-{os_name}-{arch}" / "bin" / "lemoncode"
     return candidate if _is_executable(candidate) else None
 

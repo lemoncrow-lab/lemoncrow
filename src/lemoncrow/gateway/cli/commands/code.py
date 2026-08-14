@@ -644,7 +644,7 @@ def code_host_update_cmd(ctx: click.Context) -> None:
 @click.option(
     "--source",
     type=click.Path(path_type=Path, file_okay=False),
-    default=Path("opencode"),
+    default=Path("lemoncode"),
     show_default=True,
     help="LemonCode fork checkout.",
 )

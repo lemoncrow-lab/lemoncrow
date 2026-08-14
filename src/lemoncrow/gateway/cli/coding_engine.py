@@ -52,7 +52,7 @@ def _provision_lemoncode_host(store_root: Path) -> str:
     except click.ClickException as exc:
         raise click.ClickException(
             f"LemonCode host is not installed and could not be downloaded ({exc.format_message()}); "
-            "run `lc code host install` or build it with `lc code host build --source opencode`"
+            "run `lc code host install` or build it with `lc code host build --source lemoncode`"
         ) from exc
     click.echo(f"  ✓ LemonCode host installed: {installed}", err=True)
     return str(installed)

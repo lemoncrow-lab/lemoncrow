@@ -82,14 +82,14 @@ prod: ## Build and install from local production build (includes mypyc compilati
 	bash scripts/install.sh --local
 	@$(MAKE) build-lemoncode-host
 
-build-lemoncode-host: ## Provision the LemonCode host binary: builds from the vendored opencode/ submodule if bun is available, else downloads a release. Skips if already installed; force rebuild with 'make build-lemoncode-host f=1'
+build-lemoncode-host: ## Provision the LemonCode host binary: builds from the vendored lemoncode/ submodule if bun is available, else downloads a release. Skips if already installed; force rebuild with 'make build-lemoncode-host f=1'
 	@if [ -z "$(f)" ] && [ -x "$(LEMONCROW_STORE)/bin/lemoncode-host" ]; then \
 		echo "LemonCode host already installed at $(LEMONCROW_STORE)/bin/lemoncode-host -- skipping (force with f=1)"; \
-	elif command -v bun >/dev/null 2>&1 && git submodule update --init opencode >/dev/null 2>&1 && [ -f opencode/package.json ]; then \
-		echo "Building LemonCode host from source (opencode/ submodule)..."; \
-		$(LEMONCROW_CMD) code host build --source opencode; \
+	elif command -v bun >/dev/null 2>&1 && git submodule update --init lemoncode >/dev/null 2>&1 && [ -f lemoncode/package.json ]; then \
+		echo "Building LemonCode host from source (lemoncode/ submodule)..."; \
+		$(LEMONCROW_CMD) code host build --source lemoncode; \
 	else \
-		echo "bun/opencode submodule unavailable -- downloading prebuilt LemonCode host release..."; \
+		echo "bun/lemoncode submodule unavailable -- downloading prebuilt LemonCode host release..."; \
 		$(LEMONCROW_CMD) code host install; \
 	fi
 
