@@ -181,7 +181,7 @@ def _build_engine_launch(
         config = {
             "$schema": "https://opencode.ai/config.json",
             "model": f"lc/{default_model}",
-            "default_agent": "build",
+            "default_agent": "code",
             "enabled_providers": ["lc"],
             "share": "disabled",
             "snapshot": False,
@@ -196,6 +196,17 @@ def _build_engine_launch(
                         "apiKey": token,
                     },
                     "models": picker_models,
+                }
+            },
+            # OPENCODE_DISABLE_PROJECT_CONFIG=true below skips the on-disk
+            # agents/*.md discovery, so the "code" agent named by
+            # default_agent above must be defined here or the host errors
+            # with `default agent "code" not found`. Prompt/tools are blank
+            # here on purpose -- LEMONCODE_STRIP_HOST_PROMPT/TOOLS strip them
+            # for every agent regardless of name, so this is just a carrier id.
+            "agent": {
+                "code": {
+                    "mode": "primary",
                 }
             },
         }
@@ -215,7 +226,7 @@ def _build_engine_launch(
             "--model",
             f"lc/{default_model}",
             "--agent",
-            "build",
+            "code",
         ]
         if prompt is not None:
             command.append("run")

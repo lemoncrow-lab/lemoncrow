@@ -232,6 +232,25 @@ lc dashboard open  # choose Map in the existing dashboard
 lc tools call grep --args '{"path":".","content_regex":"TODO"}'
 ```
 
+### Excluding files from indexing
+
+`lc code index` walks git-visible files (`git ls-files`, so `.gitignore` is
+already honored) plus a built-in skip list for caches/build output. To
+exclude specific files -- data dumps, fixtures, generated JSON -- that are
+tracked in git and therefore not covered by `.gitignore`, add gitignore-syntax
+patterns to `.lemoncrow/.ignore`:
+
+```gitignore
+# .lemoncrow/.ignore
+fixtures/
+*.snapshot.json
+data/**/*.csv
+```
+
+Patterns in `.lemoncrow/.ignore` are a union with `.gitignore`, not a
+replacement for it -- both are applied. Re-run `lc code index --reindex`
+after changing the file.
+
 ## Knowledge, Lessons, and Failure Workflows
 
 These commands manage the reusable knowledge layer and failure review flows.

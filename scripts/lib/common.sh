@@ -1279,8 +1279,42 @@ join_with_comma_space() {
     printf "%s" "$joined"
 }
 
+# --- Host-wizard choice persistence ------------------------------------------
+# Round-trips what the user picked interactively (currently just the skills
+# selection) through a plain key=value file, mirroring the companion_versions
+# store above. Read by host_wizard()'s LEMONCROW_NON_INTERACTIVE branch so
+# auto-update -- which always re-runs with that flag set, see
+# update.py:_update_via_release -- reapplies the last interactive choice
+# instead of silently reverting to the DEFAULT_SKILLS-only set.
+_install_choices_file() { printf '%s' "${HOME}/.lemoncrow/host_choices"; }
+
+_install_choice_get() {  # $1=key -> prints recorded value (empty if none)
+    local f; f="$(_install_choices_file)"
+    [[ -r "$f" ]] || return 0
+    sed -n "s/^$1=//p" "$f" | head -n1
+}
+
+_install_choice_set() {  # $1=key $2=value
+    local f tmp
+    f="$(_install_choices_file)"
+    mkdir -p "${HOME}/.lemoncrow" 2>/dev/null || true
+    tmp="$(mktemp "${TMPDIR:-/tmp}/lemoncrow-ic.XXXXXX")" || return 0
+    [[ -r "$f" ]] && grep -v "^$1=" "$f" > "$tmp" 2>/dev/null || true
+    printf '%s=%s\n' "$1" "$2" >> "$tmp"
+    mv "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+}
+
 host_wizard() {
-    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    if [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]]; then
+        # Auto-update always re-runs install.sh with NON_INTERACTIVE=1 (see
+        # update.py:_update_via_release), so this branch never prompts -- but
+        # it must still re-apply whatever skill set the user picked the last
+        # time they *did* run the wizard interactively, or every update
+        # silently drops back to the DEFAULT_SKILLS-only set (lemoncrow).
+        local saved_skills; saved_skills="$(_install_choice_get skills)"
+        [[ -n "$saved_skills" ]] && HOST_EXTRA_ARGS+=(--include-skills "$saved_skills")
+        return 0
+    fi
     has_interactive_input || return 0
     [[ "$LEMONCROW_NO_HOSTS" == "1" ]] && return 0
     contains_any_host_flag && return 0
@@ -1562,7 +1596,10 @@ for path in sorted(glob.glob(os.path.join(root, "integrations", "skills", "*", "
                     fi
                 fi
             fi
-            [[ -n "$skills_csv" ]] && HOST_EXTRA_ARGS+=(--include-skills "$skills_csv")
+            if [[ -n "$skills_csv" ]]; then
+                HOST_EXTRA_ARGS+=(--include-skills "$skills_csv")
+                _install_choice_set skills "$skills_csv"
+            fi
         fi
     fi
     # --- end optional skills ----------------------------------------------------

@@ -217,9 +217,77 @@ def test_non_interactive_and_no_tty_leave_host_extra_args_empty() -> None:
         assert "COUNT=0" in result.stdout, result.stdout
 
 
-def _run_host_wizard(*, answers: list[bytes], markers: list[str], tmp_path: Path, term: str) -> Path:
+def test_non_interactive_reapplies_saved_skills_choice(tmp_path: Path) -> None:
+    """The auto-update gap: _update_via_release (src/lemoncrow/gateway/cli/
+    commands/update.py) always re-runs install.sh with
+    LEMONCROW_NON_INTERACTIVE=1, so host_wizard() never prompts on update --
+    but it must still re-apply whatever skill set the user picked the last
+    time they *did* run the wizard interactively, instead of silently
+    reverting to the DEFAULT_SKILLS-only set."""
+    home = tmp_path / "home"
+    choices_file = home / ".lemoncrow" / "host_choices"
+    choices_file.parent.mkdir(parents=True)
+    choices_file.write_text("skills=lemoncrow,benchmark,recall\n", encoding="utf-8")
+
+    body = (
+        "HOST_EXTRA_ARGS=()\n"
+        "HOST_FLAGS=()\n"
+        "HOST_SCOPE_ARGS=()\n"
+        "host_wizard\n"
+        'for a in "${HOST_EXTRA_ARGS[@]+"${HOST_EXTRA_ARGS[@]}"}"; do printf "<<%s>>\\n" "$a"; done\n'
+    )
+    script = f'set -euo pipefail\nsource "{COMMON_SH}"\n{body}\n'
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(home),
+        "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
+        "LEMONCROW_NON_INTERACTIVE": "1",
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=LEMONCROW_ROOT, capture_output=True, text=True, timeout=20, env=env
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    tokens = [line.strip("<>") for line in result.stdout.splitlines() if line.strip()]
+    pairs = dict(zip(tokens[0::2], tokens[1::2], strict=True))
+    assert pairs.get("--include-skills") == "lemoncrow,benchmark,recall"
+
+
+def test_non_interactive_with_no_saved_choice_stays_empty(tmp_path: Path) -> None:
+    """No prior interactive run -> nothing saved yet -> unchanged behavior
+    (DEFAULT_SKILLS-only, i.e. no --include-skills flag at all)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    body = (
+        "HOST_EXTRA_ARGS=()\n"
+        "HOST_FLAGS=()\n"
+        "HOST_SCOPE_ARGS=()\n"
+        "host_wizard\n"
+        'printf "COUNT=%s\\n" "${#HOST_EXTRA_ARGS[@]}"\n'
+    )
+    script = f'set -euo pipefail\nsource "{COMMON_SH}"\n{body}\n'
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(home),
+        "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
+        "LEMONCROW_NON_INTERACTIVE": "1",
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=LEMONCROW_ROOT, capture_output=True, text=True, timeout=20, env=env
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert "COUNT=0" in result.stdout, result.stdout
+
+
+def _run_host_wizard(
+    *, answers: list[bytes], markers: list[str], tmp_path: Path, term: str, home: Path | None = None
+) -> Path:
     """Drive host_wizard() end to end: for each (marker, answer) pair, wait for
     the marker then send the answer. Captures HOST_FLAGS/HOST_EXTRA_ARGS after.
+
+    `home` overrides $HOME for the wizard subprocess (defaults to the real
+    $HOME, matching prior behavior) -- pass an isolated tmp dir for any test
+    that exercises persistence (host_wizard now writes
+    ~/.lemoncrow/host_choices), so it never touches the real machine's state.
     """
     result_file = tmp_path / "result.txt"
     script_body = (
@@ -236,7 +304,7 @@ def _run_host_wizard(*, answers: list[bytes], markers: list[str], tmp_path: Path
     )
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": os.environ.get("HOME", "/root"),
+        "HOME": str(home) if home is not None else os.environ.get("HOME", "/root"),
         "TERM": term,
         "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
     }
@@ -482,6 +550,25 @@ def test_selecting_a_skill_adds_it(tmp_path: Path) -> None:
     assert pairs.get("--roles") == "code," + ",".join(default_roles)
     # All skills are pre-selected by default; lemoncrow is prepended by wizard.
     assert pairs.get("--include-skills") == "lemoncrow," + ",".join(skill_names)
+
+
+def test_interactive_skill_choice_persists_for_later_non_interactive_runs(tmp_path: Path) -> None:
+    """End to end: an interactive selection writes ~/.lemoncrow/host_choices,
+    so the next (non-interactive, auto-update) run can pick it back up."""
+    home = tmp_path / "home"
+    home.mkdir()
+    skill_names = _skill_names_from_disk()
+    assert skill_names
+    _run_host_wizard(
+        answers=[b"2\r", b"\r", b"\r", b"\r", b"\r"],  # accept defaults throughout
+        markers=_SELECTOR_MARKERS,
+        tmp_path=tmp_path,
+        term="xterm",
+        home=home,
+    )
+    choices_file = home / ".lemoncrow" / "host_choices"
+    assert choices_file.exists(), "expected host_wizard to persist the skills choice"
+    assert choices_file.read_text(encoding="utf-8").strip() == "skills=lemoncrow," + ",".join(skill_names)
 
 
 def test_claude_global_scope_appends_claude_project_without_losing_roles(tmp_path: Path) -> None:

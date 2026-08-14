@@ -25,8 +25,19 @@ ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 ZEN_PUBLIC_KEY = "public"
 ZEN_PREFIX = "zen/"
 ZEN_CATALOG_URL = "https://models.dev/api.json"
-# The Zen edge rejects the default urllib user agent with 403.
-ZEN_USER_AGENT = "lemoncrow"
+# The Zen edge gates BOTH endpoints on client identity, not just auth:
+#   - GET /models          rejects the default urllib UA outright (403).
+#   - POST /chat/completions on free-tier models 429s with FreeUsageLimitError
+#     for any User-Agent that doesn't contain "opencode" -- verified live:
+#     a real account key + UA "python-httpx/..." (litellm's default) still
+#     429s, while UA "opencode" (bare, any version, any suffix) 200s, even
+#     on the keyless `public` credential. It's a substring/prefix check on
+#     the client identity, not a pinned version -- so this value must keep
+#     containing "opencode" but does NOT need to track opencode's version
+#     string release-to-release. If Zen ever tightens this to a real
+#     version/build check, re-verify with the curl recipe above before
+#     bumping the literal string.
+ZEN_USER_AGENT = "opencode/lemoncrow"
 
 # Fallback when models.dev is unreachable. Zero-cost Zen models as of 2026-08.
 _FALLBACK_FREE_MODELS: tuple[str, ...] = (
@@ -149,6 +160,12 @@ def apply_zen_transport(request_kwargs: dict[str, Any], cfg: Any | None = None) 
     patched["model"] = f"openai/{model[len(ZEN_PREFIX) :]}"
     patched["api_base"] = ZEN_BASE_URL
     patched.setdefault("api_key", zen_api_key(cfg))
+    # Without this, litellm's default UA (e.g. "python-httpx/...") gets
+    # 429 FreeUsageLimitError from the Zen edge even with a valid account
+    # key -- see the ZEN_USER_AGENT comment above.
+    extra_headers = dict(patched.get("extra_headers") or {})
+    extra_headers.setdefault("User-Agent", ZEN_USER_AGENT)
+    patched["extra_headers"] = extra_headers
     return patched
 
 

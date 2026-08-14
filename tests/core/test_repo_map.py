@@ -174,3 +174,39 @@ def test_iter_source_files_skips_local_artifact_directories(tmp_path: Path) -> N
     files = {path.relative_to(tmp_path).as_posix() for path in iter_source_files(tmp_path)}
 
     assert files == {"src/keep.py"}
+
+
+def _write_lemoncrow_ignore(repo_root: Path, *patterns: str) -> None:
+    ignore_dir = repo_root / ".lemoncrow"
+    ignore_dir.mkdir(parents=True, exist_ok=True)
+    (ignore_dir / ".ignore").write_text("\n".join(patterns) + "\n", encoding="utf-8")
+
+
+def test_iter_source_files_respects_lemoncrow_ignore_glob_fallback(tmp_path: Path) -> None:
+    """.lemoncrow/.ignore excludes files even without a .gitignore entry (glob fallback, no git repo)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "keep.py").write_text("def keep() -> None:\n    pass\n", encoding="utf-8")
+    (tmp_path / "fixtures").mkdir()
+    (tmp_path / "fixtures" / "dump.py").write_text("DATA = {}\n", encoding="utf-8")
+    _write_lemoncrow_ignore(tmp_path, "fixtures/")
+
+    files = {path.relative_to(tmp_path).as_posix() for path in iter_source_files(tmp_path)}
+
+    assert files == {"src/keep.py"}
+
+
+def test_iter_source_files_respects_lemoncrow_ignore_git_tracked(tmp_path: Path) -> None:
+    """.lemoncrow/.ignore excludes even git-tracked files -- git itself has no notion of it."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "keep.py").write_text("def keep() -> None:\n    pass\n", encoding="utf-8")
+    (tmp_path / "fixtures").mkdir()
+    (tmp_path / "fixtures" / "dump.py").write_text("DATA = {}\n", encoding="utf-8")
+    _write_lemoncrow_ignore(tmp_path, "fixtures/")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+
+    files = {path.relative_to(tmp_path).as_posix() for path in iter_source_files(tmp_path)}
+
+    assert files == {"src/keep.py"}
