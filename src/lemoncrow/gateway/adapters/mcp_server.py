@@ -5224,15 +5224,26 @@ def render_tool_result_text(name: str, result: Any) -> str | None:
         # internal `calls_saved` key. No applied ranges -> "ok". Actionable results
         # (failures, rollbacks, diagnostics, reviews, fuzzy matches) keep their
         # structured body and render as JSON via the dispatcher fallback.
+        # `vcs_status` rides along as a suffix on the one-liner rather than
+        # tripping the JSON fallback -- it's always present on a dirty tree
+        # (the just-edited file always shows), so treating it like an
+        # actionable key would blow the minimal render up on every call.
         keys = set(payload)
-        if keys <= {"calls_saved"}:
+        base_keys = keys - {"vcs_status"}
+        if base_keys <= {"calls_saved"}:
             text = "ok"
-        elif keys <= {"applied", "calls_saved"}:
+        elif base_keys <= {"applied", "calls_saved"}:
             applied = payload.get("applied") or []
             if applied and all(isinstance(a, str) for a in applied):
                 text = "applied " + ", ".join(applied)
             elif not applied:
                 text = "ok"
+        if text:
+            vcs_raw = payload.get("vcs_status")
+            vcs = vcs_raw if isinstance(vcs_raw, dict) else {}
+            vcs_lines = vcs.get("lines")
+            if vcs_lines:
+                text = f"{text} | {vcs.get('source')}: " + "; ".join(vcs_lines)
     if name in {"search", "grep"} and isinstance(result, dict):
         text = _append_search_verdict_footer(text, result)
     return text or None
@@ -7325,6 +7336,9 @@ def _reindex_edited_files(repo_root: Path, touched_paths: list[str]) -> None:
 # enough to signal "this file has findings, act on them"; the tail is one linter
 # run away.
 _EDIT_DIAG_CAP = 5
+# Same rationale as _EDIT_DIAG_CAP: a dirty tree with a long status listing
+# must not dump an unbounded VCS report into the edit result.
+_EDIT_VCS_CAP = 10
 
 # Retry anchors exist to let the agent re-issue a rejected range edit with an
 # `old=` that matches disk -- they are NOT a content channel. Unbounded, a batch
@@ -7699,6 +7713,12 @@ def tool_smart_edit(
                         "failed_steps": hook_result.steps_failed,
                         "total_ms": hook_result.total_ms,
                     }
+                    if hook_result.vcs_status:
+                        _vcs_lines = hook_result.vcs_status
+                        if len(_vcs_lines) > _EDIT_VCS_CAP:
+                            _dropped_vcs = len(_vcs_lines) - _EDIT_VCS_CAP
+                            _vcs_lines = [*_vcs_lines[:_EDIT_VCS_CAP], f"... +{_dropped_vcs} more"]
+                        result["vcs_status"] = {"source": hook_result.vcs_source, "lines": _vcs_lines}
                 except Exception as hook_exc:
                     logging.exception("Recovered from broad exception handler")
                     result["hooks"] = {"error": str(hook_exc)}
