@@ -155,3 +155,21 @@ def test_no_weakref_on_self_in_compiled_modules() -> None:
         "the release wheel compiles to a mypyc-native class with no __weakref__ "
         f"slot -- route through WeakRefToken instead:\n{offenders}"
     )
+
+
+def test_compiled_build_refuses_git_checkout_and_allows_staging(tmp_path: Path) -> None:
+    """A killed mypyc build must never be able to delete tracked checkout source."""
+    git_marker = REPO_ROOT / ".git"
+    assert git_marker.exists(), "test must run from a Git checkout"
+
+    try:
+        hatch_build._assert_isolated_mypyc_build_root(REPO_ROOT)
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "REFUSING in-place compiled build" in message
+        assert "scripts/build.sh" in message
+    else:
+        raise AssertionError("compiled build unexpectedly allowed in Git checkout")
+
+    # A disposable tree without .git is the intended release-build location.
+    hatch_build._assert_isolated_mypyc_build_root(tmp_path)

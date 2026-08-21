@@ -49,9 +49,36 @@ echo "◆ Refreshing model prices from litellm..."
 uv run --with "litellm>=1.83.14" python scripts/refresh_model_prices.py || \
     echo "  (refresh skipped; bundled snapshot will be used)"
 
-echo "◆ Building mypyc wheel (this takes a few minutes)..."
+echo "◆ Building mypyc wheel from isolated staging tree (this takes a few minutes)..."
 rm -rf dist/
-uv build --wheel
+mkdir -p dist
+
+# The mypyc hook intentionally strips compiled .py files while Hatch assembles
+# the wheel. Never let that mutation happen in the developer/CI Git checkout:
+# copy only the wheel-build inputs to a disposable tree and compile there.
+# SIGINT/SIGTERM/SIGKILL can therefore at worst leave/delete temporary files.
+REPO_ROOT="$(pwd -P)"
+BUILD_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-mypyc.XXXXXX")"
+cleanup_build_stage() {
+    [[ -n "${BUILD_STAGE:-}" && -d "$BUILD_STAGE" ]] && rm -rf "$BUILD_STAGE"
+}
+trap cleanup_build_stage EXIT INT TERM
+
+cp -a pyproject.toml hatch_build.py README.md LICENSE "$BUILD_STAGE/"
+[[ -f uv.lock ]] && cp -a uv.lock "$BUILD_STAGE/"
+cp -a src integrations "$BUILD_STAGE/"
+[[ -d vendor ]] && cp -a vendor "$BUILD_STAGE/"
+# pyproject.toml declares benchmarks as a uv workspace member. The wheel build
+# does not need benchmark sources, only enough metadata for workspace discovery.
+if [[ -f benchmarks/pyproject.toml ]]; then
+    mkdir -p "$BUILD_STAGE/benchmarks"
+    cp -a benchmarks/pyproject.toml "$BUILD_STAGE/benchmarks/pyproject.toml"
+fi
+
+(
+    cd "$BUILD_STAGE"
+    uv build --wheel --out-dir "$REPO_ROOT/dist"
+)
 WHEEL_PATH="$(ls dist/lemoncrow-*.whl | head -1)"
 if [[ -z "$WHEEL_PATH" ]]; then
     echo "ERROR: wheel not found in dist/" >&2
@@ -133,6 +160,7 @@ done
 mkdir -p bundle/scripts/lib
 cp -f scripts/lib/common.sh bundle/scripts/lib/common.sh
 cp -f scripts/lib/managed_context.sh bundle/scripts/lib/managed_context.sh
+cp -f scripts/lib/python_bootstrap.sh bundle/scripts/lib/python_bootstrap.sh
 cp -f scripts/lib/versions.sh bundle/scripts/lib/versions.sh
 
 # Bundle integration files (pre-generated .md/.json/.sh per-host configs).

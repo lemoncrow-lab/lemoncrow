@@ -357,36 +357,32 @@ else
 fi
 
 # ---- run full setup via bundle.sh (installs wheel + host integrations) ------
-# ---- run full setup via bundle.sh (installs wheel + host integrations) ------
-# ---- run full setup via bundle.sh (installs wheel + host integrations) ------
-# layer. With LEMONCROW_NO_HOSTS=1 they are skipped along with host setup.
+# ---- run full setup via bundle.sh (installs wheel + optional host integrations) ----
+# The wheel installation is mandatory. --no-hosts only suppresses host integration
+# setup inside bundle.sh; it must never skip installing LemonCrow itself.
 export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
 BUNDLE_SH="${LEMONCROW_INSTALL_DIR}/scripts/bundle.sh"
-if [[ "$LEMONCROW_NO_HOSTS" != "1" && -f "$BUNDLE_SH" ]]; then
+if [[ -f "$BUNDLE_SH" ]]; then
     SETUP_ARGS=()
     [[ "$LEMONCROW_DRY_RUN" == "1" ]] && SETUP_ARGS+=(--dry-run)
     [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && SETUP_ARGS+=(--non-interactive)
+    [[ "$LEMONCROW_NO_HOSTS" == "1" ]] && SETUP_ARGS+=(--no-hosts)
     # When piped from curl, bash reads install.sh from stdin (a pipe), so
-    # bundle.sh inherits that pipe as fd 0. `read -s` suppresses echo on fd 0
-    # rather than /dev/tty, so it fails silently and arrow keys echo as ^[[A.
-    # Redirect stdin from /dev/tty for bundle.sh so interactive menus get a
-    # real TTY as fd 0 and `read -s` works correctly.
-    # `-e /dev/tty` is true even where opening it fails (cron, CI, containers,
-    # non-interactive agent shells); the redirect would then abort bundle.sh
-    # and `|| true` would swallow it, silently skipping the entire setup.
+    # bundle.sh inherits that pipe as fd 0. Give interactive setup a real TTY
+    # when one is available; otherwise keep stdin as-is for CI/containers.
     if [[ ! -t 0 ]] && : </dev/tty 2>/dev/null; then
         LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
         LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
-        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty || true
+        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty \
+            || fail "LemonCrow setup failed while installing the bundled wheel."
     else
         LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
         LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
-        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" || true
+        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" \
+            || fail "LemonCrow setup failed while installing the bundled wheel."
     fi
-elif [[ "$LEMONCROW_NO_HOSTS" == "1" ]]; then
-    verbose "Skipping setup (LEMONCROW_NO_HOSTS=1)"
 else
-    warn "bundle.sh not found at ${BUNDLE_SH} — skipping host integration setup."
+    fail "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."
 fi
 # ---- PATH persistence --------------------------------------------------------
 if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then

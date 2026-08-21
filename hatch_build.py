@@ -2,22 +2,22 @@
 
 What it does
 ------------
-1. Finds all .py files under src/lemoncrow/ that are safe for mypyc:
-   - No pydantic BaseModel/RootModel subclasses (C-level incompatibility)
-   - No bare __import__() calls
-   - Not __main__, _vendor, or bench
-2. Runs mypyc (cwd=src/) so compiled .so files land in-place next to .py files.
-3. The mypyc support module (hash-named .so at src/) is added to force_include
-   so it lands at site-packages root (importable on sys.path).
-4. Deletes the .py source for every successfully-compiled module so only
-   the .so is packaged (no readable source shipped).
-5. In finalize(), restores all deleted .py files and cleans up .so artifacts.
+1. Finds all .py files under src/lemoncrow/ that are safe for mypyc.
+2. Runs mypyc (cwd=src/) so compiled .so files land next to the staged .py files.
+3. Adds generated .so files to the wheel and temporarily removes their staged
+   .py twins so readable source is not packaged.
+4. In finalize(), restores the staged .py files and cleans generated artifacts.
 
-Pure-Python is the DEFAULT, officially-supported distribution. The mypyc
-compile is EXPERIMENTAL and opt-in: set LEMONCROW_ENABLE_MYPYC=1 to enable it
-(and only publish a compiled build once CI verifies it on every supported
-platform). scripts/build.sh forces it on for releases; there is no separate
-skip flag -- unset (or LEMONCROW_ENABLE_MYPYC=0) is the pure-Python build.
+IMPORTANT: a compiled build mutates its build root while the wheel is assembled.
+It must therefore run only in a disposable, non-Git staging tree. The hook
+refuses LEMONCROW_ENABLE_MYPYC=1 when ``self.root`` is a Git checkout, and
+``scripts/build.sh`` creates the isolated copy used by local and CI releases.
+Interrupting or killing a build can consequently damage only that disposable
+copy, never tracked source in the developer checkout.
+
+Pure-Python is the default supported distribution. Set LEMONCROW_ENABLE_MYPYC=1
+only through the isolated release build path; unset/0 produces a pure-Python
+wheel.
 """
 
 from __future__ import annotations
@@ -182,6 +182,16 @@ _SKIP_PATHS = {
 }
 
 
+def _assert_isolated_mypyc_build_root(repo: pathlib.Path) -> None:
+    """Refuse a compiled build that could mutate a real Git working tree."""
+    if (repo / ".git").exists():
+        raise RuntimeError(
+            "[hatch-mypyc] REFUSING in-place compiled build in a Git checkout. "
+            "mypyc packaging temporarily strips compiled .py files from its build root; "
+            "run `bash scripts/build.sh`, which builds from a disposable staging copy."
+        )
+
+
 class CustomBuildHook(BuildHookInterface):
     PLUGIN_NAME = "custom"
 
@@ -215,6 +225,7 @@ class CustomBuildHook(BuildHookInterface):
             return
 
         repo = pathlib.Path(self.root)
+        _assert_isolated_mypyc_build_root(repo)
         src_dir = repo / "src"
         lemoncrow_src = src_dir / "lemoncrow"
 
