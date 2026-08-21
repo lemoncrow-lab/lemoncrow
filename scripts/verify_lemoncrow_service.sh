@@ -6,6 +6,7 @@
 # (expected: status=blocked), then kills the server.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "scripts/lib/python_bootstrap.sh"
 export TMPDIR="${TMPDIR:-/var/tmp}"
 
 # Check FastAPI/uvicorn available in the repo-managed environment

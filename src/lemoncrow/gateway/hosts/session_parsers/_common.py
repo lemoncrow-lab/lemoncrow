@@ -677,9 +677,11 @@ def _build_trace_from_normalized_content(
             block for block in content if isinstance(block, dict) and block.get("type") in {"toolCall", "tool_use"}
         ]
         reasoning.extend(
-            str(block.get("text") or "").strip()
+            str(block.get("text") or block.get("thinking") or "").strip()
             for block in content
-            if isinstance(block, dict) and block.get("type") in {"reasoning", "thinking"} and block.get("text")
+            if isinstance(block, dict)
+            and block.get("type") in {"reasoning", "thinking"}
+            and (block.get("text") or block.get("thinking"))
         )
 
         if tool_blocks:
@@ -880,7 +882,7 @@ def snapshot_edited_files(
         try:
             store.history.record_raw_artifact(artifact, file_content)
             saved += 1
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning("snapshot_edited_files: failed to save %s", fpath, exc_info=True)
 
     return saved
@@ -897,6 +899,8 @@ def record_normalized_session(
     source_mtime: datetime | None,
     force: bool = False,
     task: str | None = None,
+    trace_content: str | None = None,
+    source_path: str | None = None,
 ) -> str | None:
     artifact_id = f"{source}-{sanitize_id(session_id)}"
     if not force and source_mtime is not None:
@@ -918,19 +922,21 @@ def record_normalized_session(
         byte_count_redacted=len(redacted.encode("utf-8")),
         created_at=utcnow(),
         source_file_mtime=source_mtime,
+        source_path=source_path,
     )
     store.history.record_raw_artifact(artifact, redacted)
 
+    normalized_content = trace_content if trace_content is not None else raw_content
     trace = _build_trace_from_normalized_content(
         source=source,
         session_id=session_id,
-        raw_content=raw_content,
+        raw_content=normalized_content,
         artifact=artifact,
         task=task,
         source_mtime=source_mtime,
     )
     store.history.record_trace(trace, write_json=False)
-    started_at, ended_at = infer_time_bounds(raw_content, default=source_mtime)
+    started_at, ended_at = infer_time_bounds(normalized_content, default=source_mtime)
     persist_imported_run_snapshot(store, trace, started_at=started_at, ended_at=ended_at)
 
     # Best-effort: snapshot current on-disk state of every edited file

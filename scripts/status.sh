@@ -10,6 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/python_bootstrap.sh"
 LEMONCROW_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 WORKSPACE="${PWD}"

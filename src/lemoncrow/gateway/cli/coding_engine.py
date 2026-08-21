@@ -22,8 +22,8 @@ import click
 
 from lemoncrow.core.capabilities.statusline_sidecar import STATUS_FILE_ENV, status_file_path
 
-EngineName = Literal["auto", "lemoncode", "codex", "claude", "native"]
-_UPSTREAM_ENGINES = ("lemoncode", "codex", "claude")
+EngineName = Literal["auto", "lemoncode", "pi", "codex", "claude", "native"]
+_UPSTREAM_ENGINES: tuple[str, ...] = ("lemoncode", "pi", "codex", "claude")
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,27 @@ def _provision_lemoncode_host(store_root: Path) -> str:
     return str(installed)
 
 
+def _provision_pi_host(store_root: Path) -> str:
+    """Return the pinned managed Pi binary, installing it on explicit use."""
+    from lemoncrow.gateway.cli.pi_host import install_host_release, resolve_host_binary, validate_host_binary
+
+    executable = resolve_host_binary(store_root)
+    if executable is not None:
+        validate_host_binary(executable)
+        return executable
+    click.echo("  Pi host not found - installing pinned Pi now...", err=True)
+    try:
+        installed = install_host_release(store_root)
+        validate_host_binary(installed)
+    except click.ClickException as exc:
+        raise click.ClickException(
+            f"Pi host is not installed and could not be downloaded ({exc.format_message()}); "
+            "run `lc code host install --engine pi`"
+        ) from exc
+    click.echo(f"  ✓ Pi host installed: {installed}", err=True)
+    return str(installed)
+
+
 def _resolve_engine(requested: EngineName, *, store_root: Path) -> tuple[str, str | None]:
     normalized = requested.strip().lower()
     if normalized == "opencode":
@@ -65,18 +86,37 @@ def _resolve_engine(requested: EngineName, *, store_root: Path) -> tuple[str, st
     if normalized == "native":
         return "native", None
 
-    from lemoncrow.gateway.cli.lemoncode_host import resolve_host_binary
+    from lemoncrow.gateway.cli.lemoncode_host import resolve_host_binary as resolve_lemoncode_binary
+    from lemoncrow.gateway.cli.pi_host import resolve_host_binary as resolve_pi_binary
 
     if normalized != "auto":
         if normalized == "lemoncode":
             return normalized, _provision_lemoncode_host(store_root)
+        if normalized == "pi":
+            return normalized, _provision_pi_host(store_root)
         executable = shutil.which(normalized)
         if executable is None:
             raise click.ClickException(f"{normalized} is not installed; install it or use --engine native")
         return normalized, executable
 
-    for engine in _UPSTREAM_ENGINES:
-        executable = resolve_host_binary(store_root) if engine == "lemoncode" else shutil.which(engine)
+    preferred = os.environ.get("LEMONCROW_CODE_AUTO_ENGINE", "").strip().lower()
+    if preferred and preferred not in {"lemoncode", "pi"}:
+        raise click.ClickException("LEMONCROW_CODE_AUTO_ENGINE must be lemoncode or pi")
+    ordered = _UPSTREAM_ENGINES
+    if preferred:
+        ordered = (preferred, *(item for item in _UPSTREAM_ENGINES if item != preferred))
+
+    for engine in ordered:
+        if engine == "lemoncode":
+            executable = resolve_lemoncode_binary(store_root)
+        elif engine == "pi":
+            executable = resolve_pi_binary(store_root)
+            if executable is not None:
+                from lemoncrow.gateway.cli.pi_host import validate_host_binary
+
+                validate_host_binary(executable)
+        else:
+            executable = shutil.which(engine)
         if executable is not None:
             return engine, executable
     return "native", None
@@ -149,6 +189,50 @@ def _default_picker_model(models: dict[str, dict[str, Any]]) -> str:
     if ZEN_DEFAULT_FREE_MODEL in models:
         return ZEN_DEFAULT_FREE_MODEL
     return next(iter(models))
+
+
+def _pi_managed_extension_path() -> Path:
+    """Locate the packaged Pi extension in both source and wheel layouts."""
+    here = Path(__file__).resolve()
+    candidates = (
+        here.parents[2] / "integrations" / "pi" / "managed.mjs",
+        here.parents[4] / "integrations" / "pi" / "managed.mjs",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise click.ClickException("managed Pi extension is missing from this LemonCrow install")
+
+
+def _write_pi_managed_settings(store_root: Path, *, default_model: str) -> tuple[Path, Path]:
+    """Write a fail-closed Pi config isolated under the LemonCrow store."""
+    config_dir = store_root / "hosts" / "pi" / "config"
+    session_dir = store_root / "hosts" / "pi" / "sessions"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    settings = {
+        "defaultProvider": "lc",
+        "defaultModel": default_model,
+        "defaultThinkingLevel": "off",
+        "defaultProjectTrust": "never",
+        "enableInstallTelemetry": False,
+        "enableAnalytics": False,
+        "quietStartup": True,
+        "defaultTools": [],
+        "compaction": {"enabled": False},
+        "branchSummary": {"skipPrompt": True},
+        "retry": {"enabled": False, "maxRetries": 0, "provider": {"maxRetries": 0}},
+        "packages": [],
+        "extensions": [],
+        "skills": [],
+        "prompts": [],
+        "sessionDir": str(session_dir),
+    }
+    path = config_dir / "settings.json"
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return config_dir, session_dir
 
 
 def _build_engine_launch(
@@ -235,6 +319,47 @@ def _build_engine_launch(
             command.append(prompt)
         elif resume:
             command.extend(["--session", resume])
+        return EngineLaunch(engine, tuple(command), env)
+
+    if engine == "pi":
+        picker_models = _picker_models(store_root, output_ceiling)
+        default_model = _default_picker_model(picker_models)
+        extension_path = _pi_managed_extension_path()
+        config_dir, session_dir = _write_pi_managed_settings(store_root, default_model=default_model)
+        env.update(
+            {
+                "PI_CODING_AGENT_DIR": str(config_dir),
+                "PI_CODING_AGENT_SESSION_DIR": str(session_dir),
+                "PI_OFFLINE": "1",
+                "PI_SKIP_VERSION_CHECK": "1",
+                "PI_TELEMETRY": "0",
+                "LEMONCROW_PI_GATEWAY_BASE_URL": f"{base_url}/v1",
+                "LEMONCROW_PI_GATEWAY_TOKEN": token,
+                "LEMONCROW_PI_MODELS": json.dumps(picker_models, separators=(",", ":")),
+            }
+        )
+        command = [
+            executable,
+            "--offline",
+            "--no-tools",
+            "--no-context-files",
+            "--no-extensions",
+            "-e",
+            str(extension_path),
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-approve",
+            "--session-dir",
+            str(session_dir),
+            "--provider",
+            "lc",
+            "--model",
+            default_model,
+        ]
+        if resume:
+            command.extend(["--session", resume])
+        if prompt is not None:
+            command.extend(["-p", prompt])
         return EngineLaunch(engine, tuple(command), env)
 
     if engine == "codex":
@@ -470,6 +595,10 @@ def run_coding_engine(
         from lemoncrow.gateway.cli.lemoncode_host import maybe_auto_update_host
 
         maybe_auto_update_host(store_root)
+    if engine == "pi" or (engine == "auto" and os.environ.get("LEMONCROW_CODE_AUTO_ENGINE", "").strip() == "pi"):
+        from lemoncrow.gateway.cli.pi_host import maybe_auto_update_host as maybe_auto_update_pi
+
+        maybe_auto_update_pi(store_root)
     selected, executable = _resolve_engine(engine, store_root=store_root)
     if selected == "native":
         from lemoncrow.gateway.cli.interactive import run_code_cli
@@ -500,6 +629,7 @@ def run_coding_engine(
     # One structured snapshot path per run, shared by the gateway (writer) and
     # the frontend sidebar (reader).
     status_file = status_file_path(store_root, f"code-{os.getpid()}")
+    status_file.parent.mkdir(parents=True, exist_ok=True)
 
     with _managed_gateway(
         store_root=store_root,

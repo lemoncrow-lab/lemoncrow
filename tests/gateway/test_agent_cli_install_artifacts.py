@@ -127,6 +127,11 @@ def test_lemoncrow_meta_skill_ships_by_default_while_public_skills_stay_optional
             assert not (dest / name).exists(), f"{host}: {name} must not ship by default"
 
 
+def test_managed_pi_extension_and_docs_ship() -> None:
+    assert (INTEGRATIONS / "pi" / "managed.mjs").is_file()
+    assert (DOCS_HOSTS / "pi-install.md").is_file()
+
+
 def test_codex_plugin_agent_surface_exists() -> None:
     surface = INTEGRATIONS / "codex" / "plugin" / "agents" / "openai.yaml"
     assert surface.exists()

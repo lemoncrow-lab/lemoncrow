@@ -16,33 +16,21 @@ lc help background
 | Flag           | Description                                                            |
 | -------------- | ---------------------------------------------------------------------- |
 | `--version`    | Show the installed LemonCrow version and exit.                           |
-## LemonCode
+## Managed coding frontends
 
-`lc code` is the permanent LemonCode command; `lemoncode` is a
-permanent wheel console entry point for the same command. Bare `lc` with no
-subcommand or flags also dispatches to `lc code` directly (`lc -h` still
-shows the full command tree). It uses the controlled
-[`lemoncrow-lab/lemoncode`](https://github.com/lemoncrow-lab/lemoncode) fork as
-its preferred frontend and keeps LemonCrow at the expensive boundary: LemonCrow chooses the
-provider/model, owns tools and subagents, applies cache breakpoints, phase output
-caps, compaction, verification, and cost limits.
+`lc code` and the permanent `lemoncode` wheel entry point run mature frontends over LemonCrow's owned runtime. Bare `lc` with no subcommand or flags also dispatches to `lc code` directly (`lc -h` still shows the full command tree). LemonCode remains the automatic default during the Pi migration; stock Pi v0.84.2 is available as an explicit managed engine. LemonCrow stays at the expensive boundary: it chooses the provider/model, owns tools and subagents, and applies cache, compaction, verification, and cost controls.
 
 ~~~bash
-lc code                              # auto: LemonCode, Codex, Claude, native
+lc code                              # auto: LemonCode, Pi, Codex, Claude, native
 lemoncode --engine lemoncode
+lemoncode --engine pi
+lemoncode --engine pi -p "fix the failing parser test"
+lemoncode --engine pi --resume <pi-session-id>
 lemoncode --engine codex -p "fix the failing parser test"
-lemoncode --engine claude --resume <host-session-id>
 lc code --engine native              # original PromptToolkit fallback
 ~~~
 
-Managed engines receive no outer tool calls: their UI and session store are
-reused, while a token-authenticated loopback gateway performs the agent loop.
-The LemonCode fork strips its redundant host prompt and tool schemas before the
-gateway call, uses an isolated `lemoncode` data directory, and disables its own
-compaction/update/model-fetch loops. `lc code host install|update|status|build|remove`
-manages the verified host binary. The default host update policy checks the
-LemonCode release channel at most once every six hours; set
-`LEMONCODE_HOST_UPDATE=off` to pin it.
+Managed engines receive no outer tool calls: their UI and session store are reused, while a token-authenticated loopback gateway performs the agent loop. The LemonCode fork strips its redundant host prompt/tool schemas. Managed Pi loads one LemonCrow extension and disables Pi's tools, project resources, compaction, retries, telemetry, update checks, and package/model refresh; it stores config and sessions under the LemonCrow root. `lc code host install|update|status|build|remove --engine lemoncode|pi` manages the verified host binaries. Pi is pinned to reviewed upstream v0.84.2; LemonCode keeps its existing release-channel policy. Set `LEMONCROW_CODE_AUTO_ENGINE=pi` only for canary preference and remove it to roll back.
 This avoids paying for the host's large system/tool prompt at the real model and
 avoids duplicate host/LemonCrow tool execution. The gateway is started for the
 CLI process and stopped on exit.

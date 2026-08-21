@@ -120,9 +120,23 @@ install_lemoncrow_from_wheel() {
     warn_on_foreign_cli_collision
 
     # Install the console script to the configured LemonCrow bin/tool dirs.
-    spin_tail "Installing LemonCrow" \
-        env UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
+    # uv occasionally has a stale record of a Python it thinks is installed but
+    # whose executable is gone from disk (interrupted `uv python install`, a
+    # system update that removed it, etc). `uv tool install` then aborts with
+    # "The environment at `...` is invalid: missing python executable at ..."
+    # instead of just fetching a working interpreter. Detect that failure and
+    # force-reinstall the interpreter once before giving up.
+    local uv_install_cmd=(
+        env UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR"
         uv tool install --force --python "$LEMONCROW_PYTHON_VERSION" "${wheel}[${extras}]" ${constraints_arg[@]+"${constraints_arg[@]}"} --reinstall-package lemoncrow
+    )
+    if ! spin_tail "Installing LemonCrow" "${uv_install_cmd[@]}"; then
+        warn "LemonCrow install failed — Python ${LEMONCROW_PYTHON_VERSION} looks missing or broken; reinstalling it and retrying..."
+        uv python install --reinstall "$LEMONCROW_PYTHON_VERSION" \
+            || fail "Could not install Python ${LEMONCROW_PYTHON_VERSION} via uv. Install it manually (uv python install ${LEMONCROW_PYTHON_VERSION}) and re-run this installer."
+        spin_tail "Installing LemonCrow (retry)" "${uv_install_cmd[@]}" \
+            || fail "LemonCrow install failed even after reinstalling Python ${LEMONCROW_PYTHON_VERSION}."
+    fi
 
     # Re-derive LEMONCROW_BIN_DIR to the uv tool install location so that
     # run_setup() finds the real lc binary (not the wheel-only staging dir).

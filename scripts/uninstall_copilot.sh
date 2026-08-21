@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/python_bootstrap.sh"
+
 DRY_RUN=false
 WORKSPACE=""
 WORKSPACE_SET=false

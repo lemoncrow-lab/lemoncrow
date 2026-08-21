@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=python_bootstrap.sh
+source "${BASH_SOURCE[0]%/*}/python_bootstrap.sh"
+
 LEMONCROW_CODE_BLOCK_START="<!-- LEMONCROW START -->"
 LEMONCROW_CODE_BLOCK_END="<!-- LEMONCROW END -->"
 

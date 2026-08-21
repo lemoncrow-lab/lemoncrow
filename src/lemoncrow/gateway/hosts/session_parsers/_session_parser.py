@@ -6,8 +6,8 @@ Public API::
     from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
     turns = parse_session_turns(content, source="claude")
 
-Supported sources: ``"claude"``, ``"codex"``, ``"opencode"``, ``"lemoncode"``,
-``"copilot"``.
+Supported sources include ``"claude"``, ``"codex"``, ``"opencode"``, ``"lemoncode"``,
+``"pi"``, and ``"copilot"``.
 """
 
 from __future__ import annotations
@@ -224,6 +224,10 @@ def parse_session_turns(content: str, source: str) -> list[dict[str, Any]]:
         turns = _parse_opencode(content)
     elif source == "copilot":
         turns = _parse_copilot(content)
+    elif source == "pi":
+        from lemoncrow.gateway.hosts.session_parsers.pi import select_pi_active_branch
+
+        turns = _parse_normalized_session(select_pi_active_branch(content))
     elif source in _NORMALIZED_SESSION_SOURCES:
         turns = _parse_normalized_session(content)
     else:
@@ -1036,7 +1040,7 @@ def _parse_normalized_session(content: str) -> list[dict[str, Any]]:
                 if text:
                     assistant_turns.append(_turn("agent_message", text[:80], text, at=at, tokens=tokens, raw=event))
             elif block_type in {"reasoning", "thinking"}:
-                text = str(block.get("text") or "").strip()
+                text = str(block.get("text") or block.get("thinking") or "").strip()
                 if text:
                     assistant_turns.append(_turn("thinking", text[:80], text, at=at, tokens=tokens, raw=event))
             elif block_type in {"toolCall", "tool_use"}:

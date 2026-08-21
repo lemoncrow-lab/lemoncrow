@@ -2,6 +2,7 @@
 # verify_lemoncrow_postgres.sh — Postgres/pgvector smoke test (skip if no URL set)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "scripts/lib/python_bootstrap.sh"
 
 if [ -z "${LEMONCROW_DATABASE_URL:-}" ]; then
     echo "SKIPPED: LEMONCROW_DATABASE_URL not set"

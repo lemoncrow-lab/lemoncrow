@@ -99,10 +99,33 @@ _in_array() {
     return 1
 }
 
+# _resolve_claude_cli — mirrors scripts/lib/common.sh: `claude` is often
+# missing from PATH in non-login or GUI-launched shells (e.g. spawned by the
+# Claude Desktop app) even when installed, since the curl-based installer
+# places it at ~/.local/bin/claude and such shells never source
+# .bashrc/.profile. Widen detection to known install locations and export
+# PATH so the later `claude plugin ...` invocation (install_claude.sh, run as
+# a child process of this script) also finds it.
+_resolve_claude_cli() {
+    command -v claude >/dev/null 2>&1 && return 0
+    local candidate dir
+    for candidate in "${HOME}/.local/bin/claude" "${HOME}/.claude/local/claude"; do
+        if [[ -x "$candidate" ]]; then
+            dir="$(dirname "$candidate")"
+            case ":$PATH:" in
+                *":$dir:"*) ;;
+                *) export PATH="${dir}:${PATH}" ;;
+            esac
+            return 0
+        fi
+    done
+    return 1
+}
+
 host_is_detected() {
     local host="$1"
     case "$host" in
-        claude) command -v claude >/dev/null 2>&1 ;;
+        claude) _resolve_claude_cli ;;
         codex) command -v codex >/dev/null 2>&1 ;;
         opencode) command -v opencode >/dev/null 2>&1 ;;
         # The LemonCode *host binary*, not the `lemoncode` wheel console script

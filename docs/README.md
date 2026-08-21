@@ -62,6 +62,7 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 | ------------------------------------------------------------- | --------------------------------------------------------------- |
 | [Roadmap](./planning/roadmap.md)                              | Shipped capabilities and possible technical directions          |
 | [Savings optimization status](./planning/savings-optimization-roadmap.md) | Six-lever implementation audit, evidence, acceptance gates, and next work |
+| [Pi host migration plan](./planning/pi-host-migration-plan.md) | Adapter-first Pi migration, parity gates, rollout, and rollback plan |
 
 ## Operations
 

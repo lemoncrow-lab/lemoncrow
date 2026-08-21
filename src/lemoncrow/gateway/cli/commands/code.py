@@ -471,10 +471,10 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
 @click.group("code", invoke_without_command=True)
 @click.option(
     "--engine",
-    type=click.Choice(["auto", "lemoncode", "codex", "claude", "native"]),
+    type=click.Choice(["auto", "lemoncode", "pi", "codex", "claude", "native"]),
     default="auto",
     show_default=True,
-    help="Frontend engine; auto prefers the controlled LemonCode host, then Codex, then Claude.",
+    help="Frontend engine; auto prefers LemonCode, then managed Pi, Codex, and Claude.",
 )
 @click.option(
     "--provider",
@@ -600,19 +600,40 @@ def _code_store_root(ctx: click.Context) -> Path:
 
 @code_group.group("host")
 def code_host_group() -> None:
-    """Manage the controlled LemonCode frontend binary."""
+    """Manage LemonCrow-controlled frontend binaries."""
+
+
+def _host_engine_module(engine: str) -> tuple[Any, str]:
+    if engine == "pi":
+        from lemoncrow.gateway.cli import pi_host
+
+        return pi_host, "Pi"
+    from lemoncrow.gateway.cli import lemoncode_host
+
+    return lemoncode_host, "LemonCode"
+
+
+def _host_engine_option(function: Any) -> Any:
+    return click.option(
+        "--engine",
+        type=click.Choice(["lemoncode", "pi"]),
+        default="lemoncode",
+        show_default=True,
+        help="Managed frontend host.",
+    )(function)
 
 
 @code_host_group.command("status")
+@_host_engine_option
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
-def code_host_status_cmd(ctx: click.Context, as_json: bool) -> None:
-    from lemoncrow.gateway.cli.lemoncode_host import host_status
-
-    value = host_status(_code_store_root(ctx))
+def code_host_status_cmd(ctx: click.Context, engine: str, as_json: bool) -> None:
+    module, label = _host_engine_module(engine)
+    value = module.host_status(_code_store_root(ctx))
     if as_json:
         click.echo(json.dumps(value, sort_keys=True))
         return
+    click.echo(f"  Host:      {label}")
     click.echo(f"  Installed: {value['installed']}")
     click.echo(f"  Resolved:  {value['resolved_path'] or 'not installed'}")
     click.echo(f"  Policy:    {value['update_policy']}")
@@ -623,49 +644,52 @@ def code_host_status_cmd(ctx: click.Context, as_json: bool) -> None:
 
 
 @code_host_group.command("install")
+@_host_engine_option
 @click.pass_context
-def code_host_install_cmd(ctx: click.Context) -> None:
-    from lemoncrow.gateway.cli.lemoncode_host import install_host_release
-
-    path = install_host_release(_code_store_root(ctx))
-    click.echo(f"  ✓ LemonCode host installed: {path}")
+def code_host_install_cmd(ctx: click.Context, engine: str) -> None:
+    module, label = _host_engine_module(engine)
+    path = module.install_host_release(_code_store_root(ctx))
+    click.echo(f"  ✓ {label} host installed: {path}")
 
 
 @code_host_group.command("update")
+@_host_engine_option
 @click.pass_context
-def code_host_update_cmd(ctx: click.Context) -> None:
-    from lemoncrow.gateway.cli.lemoncode_host import install_host_release
-
-    path = install_host_release(_code_store_root(ctx))
-    click.echo(f"  ✓ LemonCode host updated: {path}")
+def code_host_update_cmd(ctx: click.Context, engine: str) -> None:
+    module, label = _host_engine_module(engine)
+    path = module.install_host_release(_code_store_root(ctx))
+    click.echo(f"  ✓ {label} host updated: {path}")
 
 
 @code_host_group.command("build")
+@_host_engine_option
 @click.option(
     "--source",
     type=click.Path(path_type=Path, file_okay=False),
-    default=Path("lemoncode"),
-    show_default=True,
-    help="LemonCode fork checkout.",
+    default=None,
+    help="Host source checkout (defaults to ./lemoncode for LemonCode; required for Pi).",
 )
 @click.pass_context
-def code_host_build_cmd(ctx: click.Context, source: Path) -> None:
-    from lemoncrow.gateway.cli.lemoncode_host import build_host_from_source
-
-    path = build_host_from_source(_code_store_root(ctx), source)
-    click.echo(f"  ✓ LemonCode host built and installed: {path}")
+def code_host_build_cmd(ctx: click.Context, engine: str, source: Path | None) -> None:
+    module, label = _host_engine_module(engine)
+    if source is None:
+        if engine == "pi":
+            raise click.ClickException("--source is required for Pi source builds")
+        source = Path("lemoncode")
+    path = module.build_host_from_source(_code_store_root(ctx), source)
+    click.echo(f"  ✓ {label} host built and installed: {path}")
 
 
 @code_host_group.command("remove")
+@_host_engine_option
 @click.option("--yes", is_flag=True, help="Confirm removal without prompting.")
 @click.pass_context
-def code_host_remove_cmd(ctx: click.Context, yes: bool) -> None:
-    from lemoncrow.gateway.cli.lemoncode_host import remove_host
-
-    if not yes and not click.confirm("Remove the managed LemonCode host binary?"):
+def code_host_remove_cmd(ctx: click.Context, engine: str, yes: bool) -> None:
+    module, label = _host_engine_module(engine)
+    if not yes and not click.confirm(f"Remove the managed {label} host binary?"):
         return
-    removed = remove_host(_code_store_root(ctx))
-    click.echo("  ✓ LemonCode host removed." if removed else "  ✓ LemonCode host was not installed.")
+    removed = module.remove_host(_code_store_root(ctx))
+    click.echo(f"  ✓ {label} host removed." if removed else f"  ✓ {label} host was not installed.")
 
 
 @code_group.command("index")

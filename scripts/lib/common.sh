@@ -80,6 +80,8 @@ LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
 LEMONCROW_SCRIPTS_DIR="$(cd "${BASH_SOURCE[0]%/*}/.." 2>/dev/null && pwd)"
 [[ -n "$LEMONCROW_SCRIPTS_DIR" && -f "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh" ]] \
     || LEMONCROW_SCRIPTS_DIR="${LEMONCROW_INSTALL_DIR}/scripts"
+# shellcheck source=python_bootstrap.sh
+source "${BASH_SOURCE[0]%/*}/python_bootstrap.sh"
 
 # Refuse to half-install across two trees. The wheel comes from
 # $LEMONCROW_INSTALL_DIR/bin and the host payloads from
@@ -1199,13 +1201,36 @@ contains_any_host_flag() {
     return 1
 }
 
+# _resolve_claude_cli — `claude` is often missing from PATH in non-login or
+# GUI-launched shells (e.g. spawned by the Claude Desktop app) even when it
+# is installed: the curl-based installer places it at ~/.local/bin/claude,
+# which such shells don't source .bashrc/.profile to pick up (the same class
+# of issue LemonCrow works around for its own binary — see the ~/.local/bin
+# symlink in install.sh). Widen detection to these known install locations
+# and export PATH so later `claude plugin ...` invocations also find it.
+_resolve_claude_cli() {
+    command -v claude >/dev/null 2>&1 && return 0
+    local candidate dir
+    for candidate in "${HOME}/.local/bin/claude" "${HOME}/.claude/local/claude"; do
+        if [[ -x "$candidate" ]]; then
+            dir="$(dirname "$candidate")"
+            case ":$PATH:" in
+                *":$dir:"*) ;;
+                *) export PATH="${dir}:${PATH}" ;;
+            esac
+            return 0
+        fi
+    done
+    return 1
+}
+
 detect_hosts() {
     HOST_FLAGS=()
     HOST_SUMMARY=()
     HOST_CHOICES=()
     HOST_DEFAULT_SELECTION=()
 
-    if command -v claude >/dev/null 2>&1; then
+    if _resolve_claude_cli; then
         HOST_SUMMARY+=("Claude Code (detected)")
         HOST_CHOICES+=("Claude Code|detected")
         HOST_DEFAULT_SELECTION+=(1)

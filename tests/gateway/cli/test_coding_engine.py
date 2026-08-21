@@ -66,3 +66,35 @@ def test_claude_uses_anthropic_gateway_and_empty_outer_mcp(tmp_path: Path) -> No
     assert "--strict-mcp-config" in launch.command
     assert str(tmp_path / "empty.json") in launch.command
     assert launch.command[-2:] == ("--resume", "session-1")
+
+
+def test_pi_is_isolated_fail_closed_managed_frontend(tmp_path: Path) -> None:
+    launch = _launch(tmp_path, "pi", prompt="fix it", resume="session-1")
+    rendered = " ".join(launch.command)
+    assert launch.command[0] == "/bin/pi"
+    for flag in (
+        "--offline",
+        "--no-tools",
+        "--no-context-files",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-approve",
+    ):
+        assert flag in launch.command
+    assert "--provider lc" in rendered
+    assert "--model zen/big-pickle" in rendered
+    assert "--session session-1" in rendered
+    assert rendered.endswith("-p fix it")
+    assert launch.env["PI_OFFLINE"] == "1"
+    assert launch.env["PI_SKIP_VERSION_CHECK"] == "1"
+    assert launch.env["PI_TELEMETRY"] == "0"
+    assert launch.env["LEMONCROW_PI_GATEWAY_BASE_URL"] == "http://127.0.0.1:43210/v1"
+    assert launch.env["LEMONCROW_PI_GATEWAY_TOKEN"] == "secret"
+    assert "OPENCODE_CONFIG_CONTENT" not in launch.env
+    config_dir = Path(launch.env["PI_CODING_AGENT_DIR"])
+    settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    assert settings["defaultProjectTrust"] == "never"
+    assert settings["defaultTools"] == []
+    assert settings["compaction"]["enabled"] is False
+    assert settings["retry"]["enabled"] is False

@@ -27,7 +27,7 @@ from typing import Any
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
-SUPPORTED_HOSTS = ("claude", "codex", "opencode", "lemoncode", "copilot", "hermes", "cursor", "antigravity")
+SUPPORTED_HOSTS = ("claude", "codex", "opencode", "lemoncode", "pi", "copilot", "hermes", "cursor", "antigravity")
 
 # Argument keys that indicate a *ranged* (targeted) read rather than a whole-file
 # read. A ranged read means the agent already knew where to look, so it is not
