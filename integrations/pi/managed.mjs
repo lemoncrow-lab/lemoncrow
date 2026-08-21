@@ -28,6 +28,16 @@ function modelDefinitions(raw) {
   });
 }
 
+
+export function messageContainsToolCall(message) {
+  return Boolean(
+    message &&
+      message.role === "assistant" &&
+      Array.isArray(message.content) &&
+      message.content.some((part) => part && typeof part === "object" && part.type === "toolCall"),
+  );
+}
+
 export function sanitizeOpenAIRequest(payload) {
   const source = payload && typeof payload === "object" ? payload : {};
   const out = { ...source };
@@ -116,6 +126,12 @@ export default async function managedPi(pi) {
   pi.on("before_agent_start", () => ({ systemPrompt: CARRIER_PROMPT }));
   pi.on("before_provider_request", (event) => sanitizeOpenAIRequest(event.payload));
   pi.on("session_before_compact", () => ({ cancel: true }));
+  pi.on("message_end", (event, ctx) => {
+    // message_end is a Pi barrier before tool preflight. Abort here so even a
+    // provider that hallucinates a tool call despite an empty tool catalog
+    // cannot enter Pi's outer tool/retry loop.
+    if (messageContainsToolCall(event.message) && typeof ctx?.abort === "function") ctx.abort();
+  });
   pi.on("tool_call", (event, ctx) => {
     // Pi v0.84.2 can block a tool call but cannot terminate the turn from the
     // block result. Abort the agent context as well so a malicious/invalid

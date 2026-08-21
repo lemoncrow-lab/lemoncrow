@@ -7,6 +7,7 @@ import test from "node:test";
 import managedPi, {
   createStatusSnapshotReader,
   formatStatusLines,
+  messageContainsToolCall,
   sanitizeOpenAIRequest,
 } from "../../../integrations/pi/managed.mjs";
 
@@ -103,6 +104,14 @@ test("managed extension registers one provider and every fail-closed hook", asyn
     assert.deepEqual(pi.handlers.get("project_trust")(), { trusted: "no" });
     assert.match(pi.handlers.get("before_agent_start")().systemPrompt, /LemonCrow managed frontend/);
     assert.deepEqual(pi.handlers.get("session_before_compact")(), { cancel: true });
+
+    let messageAborted = false;
+    pi.handlers.get("message_end")(
+      { message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: {} }] } },
+      { abort: () => { messageAborted = true; } },
+    );
+    assert.equal(messageAborted, true);
+    assert.equal(messageContainsToolCall({ role: "assistant", content: [{ type: "text", text: "safe" }] }), false);
 
     let aborted = false;
     const blockedTool = pi.handlers.get("tool_call")({ toolName: "bash" }, { abort: () => { aborted = true; } });
