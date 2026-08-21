@@ -125,6 +125,28 @@ test("managed extension registers one provider and every fail-closed hook", asyn
   });
 });
 
+test("managed extension advertises image input only when LemonCrow marks the model vision-capable", async () => {
+  await withManagedEnv(
+    {
+      LEMONCROW_PI_MODELS: JSON.stringify({
+        "openai/gpt-4o": {
+          name: "openai · gpt-4o",
+          input: ["text", "image"],
+          limit: { context: 128000, output: 5200 },
+        },
+        "text/model": { name: "text model", input: ["text"], limit: { context: 32000, output: 2000 } },
+      }),
+    },
+    async () => {
+      const pi = fakePi();
+      await managedPi(pi);
+      const models = Object.fromEntries(pi.providers[0].config.models.map((model) => [model.id, model]));
+      assert.deepEqual(models["openai/gpt-4o"].input, ["text", "image"]);
+      assert.deepEqual(models["text/model"].input, ["text"]);
+    },
+  );
+});
+
 test("managed extension fails before provider registration when required env is absent", async () => {
   await withManagedEnv({ LEMONCROW_PI_GATEWAY_TOKEN: undefined }, async () => {
     const pi = fakePi();

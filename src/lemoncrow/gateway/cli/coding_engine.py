@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import secrets
@@ -13,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -126,6 +127,20 @@ def _output_ceiling(budget: str) -> int:
     return {"cheap": 3600, "balanced": 5200, "best": 7600}.get(budget, 5200)
 
 
+def _supports_vision(model: str) -> bool:
+    """Best-effort LiteLLM vision capability check for Pi's model catalog."""
+    try:
+        import litellm
+
+        # LiteLLM prints a provider-help banner for unknown/custom model ids.
+        # Capability discovery is best-effort metadata and must stay invisible
+        # to the managed frontend's stdout/stderr.
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            return bool(litellm.supports_vision(model=model))
+    except Exception:
+        return False
+
+
 def _picker_model_entries(store_root: Path) -> list[tuple[str, str, str]]:
     """Real, currently-runnable (litellm model id, provider, raw model) triples.
 
@@ -179,6 +194,14 @@ def _picker_models(store_root: Path, output_ceiling: int) -> dict[str, dict[str,
     }
     for resolved_model, provider, label in _picker_model_entries(store_root):
         models[resolved_model] = {"name": f"{provider} · {label}", "limit": limit}
+    return models
+
+
+def _pi_picker_models(store_root: Path, output_ceiling: int) -> dict[str, dict[str, Any]]:
+    """Pi model metadata with input modalities derived from LiteLLM."""
+    models = _picker_models(store_root, output_ceiling)
+    for model_id, item in models.items():
+        item["input"] = ["text", "image"] if _supports_vision(model_id) else ["text"]
     return models
 
 
@@ -322,7 +345,7 @@ def _build_engine_launch(
         return EngineLaunch(engine, tuple(command), env)
 
     if engine == "pi":
-        picker_models = _picker_models(store_root, output_ceiling)
+        picker_models = _pi_picker_models(store_root, output_ceiling)
         default_model = _default_picker_model(picker_models)
         extension_path = _pi_managed_extension_path()
         config_dir, session_dir = _write_pi_managed_settings(store_root, default_model=default_model)

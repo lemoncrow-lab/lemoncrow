@@ -128,3 +128,33 @@ def test_auto_engine_override_rejects_unknown_value(tmp_path: Path, monkeypatch:
     monkeypatch.setenv("LEMONCROW_CODE_AUTO_ENGINE", "unknown")
     with pytest.raises(Exception, match="must be lemoncode or pi"):
         _resolve_engine("auto", store_root=tmp_path)
+
+
+def test_pi_model_catalog_advertises_images_only_for_vision_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.gateway.cli import coding_engine
+
+    monkeypatch.setattr(coding_engine, "_supports_vision", lambda model: model == "openai/gpt-4o")
+    monkeypatch.setattr(
+        coding_engine,
+        "_picker_models",
+        lambda _root, _ceiling: {
+            "zen/big-pickle": {"name": "zen", "limit": {}},
+            "openai/gpt-4o": {"name": "gpt-4o", "limit": {}},
+        },
+    )
+    models = coding_engine._pi_picker_models(tmp_path, 5200)
+
+    assert models["openai/gpt-4o"]["input"] == ["text", "image"]
+    assert models["zen/big-pickle"]["input"] == ["text"]
+
+
+def test_shared_lemoncode_model_catalog_has_no_pi_modality_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.gateway.cli import coding_engine
+
+    monkeypatch.setattr(coding_engine, "_picker_model_entries", lambda _root: [])
+    models = coding_engine._picker_models(tmp_path, 5200)
+    assert "input" not in models["zen/big-pickle"]

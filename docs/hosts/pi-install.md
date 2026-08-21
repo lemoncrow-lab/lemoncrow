@@ -14,9 +14,9 @@ lc code --engine pi --resume <pi-session-id>
 
 ## Managed boundary
 
-The launcher isolates Pi under `<LEMONCROW_ROOT>/hosts/pi/`, loads only `integrations/pi/managed.mjs`, and starts Pi with project trust, context-file discovery, built-in tools, skills, prompt templates, package refresh, telemetry, update checks, compaction, and retries disabled. Pi talks only to the token-authenticated LemonCrow loopback gateway. The extension removes Pi system/developer messages and host tool transcripts before the provider request, blocks model tool calls, and replaces `!` shell execution with a denied result. LemonCrow remains the only model/tool execution loop.
+The launcher isolates Pi under `<LEMONCROW_ROOT>/hosts/pi/`, loads only `integrations/pi/managed.mjs`, and starts Pi with project trust, context-file discovery, **all Pi tools**, skills, prompt templates, package refresh, telemetry, update checks, compaction, and retries disabled. Pi talks only to the token-authenticated LemonCrow loopback gateway. The extension removes Pi system/developer messages and host tool transcripts before the provider request. If a provider response nevertheless contains a tool call, the extension aborts at Pi's `message_end` barrier before tool preflight and also blocks `tool_call` as defense in depth. Direct `!` shell execution and the equivalent RPC `bash` command return a denied result without executing the command. LemonCrow remains the only model/tool execution loop.
 
-Pi's model picker is populated from LemonCrow's exact runnable provider/model catalog. Selecting a model therefore pins the request that the gateway receives rather than selecting an independent Pi provider.
+Pi's model picker is populated only from LemonCrow's exact runnable `lc` provider/model catalog. Managed RPC rejects attempts to select a provider/model outside that catalog, and a successful model switch is forwarded as the identical model id to the loopback gateway. Vision capability is advertised per model using LemonCrow's LiteLLM metadata; image parts are passed through only for models known to accept images, while text-only models remain text-only.
 
 ## Status and sessions
 

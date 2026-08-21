@@ -165,8 +165,9 @@ The controlled extension must:
       Pi tool definitions, and duplicate host history before transmission.
 - [ ] Preserve the latest user text, images, and the minimum session correlation
       data required by the LemonCrow gateway.
-- [ ] Register a `tool_call` handler that blocks and terminates every host tool
-      call as defense in depth.
+- [ ] Abort at the `message_end` barrier when an assistant message contains a
+      tool call, before Pi tool preflight begins, and register a blocking
+      `tool_call` handler as defense in depth.
 - [ ] Return a blocked result from `user_bash` during the canary. Direct
       `!`/`!!` execution may be reconsidered only after an explicit trace and
       security review.
@@ -183,7 +184,7 @@ PI_CODING_AGENT_SESSION_DIR=<store>/hosts/pi/sessions
 PI_OFFLINE=1
 PI_SKIP_VERSION_CHECK=1
 PI_TELEMETRY=0
-pi --no-builtin-tools --no-context-files --no-extensions    -e <managed-extension> --no-approve    --provider lc --model <exact-model>
+pi --no-tools --no-context-files --no-extensions    -e <managed-extension> --no-approve    --provider lc --model <exact-model>
 ```
 
 Confirm the exact flag names against the pinned `pi --help`. Add the
@@ -198,7 +199,8 @@ Contract assertions:
 - [ ] It contains no AGENTS.md, skills, templates, or project extensions.
 - [ ] The gateway-to-provider request contains the LemonCrow prompt and tools
       exactly once.
-- [ ] A synthetic tool call returned to Pi is blocked before execution.
+- [ ] A synthetic tool call returned to Pi is aborted before tool preflight,
+      executes nothing, and causes no second outer-provider request.
 - [ ] Missing extension, invalid extension, or absent token produces a nonzero
       exit and no provider request.
 - [ ] Print and interactive modes render the gateway response correctly.
@@ -208,6 +210,7 @@ Verification:
 ```bash
 node --test tests/integrations/pi/managed.test.mjs
 uv run pytest -q tests/gateway/cli/test_coding_engine.py
+LEMONCROW_PI_CONTRACT_BIN=/path/to/pinned/pi uv run pytest -q tests/gateway/cli/test_pi_contract.py
 ```
 
 **Exit gate:** Stock Pi passes every request and tool-ownership assertion. If it
@@ -563,7 +566,7 @@ engine is disabled.
 | Risk | Mitigation |
 | --- | --- |
 | Two agent loops or duplicate prompts | Strip the final Pi provider payload and inspect both sides of the gateway in a contract test. |
-| Pi executes a tool | Disable built-ins, block every `tool_call`, fail startup if the extension is absent, and test a synthetic call. |
+| Pi executes a tool | Disable all Pi tools, abort tool-bearing assistant messages before preflight, block every `tool_call`, fail startup if the extension is absent, and test a synthetic call. |
 | Direct `!` shell bypasses LemonCrow | Block `user_bash` during canary; reconsider only with explicit trace/security evidence. |
 | Project code loads a malicious Pi extension | Decline project trust and explicitly disable discovery; load only the packaged extension path. |
 | Pi session format changes | Pin the version, retain raw JSONL, keep fixtures, warn on unknown entries, and update parser before host bump. |
@@ -594,13 +597,13 @@ change.
 
 | Phase | State | Evidence |
 | --- | --- | --- |
-| 0 — Baseline | Not started | — |
-| 1 — Extension boundary | Not started | — |
-| 2 — Opt-in engine | Not started | — |
-| 3 — Sessions | Not started | — |
-| 4 — UI parity | Not started | — |
-| 5 — Canary/cutover | Not started | — |
-| 6 — Fork/retirement decision | Not started | — |
+| 0 — Baseline | Not started | LemonCode baseline report and paired metrics still need to be captured under `reports/migrations/pi-host/`. |
+| 1 — Extension boundary | In progress | Managed extension and fail-closed safety are merged (`31a905965`, `b72a56fd0`). On Linux x64, 13 real pinned-Pi contracts cover sanitized requests, startup failures, tool-call abort, direct bash denial, model confinement/fidelity, multimodal transport, retry suppression, offline startup, steering, cancellation, and RPC session behavior. Downstream provider-envelope duplication and manual interactive rendering remain to be signed off. |
+| 2 — Opt-in engine | In progress | Managed lifecycle/explicit engine is merged (`31a905965`); Linux x64 install/status/remove, print, resume, binary capability validation, and `auto` rollback override are proven. A macOS architecture and manual interactive smoke are still required for the exit gate. |
+| 3 — Sessions | In progress | Pi importer/registry/replay tests pass; real RPC confirms append-only entries, switch-session restore, and fork-to-new-session behavior, and product `--resume` appends cleanly. The complete pinned fixture matrix and clone/branch coverage remain. |
+| 4 — UI parity | In progress | Status/widget hooks, context/cost/tool data, last-valid snapshot retention, cancellation, model switching, steering, offline behavior, and tool ownership have automated coverage. Manual regular/fullscreen TUI review remains. |
+| 5 — Canary/cutover | Not started | `auto` still prefers LemonCode; `LEMONCROW_CODE_AUTO_ENGINE=pi` is implemented as the canary/rollback override. |
+| 6 — Fork/retirement decision | Not started | No branding fork or LemonCode retirement work has begun. |
 
 Update this table after each merged phase with the commit, test command, and
 report path. A phase is complete only when its exit gate is satisfied.

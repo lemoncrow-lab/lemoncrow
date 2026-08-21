@@ -290,3 +290,37 @@ def test_compact_keeps_system_and_does_not_orphan_tool_result(tmp_path) -> None:
     assert kept[1]["role"] not in ("tool",)
     assert not kept[1].get("tool_calls")
     assert kept[-1]["content"] == "done"
+
+
+def test_handle_user_message_keeps_images_but_routes_on_text(tmp_path) -> None:
+    runtime = InteractiveRuntime(
+        root=tmp_path / ".lemoncrow",
+        model="openai/gpt-4o",
+        provider="openai",
+        mcp_enabled=False,
+    )
+
+    async def prime_message() -> list[dict[str, object]]:
+        stream = runtime.handle_user_message(
+            "multimodal-session",
+            "inspect screenshot",
+            user_content=[
+                {"type": "text", "text": "inspect screenshot"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+            context="primer evidence",
+        )
+        await anext(stream)  # route.selected; the user message has already been stored
+        await stream.aclose()
+        return runtime.session_messages("multimodal-session")
+
+    messages = asyncio.run(prime_message())
+    assert messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "[MODE: code] inspect screenshot\n\nprimer evidence"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        }
+    ]

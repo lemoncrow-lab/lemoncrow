@@ -20,7 +20,7 @@ function modelDefinitions(raw) {
       id,
       name: typeof item.name === "string" ? item.name : id,
       reasoning: true,
-      input: ["text"],
+      input: Array.isArray(item.input) && item.input.includes("image") ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: Number(limit.context || 200000),
       maxTokens: Number(limit.output || 5200),

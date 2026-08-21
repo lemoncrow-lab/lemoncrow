@@ -62,6 +62,38 @@ def _message_text(msg: ChatMessage) -> str:
     return ""
 
 
+def _safe_message_content(msg: ChatMessage) -> str | list[dict[str, Any]] | None:
+    """Keep only provider-safe conversational content from an outer frontend.
+
+    Text is preserved for user/assistant history. User image_url parts are also
+    retained so multimodal frontends such as Pi can pass images through the
+    LemonCrow-owned runtime without forwarding host prompts, tools, or arbitrary
+    extension-specific content blocks.
+    """
+    if isinstance(msg.content, str):
+        return _decode_host_string(msg.content)
+    if not isinstance(msg.content, list):
+        return None
+
+    safe: list[dict[str, Any]] = []
+    for part in msg.content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            safe.append({"type": "text", "text": str(part["text"])})
+            continue
+        if msg.role != "user" or part.get("type") != "image_url":
+            continue
+        image_url = part.get("image_url")
+        if not isinstance(image_url, dict) or not isinstance(image_url.get("url"), str):
+            continue
+        clean_image = {"url": str(image_url["url"])}
+        if isinstance(image_url.get("detail"), str):
+            clean_image["detail"] = str(image_url["detail"])
+        safe.append({"type": "image_url", "image_url": clean_image})
+    return safe or None
+
+
 def openai_messages_to_lemoncrow(
     messages: list[ChatMessage],
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -87,9 +119,9 @@ def openai_messages_to_lemoncrow(
             continue
         if message.role == "assistant" and message.tool_calls:
             continue
-        text = _message_text(message)
-        if text:
-            prior.append({"role": message.role, "content": text})
+        content = _safe_message_content(message)
+        if content:
+            prior.append({"role": message.role, "content": content})
     return _message_text(last_user), prior
 
 
@@ -152,9 +184,11 @@ async def _prepare_runtime_events(
             context = primer.text
             primer_metadata = primer.optimization_metadata()
 
+    last_user = next(message for message in reversed(messages) if message.role == "user")
     events = runtime.handle_user_message(
         session_id,
         last_user_text,
+        user_content=_safe_message_content(last_user),
         model_override=None if is_virtual_model(requested_model) else requested_model,
         context=context,
         max_output_tokens=max_output_tokens,

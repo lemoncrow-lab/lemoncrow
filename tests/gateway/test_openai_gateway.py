@@ -328,6 +328,53 @@ def test_chat_decodes_whole_string_host_envelope(client):
     assert rt.handle_user_message.call_args.args[1] == "do it"
 
 
+def test_chat_preserves_multimodal_user_content_for_owned_runtime(client):
+    c, rt = client
+    rt.handle_user_message = MagicMock(return_value=_stream(_Delta("ok"), _Message("ok")))
+    prior_image = "data:image/png;base64,prior"
+    current_image = "data:image/png;base64,current"
+
+    response = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "openai/gpt-4o",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "earlier"},
+                        {"type": "image_url", "image_url": {"url": prior_image}},
+                    ],
+                },
+                {"role": "assistant", "content": "noted"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what changed?"},
+                        {"type": "image_url", "image_url": {"url": current_image, "detail": "high"}},
+                        {"type": "host_private", "payload": "drop-me"},
+                    ],
+                },
+            ],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 200
+    restored = rt.restore_session.call_args.args[1]
+    assert restored[0]["content"] == [
+        {"type": "text", "text": "earlier"},
+        {"type": "image_url", "image_url": {"url": prior_image}},
+    ]
+    assert restored[1] == {"role": "assistant", "content": "noted"}
+    kwargs = rt.handle_user_message.call_args.kwargs
+    assert kwargs["user_content"] == [
+        {"type": "text", "text": "what changed?"},
+        {"type": "image_url", "image_url": {"url": current_image, "detail": "high"}},
+    ]
+    assert rt.handle_user_message.call_args.args[1] == "what changed?"
+
+
 def test_virtual_model_drops_host_system_prompt(client):
     c, rt = client
     rt.handle_user_message = MagicMock(return_value=_stream(_Delta("ok"), _Message("ok")))

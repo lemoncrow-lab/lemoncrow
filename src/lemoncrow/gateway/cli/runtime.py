@@ -465,6 +465,7 @@ class InteractiveRuntime:
         session_id: str,
         text: str,
         *,
+        user_content: str | list[dict[str, Any]] | None = None,
         model_override: str | None = None,
         budget_hint: str | None = None,
         context: str = "",
@@ -482,7 +483,16 @@ class InteractiveRuntime:
         prefixed_text = f"{mode_prefix} {text}".strip() if mode_prefix else text
         if context:
             prefixed_text = f"{prefixed_text}\n\n{context}"
-        messages.append({"role": "user", "content": prefixed_text})
+        if isinstance(user_content, list):
+            non_text_parts = [
+                dict(part) for part in user_content if isinstance(part, dict) and part.get("type") != "text"
+            ]
+            content: str | list[dict[str, Any]] = non_text_parts
+            if prefixed_text:
+                content = [{"type": "text", "text": prefixed_text}, *non_text_parts]
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append({"role": "user", "content": prefixed_text})
 
         initial_route_trace: dict[str, Any] | None = None
         if model_override or self._override_model:
