@@ -13,6 +13,7 @@ import json
 import os
 import stat
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -29,20 +30,40 @@ def _completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> subpr
 
 
 class _FakeTunnelProc:
-    """Stand-in for the cloudflared Popen handle; records cleanup calls."""
+    """Stand-in for the cloudflared Popen handle; records cleanup calls.
+
+    Mirrors real ``subprocess.Popen`` lifecycle, not just its method names:
+    ``wait()`` blocks until ``terminate()``/``kill()`` actually ends the
+    "process" (an ``Event``, not an immediate return of 0), and
+    ``returncode`` stays ``None`` until then. A fake that returns from
+    ``wait()`` before anything told it to exit made the tunnel-watchdog
+    thread in mcp_serve.py race the test's own shutdown path.
+    """
 
     def __init__(self) -> None:
         self.terminated = False
         self.killed = False
+        self.returncode: int | None = None
+        self._exited = threading.Event()
 
     def terminate(self) -> None:
         self.terminated = True
+        if self.returncode is None:
+            self.returncode = 0
+        self._exited.set()
 
     def wait(self, timeout: float | None = None) -> int:
-        return 0
+        if not self._exited.wait(timeout):
+            assert timeout is not None  # Event.wait(None) never times out
+            raise subprocess.TimeoutExpired(cmd="cloudflared", timeout=timeout)
+        assert self.returncode is not None
+        return self.returncode
 
     def kill(self) -> None:
         self.killed = True
+        if self.returncode is None:
+            self.returncode = -9
+        self._exited.set()
 
 
 # ── TunnelState persistence ─────────────────────────────────────────────────
@@ -220,13 +241,12 @@ def test_route_dns_raises_on_other_failure(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 # ── tunnel run process ───────────────────────────────────────────────────────
-def test_start_named_tunnel_process_builds_correct_command(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_named_tunnel_process_builds_supervised_logged_command(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[list[str], dict[str, Any]]] = []
 
     class _FakePopen:
         def __init__(self, cmd: list[str], **kw: Any) -> None:
             calls.append((cmd, kw))
-            self.stderr = iter(())  # empty iterable — drain thread exits immediately
 
     monkeypatch.setattr(pt.subprocess, "Popen", _FakePopen)
     proc = pt.start_named_tunnel_process("cloudflared", "tunnel-id-1", 8788, "/creds/tunnel-id-1.json")
@@ -235,6 +255,7 @@ def test_start_named_tunnel_process_builds_correct_command(monkeypatch: pytest.M
     assert cmd == [
         "cloudflared",
         "tunnel",
+        "--no-autoupdate",
         "run",
         "--credentials-file",
         "/creds/tunnel-id-1.json",
@@ -242,8 +263,9 @@ def test_start_named_tunnel_process_builds_correct_command(monkeypatch: pytest.M
         "http://localhost:8788",
         "tunnel-id-1",
     ]
-    assert kwargs["stdout"] == subprocess.DEVNULL
-    assert kwargs["stderr"] == subprocess.PIPE
+    # No stdout/stderr redirection: systemd/launchd or the foreground terminal
+    # receives cloudflared's own diagnostics.
+    assert kwargs == {"text": True}
 
 
 # ── setup_persistent_tunnel orchestration ───────────────────────────────────

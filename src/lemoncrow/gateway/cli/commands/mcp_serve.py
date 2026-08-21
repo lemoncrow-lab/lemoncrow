@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, NoReturn
 import click
 
 if TYPE_CHECKING:
+    import uvicorn
+
     from lemoncrow.gateway.cli.commands._mcp_service import ServiceInfo
     from lemoncrow.gateway.cli.commands._persistent_tunnel import TunnelState
 
@@ -305,6 +307,39 @@ def _start_tunnel(
     if url_found.wait(timeout):
         return proc, captured[0]
     return proc, None
+
+
+def _watch_tunnel_process(proc: subprocess.Popen[str], server: uvicorn.Server, shutting_down: threading.Event) -> None:
+    """Blocking watchdog: stop ``server`` the moment ``proc`` dies on its own.
+
+    cloudflared can crash or wedge independently of the local uvicorn server —
+    an edge disconnect it fails to recover from, an OOM kill, a stale process —
+    and nothing else here ever notices: the server keeps answering *locally*
+    while the public tunnel silently 502s every request. Run this in a daemon
+    thread; ``proc.wait()`` blocks until the child actually exits, so this
+    costs nothing while the tunnel is healthy. On exit, ``shutting_down``
+    distinguishes the two ways ``wait()`` can return: deliberate shutdown
+    (the ``finally`` block below sets it before tearing the tunnel down
+    itself — nothing to do here) versus an unannounced death, where setting
+    ``server.should_exit`` is uvicorn's documented way to stop the server
+    programmatically from another thread — the same cooperative path a
+    SIGTERM/Ctrl-C takes, without this thread signalling the whole process
+    itself. Under ``--persistent`` that exit is exactly what the
+    systemd/launchd unit's ``Restart=always`` (see ``_mcp_service.py``) is
+    watching for, so the whole unit — including a fresh cloudflared — comes
+    back up instead of the tunnel staying dead until someone notices and
+    restarts by hand.
+    """
+    proc.wait()
+    if shutting_down.is_set():
+        return  # our own finally block killed it as part of a normal stop
+    click.secho(
+        f"  ✗ tunnel process exited unexpectedly (code {proc.returncode}) — "
+        "stopping so the supervisor can bring up a fresh tunnel.",
+        fg="red",
+        err=True,
+    )
+    server.should_exit = True
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -855,12 +890,26 @@ def mcp_serve_cmd(
     click.echo(f"  {rule}")
     click.echo("")
 
+    config = uvicorn.Config(app, log_level="info", timeout_keep_alive=30)
+    server = uvicorn.Server(config)
+    # Set the instant this shutdown is *ours* (finally block below), so the
+    # watchdog can tell a deliberate stop from cloudflared actually dying —
+    # see _watch_tunnel_process.
+    shutting_down = threading.Event()
+    if tunnel_proc is not None:
+        threading.Thread(
+            target=_watch_tunnel_process,
+            args=(tunnel_proc, server, shutting_down),
+            daemon=True,
+            name="tunnel-watchdog",
+        ).start()
+
     try:
-        config = uvicorn.Config(app, log_level="info", timeout_keep_alive=30)
-        uvicorn.Server(config).run(sockets=[sock])
+        server.run(sockets=[sock])
     finally:
         # Ctrl-C lands here via KeyboardInterrupt out of Server.run: take the
         # tunnel down with us so no stray cloudflared keeps the URL alive.
+        shutting_down.set()
         if tunnel_proc is not None:
             tunnel_proc.terminate()
             try:

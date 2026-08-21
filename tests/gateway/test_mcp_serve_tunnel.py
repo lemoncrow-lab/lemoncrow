@@ -10,6 +10,8 @@ naming) are fed canned inputs.
 from __future__ import annotations
 
 import json
+import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,7 @@ from lemoncrow.gateway.cli.commands import mcp_serve as mcp_serve_mod
 from lemoncrow.gateway.cli.commands.mcp_serve import (
     _cloudflared_asset_name,
     _extract_tunnel_url,
+    _watch_tunnel_process,
     mcp_client_cmd,
     mcp_serve_cmd,
 )
@@ -97,20 +100,78 @@ def _invoke_serve(args: list[str], input: str | None = None) -> Result:
 
 
 class _FakeTunnelProc:
-    """Stand-in for the cloudflared Popen handle; records cleanup calls."""
+    """Stand-in for the cloudflared Popen handle; records cleanup calls.
+
+    Mirrors real ``subprocess.Popen`` lifecycle, not just its method names:
+    ``wait()`` blocks until ``terminate()``/``kill()`` actually ends the
+    "process" (an ``Event``, not an immediate return of 0), and
+    ``returncode`` stays ``None`` until then. A fake that returns from
+    ``wait()`` before anything told it to exit made the tunnel-watchdog
+    thread in mcp_serve.py race the test's own shutdown path.
+    """
 
     def __init__(self) -> None:
         self.terminated = False
         self.killed = False
+        self.returncode: int | None = None
+        self._exited = threading.Event()
 
     def terminate(self) -> None:
         self.terminated = True
+        if self.returncode is None:
+            self.returncode = 0
+        self._exited.set()
 
     def wait(self, timeout: float | None = None) -> int:
-        return 0
+        if not self._exited.wait(timeout):
+            assert timeout is not None  # Event.wait(None) never times out
+            raise subprocess.TimeoutExpired(cmd="cloudflared", timeout=timeout)
+        assert self.returncode is not None
+        return self.returncode
 
     def kill(self) -> None:
         self.killed = True
+        if self.returncode is None:
+            self.returncode = -9
+        self._exited.set()
+
+
+class _FakeServer:
+    """Stand-in for ``uvicorn.Server``: only ``should_exit`` matters here."""
+
+    def __init__(self) -> None:
+        self.should_exit = False
+
+
+# ── tunnel watchdog: this is the actual fix (mcp_serve.py:_watch_tunnel_process) ──
+# cloudflared used to be able to die silently while the local server (and the
+# systemd unit wrapping it) kept reporting healthy, leaving the public URL
+# 502ing until someone noticed and restarted by hand. These two tests pin the
+# watchdog's whole job: stop the server on an *unannounced* tunnel death, but
+# stay out of the way of a *deliberate* one (our own shutdown terminating it).
+def test_watch_tunnel_process_stops_server_on_unexpected_death(capsys: pytest.CaptureFixture[str]) -> None:
+    proc = _FakeTunnelProc()
+    proc.kill()  # cloudflared died on its own — edge disconnect, OOM, whatever
+    server = _FakeServer()
+    shutting_down = threading.Event()
+
+    _watch_tunnel_process(proc, server, shutting_down)  # type: ignore[arg-type]
+
+    assert server.should_exit is True
+    assert "exited unexpectedly" in capsys.readouterr().err
+
+
+def test_watch_tunnel_process_stays_quiet_on_deliberate_shutdown(capsys: pytest.CaptureFixture[str]) -> None:
+    proc = _FakeTunnelProc()
+    server = _FakeServer()
+    shutting_down = threading.Event()
+    shutting_down.set()  # our own `finally:` block is already tearing things down
+    proc.terminate()  # ... which is what calls this
+
+    _watch_tunnel_process(proc, server, shutting_down)  # type: ignore[arg-type]
+
+    assert server.should_exit is False
+    assert capsys.readouterr().err == ""
 
 
 def test_no_tunnel_never_probes_cloudflared(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

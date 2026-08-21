@@ -32,9 +32,11 @@ against the actually-installed binary's own ``--help`` output (cloudflared
   ``route dns --help``) is passed so re-pointing a hostname that currently
   CNAMEs to a different tunnel succeeds instead of failing on an existing
   record.
-- ``cloudflared tunnel run --credentials-file PATH --url URL TUNNEL`` — ``run``
-  supports ``--url`` directly (confirmed on ``tunnel run --help``), so no
-  ingress ``config.yml`` is needed for this single-service case.
+- ``cloudflared tunnel --no-autoupdate run --credentials-file PATH --url
+  URL TUNNEL`` — ``run`` supports ``--url`` directly (confirmed on ``tunnel
+  run --help``), so no ingress ``config.yml`` is needed for this single-service
+  case. Automatic updates are disabled because the LemonCrow supervisor owns
+  the connector lifecycle and restarts it deliberately.
 """
 
 from __future__ import annotations
@@ -45,7 +47,6 @@ import os
 import re
 import subprocess
 import tempfile
-import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -315,20 +316,19 @@ def route_dns(binary: str, tunnel_ref: str, hostname: str) -> None:
 
 
 def start_named_tunnel_process(binary: str, tunnel_ref: str, port: int, credentials_path: str) -> subprocess.Popen[str]:
-    """Launch ``cloudflared tunnel run --credentials-file PATH --url URL
-    TUNNEL`` for the given already-created/reused tunnel.
+    """Launch the long-running named-tunnel connector.
 
-    Same lifecycle contract as the quick-tunnel ``_start_tunnel``: the caller
-    owns ``proc`` and must terminate/wait/kill it. Diverges from
-    ``_start_tunnel`` deliberately — there's no URL to scrape off stderr here
-    (the hostname is already known), so stderr is drained and discarded from
-    the start rather than watched for a match; sharing one helper for both
-    would make each case harder to read for no real benefit.
+    ``cloudflared`` checks for updates every 24 hours by default and may restart
+    itself. Disable that updater because LemonCrow's watchdog and the OS service
+    supervisor own this child process's lifecycle. Inherit stdout/stderr so
+    connector failures reach journald, the launchd log, or the foreground
+    terminal instead of disappearing inside a drain thread.
     """
-    proc: subprocess.Popen[str] = subprocess.Popen(
+    return subprocess.Popen(
         [
             binary,
             "tunnel",
+            "--no-autoupdate",
             "run",
             "--credentials-file",
             credentials_path,
@@ -336,20 +336,8 @@ def start_named_tunnel_process(binary: str, tunnel_ref: str, port: int, credenti
             f"http://localhost:{port}",
             tunnel_ref,
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
         text=True,
     )
-
-    def _drain_stderr() -> None:
-        stderr = proc.stderr
-        if stderr is None:  # pragma: no cover — PIPE guarantees a stream
-            return
-        for _line in stderr:
-            pass  # discard forever — an undrained pipe eventually blocks cloudflared
-
-    threading.Thread(target=_drain_stderr, daemon=True, name="cloudflared-named-tunnel-stderr-drain").start()
-    return proc
 
 
 def provision_persistent_tunnel(

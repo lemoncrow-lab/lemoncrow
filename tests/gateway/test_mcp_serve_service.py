@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -178,12 +179,32 @@ def test_registration_is_skipped_in_tests_without_the_opt_in(monkeypatch: pytest
 
 
 class _FakeProc:
-    def terminate(self) -> None: ...
+    """Mirrors real ``subprocess.Popen`` lifecycle: ``wait()`` blocks until
+    ``terminate()``/``kill()`` actually ends it, matching the tunnel-watchdog
+    thread's expectations in mcp_serve.py (see _FakeTunnelProc for the same
+    fix elsewhere with the reasoning spelled out).
+    """
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self._exited = threading.Event()
+
+    def terminate(self) -> None:
+        if self.returncode is None:
+            self.returncode = 0
+        self._exited.set()
 
     def wait(self, timeout: float | None = None) -> int:
-        return 0
+        if not self._exited.wait(timeout):
+            assert timeout is not None  # Event.wait(None) never times out
+            raise subprocess.TimeoutExpired(cmd="cloudflared", timeout=timeout)
+        assert self.returncode is not None
+        return self.returncode
 
-    def kill(self) -> None: ...
+    def kill(self) -> None:
+        if self.returncode is None:
+            self.returncode = -9
+        self._exited.set()
 
 
 # ── lc mcp service ───────────────────────────────────────────────────────────
