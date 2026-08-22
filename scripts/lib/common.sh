@@ -1196,6 +1196,7 @@ contains_any_host_flag() {
     has_flag "--claude" && return 0
     has_flag "--codex" && return 0
     has_flag "--opencode" && return 0
+    has_flag "--pi" && return 0
     has_flag "--lemoncode" && return 0
     has_flag "--cursor" && return 0
     return 1
@@ -1276,12 +1277,20 @@ detect_hosts() {
         HOST_DEFAULT_SELECTION+=(0)
     fi
 
-    # LemonCode: rebranded opencode fork. Appended last so the existing menu
-    # numbering (1-4) stays stable for anyone with muscle memory.
-    #
-    # LemonCode is the host this project ships, so it is default-selected even
-    # when absent: selecting it downloads the host binary rather than skipping.
-    # Detection therefore only changes the label, never the default.
+    # Pi is LemonCrow's preferred managed coding frontend. Keep it selected
+    # even when absent: selecting it installs the checksum-pinned managed host.
+    if [[ -x "${LEMONCROW_ROOT:-${HOME}/.lemoncrow}/bin/pi-host" ]]; then
+        HOST_SUMMARY+=("Pi (detected)")
+        HOST_CHOICES+=("Pi|detected")
+    else
+        HOST_SUMMARY+=("Pi (not found, will be installed)")
+        HOST_CHOICES+=("Pi|will be installed")
+    fi
+    HOST_DEFAULT_SELECTION+=(1)
+
+    # LemonCode remains the managed rollback frontend and stays selectable.
+    # It is also default-selected during the transition so existing users retain
+    # an immediately available rollback path after upgrading.
     if lemoncrow_lemoncode_host_installed; then
         HOST_SUMMARY+=("LemonCode (detected)")
         HOST_CHOICES+=("LemonCode|detected")
@@ -1369,7 +1378,8 @@ host_wizard() {
                     1) HOST_FLAGS+=(--codex) ;;
                     2) HOST_FLAGS+=(--opencode) ;;
                     3) HOST_FLAGS+=(--cursor) ;;
-                    4) HOST_FLAGS+=(--lemoncode) ;;
+                    4) HOST_FLAGS+=(--pi) ;;
+                    5) HOST_FLAGS+=(--lemoncode) ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1381,6 +1391,7 @@ host_wizard() {
         printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
         printf "│  4) %s\n" "${HOST_SUMMARY[3]}"
         printf "│  5) %s\n" "${HOST_SUMMARY[4]}"
+        printf "│  6) %s\n" "${HOST_SUMMARY[5]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -1404,7 +1415,8 @@ host_wizard() {
                         2) HOST_FLAGS+=(--codex) ;;
                         3) HOST_FLAGS+=(--opencode) ;;
                         4) HOST_FLAGS+=(--cursor) ;;
-                        5) HOST_FLAGS+=(--lemoncode) ;;
+                        5) HOST_FLAGS+=(--pi) ;;
+                        6) HOST_FLAGS+=(--lemoncode) ;;
                     esac
                 done
                 [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1696,6 +1708,7 @@ host_target_for_name() {
         claude)      printf "%s" "~/.claude" ;;
         codex)       printf "%s" "~/.codex" ;;
         opencode)    printf "%s" "~/.config/opencode" ;;
+        pi)          printf "%s" "~/.lemoncrow/bin/pi-host" ;;
         lemoncode)   printf "%s" "~/.config/lemoncode" ;;
         *)           printf "%s" "~/.config" ;;
     esac
@@ -2729,7 +2742,7 @@ run_setup() {
         else
             # No explicit selection (e.g. non-interactive run): cap to the
             # supported set so copilot/antigravity are never auto-installed.
-            host_install_args+=(--claude --codex --opencode --lemoncode)
+            host_install_args+=(--claude --codex --opencode --pi --lemoncode)
         fi
         if [[ ${#HOST_SCOPE_ARGS[@]} -gt 0 ]]; then
             host_install_args+=("${HOST_SCOPE_ARGS[@]}")

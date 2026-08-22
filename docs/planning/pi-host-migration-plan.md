@@ -396,7 +396,7 @@ the parity table. Any intentional UX difference is documented in
 
 ### Phase 5 — Canary and default cutover
 
-**Goal:** Demonstrate non-regression before changing `auto`.
+**Goal:** Demonstrate non-regression around the Pi-default cutover and retain an immediate LemonCode rollback.
 
 Run paired LemonCode/Pi cases with the same LemonCrow revision, workspace,
 provider, model, prompt, cache state, and budget. Use at least 20 paired startup
@@ -422,13 +422,12 @@ Acceptance gates:
 
 Rollout sequence:
 
-1. Ship `--engine pi` as opt-in for one release. Keep `auto` unchanged.
+1. `--engine pi` shipped opt-in first; the current cutover makes Pi the `auto` preference and fresh-install default.
 2. Collect only redacted local evidence already allowed by LemonCrow's privacy
    policy; do not add Pi analytics or a new remote telemetry stream.
 3. Add and document `LEMONCROW_CODE_AUTO_ENGINE=lemoncode|pi` as an immediate
    rollback override.
-4. After every gate passes, change automatic preference to
-   `pi, lemoncode, codex, claude, native`.
+4. Automatic preference is now `pi, lemoncode, codex, claude, native`; keep the remaining canary/platform gates as release-readiness checks.
 5. Keep `--engine lemoncode` and the old managed binary fully usable.
 6. Update public documentation and product copy only in the cutover change.
 

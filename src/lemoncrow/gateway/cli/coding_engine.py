@@ -24,7 +24,7 @@ import click
 from lemoncrow.core.capabilities.statusline_sidecar import STATUS_FILE_ENV, status_file_path
 
 EngineName = Literal["auto", "lemoncode", "pi", "codex", "claude", "native"]
-_UPSTREAM_ENGINES: tuple[str, ...] = ("lemoncode", "pi", "codex", "claude")
+_UPSTREAM_ENGINES: tuple[str, ...] = ("pi", "lemoncode", "codex", "claude")
 
 
 @dataclass(frozen=True)

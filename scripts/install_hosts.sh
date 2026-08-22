@@ -13,6 +13,7 @@
 #   --claude       Only install Claude Code
 #   --codex        Only install Codex
 #   --opencode     Only install opencode
+#   --pi           Install the managed Pi frontend
 #   --lemoncode    Only install LemonCode
 #   --copilot      Only install Copilot
 #   --antigravity  Only install Antigravity / agy
@@ -130,6 +131,7 @@ host_is_detected() {
         opencode) command -v opencode >/dev/null 2>&1 ;;
         # The LemonCode *host binary*, not the `lemoncode` wheel console script
         # (an alias for `lc code`) that ships with every LemonCrow install.
+        pi) [[ -x "${LEMONCROW_ROOT:-${HOME}/.lemoncrow}/bin/pi-host" ]] ;;
         lemoncode) lemoncrow_lemoncode_host_installed ;;
         copilot) command -v code >/dev/null 2>&1 ;;
         antigravity) command -v antigravity >/dev/null 2>&1 || command -v agy >/dev/null 2>&1 ;;
@@ -143,6 +145,9 @@ enable_detected_hosts_by_default() {
     host_is_detected claude && DO_CLAUDE=true
     host_is_detected codex && DO_CODEX=true
     host_is_detected opencode && DO_OPENCODE=true
+    # Pi is managed by LemonCrow, so direct non-interactive installs provision it
+    # even when it is not present yet. External hosts remain detection-driven.
+    DO_PI=true
     host_is_detected lemoncode && DO_LEMONCODE=true
     host_is_detected copilot && DO_COPILOT=true
     host_is_detected antigravity && DO_ANTIGRAVITY=true
@@ -252,6 +257,7 @@ spinner_finish() {
 DO_CLAUDE=false
 DO_CODEX=false
 DO_OPENCODE=false
+DO_PI=false
 DO_LEMONCODE=false
 DO_COPILOT=false
 DO_ANTIGRAVITY=false
@@ -266,10 +272,11 @@ LEMONCODE_EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_LEMONCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true ;;
+        --all)       EXPLICIT=true; DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_PI=true; DO_LEMONCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true ;;
         --claude)    EXPLICIT=true; DO_CLAUDE=true ;;
         --codex)     EXPLICIT=true; DO_CODEX=true ;;
         --opencode)  EXPLICIT=true; DO_OPENCODE=true ;;
+        --pi)        EXPLICIT=true; DO_PI=true ;;
         --lemoncode) EXPLICIT=true; DO_LEMONCODE=true ;;
         --copilot)   EXPLICIT=true; DO_COPILOT=true ;;
         --antigravity) EXPLICIT=true; DO_ANTIGRAVITY=true ;;
@@ -345,7 +352,8 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
     echo "  ${C_PURPLE}5${C_RESET}) Antigravity"
     echo "  ${C_PURPLE}6${C_RESET}) Cursor"
     echo "  ${C_PURPLE}7${C_RESET}) Hermes"
-    echo "  ${C_PURPLE}8${C_RESET}) LemonCode"
+    echo "  ${C_PURPLE}8${C_RESET}) Pi"
+    echo "  ${C_PURPLE}9${C_RESET}) LemonCode"
     echo "  ${C_PURPLE}a${C_RESET}) All"
     echo "  ${C_PURPLE}n${C_RESET}) None (skip agent installs)"
     echo ""
@@ -354,10 +362,10 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
     runtime_answer="${runtime_answer:-a}"
 
     # Reset all to false — user picks explicitly
-    DO_CLAUDE=false; DO_CODEX=false; DO_OPENCODE=false; DO_LEMONCODE=false; DO_COPILOT=false; DO_ANTIGRAVITY=false; DO_CURSOR=false; DO_HERMES=false
+    DO_CLAUDE=false; DO_CODEX=false; DO_OPENCODE=false; DO_PI=false; DO_LEMONCODE=false; DO_COPILOT=false; DO_ANTIGRAVITY=false; DO_CURSOR=false; DO_HERMES=false
     case "$runtime_answer" in
         a|A|all|ALL)
-            DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_LEMONCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true
+            DO_CLAUDE=true; DO_CODEX=true; DO_OPENCODE=true; DO_PI=true; DO_LEMONCODE=true; DO_COPILOT=true; DO_ANTIGRAVITY=true; DO_CURSOR=true; DO_HERMES=true
             echo "  → All agents"
             ;;
         n|N|none|NONE|skip|SKIP|0)
@@ -375,7 +383,8 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
                     5) DO_ANTIGRAVITY=true ;;
                     6) DO_CURSOR=true ;;
                     7) DO_HERMES=true ;;
-                    8) DO_LEMONCODE=true ;;
+                    8) DO_PI=true ;;
+                    9) DO_LEMONCODE=true ;;
                     *) echo "  ${C_YELLOW}Unknown choice: $choice${C_RESET}" ;;
                 esac
             done
@@ -387,6 +396,7 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
             $DO_ANTIGRAVITY && selected="$selected antigravity"
             $DO_CURSOR    && selected="$selected cursor"
             $DO_HERMES    && selected="$selected hermes"
+            $DO_PI        && selected="$selected pi"
             $DO_LEMONCODE && selected="$selected lemoncode"
             echo "  → Selected:${selected:- none}"
             ;;
@@ -396,7 +406,7 @@ if ! $EXPLICIT && has_interactive_input && [[ -t 1 ]]; then
 
     # ── Scope selection ────────────────────────────────────────────────────
     # Only prompt for scope if at least one runtime was selected
-    if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_LEMONCODE || $DO_COPILOT || $DO_ANTIGRAVITY || $DO_CURSOR || $DO_HERMES; then
+    if $DO_CLAUDE || $DO_CODEX || $DO_OPENCODE || $DO_PI || $DO_LEMONCODE || $DO_COPILOT || $DO_ANTIGRAVITY || $DO_CURSOR || $DO_HERMES; then
         echo "  ${C_YELLOW}Install scope:${C_RESET}"
         echo ""
         echo "  ${C_PURPLE}1${C_RESET}) Global — available in all projects"
@@ -645,6 +655,7 @@ fi
 $DO_CLAUDE    && run_installer claude
 $DO_CODEX     && run_installer codex
 $DO_OPENCODE  && run_installer opencode
+$DO_PI        && run_installer pi
 $DO_LEMONCODE && run_installer lemoncode
 $DO_COPILOT   && run_installer copilot
 $DO_ANTIGRAVITY && run_installer antigravity

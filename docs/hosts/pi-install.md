@@ -1,16 +1,16 @@
 # Pi managed host
 
-Pi is an opt-in frontend for LemonCrow's owned coding runtime. LemonCrow pins the reviewed upstream Pi release **v0.84.2** at commit `914cf1472e715297caa30db4b9535d534a9eb718`; the managed installer verifies the platform asset against the release SHA-256 before replacing the host binary.
+Pi is LemonCrow's default managed frontend for the owned coding runtime. LemonCrow pins the reviewed upstream Pi release **v0.84.2** at commit `914cf1472e715297caa30db4b9535d534a9eb718`; the managed installer verifies the platform asset against the release SHA-256 before replacing the host binary.
 
 ```bash
 lc code host install --engine pi
 lc code host status --engine pi
-lc code --engine pi
-lc code --engine pi -p "fix the failing parser test"
-lc code --engine pi --resume <pi-session-id>
+lc code
+lc code -p "fix the failing parser test"
+lc code --resume <pi-session-id>
 ```
 
-`auto` still prefers LemonCode. To canary Pi without changing that default, set `LEMONCROW_CODE_AUTO_ENGINE=pi`. Remove the variable for the immediate rollback path.
+`auto` prefers Pi. Fresh installs select and install the managed Pi host by default. For an immediate rollback, use `lc code --engine lemoncode` or `LEMONCROW_CODE_AUTO_ENGINE=lemoncode lc code`.
 
 ## Managed boundary
 

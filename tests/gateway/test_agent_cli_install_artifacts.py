@@ -215,7 +215,7 @@ def test_verify_agent_clis_script_exists() -> None:
 
 def test_install_hosts_references_all_hosts() -> None:
     content = (SCRIPTS / "install_hosts.sh").read_text()
-    for host in ["claude", "codex", "opencode", "copilot", "antigravity"]:
+    for host in ["claude", "codex", "opencode", "pi", "copilot", "antigravity"]:
         assert host in content, f"install_hosts.sh missing reference to {host}"
 
 
@@ -237,6 +237,22 @@ def test_host_installer_default_selection_uses_detection() -> None:
     assert "host_is_detected()" in content
     assert "enable_detected_hosts_by_default" in content
     assert "enable_detected_hosts_by_default" in content.split("# Default: all hosts", 1)[1]
+
+
+def test_pi_is_default_selected_and_bundled_for_fresh_installs() -> None:
+    common = (SCRIPTS / "lib" / "common.sh").read_text()
+    hosts = (SCRIPTS / "install_hosts.sh").read_text()
+    build = (SCRIPTS / "build.sh").read_text()
+    pi_installer = SCRIPTS / "install_pi.sh"
+
+    pi_choice_tail = common.split('HOST_CHOICES+=("Pi|will be installed")', 1)[1]
+    assert "HOST_DEFAULT_SELECTION+=(1)" in pi_choice_tail
+    assert "4) HOST_FLAGS+=(--pi)" in common
+    assert "--pi" in hosts
+    assert "$DO_PI        && run_installer pi" in hosts
+    assert pi_installer.exists() and is_executable(pi_installer)
+    assert "code host install --engine pi" in pi_installer.read_text()
+    assert "scripts/install_pi.sh" in build
 
 
 def test_host_installer_has_timeout_guard() -> None:
