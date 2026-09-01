@@ -33,7 +33,9 @@ from typing import Any
 # to canonical model IDs (as used by the Anthropic API / LiteLLM catalog).
 _DISPLAY_NAME_MODEL_MAP: dict[str, str] = {
     "fable 5": "claude-fable-5",
+    "fable 5.1": "claude-fable-5-1",
     "mythos 5": "claude-mythos-5",
+    "mythos 5.1": "claude-mythos-5-1",
     "mythos preview": "claude-mythos-preview",
     "sonnet 5": "claude-sonnet-5",
     "opus 4.8": "claude-opus-4-8",

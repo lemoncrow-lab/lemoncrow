@@ -71,6 +71,28 @@ overrides:
     cache_write_1h: 20.00
     thinking: 50.00
     context_window: 1000000
+
+  # Claude Fable 5.1 / Mythos 5.1 — released Sep 1, 2026; verified against
+  # platform.claude.com/docs/en/models/fable-5-1/overview. Same $10/$50
+  # input/output and cache-write rates as Fable 5, but cache reads drop to a
+  # quarter of the base input rate ($0.25 vs $1.00 on Fable 5).
+  claude-fable-5-1:
+    input: 10.00
+    output: 50.00
+    cache_read: 0.25
+    cache_write: 12.50
+    cache_write_1h: 20.00
+    thinking: 50.00
+    context_window: 1000000
+
+  claude-mythos-5-1:
+    input: 10.00
+    output: 50.00
+    cache_read: 0.25
+    cache_write: 12.50
+    cache_write_1h: 20.00
+    thinking: 50.00
+    context_window: 1000000
   # Same rate card as Claude Mythos 5 / Fable 5 (predecessor model, Project
   # Glasswing). Absent from litellm, which otherwise misprices it via the
   # sonnet fallback.
