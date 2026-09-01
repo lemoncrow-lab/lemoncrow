@@ -326,8 +326,8 @@ def test_read_transcript_stats_prices_1h_cache_writes_and_long_context(tmp_path:
 
 
 def test_read_transcript_stats_includes_subagent_usage(tmp_path: Path) -> None:
-    """Subagent transcripts (<session>/subagents/*.jsonl) count toward tokens/cost,
-    but not toward turns or tool calls."""
+    """Direct and workflow-nested subagents count toward parent tokens/cost,
+    but orchestration journals do not and subagents do not inflate parent turns."""
     p = tmp_path / "sess.jsonl"
     p.write_text(json.dumps(_usage_line("m1", "2026-01-01T12:00:00Z")) + "\n", encoding="utf-8")
     sub_dir = tmp_path / "sess" / "subagents"
@@ -335,17 +335,30 @@ def test_read_transcript_stats_includes_subagent_usage(tmp_path: Path) -> None:
     (sub_dir / "agent-a1.jsonl").write_text(
         json.dumps(_usage_line("sub1", "2026-01-01T12:00:30Z")) + "\n", encoding="utf-8"
     )
+    workflow_dir = sub_dir / "workflows" / "wf_test"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "agent-a2.jsonl").write_text(
+        json.dumps(_usage_line("sub2", "2026-01-01T12:00:45Z")) + "\n", encoding="utf-8"
+    )
+    # A workflow journal is scheduler metadata, not another billed model turn.
+    # Give it usage-shaped content so the test proves discovery excludes it.
+    (workflow_dir / "journal.jsonl").write_text(
+        json.dumps(_usage_line("journal", "2026-01-01T12:00:50Z")) + "\n", encoding="utf-8"
+    )
 
     stats = read_transcript_stats(p)
     assert stats is not None
-    # Usage buckets include both the main turn and the subagent turn.
-    assert stats.input_tokens == 20
-    assert stats.output_tokens == 10
+    # Usage buckets include main + direct subagent + workflow subagent.
+    assert stats.input_tokens == 30
+    assert stats.output_tokens == 15
     # Turns/timestamps remain main-transcript-only.
     assert stats.turns == 1
     assert stats.turn_timestamps == ["2026-01-01T12:00:00Z"]
-    # Subagent assistant turns are bucketed separately for per-window carry.
-    assert stats.subagent_turn_timestamps == [["2026-01-01T12:00:30Z"]]
+    # Each actual subagent transcript is bucketed separately for carry credit.
+    assert stats.subagent_turn_timestamps == [
+        ["2026-01-01T12:00:30Z"],
+        ["2026-01-01T12:00:45Z"],
+    ]
 
 
 def test_price_avoided_calls_usd_uses_cache_read_rate() -> None:

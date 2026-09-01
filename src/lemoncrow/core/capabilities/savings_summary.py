@@ -367,18 +367,25 @@ def read_transcript_savings_block(transcript_path: str | Path) -> TranscriptSavi
 
 
 def _subagent_transcripts(transcript_path: Path) -> list[Path]:
-    """Return subagent (sidechain) transcripts recorded for a session.
+    """Return every billable subagent transcript recorded for a session.
 
-    Claude Code stores Agent-tool transcripts under
-    ``<project>/<session-id>/subagents/*.jsonl`` next to the main
-    ``<session-id>.jsonl``. Their usage is billed to the session (and is
-    included in Claude's own ``cost.total_cost_usd``), so pricing must
-    include them.
+    Claude Code stores ordinary Agent-tool transcripts directly under
+    ``<project>/<session-id>/subagents/*.jsonl``. Workflow fan-out adds another
+    level, e.g. ``subagents/workflows/<workflow-id>/agent-*.jsonl``. All agent
+    transcripts are billed to the parent session, so cost/token accounting must
+    include both direct and workflow-nested agents. Workflow ``journal.jsonl``
+    files are orchestration metadata, not model transcripts, and are excluded.
     """
     subagent_dir = transcript_path.parent / transcript_path.stem / "subagents"
     if not subagent_dir.is_dir():
         return []
-    return sorted(subagent_dir.glob("*.jsonl"))
+
+    # Preserve support for legacy/direct transcript names while recursively
+    # discovering workflow agents. Using agent-*.jsonl below the first level
+    # avoids treating workflow journals as model usage transcripts.
+    direct = set(subagent_dir.glob("*.jsonl"))
+    nested_agents = set(subagent_dir.glob("**/agent-*.jsonl"))
+    return sorted(direct | nested_agents)
 
 
 def _long_context_threshold(model: str, cache: dict[str, int]) -> int:
@@ -670,10 +677,11 @@ def read_transcript_stats(transcript_path: str | Path) -> "TranscriptStats | Non
     mid-conversation (e.g. Opus → Sonnet).  Each token bucket is priced with
     its own rate card and summed.
 
-    Token buckets and cost also include the session's subagent transcripts
-    (``<session-id>/subagents/*.jsonl``) — their usage is billed to the
-    session. Turn count, tool counts, and the session model fields remain
-    main-transcript-only.
+    Token buckets and cost also include all of the session's subagent
+    transcripts, including workflow-nested agents under
+    ``<session-id>/subagents/workflows/*/agent-*.jsonl`` — their usage is
+    billed to the session. Turn count, tool counts, and the session model
+    fields remain main-transcript-only.
 
     Incremental: transcripts are append-only, so only bytes past each source's
     consumed offset are parsed (a partially written tail line is left for the
