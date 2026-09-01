@@ -1148,6 +1148,21 @@ SETTINGS: list[SettingSpec] = [
         "mcp.spill_dir", "LEMONCROW_MCP_SPILL_DIR", "str", "", "mcp", "Directory large tool outputs are spilled to."
     ),
     SettingSpec(
+        "mcp.additional_edit_dirs",
+        "LEMONCROW_ADDITIONAL_DIRS",
+        "str",
+        "",
+        "mcp",
+        "Colon-separated directories, beyond the workspace root and /tmp, that "
+        "mcp__lc__edit/edit_gate may write to. Same effect as Claude Code's own "
+        "additionalDirectories (read from both the top-level key and the nested "
+        "permissions.additionalDirectories in ~/.claude/settings.json and "
+        "<workspace>/.claude/settings.json) -- those two files are re-read (mtime-"
+        "checked) on every edit call, so changes there apply immediately with no "
+        "restart. This env var, like any MCP server env var, is only read at "
+        "process start, so a change here requires restarting the lc MCP connection.",
+    ),
+    SettingSpec(
         "mcp.spill_max_files",
         "LEMONCROW_MCP_SPILL_MAX_FILES",
         "int",

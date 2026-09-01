@@ -7440,8 +7440,10 @@ def tool_smart_edit(
                     "paths": _escaped_edit_paths,
                     "error": (
                         "edit path escapes the workspace root; add the directory via "
-                        "additionalDirectories in ~/.claude/settings.json or "
-                        "LEMONCROW_ADDITIONAL_DIRS env to allow edits there"
+                        "additionalDirectories (or permissions.additionalDirectories) in "
+                        "~/.claude/settings.json or <workspace>/.claude/settings.json "
+                        "(applies immediately, no restart), or LEMONCROW_ADDITIONAL_DIRS env "
+                        "on the lc MCP server entry (requires reconnecting) to allow edits there"
                     ),
                 }
             ],

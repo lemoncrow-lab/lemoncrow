@@ -25,7 +25,11 @@ def _claude_additional_dirs(workspace_root: Path) -> list[Path]:
     1. ``LEMONCROW_ADDITIONAL_DIRS`` -- colon-separated env var (highest priority).
     2. ``additionalDirectories`` array in ``~/.claude/settings.json`` and
        ``<workspace>/.claude/settings.json`` (mirrors what Claude Code's
-       ``--add-dir`` flag persists).
+       ``--add-dir`` flag persists), read from BOTH the legacy top-level key
+       and the current ``permissions.additionalDirectories`` nested key --
+       Claude Code itself writes the latter, so only reading the former left
+       real-world settings.json files (nested under "permissions") silently
+       ignored.
 
     Read-only tools (grep/search/read) already accept any absolute path, so
     this only affects write operations (edit, batch-edit).
@@ -60,7 +64,11 @@ def _claude_additional_dirs(workspace_root: Path) -> list[Path]:
     for sp in (home_settings, ws_settings):
         try:
             data = json.loads(sp.read_text(encoding="utf-8"))
-            for raw in data.get("additionalDirectories", []):
+            permissions = data.get("permissions")
+            raw_dirs = list(data.get("additionalDirectories", []))
+            if isinstance(permissions, dict):
+                raw_dirs += list(permissions.get("additionalDirectories", []))
+            for raw in raw_dirs:
                 if isinstance(raw, str) and raw.strip():
                     try:
                         dirs.append(Path(raw).expanduser().resolve())
