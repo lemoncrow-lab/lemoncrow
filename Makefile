@@ -84,7 +84,7 @@ prod: ## Build and install from local production build (includes mypyc compilati
 
 build-lemoncode-host: ## Provision the LemonCode host binary: builds from the vendored lemoncode/ submodule if bun is available, else downloads a release. Skips if already installed; force rebuild with 'make build-lemoncode-host f=1'
 	@if [ -z "$(f)" ] && [ -x "$(LEMONCROW_STORE)/bin/lemoncode-host" ]; then \
-		echo "LemonCode host already installed at $(LEMONCROW_STORE)/bin/lemoncode-host -- skipping (force with f=1)"; \
+		:; \
 	elif command -v bun >/dev/null 2>&1 && git submodule update --init lemoncode >/dev/null 2>&1 && [ -f lemoncode/package.json ]; then \
 		echo "Building LemonCode host from source (lemoncode/ submodule)..."; \
 		$(LEMONCROW_CMD) code host build --source lemoncode; \
