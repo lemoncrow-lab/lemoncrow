@@ -244,19 +244,36 @@ def global_import(
     all_imported_ids = []
     per_host_counts: dict[str, int] = {}
 
-    with store.history.batch_mode():
-        for name, importer_cls in hosts:
-            if host and name != host:
-                continue
+    # batch_mode() is scoped to ONE host, not the whole loop (GH #43). SQLite's
+    # deferred BEGIN grabs the write lock at the first insert and holds it until
+    # COMMIT, so a loop-wide batch locked the history db for the entire run and
+    # any concurrent `lc import` died with "database is locked". Two consequences
+    # are accepted deliberately:
+    #   * atomicity is now per-host, not all-or-nothing across hosts -- a crash
+    #     mid-run leaves already-finished hosts committed, which is an
+    #     improvement for a long import;
+    #   * fsync amortization narrows from one batch to one batch per host.
+    # The reconstruction audit below is READ-ONLY (its only writes are export
+    # files on the filesystem), so it deliberately runs OUTSIDE the transaction
+    # -- keeping it inside would extend the write lock for no benefit.
+    for name, importer_cls in hosts:
+        if host and name != host:
+            continue
 
-            try:
-                importer = importer_cls(store)
+        try:
+            importer = importer_cls(store)
+            with store.history.batch_mode():
                 ids = importer.import_all(path, force=force) if path is not None else importer.import_all(force=force)
-                count = len(ids)
-                per_host_counts[name] = count
-                total += count
-                all_imported_ids.extend(ids)
+            count = len(ids)
+            per_host_counts[name] = count
+            total += count
+            all_imported_ids.extend(ids)
 
+            # read_scope(), not a bare loop: outside a batch every store call
+            # opens and tears down its own connection, which measured ~2x on
+            # the whole import. It holds no transaction, so it still cannot
+            # block a concurrent writer.
+            with store.history.read_scope():
                 for tid in ids:
                     trace = store.history.get_trace(tid)
                     if trace and trace.raw_artifact_ids:
@@ -279,9 +296,9 @@ def global_import(
                                     exc_info=True,
                                 )
 
-            except Exception as e:
-                logging.exception("global importer failed for host %s", name)
-                click.secho(f"FATAL: {name} importer raised: {e!r}", fg="red", err=True)
+        except Exception as e:
+            logging.exception("global importer failed for host %s", name)
+            click.secho(f"FATAL: {name} importer raised: {e!r}", fg="red", err=True)
 
     try:
         from lemoncrow.core.service.sync import sync_usage
