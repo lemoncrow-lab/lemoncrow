@@ -264,11 +264,15 @@ SETTINGS: list[SettingSpec] = [
     # -- retrieval: code_search / explore ranking and channel tuning --
     SettingSpec(
         "retrieval.additional_dirs",
-        "LEMONCROW_ADDITIONAL_DIRS",
+        # Deliberately NOT LEMONCROW_ADDITIONAL_DIRS: that var is the edit gate's
+        # write boundary (mcp.additional_edit_dirs), and sharing it here let a
+        # read-only search/indexing knob silently widen what edits may write to.
+        "LEMONCROW_RETRIEVAL_ADDITIONAL_DIRS",
         "str",
         "",
         "retrieval",
-        "Comma-separated extra directories to include in code search/indexing beyond the workspace root.",
+        "Comma-separated extra directories to include in code search/indexing beyond the workspace root. "
+        "Read-only: this never widens the edit gate -- use mcp.additional_edit_dirs for write access.",
     ),
     SettingSpec(
         "retrieval.ann_cache_limit",
@@ -1153,14 +1157,18 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "mcp",
-        "Colon-separated directories, beyond the workspace root and /tmp, that "
-        "mcp__lc__edit/edit_gate may write to. Same effect as Claude Code's own "
-        "additionalDirectories (read from both the top-level key and the nested "
-        "permissions.additionalDirectories in ~/.claude/settings.json and "
-        "<workspace>/.claude/settings.json) -- those two files are re-read (mtime-"
-        "checked) on every edit call, so changes there apply immediately with no "
-        "restart. This env var, like any MCP server env var, is only read at "
-        "process start, so a change here requires restarting the lc MCP connection.",
+        "Colon-separated (os.pathsep) ABSOLUTE directories, beyond the workspace root "
+        "and /tmp, that mcp__lc__edit/edit_gate may write to. A comma is NOT a "
+        "separator, so a directory whose name contains one is listed as-is. A leading "
+        "~ is expanded; entries that are still relative afterwards, and entries "
+        "resolving to a filesystem root or your whole home directory, are skipped with "
+        "a warning. Same effect as Claude Code's own additionalDirectories (read from "
+        "both the top-level key and the nested permissions.additionalDirectories in "
+        "settings.json and settings.local.json, under both ~/.claude/ and "
+        "<workspace>/.claude/) -- those four files are re-read (mtime-checked) on every "
+        "edit call, so changes there apply immediately with no restart. This env var, "
+        "like any MCP server env var, is only read at process start, so a change here "
+        "requires restarting the lc MCP connection.",
     ),
     SettingSpec(
         "mcp.spill_max_files",

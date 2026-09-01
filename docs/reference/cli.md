@@ -346,6 +346,35 @@ telemetry is **on by default**; turn it off with `lc telemetry remote off` (see
 | `lc domain ...`     | Manage internal domain bundles.                                   |
 | `lc letta ...`      | Manage the self-hosted Letta sidecar.                             |
 
+Inspect or change any of them with `lc settings`:
+
+```bash
+lc settings show --category mcp
+```
+
+### Where edits are allowed to write
+
+LemonCrow's read tools accept any absolute path; its **write** tools (`edit`,
+batch edit, `bash`) are confined to the workspace root plus `/tmp`. Widen that
+boundary in one of three ways:
+
+- `permissions.additionalDirectories` in `~/.claude/settings.json` or
+  `~/.claude/settings.local.json` (all workspaces) — **live**, no restart.
+- `permissions.additionalDirectories` in `<workspace>/.claude/settings.json` or
+  `<workspace>/.claude/settings.local.json` — **live**, no restart.
+- `lc settings set mcp.additional_edit_dirs "$HOME/notes:/srv/shared/plans"` (the
+  `LEMONCROW_ADDITIONAL_DIRS` env var on the `lc` MCP server entry) — `:`-separated
+  (a comma is not a separator) and takes effect only after the MCP connection
+  reconnects.
+
+Every entry must be absolute once a leading `~` is expanded; relative entries and
+blanket grants (`/` or a bare `~`) are skipped with a warning.
+
+The legacy top-level `additionalDirectories` key is read too. Matching is
+component-wise, so allowing `/srv/plans` does not allow `/srv/plans-secret`. See
+[setup/installation.md](../setup/installation.md#widening-the-edit-write-boundary)
+for the full table.
+
 ## JSON Output
 
 Many commands accept `--json` when the output is intended for automation or

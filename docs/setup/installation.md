@@ -287,9 +287,65 @@ lc init
 
 ### MCP
 
-| Variable              | Default | Description                                                        |
-| --------------------- | ------- | ------------------------------------------------------------------ |
-| `LEMONCROW_SERVICE_URL` | unset   | Remote service URL; when set, core MCP calls route to this service |
+| Variable                    | Default | Description                                                                |
+| --------------------------- | ------- | -------------------------------------------------------------------------- |
+| `LEMONCROW_SERVICE_URL`       | unset   | Remote service URL; when set, core MCP calls route to this service         |
+| `LEMONCROW_ADDITIONAL_DIRS`   | `""`    | Extra directories the edit tools may **write** to (see below)              |
+
+#### Widening the edit write boundary
+
+LemonCrow's read-only tools (`read`, `grep`, `search`, `explore`) accept any
+absolute path. Its **write** tools (`edit`, batch edit, and `bash`'s write
+confinement) are deliberately confined to the workspace root, plus `/tmp`, which
+is always writable. Anything else has to be opted in explicitly. An edit outside
+the boundary fails with `edit path escapes the workspace root`.
+
+There are three supported ways to widen it:
+
+| Route                                                                                                  | Scope             | Takes effect          |
+| ------------------------------------------------------------------------------------------------------ | ----------------- | --------------------- |
+| `permissions.additionalDirectories` in `~/.claude/settings.json` or `~/.claude/settings.local.json`      | all workspaces    | immediately (live)    |
+| `permissions.additionalDirectories` in `<workspace>/.claude/settings.json` or `settings.local.json`      | that workspace    | immediately (live)    |
+| `LEMONCROW_ADDITIONAL_DIRS` env var on the `lc` MCP server entry (`lc settings set mcp.additional_edit_dirs ...`) | that MCP process  | after a reconnect     |
+
+All four settings files are read, and each is read from **both** the nested
+`permissions.additionalDirectories` key (what Claude Code's `--add-dir` flag and
+`/permissions` UI write) and the legacy top-level `additionalDirectories` key:
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["~/notes", "/srv/shared/plans"]
+  }
+}
+```
+
+Those files are re-read on every edit call (mtime-checked), so adding, editing,
+or deleting one applies immediately — no restart, no reconnect. The env var is
+read once at process start like any MCP server env var, so changing it requires
+restarting the `lc` MCP connection. It is `:`-separated (PATH-style); a comma is
+**not** a separator, so a directory whose name contains one is listed as-is:
+
+```bash
+lc settings set mcp.additional_edit_dirs "$HOME/notes:/srv/shared/plans"
+```
+
+Every entry — env var or settings file — must be an **absolute** path once a
+leading `~` is expanded. Relative entries (`notes`, `.`, `..`) are skipped with a
+warning rather than resolved against the MCP server's working directory. Entries
+that resolve to a filesystem root (`/`) or to your whole home directory (a bare
+`~`) are refused with a warning naming the source, so a cloned repo shipping a
+`.claude/settings.local.json` that asks for `/` grants nothing. The other entries
+in the same list are still honored.
+
+Directory matching is component-wise, not prefix-based: allowing `/srv/plans`
+does **not** allow `/srv/plans-secret`. A settings file that fails to parse is
+skipped with a warning naming the file (`lc` MCP server log) and grants nothing.
+
+`LEMONCROW_ADDITIONAL_DIRS` is the only variable that widens the write boundary.
+The similarly named `LEMONCROW_RETRIEVAL_ADDITIONAL_DIRS`
+(`lc settings set retrieval.additional_dirs`) only adds directories to code
+search/indexing and never grants write access.
 
 ### Telemetry
 
