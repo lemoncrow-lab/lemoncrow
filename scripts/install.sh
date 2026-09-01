@@ -398,9 +398,12 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
         info "Added ${LEMONCROW_BIN_DIR} to PATH for this session"
     fi
 
-    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find lemoncrow
+    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find lemoncrow.
+    # Only link if the real binary is actually there -- bundle.sh is expected to have
+    # failed loudly (fail()) before we get here if the wheel install didn't succeed,
+    # but don't plant a dangling symlink on top of any remaining edge case.
     LOCAL_BIN="${HOME}/.local/bin"
-    if [[ ! -e "$LOCAL_BIN/lemoncrow" ]]; then
+    if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" && ! -e "$LOCAL_BIN/lemoncrow" ]]; then
         mkdir -p "$LOCAL_BIN" 2>/dev/null || true
         ln -sf "${LEMONCROW_BIN_DIR}/lemoncrow" "$LOCAL_BIN/lemoncrow"
         info "Symlinked lemoncrow -> ${LOCAL_BIN}/lemoncrow"
