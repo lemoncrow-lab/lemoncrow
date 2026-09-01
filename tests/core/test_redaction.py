@@ -5,7 +5,15 @@ import random
 import string
 import time
 
-from lemoncrow.core.foundation.redaction import redact, redact_jsonl, redact_list
+import pytest
+
+from lemoncrow.core.foundation.redaction import (
+    _redact_json_values,
+    escape_jsonl_line_breaks,
+    redact,
+    redact_jsonl,
+    redact_list,
+)
 
 
 def _parses(line: str) -> bool:
@@ -166,6 +174,55 @@ def test_redact_jsonl_keeps_every_record_parseable() -> None:
     assert "<redacted-credential>" in out
     # ...and the structure around the redaction survives, unlike end-of-line masking.
     assert "from x import y" in decoded["text"]
+
+
+def _reference_redact_jsonl(text: str) -> str:
+    """redact_jsonl without its candidate-scan fast path -- the slow but
+    obviously-correct version the optimized one must agree with."""
+    out = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(("{", "[")):
+            try:
+                decoded = json.loads(stripped)
+            except ValueError:
+                out.append(escape_jsonl_line_breaks(redact(line)))
+                continue
+            out.append(escape_jsonl_line_breaks(json.dumps(_redact_json_values(decoded), ensure_ascii=False)))
+        else:
+            out.append(escape_jsonl_line_breaks(redact(line)))
+    return "\n".join(out)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "nothing secret here at all",
+        "sk-ABCDEFGHIJKLMNOPQRSTUV12345678",
+        "ghp_ABCDEFGHIJKLMNOPQRSTUV12345678",
+        "shppa_ABCDEFGHIJKLMNOPQRSTUV12345678",
+        "user@example.com",
+        "token: Bearer hunter2",
+        "AKIA1234567890ABCDEF",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        "-----BEGIN RSA PRIVATE KEY-----\\nMIIBOgIBAAJBAK\\n-----END RSA PRIVATE KEY-----",
+        "<think>hidden</think>",
+        "chain of thought: hidden",
+        "internal reasoning: hidden",
+    ],
+)
+def test_redact_jsonl_candidate_scan_never_skips_a_real_match(payload: str) -> None:
+    # The fast path must be a pure optimization: identical output to the
+    # always-parse reference, for every pattern the module knows about.
+    text = "\n".join(
+        [
+            json.dumps({"type": "message", "text": payload}),
+            json.dumps({"type": "noise", "text": "ordinary line"}),
+            f"plain text {payload}",
+        ]
+    )
+
+    assert redact_jsonl(text) == _reference_redact_jsonl(text)
 
 
 def test_redact_jsonl_escapes_unicode_line_separators() -> None:

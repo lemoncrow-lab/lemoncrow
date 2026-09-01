@@ -198,14 +198,20 @@ def redact_list(items: list[str]) -> list[str]:
 # halves for every reader that iterates lines -- observed on real sessions that
 # quote web content (U+2028 is common in scraped copy).
 _JSONL_LINE_BREAKS = str.maketrans(
-    {
-        " ": "\\u2028",
-        " ": "\\u2029",
+    {  # chr(), not literals: these characters are invisible in source
+        chr(0x2028): "\\u2028",  # LINE SEPARATOR
+        chr(0x2029): "\\u2029",  # PARAGRAPH SEPARATOR
         "\x0b": "\\u000b",
         "\x0c": "\\u000c",
         "\x85": "\\u0085",
     }
 )
+
+
+# Presence test for the characters above. str.translate walks every character
+# in Python, which profiled at 7.6s of a 21.5s import; a C-level search first
+# makes the common case (no such character anywhere) essentially free.
+_JSONL_LINE_BREAK_RE = re.compile("[" + chr(0x2028) + chr(0x2029) + "\x0b\x0c\x85]")
 
 
 def escape_jsonl_line_breaks(line: str) -> str:
@@ -214,6 +220,8 @@ def escape_jsonl_line_breaks(line: str) -> str:
     Safe on a serialized record: these characters never occur in JSON syntax
     itself, only inside string values, and the escaped form decodes identically.
     """
+    if not _JSONL_LINE_BREAK_RE.search(line):
+        return line
     return line.translate(_JSONL_LINE_BREAKS)
 
 
@@ -224,12 +232,33 @@ def _redact_json_values(value: Any) -> Any:
     would change the record's schema.
     """
     if isinstance(value, str):
+        # Same candidate gate as redact_jsonl: most values in a session record
+        # (ids, types, timestamps, code) hold no anchor at all, and skipping
+        # the ~11 pattern passes on those is the difference between one regex
+        # search and eleven substitutions per value.
+        if not _REDACTION_CANDIDATE_RE.search(value):
+            return value
         return redact(value)
     if isinstance(value, dict):
         return {key: _redact_json_values(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_redact_json_values(item) for item in value]
     return value
+
+
+# Cheap necessary condition for "this text contains something redactable":
+# the literal anchors every pattern above requires. Deliberately over-broad
+# (IGNORECASE, no structure) -- it only selects candidate lines, and the real
+# patterns still decide. One pass of this over the whole document replaces
+# running all ~11 patterns per line, which on a 170k-line session meant 1.5M
+# regex calls and doubled import wall-clock.
+_REDACTION_CANDIDATE_RE = re.compile(
+    r"api[_-]?key|secret|token|password|passwd|pwd"
+    r"|sk-|shppa_|shpat_|ghp_|eyJ|AKIA|ASIA|@"
+    r"|-----BEGIN |</think"
+    r"|chain[ -]of[ -]thought|internal reasoning|private thoughts",
+    re.IGNORECASE,
+)
 
 
 def redact_jsonl(text: str) -> str:
@@ -249,15 +278,26 @@ def redact_jsonl(text: str) -> str:
     """
     if not text:
         return text
+    # Per-line candidate search, not a whole-document finditer: search() stops
+    # at the first anchor, while finditer had to enumerate every '@' and
+    # 'token' in the document and cost more than the redaction it was meant to
+    # avoid (profiled: 6.7s of a 13.8s import).
     out: list[str] = []
     for line in text.split("\n"):
+        if not _REDACTION_CANDIDATE_RE.search(line):
+            out.append(escape_jsonl_line_breaks(line))
+            continue
         stripped = line.strip()
         if stripped.startswith(("{", "[")):
             try:
                 decoded = json.loads(stripped)
             except ValueError:
-                out.append(redact(line))
+                out.append(escape_jsonl_line_breaks(redact(line)))
                 continue
+            # Straight to the values -- running redact() over the whole
+            # serialized line first would duplicate every pattern pass the
+            # per-value redaction is about to do, on the longest strings in
+            # the document.
             out.append(escape_jsonl_line_breaks(json.dumps(_redact_json_values(decoded), ensure_ascii=False)))
         else:
             out.append(escape_jsonl_line_breaks(redact(line)))
