@@ -588,12 +588,15 @@ def test_installer_never_swallows_tar_or_foreign_cli_status() -> None:
     # "ready!" must describe the binary this run installed, never a foreign lc.
     assert "command -v lc >/dev/null 2>&1" not in content
     # Whitespace-tolerant on purpose: the contract is that the "ready!" banner
-    # is gated on the binary in LEMONCROW_BIN_DIR and nothing else, not that the
-    # two lines keep their current indentation.
+    # is gated on a version captured from a *successful* `--version` run, not
+    # that the two lines keep their current indentation.
     assert re.search(
-        r'if\s*\[\[\s*-x\s*"\$\{LEMONCROW_BIN_DIR\}/lemoncrow"\s*\]\]\s*;\s*then\s+info\s+"LemonCrow ',
+        r'if\s*\[\[\s*-n\s*"\$LEMONCROW_INSTALLED_VERSION"\s*\]\]\s*;\s*then\s+info\s+"LemonCrow ',
         content,
-    ), 'the "ready!" banner must be gated on the binary this run installed'
+    ), 'the "ready!" banner must be gated on a version proven by a successful --version'
+    # ...and that version must never be captured with a failure-swallowing
+    # fallback, which is what let a broken binary print "ready!".
+    assert "--version 2>/dev/null || echo" not in content
 
 
 def test_bundle_sh_requires_a_wheel_or_an_already_installed_binary() -> None:
@@ -737,6 +740,39 @@ printf '%s\n' "$real_bin" >"${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir"
 """
 
 _NOOP_BUNDLE = "#!/usr/bin/env bash\nexit 0\n"
+
+# bundle.sh that installs an executable which cannot actually run — a wheel
+# built for another interpreter, a broken venv, a missing dependency.
+_BROKEN_BINARY_BUNDLE = r"""#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$LEMONCROW_BIN_DIR"
+for n in lemoncrow lc lcd; do
+    printf '#!/usr/bin/env bash\necho "ModuleNotFoundError: No module named '"'"'lemoncrow'"'"'" >&2\nexit 1\n' >"$LEMONCROW_BIN_DIR/$n"
+    chmod +x "$LEMONCROW_BIN_DIR/$n"
+done
+printf '%s\n' "$LEMONCROW_BIN_DIR" >"${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir"
+"""
+
+
+def test_installer_fails_when_the_installed_binary_cannot_run(tmp_path: Path) -> None:
+    """`-x` is not proof of a working install (GH #41 follow-up).
+
+    The readiness banner used to interpolate `lemoncrow --version` with
+    `|| echo ''`, so a binary that died on every invocation still printed
+    "ready!" and the installer exited 0.
+    """
+    home, src = _installer_sandbox(tmp_path, _BROKEN_BINARY_BUNDLE)
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, output
+    assert "ready!" not in output
+    assert "does not run" in output
+    # The underlying error is surfaced, not swallowed by 2>/dev/null.
+    assert "ModuleNotFoundError" in output
+    # And no link is left pointing at the unusable binary.
+    assert not (home / ".local" / "bin" / "lemoncrow").exists(), output
 
 
 def test_installer_fails_loudly_when_bundle_installs_nothing(tmp_path: Path) -> None:

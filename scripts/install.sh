@@ -473,12 +473,25 @@ _resolve_installed_bin_dir() {
     done
     return 1
 }
+# An executable file is not a working install: a wheel built for another
+# interpreter, a half-written venv or a missing dependency all leave a binary
+# that is `-x` but dies on first run. Run it once and require success, so
+# "ready!" is never printed over a broken CLI (GH #41).
+LEMONCROW_INSTALLED_VERSION=""
 if [[ "$LEMONCROW_DRY_RUN" != "1" ]]; then
     if RESOLVED_BIN_DIR="$(_resolve_installed_bin_dir)"; then
         LEMONCROW_BIN_DIR="$RESOLVED_BIN_DIR"
         export LEMONCROW_BIN_DIR
         export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
         verbose "LemonCrow binary installed at ${LEMONCROW_BIN_DIR}/lemoncrow"
+        version_err="$(mktemp 2>/dev/null || echo /tmp/lemoncrow-version.$$)"
+        if LEMONCROW_INSTALLED_VERSION="$("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>"$version_err")"; then
+            rm -f "$version_err"
+        else
+            version_detail="$(tail -3 "$version_err" 2>/dev/null || true)"
+            rm -f "$version_err"
+            _fail_install "LemonCrow installed at ${LEMONCROW_BIN_DIR}/lemoncrow but it does not run (\`lemoncrow --version\` failed)${version_detail:+: ${version_detail}}"
+        fi
     else
         _fail_install "LemonCrow setup reported success but installed no lemoncrow binary (looked in ${LEMONCROW_BIN_DIR} and the uv tool bin dir). The distribution archive is incomplete — re-run the installer."
     fi
@@ -530,9 +543,11 @@ cli="lemoncrow"
 [[ -x "${LEMONCROW_BIN_DIR}/lc" ]] && cli="lc"
 # Report readiness for the binary THIS run installed. `command -v lc` used to
 # satisfy this test with any foreign/older lc on PATH, so an install that put
-# nothing in place still printed "ready!".
-if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]]; then
-    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || echo '') ready!"
+# nothing in place still printed "ready!". The version was also captured with
+# `|| echo ''`, which swallowed a binary that could not run at all — so this
+# reuses the version proven above rather than re-running and ignoring failure.
+if [[ -n "$LEMONCROW_INSTALLED_VERSION" ]]; then
+    info "LemonCrow ${LEMONCROW_INSTALLED_VERSION} ready!"
     echo ""
     echo "  Quick start:  ${cli} --help"
     echo "  Init runtime: ${cli} init"
