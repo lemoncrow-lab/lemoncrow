@@ -33,6 +33,7 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 - **Expand for safety.** Full explicit prose for security warnings, destructive-action confirmations, multi-step sequences where brevity risks misordering.
 
 - When using subagents always use `lemoncrow` agents.
+- **A delegated fix is unverified.** A subagent's tests share the blind spot of the code it just wrote, and green is not evidence. Run your own probe of the invariant before reporting it done.
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 

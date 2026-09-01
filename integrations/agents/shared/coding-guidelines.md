@@ -1,3 +1,5 @@
+- **Bounds are semantics.** A cap, limit, or skip-guard added for speed also changes what matches. Test at the bound and past it that the original guarantee still holds — a fix that quietly stops covering large inputs is a leak, not a speedup.
+- **Rewrites need differential proof.** Replacing a matcher, parser, or algorithm → run old and new over randomized inputs, diff, and classify every divergence as fail-safe or fail-open before shipping. Matching on the happy path proves nothing.
 - **Efficient by default.** Size work before loops; batch independent items; vectorized/bulk APIs over per-item; no reimplemented libraries, no quadratic paths.
 - **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
