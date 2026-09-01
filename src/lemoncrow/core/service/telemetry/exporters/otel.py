@@ -9,6 +9,35 @@ from typing import Any
 
 logger: logging.Logger | None = None
 _PROVIDER: Any = None
+_RESOURCE: Any = None
+"""Resource of the live pipeline, needed by the pre-1.37 SDK record shim."""
+
+_INIT_ARGS: dict[str, Any] | None = None
+"""Arguments of the last *successful* ``init_otel`` call.
+
+Replayed by :func:`_reinit` so an exporter rebuilt after a *deferred* first
+init keeps targeting the configured OTLP backend (endpoint *and* auth headers)
+instead of silently falling back to the unauthenticated localhost default.
+Kept across ``shutdown_otel`` only so an explicit re-init has something to
+replay -- the lazy path is fenced off by :data:`_SHUTDOWN`.
+"""
+
+_SHUTDOWN = False
+"""True once ``shutdown_otel`` has torn the pipeline down.
+
+While set, :func:`_reinit` refuses to rebuild anything: a late
+``emit_product_log`` (e.g. from the background telemetry worker, or an atexit
+hook) must NOT resurrect a ``LoggerProvider`` +
+``BatchLogRecordProcessor`` that nobody will ever shut down. Doing so during
+interpreter teardown is what raises "cannot schedule new futures after
+interpreter shutdown" out of ``Resource.create()`` (GH #40), and any events
+buffered in the resurrected processor are dropped anyway.
+
+Cleared by an explicit :func:`init_otel` call (directly or via
+``init_product_telemetry``), so a process that deliberately re-arms telemetry
+after a shutdown is never permanently blocked.
+"""
+
 _last_check_failed_at: float | None = None
 """Timestamp (monotonic) of the last failed TCP check, or None."""
 
@@ -20,7 +49,20 @@ that rapid-fire ``emit_product_log`` calls (e.g. during service
 startup) don't all hammer the network in parallel.
 """
 
-_logger = logging.getLogger("lemoncrow.product.telemetry.otel")
+_TELEMETRY_ROOT = "lemoncrow.product.telemetry"
+"""Root of the telemetry logger namespace (shared with ``emit.py``)."""
+
+_logger = logging.getLogger(f"{_TELEMETRY_ROOT}.diagnostics")
+"""Diagnostics sink for this module.
+
+Deliberately *not* ``lemoncrow.product.telemetry.otel``: that name is the OTel
+export logger built by :func:`init_otel`, which carries a ``LoggingHandler``
+and ``propagate = False``. Logging diagnostics there would feed telemetry
+failures straight back into the telemetry pipeline.
+
+Everything here is logged at DEBUG with ``exc_info=True`` -- invisible at
+default verbosity, full traceback under ``logging.basicConfig(level=DEBUG)``.
+"""
 
 
 class _OtelNoiseFilter(logging.Filter):
@@ -76,6 +118,25 @@ def _apply_silence() -> None:
     if logging.lastResort is not None and not any(f is _sdk_noise_filter for f in logging.lastResort.filters):
         logging.lastResort.addFilter(_sdk_noise_filter)
 
+    # Product telemetry is best-effort and must never write to the user's
+    # terminal. Its own diagnostics are DEBUG-level, but a NullHandler on the
+    # telemetry root additionally stops *any* record in that namespace from
+    # falling through to ``logging.lastResort`` when the application configures
+    # no handlers at all -- which is exactly how GH #40 leaked tracebacks into
+    # `lc init` output. An explicitly configured root handler still receives
+    # them, so `-v` / debug keeps the traceback.
+    #
+    # This is the single authoritative install for the whole
+    # ``lemoncrow.product.telemetry`` namespace (``emit.py`` deliberately does
+    # not repeat it). It lives here because ``_apply_silence`` is idempotent
+    # and re-runs from ``init_otel``, so the guarantee is re-asserted even if a
+    # late ``logging.config.dictConfig`` wiped the root's handlers. Importing
+    # either module imports the other via the package ``__init__``, so there is
+    # no load order in which this fails to run.
+    telemetry_root = logging.getLogger(_TELEMETRY_ROOT)
+    if not any(isinstance(h, logging.NullHandler) for h in telemetry_root.handlers):
+        telemetry_root.addHandler(logging.NullHandler())
+
 
 _apply_silence()
 
@@ -86,8 +147,14 @@ def init_otel(
     service_version: str = "0.1.0",
     headers: dict[str, str] | None = None,
 ) -> bool:
-    global logger, _PROVIDER, _last_check_failed_at
+    global logger, _PROVIDER, _RESOURCE, _INIT_ARGS, _SHUTDOWN, _last_check_failed_at
     import time as _time
+
+    # An explicit init request re-arms telemetry after a shutdown: clear the
+    # fence up front (even if this attempt then fails the reachability check)
+    # so the normal deferred-init retry path works again. Only the *lazy*
+    # path (:func:`_reinit`) stays fenced off after ``shutdown_otel``.
+    _SHUTDOWN = False
 
     if logger is not None:
         return True
@@ -122,7 +189,7 @@ def init_otel(
         # Setting this to 2 limits it to one attempt plus minimal backoff.
         OTLPLogExporter._MAX_RETRY_TIMEOUT = 2  # type: ignore[attr-defined]
     except Exception:
-        logging.exception("Recovered from broad exception handler")
+        _logger.debug("telemetry.otel_import_failed", exc_info=True)
         return False
 
     from lemoncrow.core.foundation.identity import get_anon_id
@@ -151,6 +218,8 @@ def init_otel(
         logger.addHandler(LoggingHandler(level=logging.DEBUG, logger_provider=provider))
     logger = logger
     _PROVIDER = provider
+    _RESOURCE = resource
+    _INIT_ARGS = {"endpoint": endpoint, "service_version": service_version, "headers": headers}
     _last_check_failed_at = None  # clear negative cache
     # Silence any OTel loggers that were created during the imports above.
     _apply_silence()
@@ -181,12 +250,69 @@ def _check_endpoint_reachable(endpoint: str) -> bool:
         return False
 
 
-def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
-    if logger is None:
-        from lemoncrow.core.service.telemetry.config import otel_endpoint
+def _reinit() -> bool:
+    """Rebuild the exporter after ``shutdown_otel`` (or a deferred first init).
 
-        if not init_otel(endpoint=otel_endpoint()):
-            return False
+    Replays the last *successful* configuration so a re-init keeps targeting
+    the configured OTLP backend -- endpoint **and** ``Authorization`` header.
+    Without this the lazy path fell back to ``otel_endpoint()``, i.e. the
+    unauthenticated ``http://localhost:4318`` default, so events emitted after
+    a deferred first init were posted to the wrong place. Falls back to the
+    configured endpoint only when no init has ever succeeded in this process.
+
+    Refuses to rebuild anything once ``shutdown_otel`` has run (GH #40): with
+    a real, reachable backend in ``_INIT_ARGS`` a late emit would otherwise
+    stand up a fresh ``LoggerProvider`` + ``BatchLogRecordProcessor`` during
+    interpreter teardown -- never shut down, its buffer silently dropped, and
+    ``Resource.create()`` liable to raise "cannot schedule new futures after
+    interpreter shutdown". Only an explicit ``init_otel`` re-arms it.
+    """
+    if _SHUTDOWN:
+        _logger.debug("telemetry pipeline is shut down -- refusing lazy re-init")
+        return False
+    if _INIT_ARGS is not None:
+        return init_otel(**_INIT_ARGS)
+    from lemoncrow.core.service.telemetry.config import otel_endpoint
+
+    return init_otel(endpoint=otel_endpoint())
+
+
+def _sdk_log_record_cls() -> type[Any] | None:
+    """SDK-side ``LogRecord`` class when the caller must build one, else None.
+
+    ``Logger.emit`` only gained API->SDK record conversion in
+    **opentelemetry-sdk 1.37.0** (``LogRecord._from_api_log_record``). On
+    <= 1.36 it wraps the API record verbatim in ``LogData``, and the OTLP
+    encoder then dies with ``AttributeError: 'LogRecord' object has no
+    attribute 'resource'`` inside the batch-export thread -- telemetry is
+    silently lost.
+
+    The dependency floor cannot simply be raised to 1.37: the ``memory-server``
+    extra pulls letta, which hard-pins ``opentelemetry-sdk==1.30.0``, so that
+    extra would stop resolving. Feature-detect and build the SDK record here
+    instead.
+
+    Returns None on >= 1.37 (the SDK converts) and on >= 1.43 (the class was
+    renamed to ``ReadWriteLogRecord``, so the import fails).
+    """
+    try:
+        # NB: `from <mod> import <name>` (not `import <mod> as x`) so the
+        # lookup goes through sys.modules -- that is what makes the version
+        # matrix testable by swapping the module.
+        from opentelemetry.sdk._logs import (  # type: ignore[attr-defined]
+            LogRecord as SdkLogRecord,
+        )
+    except ImportError:
+        return None
+    if hasattr(SdkLogRecord, "_from_api_log_record"):
+        return None
+    sdk_record_cls: type[Any] = SdkLogRecord
+    return sdk_record_cls
+
+
+def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
+    if logger is None and not _reinit():
+        return False
     if logger is None:
         return False
     try:
@@ -207,24 +333,33 @@ def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
         span_context = span.get_span_context() if span else None
 
         # Create LogRecord with proper span context
-        record = LogRecord(
-            body=event_name,
-            attributes=flat_attrs,
-            span_id=span_context.span_id if span_context else 1,
-            trace_id=span_context.trace_id if span_context else 1,
-            trace_flags=span_context.trace_flags if span_context else TraceFlags(0),
-            severity_text="DEBUG",
-            severity_number=SeverityNumber.DEBUG,
-        )
-        _PROVIDER.get_logger("lemoncrow.product.telemetry.otel").emit(record)
+        fields: dict[str, Any] = {
+            "body": event_name,
+            "attributes": flat_attrs,
+            "span_id": span_context.span_id if span_context else 1,
+            "trace_id": span_context.trace_id if span_context else 1,
+            "trace_flags": span_context.trace_flags if span_context else TraceFlags(0),
+            "severity_text": "DEBUG",
+            "severity_number": SeverityNumber.DEBUG,
+        }
+        provider = _PROVIDER
+        sdk_record_cls = _sdk_log_record_cls()
+        record: Any
+        if sdk_record_cls is None:
+            record = LogRecord(**fields)
+        else:
+            # opentelemetry-sdk <= 1.36: no API->SDK conversion, so the record
+            # must carry the resource itself or the OTLP encoder blows up.
+            record = sdk_record_cls(resource=getattr(provider, "resource", None) or _RESOURCE, **fields)
+        provider.get_logger("lemoncrow.product.telemetry.otel").emit(record)
         return True
     except Exception:
-        logging.exception("Recovered from broad exception handler")
+        _logger.debug("telemetry.emit_product_log_failed", exc_info=True)
         return False
 
 
 def shutdown_otel() -> None:
-    global logger, _PROVIDER, _last_check_failed_at
+    global logger, _PROVIDER, _RESOURCE, _SHUTDOWN, _last_check_failed_at
     # Drain any events still sitting in the async telemetry queue *before*
     # tearing down state below. Callers enqueue their final events (e.g.
     # "session_end") via the non-blocking emit_product() and immediately hit
@@ -239,8 +374,16 @@ def shutdown_otel() -> None:
 
         flush_product_telemetry()
     provider = _PROVIDER
+    # Fence off the lazy path *before* clearing `logger`: _reinit only runs
+    # once `logger is None`, so raising the fence first leaves no window in
+    # which a racing worker thread could rebuild the pipeline. After this
+    # point emit_product_log must NOT resurrect it (see _SHUTDOWN / _reinit).
+    _SHUTDOWN = True
     logger = None
     _PROVIDER = None
+    _RESOURCE = None
+    # _INIT_ARGS is kept only so an *explicit* init_otel re-arm still targets
+    # the configured endpoint + auth headers rather than the localhost default.
     _last_check_failed_at = None  # clear negative cache
     if provider is not None:
         with contextlib.suppress(Exception):

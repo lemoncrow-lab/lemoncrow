@@ -28,6 +28,18 @@ from lemoncrow.core.service.telemetry.schema import validate_event_props
 from lemoncrow.core.service.telemetry.scrubber import scrub_props
 
 logger = logging.getLogger("lemoncrow.product.telemetry")
+# Telemetry is best-effort and must never write to the user's terminal. Every
+# failure below is logged at DEBUG with a traceback, and a NullHandler on this
+# logger stops such records from falling through to ``logging.lastResort`` (the
+# implicit stderr handler) when the application configures no handlers at all --
+# the mechanism that leaked tracebacks into `lc init` output in GH #40. An
+# explicitly configured root handler still receives them, so debug/verbose keeps
+# the traceback.
+#
+# That NullHandler is installed once, authoritatively, by ``_apply_silence()``
+# in ``exporters/otel.py`` (which runs at import of that module and again from
+# ``init_otel``). Importing this module imports it too via the package
+# ``__init__``, so it is always in place -- do not duplicate the install here.
 
 _MAX_QUEUE = 4096
 _BATCH_MAX = 256
@@ -53,8 +65,7 @@ def init_product_telemetry(*, service_version: str = "0.1.0") -> bool:
             headers={"Authorization": f"Bearer {key}"},
         )
     except Exception as exc:
-        logging.exception("Recovered from broad exception handler")
-        logger.debug("telemetry.otel_init_failed", extra={"error": str(exc)})
+        logger.debug("telemetry.otel_init_failed", exc_info=True, extra={"error": str(exc)})
         return False
 
 
@@ -90,8 +101,7 @@ def _dispatch(event: str, props: dict[str, Any], *, remote: bool) -> None:
             logger.debug("telemetry.dropped_props", extra={"event": event, "dropped": sorted(dropped)})
         scrubbed = scrub_props(filtered)
     except Exception as exc:
-        logging.exception("Recovered from broad exception handler")
-        logger.debug("telemetry.emit_failed", extra={"event": event, "error": str(exc)})
+        logger.debug("telemetry.emit_failed", exc_info=True, extra={"event": event, "error": str(exc)})
         return
 
     if _telemetry_sync_mode():
@@ -158,7 +168,7 @@ def _flush_batch(batch: list[tuple[str, dict[str, Any], bool]]) -> None:
     try:
         LocalTelemetryStore().write_events(records)
     except Exception:
-        logging.exception("Recovered from broad exception handler")
+        logger.debug("telemetry.local_write_failed", exc_info=True)
 
 
 def _write_one(event: str, scrubbed: dict[str, Any], *, remote: bool) -> None:
@@ -166,8 +176,7 @@ def _write_one(event: str, scrubbed: dict[str, Any], *, remote: bool) -> None:
         exported = _export_remote(event, scrubbed) if (remote and remote_enabled()) else False
         LocalTelemetryStore().write_event(event=event, props=scrubbed, exported=exported, ts=time.time())
     except Exception as exc:
-        logging.exception("Recovered from broad exception handler")
-        logger.debug("telemetry.emit_failed", extra={"event": event, "error": str(exc)})
+        logger.debug("telemetry.emit_failed", exc_info=True, extra={"event": event, "error": str(exc)})
 
 
 def flush_product_telemetry(timeout: float = 2.0) -> None:
@@ -186,6 +195,5 @@ def _export_remote(event: str, props: dict[str, Any]) -> bool:
 
         return emit_product_log(event, props)
     except Exception as exc:
-        logging.exception("Recovered from broad exception handler")
-        logger.debug("telemetry.remote_export_failed", extra={"event": event, "error": str(exc)})
+        logger.debug("telemetry.remote_export_failed", exc_info=True, extra={"event": event, "error": str(exc)})
         return False

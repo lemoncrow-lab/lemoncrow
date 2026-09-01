@@ -46,8 +46,7 @@ def emit_audit(
         try:
             store.write_audit_log(**entry)
         except Exception:  # pragma: no cover
-            logging.exception("Recovered from broad exception handler")
-            logger.warning("audit_log write failed; falling back to log", extra=entry)
+            logger.warning("audit_log write failed; falling back to log", exc_info=True, extra=entry)
     else:
         logger.info("audit", extra=entry)
 

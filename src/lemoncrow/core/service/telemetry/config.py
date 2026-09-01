@@ -11,6 +11,8 @@ from typing import Any
 
 from lemoncrow.core.foundation.identity import config_dir
 
+logger = logging.getLogger("lemoncrow.product.telemetry.config")
+
 FALSE_VALUES = {"0", "false", "off", "no"}
 TRUE_VALUES = {"1", "true", "on", "yes"}
 
@@ -39,7 +41,9 @@ def _load_file_config() -> TelemetryConfig:
             section = loaded.get("telemetry", {})
             data = section if isinstance(section, dict) else {}
         except Exception:
-            logging.exception("Recovered from broad exception handler")
+            # Unreadable/invalid telemetry.toml must not print to the user;
+            # fall back to defaults and keep the traceback under debug.
+            logger.debug("telemetry.config_read_failed", exc_info=True, extra={"path": str(path)})
             data = {}
 
     return TelemetryConfig(
