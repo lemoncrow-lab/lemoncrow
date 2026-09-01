@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import json
 import random
 import string
 import time
 
-from lemoncrow.core.foundation.redaction import redact, redact_list
+from lemoncrow.core.foundation.redaction import redact, redact_jsonl, redact_list
+
+
+def _parses(line: str) -> bool:
+    try:
+        json.loads(line)
+    except ValueError:
+        return False
+    return True
 
 
 def test_redacts_openai_key() -> None:
@@ -137,10 +146,100 @@ def test_redact_is_fast_on_densely_repeated_unclosed_private_key_headers() -> No
     assert elapsed < 2.0, f"redact() took {elapsed:.2f}s on 2MB of unclosed PEM headers"
 
 
-def test_closing_literal_guard_does_not_suppress_real_matches() -> None:
-    # The guard must be a pure fast-path: once the closing literal exists, both
-    # patterns still redact. Guards against a fix that trades correctness for
-    # speed.
+def test_redact_jsonl_keeps_every_record_parseable() -> None:
+    # Real-store regression: 1.35% of stored artifact lines were unparseable.
+    # Two independent ways plain redact() corrupts serialized JSON:
+    #   * a match straddling an escape -- "\n@pytest.fixture" hits the email
+    #     rule and leaves a bare backslash before the replacement;
+    #   * the credential rule masks to end-of-*line*, which in JSONL is the
+    #     rest of the record, closing braces included.
+    record = {"type": "message", "text": "from x import y\n\n@pytest.fixture\ntoken: hunter2", "id": "m1"}
+    line = json.dumps(record)
+
+    assert _parses(redact(line)) is False, "precondition: plain redact() corrupts this record"
+
+    out = redact_jsonl(line)
+    decoded = json.loads(out)
+
+    assert decoded["type"] == "message" and decoded["id"] == "m1"
+    assert "hunter2" not in out
+    assert "<redacted-credential>" in out
+    # ...and the structure around the redaction survives, unlike end-of-line masking.
+    assert "from x import y" in decoded["text"]
+
+
+def test_redact_jsonl_escapes_unicode_line_separators() -> None:
+    # U+2028 is legal inside a JSON string and json.dumps(ensure_ascii=False)
+    # emits it raw -- but str.splitlines() treats it as a line break, so one
+    # record silently becomes two unparseable halves for every reader. Seen on
+    # real sessions quoting scraped web copy.
+    line = json.dumps({"text": "before after"}, ensure_ascii=False)
+    assert len(line.splitlines()) == 2, "precondition: raw U+2028 splits the record"
+
+    out = redact_jsonl(line)
+
+    assert len(out.splitlines()) == 1
+    assert json.loads(out)["text"] == "before after"
+
+
+def test_redact_jsonl_masks_secrets_inside_nested_values() -> None:
+    line = json.dumps({"parts": [{"text": "key sk-ABCDEFGHIJKLMNOPQRSTUV12345678"}], "meta": {"user": "a@b.com"}})
+
+    decoded = json.loads(redact_jsonl(line))
+
+    assert decoded["parts"][0]["text"] == "key <redacted-openai-key>"
+    assert decoded["meta"]["user"] == "<redacted-email>"
+
+
+def test_redact_jsonl_falls_back_to_text_redaction_off_json() -> None:
+    # Mixed content must still be scrubbed: a plain-text line, and a line that
+    # only looks like JSON.
+    text = "plain token: hunter2\n{not really json, token: hunter3"
+
+    out = redact_jsonl(text)
+
+    assert "hunter2" not in out and "hunter3" not in out
+    assert out.count("<redacted-credential>") == 2
+
+
+def test_redacts_private_key_body_of_any_length() -> None:
+    # #38 regression. The first fix bounded the PEM body to ``.{0,16384}?``,
+    # which is linear but stops matching past the window -- i.e. a >16KB key
+    # body was written to the store verbatim. Redaction must have no size
+    # ceiling: a bounded window here is a leak, not a trade-off.
+    body = "A" * 200_000
+    out = redact(f"head -----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY----- tail")
+
+    assert "AAAA" not in out
+    assert "BEGIN RSA PRIVATE KEY" not in out
+    assert "<redacted-private-key>" in out
+    assert out.startswith("head ") and out.endswith(" tail")
+
+
+def test_redacts_reasoning_block_of_any_length() -> None:
+    # Same regression for chain-of-thought: ``.{0,65536}?`` leaked every
+    # reasoning block longer than 64KB.
+    out = redact("pre <think>" + "secret-cot " * 20_000 + "</think> post")
+
+    assert "secret-cot" not in out
+    assert "<redacted-hidden-reasoning>" in out
+    assert out == "pre <redacted-hidden-reasoning> post"
+
+
+def test_unclosed_opener_does_not_hide_a_later_closed_block() -> None:
+    # Pairing openers to closers must not stop at the first opener that has no
+    # closer: ``<think>`` is not closed by ``</thinking>``, so the orphan stays
+    # literal while the real block is still redacted.
+    out = redact("<think>orphan <thinking>REAL</thinking>")
+
+    assert "REAL" not in out
+    assert out == "<think>orphan <redacted-hidden-reasoning>"
+
+
+def test_missing_closing_literal_does_not_suppress_real_matches() -> None:
+    # The no-closer fast path must be exact: once a closing literal exists,
+    # both spans still redact. Guards against a fix that trades correctness
+    # for speed.
     noise = ("<think>" + "x" * 25) * 20_000  # ~640KB of unmatched openers
     text = f"{noise}<think>the hidden part</think>tail"
     out = redact(text)

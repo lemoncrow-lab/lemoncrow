@@ -7,48 +7,107 @@ written to the store.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+from dataclasses import dataclass
+from typing import Any
 
-# Patterns whose bounded window scan is still expensive to *start*: the
-# opener is short and common, so a blob densely seeded with unmatched
-# openers pays the full window scan at every one of them. Bounding the
-# quantifiers (#38) made these linear, but with a brutal constant --
-# extrapolated ~220s at 20MB for one "<think>" every 32 bytes, ~34s for
-# repeated "-----BEGIN ... KEY-----" with no END. Each is paired below with
-# a *guard*: a necessary condition (the closing literal must appear
-# somewhere in the text) that costs one O(n) C-level scan and lets us skip
-# the whole pattern when it provably cannot match. Exact, not heuristic --
-# no match is ever lost, because a match requires the closing literal.
-_PRIVATE_KEY_RE = re.compile(
-    # Bounded to a generous 16KB key body (real PEM keys are a few KB at
-    # most). An unbounded ``.*?`` here is a catastrophic-backtracking
-    # trap (#38): when "-----BEGIN ... PRIVATE KEY-----" appears without
-    # a matching END anywhere in a huge blob, the lazy scan must walk to
-    # the end of the string before failing, once per BEGIN occurrence.
-    r"-----BEGIN [A-Z ]{1,40}PRIVATE KEY-----.{0,16384}?-----END [A-Z ]{1,40}PRIVATE KEY-----",
-    re.DOTALL,
+
+# ---------------------------------------------------------------------------
+# Delimited spans (PEM private keys, chain-of-thought blocks)
+# ---------------------------------------------------------------------------
+# A single regex for an opener...closer span is a choice between two failures:
+#
+#   * unbounded ``.*?`` -- catastrophic backtracking. An opener with no closer
+#     forces a scan to end-of-string, once per opener, so a blob densely seeded
+#     with unmatched openers is quadratic (#38: 9-12 min hangs on ~20MB).
+#   * bounded ``.{0,N}?`` -- linear, but it silently stops matching any span
+#     longer than N. For a redaction pattern that is not a performance
+#     trade-off, it is a leak: a 20KB PEM body or a 100KB reasoning block
+#     would sail through unredacted.
+#
+# So don't use one regex. Enumerate openers and closers separately (two
+# C-level passes) and pair them with a monotonic two-pointer walk: linear in
+# the input, with no ceiling on how long a span may be.
+@dataclass(frozen=True)
+class _DelimitedSpan:
+    """A set of opener/closer tag pairs redacted as one unit, of any length.
+
+    ``opener`` matches any tag in the set and must expose the tag name as
+    group 1; ``closers`` maps the lower-cased tag name to its closing pattern.
+    Keeping the whole set in ONE matcher is load-bearing: scanning tag by tag
+    instead loses the leftmost semantics of ``<(think|thinking)>.*?</\\1>`` and
+    leaks content that regex masked (an inner ``<think>`` span consuming past
+    the ``</thinking>`` that would have closed an earlier ``<thinking>``).
+    """
+
+    opener: re.Pattern[str]
+    closers: dict[str, re.Pattern[str]]
+
+
+_PRIVATE_KEY_SPAN = _DelimitedSpan(
+    # No capture group: PEM headers vary ("RSA ", "EC ", "OPENSSH ", "") and a
+    # BEGIN of one kind is closed by an END of any kind here, exactly as the
+    # single pattern this replaced did, so one untagged closer covers them all.
+    opener=re.compile(r"-----BEGIN [A-Z ]{1,40}PRIVATE KEY-----"),
+    closers={"": re.compile(r"-----END [A-Z ]{1,40}PRIVATE KEY-----")},
 )
-_THINK_RE = re.compile(
-    # Bounded to 64KB (a generous reasoning-block size) for the same
-    # reason as the private-key/JWT/email patterns below (#38): an
-    # unbounded lazy ``.*?`` here would walk to end-of-string once per
-    # "<think>"/"<thinking>" occurrence that lacks a matching close tag
-    # (e.g. a session log truncated mid-block), which is O(n) per
-    # occurrence rather than O(1).
-    r"<(think|thinking)>.{0,65536}?</\1>",
-    re.DOTALL | re.IGNORECASE,
+_THINK_SPAN = _DelimitedSpan(
+    opener=re.compile(r"<(think|thinking)>", re.IGNORECASE),
+    # A ``<think>`` is not closed by ``</thinking>``: each tag keeps its own
+    # closer, mirroring the backreference in the pattern this replaced.
+    closers={tag: re.compile(rf"</{tag}>", re.IGNORECASE) for tag in ("think", "thinking")},
 )
 
-# expensive pattern -> closing literal that MUST be present for it to match.
-_CLOSING_LITERAL_GUARDS: dict[re.Pattern[str], re.Pattern[str]] = {
-    _PRIVATE_KEY_RE: re.compile(r"-----END [A-Z ]{1,40}PRIVATE KEY-----"),
-    _THINK_RE: re.compile(r"</think", re.IGNORECASE),
-}
+
+def _redact_span(text: str, span: _DelimitedSpan, replacement: str) -> str:
+    """Replace every ``opener...closer`` region with ``replacement``.
+
+    Reproduces lazy ``opener.*?closer`` semantics -- each opener paired with
+    the earliest closer of its own tag that starts at or after the opener's
+    end, scanning resumes past that closer, openers inside an already redacted
+    region are skipped -- without the backtracking or the size ceiling. One
+    C-level pass per closer tag plus a monotonic pointer walk, so it is linear
+    in the input and a span may be arbitrarily long.
+    """
+    closer_hits = {tag: list(pattern.finditer(text)) for tag, pattern in span.closers.items()}
+    if not any(closer_hits.values()):
+        # No closer anywhere means no span can match: exact, not a heuristic.
+        return text
+    cursor = dict.fromkeys(closer_hits, 0)
+    out: list[str] = []
+    cut = 0  # everything before this index is emitted or already consumed
+    for opener in span.opener.finditer(text):
+        if opener.start() < cut:
+            continue  # inside a region we already redacted
+        tag = opener.group(1).lower() if span.opener.groups else ""
+        hits = closer_hits.get(tag)
+        if hits is None:
+            hits = closer_hits[""] if "" in closer_hits else []
+            tag = ""
+        index = cursor[tag]
+        while index < len(hits) and hits[index].start() < opener.end():
+            index += 1
+        cursor[tag] = index
+        if index == len(hits):
+            # This tag is exhausted, but another tag may still close a later
+            # opener -- keep scanning rather than stopping here.
+            continue
+        out.append(text[cut : opener.start()])
+        out.append(replacement)
+        cut = hits[index].end()
+    if not out:
+        return text
+    out.append(text[cut:])
+    return "".join(out)
+
 
 # Common secret patterns. Conservative — false positives are acceptable
 # because we only mask, not drop, and the surrounding text remains.
-_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+_Matcher = re.Pattern[str] | _DelimitedSpan
+
+_PATTERNS: list[tuple[_Matcher, str]] = [
     (
         # Generic ``key=value`` / ``key: value`` credential pairs. The value is
         # masked to the end of the line rather than a single ``\S+`` token: a
@@ -66,7 +125,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"shppa_[A-Za-z0-9]{20,}"), "<redacted-shopify-token>"),
     (re.compile(r"shpat_[A-Za-z0-9]{20,}"), "<redacted-shopify-token>"),
     (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "<redacted-github-token>"),
-    (_PRIVATE_KEY_RE, "<redacted-private-key>"),
+    (_PRIVATE_KEY_SPAN, "<redacted-private-key>"),
     # JWT-ish tokens (3 base64url segments). Segments bounded to 4KB each --
     # real JWTs are a few KB at most -- so a huge base64url blob containing
     # a stray "eyJ" (common by chance) can't force an O(n) failed scan per
@@ -93,8 +152,8 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 # Phrases that signal hidden chain-of-thought.
-_COT_PATTERNS = [
-    (_THINK_RE, "<redacted-hidden-reasoning>"),
+_COT_PATTERNS: list[tuple[_Matcher, str]] = [
+    (_THINK_SPAN, "<redacted-hidden-reasoning>"),
     (
         re.compile(
             r"\b(?:chain of thought|chain-of-thought|internal reasoning|private thoughts):[^\n\r]*",
@@ -105,16 +164,19 @@ _COT_PATTERNS = [
 ]
 
 
-def _apply_patterns(patterns: list[tuple[re.Pattern[str], str]], text: str) -> str:
-    """Substitute each ``(pattern, replacement)`` in turn, skipping guarded
-    patterns whose closing literal is absent (see ``_CLOSING_LITERAL_GUARDS``).
+def _apply_patterns(patterns: list[tuple[_Matcher, str]], text: str) -> str:
+    """Substitute each ``(matcher, replacement)`` in turn.
+
+    A matcher is either a plain regex (substituted directly) or a
+    :class:`_DelimitedSpan`, redacted by the linear opener/closer scan so an
+    arbitrarily long key body or reasoning block is still masked in full.
     """
     out = text
-    for pattern, replacement in patterns:
-        guard = _CLOSING_LITERAL_GUARDS.get(pattern)
-        if guard is not None and guard.search(out) is None:
-            continue
-        out = pattern.sub(replacement, out)
+    for matcher, replacement in patterns:
+        if isinstance(matcher, _DelimitedSpan):
+            out = _redact_span(out, matcher, replacement)
+        else:
+            out = matcher.sub(replacement, out)
     return out
 
 
@@ -128,6 +190,78 @@ def redact(text: str) -> str:
 
 def redact_list(items: list[str]) -> list[str]:
     return [redact(i) for i in items]
+
+
+# Characters that are valid *inside* a JSON string but that Python's
+# ``str.splitlines()`` treats as line breaks. ``json.dumps(ensure_ascii=False)``
+# emits them raw, which silently splits one JSONL record into two unparseable
+# halves for every reader that iterates lines -- observed on real sessions that
+# quote web content (U+2028 is common in scraped copy).
+_JSONL_LINE_BREAKS = str.maketrans(
+    {
+        " ": "\\u2028",
+        " ": "\\u2029",
+        "\x0b": "\\u000b",
+        "\x0c": "\\u000c",
+        "\x85": "\\u0085",
+    }
+)
+
+
+def escape_jsonl_line_breaks(line: str) -> str:
+    """Escape in-string characters that ``splitlines()`` would treat as breaks.
+
+    Safe on a serialized record: these characters never occur in JSON syntax
+    itself, only inside string values, and the escaped form decodes identically.
+    """
+    return line.translate(_JSONL_LINE_BREAKS)
+
+
+def _redact_json_values(value: Any) -> Any:
+    """Redact every string *value* in a decoded JSON document, in place-ish.
+
+    Keys are left alone: they are field names, not payload, and rewriting them
+    would change the record's schema.
+    """
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: _redact_json_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_json_values(item) for item in value]
+    return value
+
+
+def redact_jsonl(text: str) -> str:
+    """Redact a JSONL document without breaking its records.
+
+    Running :func:`redact` over serialized JSON corrupts it: the patterns know
+    nothing about JSON escaping or structure, so a match can straddle a ``\\n``
+    escape (``"...\\n@pytest.fixture"`` matches the email rule and leaves a bare
+    ``\\`` before the replacement) and the credential rule consumes to
+    end-of-*line* -- which, in JSONL, is the rest of the record including its
+    closing braces. Measured on a real store: 1.35% of stored lines were
+    unparseable, silently dropped by every reader.
+
+    So decode first and redact the string *values*, where "end of line" means
+    the end of that value. Lines that are not JSON fall back to :func:`redact`,
+    so this is safe on mixed content.
+    """
+    if not text:
+        return text
+    out: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(("{", "[")):
+            try:
+                decoded = json.loads(stripped)
+            except ValueError:
+                out.append(redact(line))
+                continue
+            out.append(escape_jsonl_line_breaks(json.dumps(_redact_json_values(decoded), ensure_ascii=False)))
+        else:
+            out.append(escape_jsonl_line_breaks(redact(line)))
+    return "\n".join(out)
 
 
 # Env kill-switch for live tool-output redaction (G8). Default ON; set
