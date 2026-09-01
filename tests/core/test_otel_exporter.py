@@ -395,6 +395,44 @@ class TestEmitProductLog:
         emit_product_log("test_event", {"key": "val"})
         assert captured_endpoint == ["http://custom-collector:9999"]
 
+    def test_constructs_and_emits_log_record_against_real_sdk(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Regression test for GH #40: on recent opentelemetry-sdk releases,
+        ``opentelemetry.sdk._logs`` no longer exports ``LogRecord`` (it was
+        renamed to ``ReadWriteLogRecord``/``ReadableLogRecord``), so importing
+        it from there raises ImportError on every single emit call. LogRecord
+        must come from the stable API module ``opentelemetry._logs`` instead.
+
+        This wires a real LoggerProvider + in-memory exporter (no mocking of
+        the LogRecord construction/emit path) so the test exercises the exact
+        import + call the installed opentelemetry-sdk version supports.
+        """
+        from opentelemetry.sdk._logs import LoggerProvider
+        from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter, SimpleLogRecordProcessor
+        from opentelemetry.sdk.resources import Resource
+
+        from lemoncrow.core.service.telemetry.exporters.otel import emit_product_log
+
+        exporter = InMemoryLogRecordExporter()
+        provider = LoggerProvider(resource=Resource.create({"service.name": "test"}))
+        provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+
+        monkeypatch.setattr(
+            "lemoncrow.core.service.telemetry.exporters.otel.logger",
+            logging.getLogger("lemoncrow.product.telemetry.otel"),
+        )
+        monkeypatch.setattr(
+            "lemoncrow.core.service.telemetry.exporters.otel._PROVIDER",
+            provider,
+        )
+
+        result = emit_product_log("test_event", {"foo": "bar"})
+
+        assert result is True
+        finished = exporter.get_finished_logs()
+        assert len(finished) == 1
+        assert finished[0].log_record.body == "test_event"
+        assert finished[0].log_record.attributes["foo"] == "bar"
+
 
 # --------------------------------------------------------------------------- #
 # shutdown_otel                                                                #
@@ -423,3 +461,39 @@ class TestShutdownOtel:
 
         shutdown_otel()
         assert _last_check_failed_at is None
+
+    def test_flushes_pending_queue_before_clearing_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Regression test for GH #40: every CLI/MCP shutdown path calls
+        ``shutdown_otel()`` in a ``finally`` block right after enqueueing
+        final events via ``emit_product`` (async, non-blocking). If
+        ``shutdown_otel`` clears ``logger``/``_PROVIDER`` before the
+        background worker thread has drained those events, the worker
+        observes ``logger is None`` and tries to lazily re-run ``init_otel``
+        — including ``Resource.create()``'s internal thread pool — while the
+        interpreter is exiting, raising "cannot schedule new futures after
+        interpreter shutdown". ``shutdown_otel`` must flush the queue first.
+        """
+        import lemoncrow.core.service.telemetry.exporters.otel as otel_mod
+
+        sentinel_logger = logging.getLogger("sentinel")
+        sentinel_provider = object()
+        monkeypatch.setattr(otel_mod, "logger", sentinel_logger)
+        monkeypatch.setattr(otel_mod, "_PROVIDER", sentinel_provider)
+
+        observed: dict[str, Any] = {}
+
+        def fake_flush(timeout: float = 2.0) -> None:
+            observed["logger_at_flush"] = otel_mod.logger
+            observed["provider_at_flush"] = otel_mod._PROVIDER
+
+        monkeypatch.setattr(
+            "lemoncrow.core.service.telemetry.emit.flush_product_telemetry",
+            fake_flush,
+        )
+
+        otel_mod.shutdown_otel()
+
+        assert observed["logger_at_flush"] is sentinel_logger
+        assert observed["provider_at_flush"] is sentinel_provider
+        assert otel_mod.logger is None
+        assert otel_mod._PROVIDER is None

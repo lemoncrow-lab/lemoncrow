@@ -190,8 +190,8 @@ def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
     if logger is None:
         return False
     try:
+        from opentelemetry._logs import LogRecord
         from opentelemetry._logs.severity import SeverityNumber
-        from opentelemetry.sdk._logs import LogRecord  # type: ignore[attr-defined]
         from opentelemetry.trace import TraceFlags, get_current_span
 
         # Flatten dict values to OTel-compatible types (str, int, float, bool)
@@ -225,6 +225,19 @@ def emit_product_log(event_name: str, props: dict[str, Any]) -> bool:
 
 def shutdown_otel() -> None:
     global logger, _PROVIDER, _last_check_failed_at
+    # Drain any events still sitting in the async telemetry queue *before*
+    # tearing down state below. Callers enqueue their final events (e.g.
+    # "session_end") via the non-blocking emit_product() and immediately hit
+    # this function in a `finally` block. Without this flush, the background
+    # worker thread can race this teardown: it observes `logger is None`
+    # (just cleared here) and calls init_otel() from scratch -- including
+    # Resource.create()'s internal thread pool -- right as the interpreter is
+    # exiting, raising "cannot schedule new futures after interpreter
+    # shutdown". See GH #40.
+    with contextlib.suppress(Exception):
+        from lemoncrow.core.service.telemetry.emit import flush_product_telemetry
+
+        flush_product_telemetry()
     provider = _PROVIDER
     logger = None
     _PROVIDER = None
