@@ -2334,7 +2334,9 @@ def _opencode_prose_output_tokens(session_id: str) -> int:
     try:
         from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
-        serialized = serialize_opencode_session(session_id, db_path)
+        # source= stamps the truncation marker (#38); db_path is the OpenCode
+        # data root, so "opencode" is the honest stamp here.
+        serialized = serialize_opencode_session(session_id, db_path, source="opencode")
     except Exception:  # fail-open: a hook must never crash the agent
         return 0
     blocks: list[tuple[str, str]] = []

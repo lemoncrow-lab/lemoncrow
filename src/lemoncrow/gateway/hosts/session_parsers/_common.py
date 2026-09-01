@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,37 @@ _SYSTEM_PREFIXES_CLAUDE = (
     "<command-",
     "<thinking>",
 )
+
+# Claude Code and the normalized hosts wrap the real task in an XML-ish
+# envelope. Shared by claude.py and _session_parser.py so the two copies
+# can't drift; group(2) is the wrapped text.
+#
+# Both quantifiers are bounded for the same reason redaction.py bounds its
+# own (#38): an unbounded ``[^>]*``/``.*?`` before a required closing
+# literal makes the engine walk to end-of-string once per "<task" opener, so
+# a multi-MB tool-output blob that happens to contain such openers (and no
+# close tag) costs O(n) per occurrence. 64KB is a generous wrapped-task size
+# and matches the window used for ``<think>`` blocks in redaction.py.
+_TASK_WRAPPER_RE = re.compile(
+    r"<(task|prompt|request|question)[^>]{0,256}>(.{0,65536}?)</\1>",
+    re.IGNORECASE | re.DOTALL,
+)
+# Necessary condition for _TASK_WRAPPER_RE to match anywhere, checked first
+# because it is a single O(n) C-level scan. Bounding alone leaves a brutal
+# constant -- ~13s/MB on text densely seeded with unmatched "<task>" openers,
+# since each opener still pays a 64KB window scan. Skipping outright when no
+# closing tag exists is exact (a match requires one), not heuristic.
+_TASK_WRAPPER_CLOSE_RE = re.compile(r"</(?:task|prompt|request|question)>", re.IGNORECASE)
+
+
+def extract_task_wrapper(text: str) -> str | None:
+    """Return the text wrapped in ``<task>``/``<prompt>``/``<request>``/
+    ``<question>`` tags, or ``None`` when *text* carries no such wrapper.
+    """
+    if _TASK_WRAPPER_CLOSE_RE.search(text) is None:
+        return None
+    match = _TASK_WRAPPER_RE.search(text)
+    return match.group(2).strip() if match else None
 
 
 def utcnow() -> datetime:
@@ -611,7 +643,11 @@ def _build_trace_from_normalized_content(
                     matches = re.findall(r"- ([\w.-]+)", txt)
                     skills.extend(matches)
                 if "agent settings" in txt.lower():
-                    matches = re.findall(r"(\w+):\s*(.+)", txt)
+                    # Bounded quantifiers (#38): greedy ``\w+`` immediately
+                    # before a required ``:`` re-scans the whole run at every
+                    # start offset, so a long colon-free word run in a big
+                    # blob is O(n^2). Keys/values this long aren't settings.
+                    matches = re.findall(r"(\w{1,64}):\s*(.{1,4096})", txt)
                     for k, v in matches:
                         agent_settings[k] = v.strip()
             if role == "system":
@@ -778,6 +814,170 @@ def _build_trace_from_normalized_content(
 
 _SIZE_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 
+# Cap for sessions serialized in memory by the SQLite-backed importers
+# (opencode/lemoncode/cursor). Those never touch a file, so ``_SIZE_LIMIT_BYTES``
+# above -- a *file* skip enforced only by import_paths_with_progress -- never
+# applies to them, leaving redaction + JSONL parsing unbounded (#38). 32MB is
+# far above any real session (the pathological #38 report was ~20MB of inlined
+# tool output) while capping worst-case redaction work at a couple of seconds.
+_MAX_SERIALIZED_SESSION_BYTES = 32 * 1024 * 1024  # 32 MB
+
+# Cap for a *single* serialized record. The #38 payload was one ~20MB inlined
+# tool output on one line, so the whole-session cap alone would drop the entire
+# remainder of the session -- including every ``step-finish`` token record,
+# permanently zeroing that session's token/cost accounting (the ``time_updated``
+# dedup means a re-import never revisits it). Eliding the oversized *payload*
+# inside the record instead keeps the record valid and every later record intact.
+_MAX_SERIALIZED_RECORD_BYTES = 1024 * 1024  # 1 MB
+
+# Floor for the longest single string value kept inside a record that blew the
+# per-record cap, used when the derived budget (see _record_byte_budget) leaves
+# no room for more. 512 chars still identifies what the payload was.
+_MIN_RECORD_STRING_CHARS = 512
+
+# Marker appended in place of the dropped tail. It is a syntactically valid
+# JSONL record with an ``_type`` no parser dispatches on, so truncation stays
+# visible in the stored RawArtifact without adding a bogus turn or a
+# malformed line to the event stream.
+_TRUNCATION_MARKER_TYPE = "lemoncrow.truncated"
+
+# Key stamped onto a record whose payload was elided. Parsers read known keys
+# off each event, so an extra one is inert -- but it makes the loss visible to
+# anyone reading the stored artifact.
+_RECORD_TRUNCATED_KEY = "_truncated"
+
+
+@dataclass(frozen=True)
+class SerializedSession:
+    """A serialized JSONL session plus honest metadata about the *original*.
+
+    ``sha256_original`` / ``byte_count_original`` always describe the bytes as
+    they were before any capping, so a RawArtifact built from them keeps saying
+    what the source actually held; ``text`` is what is safe to store and parse.
+    """
+
+    text: str
+    sha256_original: str
+    byte_count_original: int
+    truncated: bool
+
+
+def _elide_long_strings(value: Any, max_chars: int, state: dict[str, int]) -> Any:
+    """Recursively replace string values longer than *max_chars* with a stub."""
+    if isinstance(value, str):
+        if len(value) <= max_chars:
+            return value
+        dropped = len(value) - max_chars
+        state["elided"] += dropped
+        return f"{value[:max_chars]}...[lemoncrow: elided {dropped} chars]"
+    if isinstance(value, dict):
+        return {key: _elide_long_strings(item, max_chars, state) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_elide_long_strings(item, max_chars, state) for item in value]
+    return value
+
+
+def _record_byte_budget() -> int:
+    """Per-record byte budget, resolved at call time so both caps stay overridable.
+
+    Never more than an eighth of the whole-session cap: a record allowed to eat
+    the entire session budget defeats the point of capping records first, and
+    deriving one from the other means they cannot be configured into that state.
+    """
+    return min(_MAX_SERIALIZED_RECORD_BYTES, max(1024, _MAX_SERIALIZED_SESSION_BYTES // 8))
+
+
+def serialize_capped_record(
+    record: dict[str, Any],
+    *,
+    max_bytes: int | None = None,
+) -> tuple[str, str]:
+    """Serialize *record* as one JSONL line, eliding oversized string payloads.
+
+    Returns ``(line, original_line)`` -- the same object twice when nothing was
+    elided, so callers can test identity. ``original_line`` lets the caller hash
+    and size the true original while retaining only the capped text.
+    """
+    max_bytes = _record_byte_budget() if max_bytes is None else max_bytes
+    line = json.dumps(record, ensure_ascii=False)
+    original_bytes = len(line.encode("utf-8"))
+    if original_bytes <= max_bytes:
+        return line, line
+
+    # A quarter of the record budget per string leaves room for the record's
+    # other fields and the marker; never below _MIN_RECORD_STRING_CHARS, so a
+    # tiny budget still yields an identifiable payload head.
+    max_string_chars = max(_MIN_RECORD_STRING_CHARS, max_bytes // 4)
+    state = {"elided": 0}
+    capped: dict[str, Any] = {key: _elide_long_strings(value, max_string_chars, state) for key, value in record.items()}
+    if not state["elided"]:
+        # Oversized but not because of any single string (many small fields);
+        # nothing safe to drop, so keep the record whole.
+        return line, line
+    capped[_RECORD_TRUNCATED_KEY] = {
+        "original_byte_count": original_bytes,
+        "elided_chars": state["elided"],
+    }
+    return json.dumps(capped, ensure_ascii=False), line
+
+
+def truncate_serialized_session(
+    text: str,
+    *,
+    source: str,
+    session_id: str,
+    limit: int | None = None,
+) -> SerializedSession:
+    """Cap an in-memory serialized JSONL session at *limit* bytes.
+
+    Backstop only: prefer :func:`serialize_capped_record` to cap the oversized
+    *payload* inside a record, which preserves every later record. This drops
+    the tail wholesale and is what remains when a session is huge in aggregate.
+
+    Truncates on a line boundary and appends a marker line recording the
+    original size, so downstream ``json.loads`` per line only ever sees whole
+    records. When even the *first* record exceeds *limit* there is no line
+    boundary to cut on, and the head is dropped entirely rather than emitting a
+    byte-truncated fragment that fails to parse. ``limit=None`` resolves
+    ``_MAX_SERIALIZED_SESSION_BYTES`` at call time rather than at def time, so
+    the cap stays overridable.
+    """
+    limit = _MAX_SERIALIZED_SESSION_BYTES if limit is None else limit
+    encoded = text.encode("utf-8")
+    original = len(encoded)
+    digest = sha256_text(text)
+    if original <= limit:
+        return SerializedSession(text=text, sha256_original=digest, byte_count_original=original, truncated=False)
+
+    head = encoded[:limit].decode("utf-8", errors="ignore")
+    cut = head.rfind("\n")
+    # cut == -1 means the first record alone blows the cap: any head we kept
+    # would be a mid-record fragment that fails json.loads. Keep none of it.
+    head = head[:cut] if cut != -1 else ""
+    marker = json.dumps(
+        {
+            "_type": _TRUNCATION_MARKER_TYPE,
+            "source": source,
+            "session_id": session_id,
+            "limit_bytes": limit,
+            "original_byte_count": original,
+        },
+        ensure_ascii=False,
+    )
+    logger.warning(
+        "%s: truncating oversized session %s (%.1fMB > %.1fMB limit)",
+        source,
+        session_id,
+        original / 1e6,
+        limit / 1e6,
+    )
+    return SerializedSession(
+        text=f"{head}\n{marker}" if head else marker,
+        sha256_original=digest,
+        byte_count_original=original,
+        truncated=True,
+    )
+
 
 def import_paths_with_progress(
     source: str,
@@ -895,20 +1095,34 @@ def record_normalized_session(
     session_id: str,
     relative_path: str,
     content_path: str,
-    raw_content: str,
+    raw_content: str | SerializedSession,
     source_mtime: datetime | None,
     force: bool = False,
     task: str | None = None,
     trace_content: str | None = None,
     source_path: str | None = None,
 ) -> str | None:
+    # A SerializedSession carries the pre-truncation hash/size, so a capped
+    # session's artifact still reports what the source actually held. A plain
+    # str is its own original.
+    serialized = (
+        raw_content
+        if isinstance(raw_content, SerializedSession)
+        else SerializedSession(
+            text=raw_content,
+            sha256_original=sha256_text(raw_content),
+            byte_count_original=len(raw_content.encode("utf-8")),
+            truncated=False,
+        )
+    )
+    text = serialized.text
     artifact_id = f"{source}-{sanitize_id(session_id)}"
     if not force and source_mtime is not None:
         existing = store.history.get_raw_artifact(artifact_id)
         if existing and existing.source_file_mtime and source_mtime <= existing.source_file_mtime:
             return None
 
-    redacted = redact(raw_content)
+    redacted = redact(text)
     artifact = RawArtifact(
         id=artifact_id,
         source=source,
@@ -916,9 +1130,9 @@ def record_normalized_session(
         kind="session.jsonl",
         relative_path=relative_path,
         content_path=content_path,
-        sha256_original=sha256_text(raw_content),
+        sha256_original=serialized.sha256_original,
         sha256_redacted=sha256_text(redacted),
-        byte_count_original=len(raw_content.encode("utf-8")),
+        byte_count_original=serialized.byte_count_original,
         byte_count_redacted=len(redacted.encode("utf-8")),
         created_at=utcnow(),
         source_file_mtime=source_mtime,
@@ -926,7 +1140,7 @@ def record_normalized_session(
     )
     store.history.record_raw_artifact(artifact, redacted)
 
-    normalized_content = trace_content if trace_content is not None else raw_content
+    normalized_content = trace_content if trace_content is not None else text
     trace = _build_trace_from_normalized_content(
         source=source,
         session_id=session_id,

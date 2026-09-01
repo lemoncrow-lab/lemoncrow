@@ -20,6 +20,7 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     make_user_message,
     parse_datetime,
     record_normalized_session,
+    truncate_serialized_session,
 )
 from lemoncrow.infra.storage.bundle import StoreBundle
 
@@ -54,7 +55,28 @@ def _cursor_agent_chats_dirs() -> list[Path]:
     return out
 
 
-_USER_QUERY_RE = re.compile(r"<user_query>(.*?)</user_query>", re.DOTALL)
+# 64KB window (#38): an unbounded lazy ``.*?`` before a required closing
+# literal walks to end-of-string once per "<user_query>" opener that lacks a
+# close tag, which is O(n) per occurrence on a multi-MB blob. Matches the
+# bound used by redaction.py's ``<think>`` pattern and _common.py's
+# ``_TASK_WRAPPER_RE``.
+_USER_QUERY_RE = re.compile(r"<user_query>(.{0,65536}?)</user_query>", re.DOTALL)
+_USER_QUERY_CLOSE = "</user_query>"
+
+
+def _extract_user_query(text: str) -> str | None:
+    """Return the ``<user_query>`` payload, or ``None`` if absent.
+
+    The substring pre-check is a necessary condition for the regex to match
+    and costs one O(n) C-level scan; without it, text densely seeded with
+    unmatched ``<user_query>`` openers pays the 64KB window scan at every one
+    (~13s/MB). Same guard-then-scan shape as redaction.py's ``<think>``
+    pattern and _common.py's ``extract_task_wrapper`` (#38).
+    """
+    if _USER_QUERY_CLOSE not in text:
+        return None
+    match = _USER_QUERY_RE.search(text)
+    return match.group(1).strip() if match else None
 
 
 def _map_cursor_tool(tool_name: str, part: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
@@ -438,7 +460,13 @@ class CursorImporter:
             group = groups[composer_id]
             events = [make_session_line(composer_id, title=str(group["project"]))]
             events.extend(group["events"])
-            raw_content = build_normalized_jsonl(events)
+            # Same in-memory gap #38 closed for opencode: this payload is built
+            # in memory from sqlite and never passes through
+            # import_paths_with_progress, so nothing else bounds what reaches
+            # redact() and the per-line JSON parse.
+            raw_content = truncate_serialized_session(
+                build_normalized_jsonl(events), source="cursor", session_id=composer_id
+            )
             last_created = composer_last_created.get(composer_id)
             session_mtime = parse_datetime(last_created, default=db_mtime) if last_created else db_mtime
             trace_id = record_normalized_session(
@@ -524,7 +552,10 @@ class CursorImporter:
             )
             events: list[dict[str, Any]] = [make_session_line(session_id, title=project)]
 
-            def _assistant(**kw: Any) -> dict[str, Any]:
+            # _ts binds this iteration's timestamp at definition time; closing
+            # over the loop variable would make the value depend on when the
+            # closure runs (ruff B023).
+            def _assistant(_ts: str = ts, **kw: Any) -> dict[str, Any]:
                 # No model/token accounting is persisted; namespace the model so
                 # pricing.py keeps it at $0 (like the IDE importer's
                 # _normalize_model placeholder path).
@@ -535,7 +566,7 @@ class CursorImporter:
                     cache_read=0,
                     cache_write=0,
                     thinking_tokens=0,
-                    timestamp=ts,
+                    timestamp=_ts,
                     **kw,
                 )
 
@@ -544,8 +575,8 @@ class CursorImporter:
                 role = ev.get("role")
                 if role == "user":
                     text = str(ev.get("text") or "")
-                    match = _USER_QUERY_RE.search(text)
-                    clean = (match.group(1).strip() if match else text).strip()
+                    query = _extract_user_query(text)
+                    clean = (query if query is not None else text).strip()
                     # Drop the CLI's injected environment/preamble user turns;
                     # keep only the real user query.
                     if not clean or clean.startswith(("<user_info>", "<additional_data>", "<environment")):
@@ -563,7 +594,9 @@ class CursorImporter:
                     content_turns += 1
             if content_turns == 0:
                 continue  # transcript had no user/assistant/tool content worth recording
-            raw_content = build_normalized_jsonl(events)
+            raw_content = truncate_serialized_session(
+                build_normalized_jsonl(events), source="cursor", session_id=session_id
+            )
             trace_id = record_normalized_session(
                 self.store,
                 source="cursor",

@@ -104,3 +104,51 @@ def test_redact_does_not_hang_on_large_binary_blob() -> None:
     elapsed = time.monotonic() - start
 
     assert elapsed < 2.0, f"redact() took {elapsed:.2f}s on a 1M-char blob -- catastrophic backtracking regression"
+
+
+def test_redact_is_fast_on_densely_repeated_unclosed_think_tags() -> None:
+    # #38 follow-up. Bounding ``<think>...</think>`` to a 64KB window made it
+    # linear but left a brutal constant: with one unmatched "<think>" every 32
+    # bytes, every opener still pays a full 64KB window scan (~11s/MB,
+    # extrapolating to ~220s on the 20MB session from the issue). The closing
+    # literal is a necessary condition for a match, so a single cheap scan for
+    # "</think" lets the whole pattern be skipped.
+    blob = ("<think>" + "x" * 25) * 62_500  # ~2MB, zero closing tags
+
+    start = time.monotonic()
+    out = redact(blob)
+    elapsed = time.monotonic() - start
+
+    assert out == blob, "nothing to redact -- no closing </think> anywhere"
+    assert elapsed < 2.0, f"redact() took {elapsed:.2f}s on 2MB of unclosed <think> openers"
+
+
+def test_redact_is_fast_on_densely_repeated_unclosed_private_key_headers() -> None:
+    # Same shape as above for the PEM pattern: "-----BEGIN ... PRIVATE KEY-----"
+    # with no END anywhere pays a 16KB window scan per opener without the
+    # closing-literal guard.
+    blob = ("-----BEGIN A PRIVATE KEY-----" + "xxx") * 62_500  # ~2MB, zero END markers
+
+    start = time.monotonic()
+    out = redact(blob)
+    elapsed = time.monotonic() - start
+
+    assert out == blob, "nothing to redact -- no -----END ... PRIVATE KEY----- anywhere"
+    assert elapsed < 2.0, f"redact() took {elapsed:.2f}s on 2MB of unclosed PEM headers"
+
+
+def test_closing_literal_guard_does_not_suppress_real_matches() -> None:
+    # The guard must be a pure fast-path: once the closing literal exists, both
+    # patterns still redact. Guards against a fix that trades correctness for
+    # speed.
+    noise = ("<think>" + "x" * 25) * 20_000  # ~640KB of unmatched openers
+    text = f"{noise}<think>the hidden part</think>tail"
+    out = redact(text)
+    assert "the hidden part" not in out
+    assert "<redacted-hidden-reasoning>" in out
+
+    key = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK\n-----END RSA PRIVATE KEY-----"
+    key_out = redact(f"prefix\n{key}\nsuffix")
+    assert "MIIBOgIBAAJBAK" not in key_out
+    assert "<redacted-private-key>" in key_out
+    assert "suffix" in key_out

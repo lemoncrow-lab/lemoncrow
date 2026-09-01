@@ -10,6 +10,42 @@ from __future__ import annotations
 import os
 import re
 
+# Patterns whose bounded window scan is still expensive to *start*: the
+# opener is short and common, so a blob densely seeded with unmatched
+# openers pays the full window scan at every one of them. Bounding the
+# quantifiers (#38) made these linear, but with a brutal constant --
+# extrapolated ~220s at 20MB for one "<think>" every 32 bytes, ~34s for
+# repeated "-----BEGIN ... KEY-----" with no END. Each is paired below with
+# a *guard*: a necessary condition (the closing literal must appear
+# somewhere in the text) that costs one O(n) C-level scan and lets us skip
+# the whole pattern when it provably cannot match. Exact, not heuristic --
+# no match is ever lost, because a match requires the closing literal.
+_PRIVATE_KEY_RE = re.compile(
+    # Bounded to a generous 16KB key body (real PEM keys are a few KB at
+    # most). An unbounded ``.*?`` here is a catastrophic-backtracking
+    # trap (#38): when "-----BEGIN ... PRIVATE KEY-----" appears without
+    # a matching END anywhere in a huge blob, the lazy scan must walk to
+    # the end of the string before failing, once per BEGIN occurrence.
+    r"-----BEGIN [A-Z ]{1,40}PRIVATE KEY-----.{0,16384}?-----END [A-Z ]{1,40}PRIVATE KEY-----",
+    re.DOTALL,
+)
+_THINK_RE = re.compile(
+    # Bounded to 64KB (a generous reasoning-block size) for the same
+    # reason as the private-key/JWT/email patterns below (#38): an
+    # unbounded lazy ``.*?`` here would walk to end-of-string once per
+    # "<think>"/"<thinking>" occurrence that lacks a matching close tag
+    # (e.g. a session log truncated mid-block), which is O(n) per
+    # occurrence rather than O(1).
+    r"<(think|thinking)>.{0,65536}?</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+# expensive pattern -> closing literal that MUST be present for it to match.
+_CLOSING_LITERAL_GUARDS: dict[re.Pattern[str], re.Pattern[str]] = {
+    _PRIVATE_KEY_RE: re.compile(r"-----END [A-Z ]{1,40}PRIVATE KEY-----"),
+    _THINK_RE: re.compile(r"</think", re.IGNORECASE),
+}
+
 # Common secret patterns. Conservative — false positives are acceptable
 # because we only mask, not drop, and the surrounding text remains.
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -30,17 +66,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"shppa_[A-Za-z0-9]{20,}"), "<redacted-shopify-token>"),
     (re.compile(r"shpat_[A-Za-z0-9]{20,}"), "<redacted-shopify-token>"),
     (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "<redacted-github-token>"),
-    (
-        # Bounded to a generous 16KB key body (real PEM keys are a few KB at
-        # most). An unbounded ``.*?`` here is a catastrophic-backtracking
-        # trap (#38): when "-----BEGIN ... PRIVATE KEY-----" appears without
-        # a matching END anywhere in a huge blob, the lazy scan must walk to
-        # the end of the string before failing, once per BEGIN occurrence.
-        re.compile(
-            r"-----BEGIN [A-Z ]{1,40}PRIVATE KEY-----.{0,16384}?-----END [A-Z ]{1,40}PRIVATE KEY-----", re.DOTALL
-        ),
-        "<redacted-private-key>",
-    ),
+    (_PRIVATE_KEY_RE, "<redacted-private-key>"),
     # JWT-ish tokens (3 base64url segments). Segments bounded to 4KB each --
     # real JWTs are a few KB at most -- so a huge base64url blob containing
     # a stray "eyJ" (common by chance) can't force an O(n) failed scan per
@@ -68,16 +94,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 # Phrases that signal hidden chain-of-thought.
 _COT_PATTERNS = [
-    (
-        # Bounded to 64KB (a generous reasoning-block size) for the same
-        # reason as the private-key/JWT/email patterns above (#38): an
-        # unbounded lazy ``.*?`` here would walk to end-of-string once per
-        # "<think>"/"<thinking>" occurrence that lacks a matching close tag
-        # (e.g. a session log truncated mid-block), which is O(n) per
-        # occurrence rather than O(1).
-        re.compile(r"<(think|thinking)>.{0,65536}?</\1>", re.DOTALL | re.IGNORECASE),
-        "<redacted-hidden-reasoning>",
-    ),
+    (_THINK_RE, "<redacted-hidden-reasoning>"),
     (
         re.compile(
             r"\b(?:chain of thought|chain-of-thought|internal reasoning|private thoughts):[^\n\r]*",
@@ -88,19 +105,25 @@ _COT_PATTERNS = [
 ]
 
 
+def _apply_patterns(patterns: list[tuple[re.Pattern[str], str]], text: str) -> str:
+    """Substitute each ``(pattern, replacement)`` in turn, skipping guarded
+    patterns whose closing literal is absent (see ``_CLOSING_LITERAL_GUARDS``).
+    """
+    out = text
+    for pattern, replacement in patterns:
+        guard = _CLOSING_LITERAL_GUARDS.get(pattern)
+        if guard is not None and guard.search(out) is None:
+            continue
+        out = pattern.sub(replacement, out)
+    return out
+
+
 def redact(text: str) -> str:
     """Return text with secrets and chain-of-thought removed."""
     if not text:
         return text
-    out = text
-    for pattern, replacement in _PATTERNS:
-        out = pattern.sub(replacement, out)
-
     # Redact CoT blocks/markers without truncating the entire string
-    for pattern, replacement in _COT_PATTERNS:
-        out = pattern.sub(replacement, out)
-
-    return out
+    return _apply_patterns(_COT_PATTERNS, _apply_patterns(_PATTERNS, text))
 
 
 def redact_list(items: list[str]) -> list[str]:
@@ -133,10 +156,7 @@ def redact_tool_output(text: str) -> str:
     """
     if not text or not output_redaction_enabled():
         return text
-    out = text
-    for pattern, replacement in _PATTERNS:
-        out = pattern.sub(replacement, out)
-    return out
+    return _apply_patterns(_PATTERNS, text)
 
 
 # Characters and substrings that are never legitimate inside a

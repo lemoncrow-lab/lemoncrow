@@ -11,6 +11,7 @@ import json
 import logging
 import sqlite3
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -24,9 +25,12 @@ from lemoncrow.core.foundation.models import (
 )
 from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.gateway.hosts.session_parsers._common import (
+    SerializedSession,
     make_llm_usage_entry,
+    serialize_capped_record,
     snapshot_edited_files,
     summarize_usage_entries,
+    truncate_serialized_session,
 )
 from lemoncrow.infra.storage.bundle import StoreBundle
 
@@ -82,13 +86,44 @@ def find_opencode_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
         return []
 
 
-def serialize_opencode_session(session_id: str, db_path: Path) -> str:
-    """Serialize an OpenCode session's messages+parts into normalized JSONL.
+def serialize_opencode_session_capped(session_id: str, db_path: Path, *, source: str = "opencode") -> SerializedSession:
+    """Serialize an OpenCode session to JSONL, capped, with honest metadata.
 
-    Module-level so recall indexing can reuse it without constructing an importer
-    (which needs a StoreBundle).
+    Two caps, in order of preference (#38):
+
+    1. Per record: an oversized payload is elided *inside* its own record via
+       :func:`serialize_capped_record`. The #38 report was a single ~20MB
+       inlined tool output on one ``part`` line, and dropping the session tail
+       there would also drop every following ``step-finish`` record -- silently
+       zeroing the session's token/cost accounting, permanently, since the
+       ``time_updated`` dedup means a re-import never revisits it.
+    2. Whole session, as a backstop: ``_MAX_SERIALIZED_SESSION_BYTES``. The
+       file-based ``import_paths_with_progress`` size skip never reaches this
+       SQLite-backed path -- there is no file to stat -- so without a cap a
+       huge session feeds an unbounded string into ``redact()`` and the
+       per-line JSON parse, inside the import write transaction.
+
+    ``sha256_original``/``byte_count_original`` on the result describe the true
+    uncapped bytes; they are hashed streaming so the original is never retained.
     """
     lines: list[str] = []
+    hasher = hashlib.sha256()
+    original_bytes = 0
+    record_truncated = False
+
+    def add(record: dict[str, Any]) -> None:
+        nonlocal original_bytes, record_truncated
+        capped, original = serialize_capped_record(record)
+        if lines:
+            hasher.update(b"\n")
+            original_bytes += 1
+        encoded = original.encode("utf-8")
+        hasher.update(encoded)
+        original_bytes += len(encoded)
+        if capped is not original:
+            record_truncated = True
+        lines.append(capped)
+
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
@@ -110,35 +145,46 @@ def serialize_opencode_session(session_id: str, db_path: Path) -> str:
         rows = conn.execute(sql, (session_id, session_id)).fetchall()
         for r in rows:
             if r["etype"] == "message":
-                lines.append(
-                    json.dumps(
-                        {
-                            "_type": "message",
-                            "id": r["id"],
-                            "timestamp": r["time_created"],
-                            "data": json.loads(r["data"] or "{}"),
-                        },
-                        ensure_ascii=False,
-                    )
+                add(
+                    {
+                        "_type": "message",
+                        "id": r["id"],
+                        "timestamp": r["time_created"],
+                        "data": json.loads(r["data"] or "{}"),
+                    }
                 )
             else:
-                lines.append(
-                    json.dumps(
-                        {
-                            "_type": "part",
-                            "id": r["id"],
-                            "role": r["role"],
-                            "timestamp": r["time_created"],
-                            "data": json.loads(r["data"] or "{}"),
-                        },
-                        ensure_ascii=False,
-                    )
+                add(
+                    {
+                        "_type": "part",
+                        "id": r["id"],
+                        "role": r["role"],
+                        "timestamp": r["time_created"],
+                        "data": json.loads(r["data"] or "{}"),
+                    }
                 )
 
         conn.close()
     except Exception:
         logger.exception("opencode: failed to read messages from %s", db_path)
-    return "\n".join(lines)
+
+    result = truncate_serialized_session("\n".join(lines), source=source, session_id=session_id)
+    return replace(
+        result,
+        sha256_original=hasher.hexdigest(),
+        byte_count_original=original_bytes,
+        truncated=result.truncated or record_truncated,
+    )
+
+
+def serialize_opencode_session(session_id: str, db_path: Path, *, source: str = "opencode") -> str:
+    """Capped JSONL text for an OpenCode session.
+
+    Module-level so recall indexing can reuse it without constructing an importer
+    (which needs a StoreBundle). Callers that need the pre-cap hash/size (the
+    importer, for its RawArtifact) want :func:`serialize_opencode_session_capped`.
+    """
+    return serialize_opencode_session_capped(session_id, db_path, source=source).text
 
 
 class OpenCodeImporter:
@@ -211,7 +257,8 @@ class OpenCodeImporter:
         if not force and existing and existing.source_file_mtime and session_mtime <= existing.source_file_mtime:
             return None
 
-        raw_content = self._serialize_session(session_id, db_path)
+        serialized = self._serialize_session(session_id, db_path)
+        raw_content = serialized.text
         redacted = redact(raw_content)
 
         artifact = RawArtifact(
@@ -221,9 +268,11 @@ class OpenCodeImporter:
             kind="session.jsonl",
             relative_path=f"{session_id}.jsonl",
             content_path=f"raw/{self.source}/{session_id}.jsonl",
-            sha256_original=_sha256(raw_content),
+            # The *original* fields must describe the original: `raw_content`
+            # may already be capped (#38), so they come off the serializer.
+            sha256_original=serialized.sha256_original,
             sha256_redacted=_sha256(redacted),
-            byte_count_original=len(raw_content.encode("utf-8")),
+            byte_count_original=serialized.byte_count_original,
             byte_count_redacted=len(redacted.encode("utf-8")),
             created_at=_utcnow(),
             source_file_mtime=session_mtime,
@@ -438,5 +487,5 @@ class OpenCodeImporter:
 
         return trace.id
 
-    def _serialize_session(self, session_id: str, db_path: Path) -> str:
-        return serialize_opencode_session(session_id, db_path)
+    def _serialize_session(self, session_id: str, db_path: Path) -> SerializedSession:
+        return serialize_opencode_session_capped(session_id, db_path, source=self.source)

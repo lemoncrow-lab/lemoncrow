@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.gateway.hosts.session_parsers._common import _SYSTEM_PREFIXES_CLAUDE
+from lemoncrow.gateway.hosts.session_parsers._common import _SYSTEM_PREFIXES_CLAUDE, extract_task_wrapper
 
 _NORMALIZED_SESSION_SOURCES = {
     "antigravity",
@@ -961,8 +961,9 @@ def _extract_text_from_claude_content(content: Any) -> str:
 
         # Handle User Commands (e.g. /plugin list)
         if text.startswith("<command-name>"):
-            name_match = re.search(r"<command-name>(.*?)</command-name>", text)
-            args_match = re.search(r"<command-args>(.*?)</command-args>", text)
+            # Bounded windows (#38) -- see _TASK_WRAPPER_RE in _common.py.
+            name_match = re.search(r"<command-name>(.{0,65536}?)</command-name>", text)
+            args_match = re.search(r"<command-args>(.{0,65536}?)</command-args>", text)
             name = name_match.group(1).strip() if name_match else "unknown"
             args = args_match.group(1).strip() if args_match else ""
             return f"User ran command: {name} {args}".strip()
@@ -970,9 +971,9 @@ def _extract_text_from_claude_content(content: Any) -> str:
         if any(text.startswith(p) for p in _SYSTEM_PREFIXES_CLAUDE):
             return ""
 
-        xml_match = re.search(r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", text, re.I | re.S)
-        if xml_match:
-            return xml_match.group(2).strip()
+        wrapped = extract_task_wrapper(text)
+        if wrapped is not None:
+            return wrapped
         return text
 
     if isinstance(content, list):
@@ -981,8 +982,8 @@ def _extract_text_from_claude_content(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text":
                 t = block.get("text", "").strip()
                 if t and not any(t.startswith(p) for p in _SYSTEM_PREFIXES_CLAUDE):
-                    xml_match = re.search(r"<(task|prompt|request|question)[^>]*>(.*?)</\1>", t, re.I | re.S)
-                    parts.append(xml_match.group(2).strip() if xml_match else t)
+                    wrapped = extract_task_wrapper(t)
+                    parts.append(wrapped if wrapped is not None else t)
         return "\n\n".join(parts)
     return ""
 

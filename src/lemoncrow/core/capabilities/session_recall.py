@@ -207,7 +207,12 @@ def _load_opencode(session_id: str, db_path: Path) -> list[str]:
     from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
     from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
-    return _snippets_from_turns(parse_session_turns(serialize_opencode_session(session_id, db_path), "opencode"))
+    # source= stamps the truncation marker (#38). This candidate set is built
+    # from the OpenCode data root specifically; LemonCode has its own root and
+    # must pass source="lemoncode" if it is ever indexed here.
+    return _snippets_from_turns(
+        parse_session_turns(serialize_opencode_session(session_id, db_path, source="opencode"), "opencode")
+    )
 
 
 def _claude_transcript_paths_in_window(window_days: int) -> list[Path]:
@@ -480,27 +485,27 @@ def _discover_candidates(window_days: int) -> list[_Candidate]:
     # must not block the others.
     try:
         candidates.extend(_claude_candidates(window_days))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host claude", exc_info=True)
     try:
         candidates.extend(_codex_candidates(cutoff))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host codex", exc_info=True)
     try:
         candidates.extend(_opencode_candidates(cutoff))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host opencode", exc_info=True)
     try:
         candidates.extend(_copilot_candidates(cutoff))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host copilot", exc_info=True)
     try:
         candidates.extend(_cursor_candidates(cutoff))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host cursor", exc_info=True)
     try:
         candidates.extend(_hermes_candidates(cutoff))
-    except Exception:  # noqa: BLE001
+    except Exception:
         _log.warning("recall discovery failed for host hermes", exc_info=True)
     return candidates
 
@@ -579,7 +584,7 @@ def recall(
     cap = capability or _capability(root)
     try:
         passages, _ = cap.recall(agent_id=_AGENT_ID, query=query, top_k=top_k, tags=[_TAG])
-    except Exception:  # noqa: BLE001 - recall is best-effort
+    except Exception:
         # Log so a backend failure is distinguishable from a genuine no-match.
         _log.warning("session recall failed for query %r; returning no matches", query, exc_info=True)
         return []
@@ -609,7 +614,7 @@ def _main(argv: list[str] | None = None) -> int:
             window_days=namespace.window_days,
             max_sessions=namespace.max_sessions,
         )
-    except Exception:  # noqa: BLE001 - background indexing is best-effort
+    except Exception:
         return 0
     return 0
 
