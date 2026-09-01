@@ -173,15 +173,29 @@ _extract_progress() {
         return $?
     fi
     local total
-    total=$(tar -tzf "$arc" 2>/dev/null | wc -l | tr -d ' ')
+    # Listing is best-effort (a truncated archive fails here): it only sizes the
+    # progress bar. Extraction status is captured separately below.
+    total=$(tar -tzf "$arc" 2>/dev/null | wc -l | tr -d ' ' || true)
     (( total <= 0 )) && total=1
     local n=0
+    # `done < <(tar ...)` throws away tar's exit status — the loop returns the
+    # status of the last `read`, so a truncated archive used to "extract
+    # successfully" and the install carried on with a half-written tree.
+    # Route tar's real status through a file the loop cannot swallow.
+    local rc_file rc
+    rc_file="$(mktemp -t lemoncrow-extract-rc.XXXXXX)"
     while IFS= read -r _; do
         (( n++ )) || true
         local pct=$(( n * 100 / total ))
         (( pct > 100 )) && pct=100
         printf "\r     $(_bar "$n" "$total")  %3d%%" "$pct" >&2
-    done < <(tar -xvzf "$arc" -C "$dest" 2>&1)
+    done < <(tar -xvzf "$arc" -C "$dest" 2>&1; printf '%s' "$?" >"$rc_file")
+    rc="$(cat "$rc_file" 2>/dev/null || true)"
+    rm -f "$rc_file"
+    if [[ "$rc" != "0" ]]; then
+        printf "\n" >&2
+        return "${rc:-1}"
+    fi
     printf "\r     $(_bar "$total" "$total")  100%% ${_CG}✓${_C0}\n" >&2
 }
 
@@ -202,7 +216,10 @@ verify_checksum() {
         expected=""
     fi
     # Accept both `<hash>  file` and `SHA256 (file) = <hash>` formats.
-    expected="$(printf '%s' "$expected" | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f')"
+    # `|| true`: no sidecar means grep matches nothing, and under `set -o
+    # pipefail` that killed the whole install here instead of falling through to
+    # the "no published checksum" branch two lines below.
+    expected="$(printf '%s' "$expected" | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f' || true)"
     if [[ -z "$expected" ]]; then
         if [[ "$LEMONCROW_ALLOW_UNVERIFIED" == "1" ]]; then
             warn "No published checksum at ${url}.sha256 — proceeding unverified (LEMONCROW_ALLOW_UNVERIFIED=1)."
@@ -232,6 +249,45 @@ run() {
         "$@"
     fi
 }
+
+# ---- ~/.local/bin link hygiene -----------------------------------------------
+# A dangling symlink is invisible to `-e`, so the "don't clobber anything"
+# guards below used to skip exactly the victims of GH #41: the broken
+# ~/.local/bin/lemoncrow left behind by a no-op install was never replaced.
+# These helpers only ever act on a link that resolves NOWHERE *and* points into
+# the LemonCrow-managed tree; a real file, or a link that resolves elsewhere, is
+# always left untouched.
+_is_dangling_lemoncrow_link() {
+    local link="$1" target
+    [[ -L "$link" ]] || return 1        # not a symlink (or nothing there)
+    [[ -e "$link" ]] && return 1        # symlink still resolves — keep it
+    target="$(readlink "$link" 2>/dev/null || true)"
+    [[ "$target" == "${LEMONCROW_BIN_DIR%/}/"* || "$target" == "${HOME%/}/.lemoncrow/"* ]]
+}
+
+# True when <link> may be (re)created: the slot is empty, or holds a dangling
+# LemonCrow link.
+_local_bin_slot_writable() {
+    local link="$1"
+    [[ -e "$link" || -L "$link" ]] || return 0
+    _is_dangling_lemoncrow_link "$link"
+}
+
+# Clear the broken LemonCrow links an aborted install would otherwise leave on
+# PATH — a dangling `lemoncrow` breaks every host config that shells out to it.
+_prune_dangling_local_links() {
+    local name
+    for name in lemoncrow lc lcd; do
+        if _is_dangling_lemoncrow_link "${HOME}/.local/bin/${name}"; then
+            rm -f "${HOME}/.local/bin/${name}" 2>/dev/null || true
+            warn "Removed broken symlink ${HOME}/.local/bin/${name} left by an earlier install."
+        fi
+    done
+}
+
+# fail(), but first clear those broken links so a failed install never leaves
+# ~/.local/bin poisoned (GH #41).
+_fail_install() { _prune_dangling_local_links; fail "$@"; }
 
 # ---- platform check ----------------------------------------------------------
 case "$OS" in
@@ -270,7 +326,11 @@ _acquire_install_lock() {
     [[ "${LEMONCROW_INSTALL_LOCK_HELD:-0}" == "1" ]] && return 0
     command -v flock >/dev/null 2>&1 || return 0
     mkdir -p "$(dirname "$LEMONCROW_INSTALL_DIR")" 2>/dev/null || true
-    exec 9>"${LEMONCROW_INSTALL_DIR%/}.lock" 2>/dev/null || return 0
+    # `exec 9>file 2>/dev/null` makes BOTH redirections permanent: stderr stayed
+    # pointed at /dev/null for the rest of the install, so every warn()/fail()
+    # message after this line was silently discarded (the "no output, exit 0"
+    # half of GH #41). Scope the suppression to a group so only fd 9 survives.
+    { exec 9>"${LEMONCROW_INSTALL_DIR%/}.lock"; } 2>/dev/null || return 0
     if ! flock -n 9 2>/dev/null; then
         info "Another LemonCrow installer is running — waiting for it to finish…"
         flock 9 || return 0
@@ -350,7 +410,8 @@ else
     _clean_managed_install_tree
 
     printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
-    _extract_progress "$TMP_ARCHIVE" "$LEMONCROW_INSTALL_DIR"
+    _extract_progress "$TMP_ARCHIVE" "$LEMONCROW_INSTALL_DIR" \
+        || _fail_install "Could not extract ${ASSET_NAME} — the download is corrupt or truncated: ${RELEASE_URL}"
     _write_install_stamp "release:${RELEASE_URL}"
 
     info "Distribution extracted to: ${LEMONCROW_INSTALL_DIR}"
@@ -362,6 +423,12 @@ fi
 # setup inside bundle.sh; it must never skip installing LemonCrow itself.
 export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
 BUNDLE_SH="${LEMONCROW_INSTALL_DIR}/scripts/bundle.sh"
+# bundle.sh records the bin dir it actually installed into here: it may re-point
+# LEMONCROW_BIN_DIR to `uv tool dir --bin`, and that change never reaches this
+# (parent) process. Drop any stale value first so we cannot read a previous
+# install's answer.
+BIN_DIR_RECORD="${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir"
+rm -f "$BIN_DIR_RECORD" 2>/dev/null || true
 if [[ -f "$BUNDLE_SH" ]]; then
     SETUP_ARGS=()
     [[ "$LEMONCROW_DRY_RUN" == "1" ]] && SETUP_ARGS+=(--dry-run)
@@ -370,19 +437,51 @@ if [[ -f "$BUNDLE_SH" ]]; then
     # When piped from curl, bash reads install.sh from stdin (a pipe), so
     # bundle.sh inherits that pipe as fd 0. Give interactive setup a real TTY
     # when one is available; otherwise keep stdin as-is for CI/containers.
-    if [[ ! -t 0 ]] && : </dev/tty 2>/dev/null; then
+    # `: </dev/tty 2>/dev/null` is not silent: bash reports the failed
+    # shell-level redirection before 2>/dev/null can apply, so every non-tty
+    # install leaked "/dev/tty: No such device or address" to stderr. Wrapping
+    # the whole redirection in a group makes the suppression stick (same fix as
+    # the flock `exec 9>` line above).
+    if [[ ! -t 0 ]] && { : </dev/tty; } 2>/dev/null; then
         LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
         LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
         bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty \
-            || fail "LemonCrow setup failed while installing the bundled wheel."
+            || _fail_install "LemonCrow setup failed while installing the bundled wheel."
     else
         LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
         LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
         bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" \
-            || fail "LemonCrow setup failed while installing the bundled wheel."
+            || _fail_install "LemonCrow setup failed while installing the bundled wheel."
     fi
 else
-    fail "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."
+    _fail_install "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."
+fi
+
+# ---- assert the bundle actually installed something --------------------------
+# bundle.sh exiting 0 is not proof of an install: a distribution missing its
+# wheel used to return 0 and leave an empty bin/ (GH #41). Resolve the bin dir
+# the child really used — recorded value first, then this process's (possibly
+# stale) value, then uv's tool bin dir — and require the binary to be there.
+_resolve_installed_bin_dir() {
+    local recorded candidate
+    recorded="$(cat "$BIN_DIR_RECORD" 2>/dev/null || true)"
+    for candidate in "$recorded" "$LEMONCROW_BIN_DIR" "$(uv tool dir --bin 2>/dev/null || true)"; do
+        if [[ -n "$candidate" && -x "${candidate}/lemoncrow" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+if [[ "$LEMONCROW_DRY_RUN" != "1" ]]; then
+    if RESOLVED_BIN_DIR="$(_resolve_installed_bin_dir)"; then
+        LEMONCROW_BIN_DIR="$RESOLVED_BIN_DIR"
+        export LEMONCROW_BIN_DIR
+        export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+        verbose "LemonCrow binary installed at ${LEMONCROW_BIN_DIR}/lemoncrow"
+    else
+        _fail_install "LemonCrow setup reported success but installed no lemoncrow binary (looked in ${LEMONCROW_BIN_DIR} and the uv tool bin dir). The distribution archive is incomplete — re-run the installer."
+    fi
 fi
 # ---- PATH persistence --------------------------------------------------------
 if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
@@ -398,23 +497,19 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
         info "Added ${LEMONCROW_BIN_DIR} to PATH for this session"
     fi
 
-    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find lemoncrow.
-    # Only link if the real binary is actually there -- bundle.sh is expected to have
-    # failed loudly (fail()) before we get here if the wheel install didn't succeed,
-    # but don't plant a dangling symlink on top of any remaining edge case.
+    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find
+    # lemoncrow. The short `lc` alias and the `lcd` daemon entrypoint get the
+    # same treatment -- MCP host configs (e.g. Claude Code's mcpServers) invoke
+    # the bare `lc` command. Only link a binary that is really there, and only
+    # into a slot that is empty or holds a dangling LemonCrow link (the GH #41
+    # leftover): never over a real file or a link that resolves elsewhere.
+    # `-x`, not `-e`: a non-executable leftover in BIN_DIR is not a binary, and
+    # linking it into ~/.local/bin only puts "Permission denied" on PATH.
     LOCAL_BIN="${HOME}/.local/bin"
-    if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" && ! -e "$LOCAL_BIN/lemoncrow" ]]; then
-        mkdir -p "$LOCAL_BIN" 2>/dev/null || true
-        ln -sf "${LEMONCROW_BIN_DIR}/lemoncrow" "$LOCAL_BIN/lemoncrow"
-        info "Symlinked lemoncrow -> ${LOCAL_BIN}/lemoncrow"
-    fi
-    # Same for the short `lc` alias and the `lcd` daemon entrypoint -- MCP
-    # host configs (e.g. Claude Code's mcpServers) invoke the bare `lc`
-    # command, so it needs the same non-login-shell fallback as `lemoncrow`.
-    for short_bin in lc lcd; do
-        if [[ -e "${LEMONCROW_BIN_DIR}/${short_bin}" && ! -e "$LOCAL_BIN/${short_bin}" ]]; then
+    for short_bin in lemoncrow lc lcd; do
+        if [[ -x "${LEMONCROW_BIN_DIR}/${short_bin}" ]] && _local_bin_slot_writable "$LOCAL_BIN/${short_bin}"; then
             mkdir -p "$LOCAL_BIN" 2>/dev/null || true
-            ln -sf "${LEMONCROW_BIN_DIR}/${short_bin}" "$LOCAL_BIN/${short_bin}"
+            ln -sfn "${LEMONCROW_BIN_DIR}/${short_bin}" "$LOCAL_BIN/${short_bin}"
             info "Symlinked ${short_bin} -> ${LOCAL_BIN}/${short_bin}"
         fi
     done
@@ -432,9 +527,12 @@ fi
 # ---- done --------------------------------------------------------------------
 echo ""
 cli="lemoncrow"
-[[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
-if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]] || command -v lc >/dev/null 2>&1 || ( command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q "^lemoncrow" ); then
-    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || lc --version 2>/dev/null || echo '') ready!"
+[[ -x "${LEMONCROW_BIN_DIR}/lc" ]] && cli="lc"
+# Report readiness for the binary THIS run installed. `command -v lc` used to
+# satisfy this test with any foreign/older lc on PATH, so an install that put
+# nothing in place still printed "ready!".
+if [[ -x "${LEMONCROW_BIN_DIR}/lemoncrow" ]]; then
+    info "LemonCrow $("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>/dev/null || echo '') ready!"
     echo ""
     echo "  Quick start:  ${cli} --help"
     echo "  Init runtime: ${cli} init"

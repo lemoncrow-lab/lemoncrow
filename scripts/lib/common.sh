@@ -151,12 +151,16 @@ _install_debug_snapshot() {
     _install_debug "install_hosts.sh: $(_file_id "$LEMONCROW_SCRIPTS_DIR/install_hosts.sh")"
     _install_debug "lib/common.sh: $(_file_id "$LEMONCROW_SCRIPTS_DIR/lib/common.sh")"
     local wheel
-    wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name 'lemoncrow-*.whl' 2>/dev/null | sort -V | tail -1)"
+    # `find` exits non-zero when bin/ does not exist yet (source checkout, or a
+    # release tree before the wheel is unpacked). Under `set -euo pipefail` that
+    # aborts the whole `source lib/common.sh`, so keep it non-fatal.
+    wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name 'lemoncrow-*.whl' 2>/dev/null | sort -V | tail -1 || true)"
     _install_debug "wheel: ${wheel:-none} $( [[ -n "$wheel" ]] && _file_id "$wheel" )"
     # Any other installer alive right now is the prime suspect for a tree swap.
     local others
+    # `grep` exits 1 when no other installer is running — non-fatal, same as above.
     others="$(ps -eo pid,ppid,etime,args 2>/dev/null \
-        | grep -E '(install|bundle|local)\.sh' | grep -v grep | grep -v " $$ " | head -5)"
+        | grep -E '(install|bundle|local)\.sh' | grep -v grep | grep -v " $$ " | head -5 || true)"
     _install_debug "other installers: ${others:-none}"
 }
 

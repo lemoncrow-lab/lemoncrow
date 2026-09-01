@@ -191,7 +191,12 @@ def _skill_names_from_disk() -> list[str]:
     return names
 
 
-def test_non_interactive_and_no_tty_leave_host_extra_args_empty() -> None:
+def test_non_interactive_and_no_tty_leave_host_extra_args_empty(tmp_path: Path) -> None:
+    # Isolated HOME: a developer's real ~/.lemoncrow/host_choices would be
+    # re-applied non-interactively (see the next test), which is correct
+    # behaviour but not what this case is asserting.
+    home = tmp_path / "home"
+    home.mkdir()
     for extra_env in ({"LEMONCROW_NON_INTERACTIVE": "1"}, {}):
         body = (
             "HOST_EXTRA_ARGS=()\n"
@@ -203,7 +208,7 @@ def test_non_interactive_and_no_tty_leave_host_extra_args_empty() -> None:
         script = f'set -euo pipefail\nsource "{COMMON_SH}"\n{body}\n'
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "HOME": os.environ.get("HOME", "/root"),
+            "HOME": str(home),
             "LEMONCROW_INSTALL_DIR": str(LEMONCROW_ROOT),
             **extra_env,
         }

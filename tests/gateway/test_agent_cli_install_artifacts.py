@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -568,8 +569,261 @@ def test_distribution_installer_always_installs_wheel_and_propagates_failures() 
     content = (SCRIPTS / "install.sh").read_text()
     assert '[[ "$LEMONCROW_NO_HOSTS" == "1" ]] && SETUP_ARGS+=(--no-hosts)' in content
     assert "Skipping setup (LEMONCROW_NO_HOSTS=1)" not in content
-    assert '|| fail "LemonCrow setup failed while installing the bundled wheel."' in content
-    assert 'fail "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."' in content
+    assert '|| _fail_install "LemonCrow setup failed while installing the bundled wheel."' in content
+    assert '_fail_install "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."' in content
+
+
+# ---------------------------------------------------------------------------
+# GH #41: a curl|bash install that installs nothing must not exit 0 and must
+# not leave a dangling ~/.local/bin/lemoncrow behind.
+# ---------------------------------------------------------------------------
+
+
+def test_installer_never_swallows_tar_or_foreign_cli_status() -> None:
+    content = (SCRIPTS / "install.sh").read_text()
+    # `done < <(tar ...)` returns the loop's status, not tar's: the real status
+    # has to be routed out of the process substitution.
+    assert 'done < <(tar -xvzf "$arc" -C "$dest" 2>&1; printf \'%s\' "$?" >"$rc_file")' in content
+    assert '|| _fail_install "Could not extract ${ASSET_NAME}' in content
+    # "ready!" must describe the binary this run installed, never a foreign lc.
+    assert "command -v lc >/dev/null 2>&1" not in content
+    # Whitespace-tolerant on purpose: the contract is that the "ready!" banner
+    # is gated on the binary in LEMONCROW_BIN_DIR and nothing else, not that the
+    # two lines keep their current indentation.
+    assert re.search(
+        r'if\s*\[\[\s*-x\s*"\$\{LEMONCROW_BIN_DIR\}/lemoncrow"\s*\]\]\s*;\s*then\s+info\s+"LemonCrow ',
+        content,
+    ), 'the "ready!" banner must be gated on the binary this run installed'
+
+
+def test_bundle_sh_requires_a_wheel_or_an_already_installed_binary() -> None:
+    content = (SCRIPTS / "bundle.sh").read_text()
+    # The silent `return 0` on a missing wheel is what produced an empty bin/.
+    assert 'verbose "No bundled wheel found — assuming LemonCrow already installed"' not in content
+    assert 'fail "No LemonCrow wheel in ${LEMONCROW_INSTALL_DIR}/bin' in content
+    # bundle.sh re-points LEMONCROW_BIN_DIR in the CHILD process; install.sh can
+    # only verify the install if the resolved path is handed back on disk.
+    assert "_record_resolved_bin_dir()" in content
+    assert ".lemoncrow-bin-dir" in content
+    assert ".lemoncrow-bin-dir" in (SCRIPTS / "install.sh").read_text()
+
+
+# Minimal stand-in for scripts/lib/common.sh, so the REAL bundle.sh can be
+# exercised end to end without a network, a uv tool install, or the interactive
+# host wizard. Only the wheel-resolution logic under test stays real.
+_STUB_COMMON_SH = r"""#!/usr/bin/env bash
+LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
+LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
+LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"
+LEMONCROW_MEMORY_BACKEND=""
+LEMONCROW_TELEGRAPHIC=""
+LEMONCROW_ADVANCED=0
+LEMONCROW_VERBOSE=0
+LEMONCROW_NON_INTERACTIVE=1
+LEMONCROW_NO_HOSTS=0
+LEMONCROW_NO_SERVICECTL=0
+LEMONCROW_NO_STACK=0
+LEMONCROW_ZOEKT=0
+HOST_SCOPE_ARGS=()
+HOST_FLAGS=()
+FINAL_EXIT_CODE=0
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warn: %s\n' "$*" >&2; }
+verbose() { :; }
+need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing $1"; }
+supports_interactive_selector() { return 1; }
+print_installer_header() { :; }
+print_installer_footer() { :; }
+host_wizard() { :; }
+prompt_memory_selection() { :; }
+prompt_auto_optimize_selection() { :; }
+prompt_local_zoekt_selection() { :; }
+prompt_rtk_selection() { :; }
+install_uv_if_needed() { :; }
+install_node_if_needed() { :; }
+_capture_install_previous_version() { :; }
+assert_install_tree_consistent() { :; }
+assert_install_tree_unchanged() { :; }
+persist_install_record() { :; }
+stop_existing_lemoncrow_processes() { :; }
+warn_on_foreign_cli_collision() { :; }
+ensure_lc_alias() { :; }
+spin_tail() { shift; "$@"; }
+run_setup() { :; }
+"""
+
+
+def _installer_sandbox(
+    tmp_path: Path,
+    bundle_body: str = "",
+    *,
+    use_real_bundle: bool = False,
+    foreign_cli: bool = False,
+) -> tuple[Path, Path]:
+    """A throwaway HOME plus a local bundle whose bundle.sh is `bundle_body`.
+
+    `uv` and `curl` are shimmed so the real machine's uv tools and the network
+    can never influence the result. With `use_real_bundle`, the repo's real
+    bundle.sh is staged instead (against `_STUB_COMMON_SH`); with `foreign_cli`,
+    an unrelated `lemoncrow` sits on PATH the way pipx/brew/an older install
+    would.
+    """
+    home = tmp_path / "home"
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / "uv-bin").mkdir()
+    shims = home / "shims"
+    shims.mkdir()
+    uv_shim = shims / "uv"
+    uv_shim.write_text(
+        "#!/usr/bin/env bash\n" f'if [[ "$*" == "tool dir --bin" ]]; then echo "{home}/uv-bin"; exit 0; fi\n' "exit 0\n"
+    )
+    uv_shim.chmod(0o755)
+    curl_shim = shims / "curl"
+    curl_shim.write_text("#!/usr/bin/env bash\nexit 1\n")
+    curl_shim.chmod(0o755)
+    if foreign_cli:
+        foreign = shims / "lemoncrow"
+        foreign.write_text('#!/usr/bin/env bash\necho "lemoncrow 0.0.0-foreign"\n')
+        foreign.chmod(0o755)
+
+    src = tmp_path / "bundle"
+    (src / "scripts").mkdir(parents=True)
+    bundle = src / "scripts" / "bundle.sh"
+    if use_real_bundle:
+        (src / "scripts" / "lib").mkdir()
+        (src / "scripts" / "lib" / "common.sh").write_text(_STUB_COMMON_SH)
+        bundle.write_text((SCRIPTS / "bundle.sh").read_text())
+    else:
+        bundle.write_text(bundle_body)
+    bundle.chmod(0o755)
+    return home, src
+
+
+def _run_installer(home: Path, src: Path, *, detached: bool = False) -> subprocess.CompletedProcess[str]:
+    """Run install.sh against the sandbox.
+
+    `detached` starts a new session, so the installer has no controlling
+    terminal and `/dev/tty` cannot be opened at all — the curl|bash-in-CI shape.
+    """
+    return subprocess.run(
+        ["bash", str(SCRIPTS / "install.sh"), "--local"],
+        env={
+            "HOME": str(home),
+            "PATH": f"{home / 'shims'}:/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+            "TERM": "dumb",
+            "LEMONCROW_NON_INTERACTIVE": "1",
+            "LEMONCROW_LOCAL_SRC": str(src),
+        },
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        start_new_session=detached,
+    )
+
+
+# bundle.sh stub that installs into a bin dir the PARENT process never sees
+# (mirroring the real `uv tool dir --bin` re-point) and hands it back on disk.
+_HAPPY_BUNDLE = r"""#!/usr/bin/env bash
+set -euo pipefail
+real_bin="${HOME}/.lemoncrow/uv-tools-bin"
+mkdir -p "$real_bin"
+for n in lemoncrow lc lcd; do
+    printf '#!/usr/bin/env bash\necho "lemoncrow 9.9.9"\n' >"$real_bin/$n"
+    chmod +x "$real_bin/$n"
+done
+printf '%s\n' "$real_bin" >"${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir"
+"""
+
+_NOOP_BUNDLE = "#!/usr/bin/env bash\nexit 0\n"
+
+
+def test_installer_fails_loudly_when_bundle_installs_nothing(tmp_path: Path) -> None:
+    home, src = _installer_sandbox(tmp_path, _NOOP_BUNDLE)
+    link = home / ".local" / "bin" / "lemoncrow"
+    link.symlink_to(home / ".lemoncrow" / "bin" / "lemoncrow")  # the GH #41 leftover
+    assert link.is_symlink() and not link.exists()
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, output
+    assert "installed no lemoncrow binary" in output
+    assert "ready!" not in output
+    # The broken link must be gone, not merely left in place.
+    assert not link.is_symlink() and not link.exists(), output
+
+
+def test_installer_repairs_dangling_link_and_spares_foreign_entries(tmp_path: Path) -> None:
+    home, src = _installer_sandbox(tmp_path, _HAPPY_BUNDLE)
+    local_bin = home / ".local" / "bin"
+    # A dangling LemonCrow link (replaceable) ...
+    (local_bin / "lemoncrow").symlink_to(home / ".lemoncrow" / "bin" / "lemoncrow")
+    # ... a dangling link pointing somewhere else, and a real file: both sacred.
+    (local_bin / "lc").symlink_to(home / "elsewhere" / "lc")
+    (local_bin / "lcd").write_text("not ours\n")
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert "ready!" in output
+    assert os.readlink(local_bin / "lemoncrow") == str(home / ".lemoncrow" / "uv-tools-bin" / "lemoncrow")
+    assert os.readlink(local_bin / "lc") == str(home / "elsewhere" / "lc")
+    assert (local_bin / "lcd").read_text() == "not ours\n"
+
+
+def test_wheelless_distribution_fails_even_with_a_foreign_lemoncrow_on_path(tmp_path: Path) -> None:
+    """A wheel-less archive must fail even when some other lemoncrow is on PATH.
+
+    Accepting any `command -v lemoncrow` hit reopened GH #41: the foreign
+    binary's directory was handed back to install.sh, which then reported that
+    binary's --version as "ready!".
+    """
+    home, src = _installer_sandbox(tmp_path, use_real_bundle=True, foreign_cli=True)
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, output
+    assert "the distribution is incomplete" in output, output
+    assert "ready!" not in output, output
+    assert "0.0.0-foreign" not in output, output
+    # The foreign directory must never be recorded as the resolved bin dir.
+    assert not (home / ".lemoncrow" / "install" / ".lemoncrow-bin-dir").exists(), output
+    assert not (home / ".local" / "bin" / "lemoncrow").exists(), output
+
+
+def test_wheelless_rerun_still_accepts_a_lemoncrow_owned_binary(tmp_path: Path) -> None:
+    """The legitimate re-run/source-checkout case must keep working."""
+    home, src = _installer_sandbox(tmp_path, use_real_bundle=True, foreign_cli=True)
+    owned_bin = home / ".lemoncrow" / "bin"  # == the default LEMONCROW_BIN_DIR
+    owned_bin.mkdir(parents=True)
+    for name in ("lemoncrow", "lc", "lcd"):
+        binary = owned_bin / name
+        binary.write_text('#!/usr/bin/env bash\necho "lemoncrow 9.9.9"\n')
+        binary.chmod(0o755)
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert "9.9.9 ready!" in output, output
+    assert "0.0.0-foreign" not in output, output
+    recorded = (home / ".lemoncrow" / "install" / ".lemoncrow-bin-dir").read_text().strip()
+    assert recorded == str(owned_bin), recorded
+
+
+def test_non_tty_install_emits_no_dev_tty_noise(tmp_path: Path) -> None:
+    """`: </dev/tty 2>/dev/null` leaked bash's own redirection error to stderr."""
+    home, src = _installer_sandbox(tmp_path, _HAPPY_BUNDLE)
+
+    result = _run_installer(home, src, detached=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "/dev/tty" not in result.stderr, result.stderr
+    assert "No such device or address" not in result.stderr, result.stderr
 
 
 def test_local_sh_bootstraps_lemoncrow_before_host_installers() -> None:

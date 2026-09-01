@@ -48,7 +48,42 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---- install LemonCrow from bundled wheel ------------------------------------
-# ---- install LemonCrow from bundled wheel ------------------------------------
+# Tell the parent installer (install.sh) which bin dir this run really installed
+# into. LEMONCROW_BIN_DIR is re-pointed to `uv tool dir --bin` below, and that
+# change lives only in this child process, so install.sh cannot verify the
+# result without being told.
+_record_resolved_bin_dir() {
+    local dir="${1:-$LEMONCROW_BIN_DIR}"
+    [[ "$LEMONCROW_DRY_RUN" == "1" ]] && return 0
+    printf '%s\n' "$dir" >"${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir" 2>/dev/null || true
+}
+
+# Print an already-installed lemoncrow binary, but ONLY from a location this
+# installer owns: $LEMONCROW_BIN_DIR, uv's tool bin dir, or somewhere under
+# ~/.lemoncrow. Returns 1 when there is no such binary.
+#
+# An arbitrary `command -v lemoncrow` hit must NOT count. A pipx/brew/older
+# foreign install anywhere on PATH would make a distribution that shipped no
+# wheel look healthy, and its directory would then be recorded for install.sh,
+# which reports that foreign binary's --version as "ready!" (GH #41 again).
+_find_owned_lemoncrow_bin() {
+    local candidate uv_bin_dir on_path
+    uv_bin_dir="$(uv tool dir --bin 2>/dev/null || true)"
+    for candidate in "${LEMONCROW_BIN_DIR:-}" "$uv_bin_dir" "${HOME:-}/.lemoncrow/bin"; do
+        candidate="${candidate%/}"
+        [[ -n "$candidate" && -x "${candidate}/lemoncrow" ]] || continue
+        printf '%s\n' "${candidate}/lemoncrow"
+        return 0
+    done
+    # A PATH hit counts only when it already lives inside the LemonCrow tree.
+    on_path="$(command -v lemoncrow 2>/dev/null || true)"
+    if [[ -n "$on_path" && -n "${HOME:-}" && "$on_path" == "${HOME%/}/.lemoncrow/"* ]]; then
+        printf '%s\n' "$on_path"
+        return 0
+    fi
+    return 1
+}
+
 install_lemoncrow_from_wheel() {
     local wheel="" source_dir=""
     # `make prod` must install the wheel it just built. Selecting by highest
@@ -70,7 +105,17 @@ install_lemoncrow_from_wheel() {
         wheel="$(find "${LEMONCROW_INSTALL_DIR}/bin" -maxdepth 1 -name "lemoncrow-*.whl" 2>/dev/null | sort -V | tail -1 || true)"
     fi
     if [[ -z "${wheel}" ]]; then
-        verbose "No bundled wheel found — assuming LemonCrow already installed"
+        # No wheel is only legitimate when LemonCrow is ALREADY installed where
+        # THIS installer put it: a bundle.sh re-run after a manual binary
+        # update, or a source checkout with no bundle/bin. For a distribution
+        # install it means the archive shipped nothing to install, and returning
+        # 0 here left an empty bin/, a dangling ~/.local/bin/lemoncrow and exit 0
+        # (GH #41). A foreign lemoncrow merely on PATH is not an install we did.
+        local existing=""
+        existing="$(_find_owned_lemoncrow_bin || true)"
+        [[ -n "$existing" ]] || fail "No LemonCrow wheel in ${LEMONCROW_INSTALL_DIR}/bin and no LemonCrow-managed lemoncrow binary already installed (looked in ${LEMONCROW_BIN_DIR}, uv's tool bin dir and ${HOME:-~}/.lemoncrow) — the distribution is incomplete. Re-download the release asset and re-run the installer."
+        verbose "No bundled wheel found — LemonCrow already installed at ${existing}"
+        _record_resolved_bin_dir "$(dirname "$existing")"
         persist_install_record
         return 0
     fi
@@ -148,6 +193,7 @@ install_lemoncrow_from_wheel() {
     else
         verbose "LemonCrow installed (binary not found in uv tool dir; using PATH fallback)"
     fi
+    _record_resolved_bin_dir
 
     ensure_lc_alias
 
