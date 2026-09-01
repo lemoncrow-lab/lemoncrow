@@ -31,12 +31,22 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"shpat_[A-Za-z0-9]{20,}"), "<redacted-shopify-token>"),
     (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "<redacted-github-token>"),
     (
-        re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----.*?-----END [A-Z ]+PRIVATE KEY-----", re.DOTALL),
+        # Bounded to a generous 16KB key body (real PEM keys are a few KB at
+        # most). An unbounded ``.*?`` here is a catastrophic-backtracking
+        # trap (#38): when "-----BEGIN ... PRIVATE KEY-----" appears without
+        # a matching END anywhere in a huge blob, the lazy scan must walk to
+        # the end of the string before failing, once per BEGIN occurrence.
+        re.compile(
+            r"-----BEGIN [A-Z ]{1,40}PRIVATE KEY-----.{0,16384}?-----END [A-Z ]{1,40}PRIVATE KEY-----", re.DOTALL
+        ),
         "<redacted-private-key>",
     ),
-    # JWT-ish tokens (3 base64url segments).
+    # JWT-ish tokens (3 base64url segments). Segments bounded to 4KB each --
+    # real JWTs are a few KB at most -- so a huge base64url blob containing
+    # a stray "eyJ" (common by chance) can't force an O(n) failed scan per
+    # occurrence (#38: unbounded ``{10,}`` here is quadratic on such input).
     (
-        re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"),
+        re.compile(r"\beyJ[A-Za-z0-9_\-]{10,4096}\.[A-Za-z0-9_\-]{10,4096}\.[A-Za-z0-9_\-]{10,4096}\b"),
         "<redacted-jwt>",
     ),
     # AWS-style access keys.
@@ -44,13 +54,28 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Email addresses — the most common PII in transcripts indexed into the
     # cross-session recall store. High-precision pattern; IP/phone are deliberately
     # omitted so version numbers and digit literals in code stay searchable.
-    (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "<redacted-email>"),
+    #
+    # Local-part/domain/TLD are bounded to RFC-generous lengths (64 / 253 / 24
+    # chars). This is the #38 root cause: an unbounded greedy class directly
+    # before a required literal ("@", then later ".") that never appears in
+    # a huge base64/base64url blob makes Python's backtracking engine retry
+    # the full greedy scan independently at every word-boundary position --
+    # O(n^2) on multi-MB tool-output blobs (9-12+ min hangs on ~20MB input).
+    # Bounding the quantifiers caps the per-position retry cost to a
+    # constant, restoring ~linear behavior.
+    (re.compile(r"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}\b"), "<redacted-email>"),
 ]
 
 # Phrases that signal hidden chain-of-thought.
 _COT_PATTERNS = [
     (
-        re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE),
+        # Bounded to 64KB (a generous reasoning-block size) for the same
+        # reason as the private-key/JWT/email patterns above (#38): an
+        # unbounded lazy ``.*?`` here would walk to end-of-string once per
+        # "<think>"/"<thinking>" occurrence that lacks a matching close tag
+        # (e.g. a session log truncated mid-block), which is O(n) per
+        # occurrence rather than O(1).
+        re.compile(r"<(think|thinking)>.{0,65536}?</\1>", re.DOTALL | re.IGNORECASE),
         "<redacted-hidden-reasoning>",
     ),
     (

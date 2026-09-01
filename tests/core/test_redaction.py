@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import random
+import string
+import time
+
 from lemoncrow.core.foundation.redaction import redact, redact_list
 
 
@@ -78,3 +82,25 @@ def test_redact_list_applies_per_item() -> None:
     out = redact_list(["clean", "password=hunter2"])
     assert out[0] == "clean"
     assert "<redacted-credential>" in out[1]
+
+
+def test_redact_does_not_hang_on_large_binary_blob() -> None:
+    # Regression for #38: `lc import` hung indefinitely (9-12+ min, CPU
+    # pegged) on opencode sessions containing a large tool-output blob (raw
+    # PDF text / inline ``data:image/png;base64,...``). Root cause: several
+    # patterns pair an unbounded greedy character class with a required
+    # literal that never appears in such blobs (e.g. the email pattern's
+    # ``[A-Za-z0-9._%+-]+@``). With no ``@`` anywhere, Python's backtracking
+    # engine retries the full greedy scan independently at every
+    # word-boundary position, which is O(n^2) on a blob this size --
+    # several seconds here, tens of minutes at real ~20MB report scale.
+    # A correct fix bounds those quantifiers so this stays ~linear.
+    random.seed(3)
+    alphabet = string.ascii_letters + string.digits + "_-"
+    blob = "data:image/png;base64," + "".join(random.choice(alphabet) for _ in range(1_000_000))
+
+    start = time.monotonic()
+    redact(blob)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 2.0, f"redact() took {elapsed:.2f}s on a 1M-char blob -- catastrophic backtracking regression"
