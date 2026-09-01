@@ -13,14 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.gateway.hosts.session_parsers._common import (
-    build_normalized_jsonl,
     make_assistant_message,
     make_session_line,
     make_tool_call,
     make_user_message,
     parse_datetime,
     record_normalized_session,
-    truncate_serialized_session,
+    serialize_capped_events,
 )
 from lemoncrow.infra.storage.bundle import StoreBundle
 
@@ -463,10 +462,10 @@ class CursorImporter:
             # Same in-memory gap #38 closed for opencode: this payload is built
             # in memory from sqlite and never passes through
             # import_paths_with_progress, so nothing else bounds what reaches
-            # redact() and the per-line JSON parse.
-            raw_content = truncate_serialized_session(
-                build_normalized_jsonl(events), source="cursor", session_id=composer_id
-            )
+            # redact() and the per-line JSON parse. Record-level capping first,
+            # so one oversized assistant message is elided in place instead of
+            # taking every later record -- and its token accounting -- with it.
+            raw_content = serialize_capped_events(events, source="cursor", session_id=composer_id)
             last_created = composer_last_created.get(composer_id)
             session_mtime = parse_datetime(last_created, default=db_mtime) if last_created else db_mtime
             trace_id = record_normalized_session(
@@ -594,9 +593,7 @@ class CursorImporter:
                     content_turns += 1
             if content_turns == 0:
                 continue  # transcript had no user/assistant/tool content worth recording
-            raw_content = truncate_serialized_session(
-                build_normalized_jsonl(events), source="cursor", session_id=session_id
-            )
+            raw_content = serialize_capped_events(events, source="cursor", session_id=session_id)
             trace_id = record_normalized_session(
                 self.store,
                 source="cursor",

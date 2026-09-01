@@ -317,8 +317,15 @@ def test_cursor_ide_session_is_capped(store: StoreBundle, tmp_path: Path, monkey
     content = store.history.read_raw_artifact_content(artifact)
     assert len(content.encode("utf-8")) < 8192 + 512
     events = [json.loads(line) for line in content.splitlines()]
-    assert events[-1]["_type"] == _TRUNCATION_MARKER_TYPE
-    assert events[-1]["source"] == "cursor"
+    # Record-level capping, not tail-dropping: the oversized assistant bubble is
+    # elided inside its own record, so the session line and the user turn either
+    # side of it survive. Dropping the tail here would take the assistant turn
+    # (and, on sessions that carry them, its token counts) with it.
+    assert _RECORD_TRUNCATED_KEY in content
+    assert not any(event.get("_type") == _TRUNCATION_MARKER_TYPE for event in events)
+    assert "summarize the log" in content
+    assert sum(1 for event in events if event.get("message", {}).get("role") == "assistant") == 1
+    assert "EEEE" in content and "E" * 10_000 not in content
     # ...while the artifact still reports the true original size.
     assert artifact.byte_count_original > 200_000
 
@@ -349,7 +356,10 @@ def test_cursor_agent_cli_session_is_capped(
     content = store.history.read_raw_artifact_content(artifact)
     assert len(content.encode("utf-8")) < 8192 + 512
     events = [json.loads(line) for line in content.splitlines()]
-    assert events[-1]["_type"] == _TRUNCATION_MARKER_TYPE
+    # All six assistant records survive: each is elided individually rather than
+    # the session being cut off after the first two.
+    assert sum(1 for event in events if event.get("message", {}).get("role") == "assistant") == 6
+    assert _RECORD_TRUNCATED_KEY in content
     assert artifact.byte_count_original > 8192
 
 

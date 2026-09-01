@@ -23,7 +23,7 @@ from lemoncrow.core.foundation.models import (
     ToolCall,
     Trace,
 )
-from lemoncrow.core.foundation.redaction import redact
+from lemoncrow.core.foundation.redaction import redact, redact_jsonl
 from lemoncrow.gateway.hosts.session_parsers._common import (
     SerializedSession,
     make_llm_usage_entry,
@@ -259,7 +259,11 @@ class OpenCodeImporter:
 
         serialized = self._serialize_session(session_id, db_path)
         raw_content = serialized.text
-        redacted = redact(raw_content)
+        # JSON-aware: this is serialized JSONL, and plain redact() corrupts it
+        # (a match straddling a JSON escape, or the credential rule masking to
+        # end-of-line and eating the record's closing braces). Measured on a
+        # real store, 1.35% of stored lines parsed nowhere.
+        redacted = redact_jsonl(raw_content)
 
         artifact = RawArtifact(
             id=artifact_id,

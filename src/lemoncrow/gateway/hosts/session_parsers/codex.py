@@ -54,7 +54,7 @@ from lemoncrow.core.foundation.models import (
     ToolCall,
     Trace,
 )
-from lemoncrow.core.foundation.redaction import redact
+from lemoncrow.core.foundation.redaction import redact, redact_jsonl
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,
@@ -411,7 +411,8 @@ class CodexImporter:
         content_path = f"raw/codex/{rel}"
 
         raw_content = jsonl_path.read_text(encoding="utf-8", errors="replace")
-        redacted = redact(raw_content)
+        # JSON-aware: Codex rollouts are JSONL too (see opencode.py).
+        redacted = redact_jsonl(raw_content)
 
         # ── Step 1: write redacted raw artifact ──────────────────────────────
         artifact = RawArtifact(

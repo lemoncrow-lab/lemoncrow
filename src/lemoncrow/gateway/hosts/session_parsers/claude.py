@@ -31,7 +31,7 @@ from lemoncrow.core.foundation.models import (
     ToolCall,
     Trace,
 )
-from lemoncrow.core.foundation.redaction import redact
+from lemoncrow.core.foundation.redaction import redact, redact_jsonl
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     _SYSTEM_PREFIXES_CLAUDE,
@@ -339,7 +339,10 @@ class ClaudeImporter:
                 raw_content = f_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            redacted = redact(raw_content)
+            # JSON-aware (the transcripts are JSONL): plain redact() would eat
+            # JSON escapes and, via the to-end-of-line credential rule, the
+            # record's closing braces.
+            redacted = redact_jsonl(raw_content)
 
             rel_path = f_path.relative_to(project_dir)
             art = RawArtifact(

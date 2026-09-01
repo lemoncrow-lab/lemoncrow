@@ -22,7 +22,7 @@ from lemoncrow.core.foundation.models import (
     Trace,
     UsageEntry,
 )
-from lemoncrow.core.foundation.redaction import redact
+from lemoncrow.core.foundation.redaction import escape_jsonl_line_breaks, redact, redact_jsonl
 from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 
@@ -419,7 +419,9 @@ def summarize_usage_entries(
 
 
 def build_normalized_jsonl(events: Iterable[dict[str, Any]]) -> str:
-    return "\n".join(json.dumps(event, ensure_ascii=False) for event in events if event)
+    # escape_jsonl_line_breaks: U+2028 and friends are legal inside a JSON
+    # string but split the record for any reader using splitlines().
+    return "\n".join(escape_jsonl_line_breaks(json.dumps(event, ensure_ascii=False)) for event in events if event)
 
 
 def infer_time_bounds(
@@ -899,7 +901,7 @@ def serialize_capped_record(
     and size the true original while retaining only the capped text.
     """
     max_bytes = _record_byte_budget() if max_bytes is None else max_bytes
-    line = json.dumps(record, ensure_ascii=False)
+    line = escape_jsonl_line_breaks(json.dumps(record, ensure_ascii=False))
     original_bytes = len(line.encode("utf-8"))
     if original_bytes <= max_bytes:
         return line, line
@@ -918,7 +920,7 @@ def serialize_capped_record(
         "original_byte_count": original_bytes,
         "elided_chars": state["elided"],
     }
-    return json.dumps(capped, ensure_ascii=False), line
+    return escape_jsonl_line_breaks(json.dumps(capped, ensure_ascii=False)), line
 
 
 def truncate_serialized_session(
@@ -976,6 +978,53 @@ def truncate_serialized_session(
         sha256_original=digest,
         byte_count_original=original,
         truncated=True,
+    )
+
+
+def serialize_capped_events(
+    events: Iterable[dict[str, Any]],
+    *,
+    source: str,
+    session_id: str,
+) -> SerializedSession:
+    """Serialize in-memory *events* to JSONL under both #38 caps.
+
+    The record-level cap comes first for the same reason it does on the
+    OpenCode path: an oversized payload is elided inside its own record, so
+    every later record -- and the token accounting those records carry --
+    survives. Dropping the session tail instead would silently zero the
+    session's tokens and cost. The whole-session cap remains as a backstop for
+    sessions that are huge in aggregate rather than in one record.
+
+    ``sha256_original``/``byte_count_original`` describe the true uncapped
+    bytes, hashed streaming so the original is never held in memory.
+    """
+    lines: list[str] = []
+    hasher = hashlib.sha256()
+    original_bytes = 0
+    record_truncated = False
+    for event in events:
+        if not event:
+            continue
+        capped, original = serialize_capped_record(event)
+        if lines:
+            hasher.update(b"\n")
+            original_bytes += 1
+        encoded = original.encode("utf-8")
+        hasher.update(encoded)
+        original_bytes += len(encoded)
+        if capped is not original:
+            record_truncated = True
+        lines.append(capped)
+
+    capped_session = truncate_serialized_session("\n".join(lines), source=source, session_id=session_id)
+    # The backstop hashes what it was handed -- already capped -- so restore the
+    # true original metadata here.
+    return SerializedSession(
+        text=capped_session.text,
+        sha256_original=hasher.hexdigest(),
+        byte_count_original=original_bytes,
+        truncated=record_truncated or capped_session.truncated,
     )
 
 
@@ -1122,7 +1171,10 @@ def record_normalized_session(
         if existing and existing.source_file_mtime and source_mtime <= existing.source_file_mtime:
             return None
 
-    redacted = redact(text)
+    # JSON-aware: redacting the serialized text directly corrupts records whose
+    # payload straddles a JSON escape, and the credential rule (masks to
+    # end-of-line) eats the rest of the record. Those lines then parse nowhere.
+    redacted = redact_jsonl(text)
     artifact = RawArtifact(
         id=artifact_id,
         source=source,
