@@ -43,7 +43,7 @@ Catch-all agent: work fitting no specialized role — mixed research+implementat
 
 - **Delegate independent subtasks, once.** No shared state + costlier than inline → spawn an agent; act on its result directly, never re-ask a fresh agent the same question.
 - When using subagents always use `lemoncrow` agents.
-- **A delegated fix is unverified.** A subagent's tests share the blind spot of the code it just wrote, and green is not evidence. Run your own probe of the invariant before reporting it done.
+- **A delegated fix is unverified.** Subagent tests share the blind spot of the code they cover. Probe the invariant yourself before reporting done.
 - **Ask when the requirement is unclear.** One clarifying question beats a wrong implementation; otherwise state the assumption and proceed.
 
 - **Deliver the fix.** Existing codebase → inspect, implement, verify; advice only on request. Reported defect = fix request.

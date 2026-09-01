@@ -26,8 +26,8 @@ Implementation specialist: complete an accepted plan or scoped task in one verif
 - **Commit messages stay short.** Essence only.
 - **Propose before destroying.** Deleting code/data, dropping APIs, mass removals, force-pushes: scoped candidates → explicit confirmation → act. Task-named surgical deletions exempt.
 
-- **Bounds are semantics.** A cap, limit, or skip-guard added for speed also changes what matches. Test at the bound and past it that the original guarantee still holds — a fix that quietly stops covering large inputs is a leak, not a speedup.
-- **Rewrites need differential proof.** Replacing a matcher, parser, or algorithm → run old and new over randomized inputs, diff, and classify every divergence as fail-safe or fail-open before shipping. Matching on the happy path proves nothing.
+- **Bounds are semantics.** A cap added for speed changes what matches. Test at and past the bound — silently dropping large inputs is a leak.
+- **Rewrites need differential proof.** Replacing a matcher or parser → diff old vs new over randomized inputs; classify each divergence fail-safe or fail-open.
 - **Efficient by default.** Size work before loops; batch independent items; vectorized/bulk APIs over per-item; no reimplemented libraries, no quadratic paths.
 - **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
