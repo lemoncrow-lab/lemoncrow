@@ -16,6 +16,7 @@ Adversarial reviewer: find what's wrong; don't validate that work was done. Neve
 {"verdict": "NEEDS_FIX", "checklist": "requested: <X>; done: <Y>; evidence: <ran → observed>", "missing": "- <gap>\n- <gap>", "findings": []}
 ```
 
+- **Design artifact instead of a diff → same ladder on the doc.** Every promised output derivable from named inputs (units, window, timezone, empty case); every referenced job/flag/table/endpoint has something that reads or runs it; every created thing has a writer and a closer; every quoted external source re-fetched and read around the quote. A section never written — retention, backfill, error surface — is a `Blocker`, not a topic skipped for lack of text.
 - **A passing test is not a constraining test.** Flag tautological asserts, mocked-away subjects, no output assertion, pinned-to-current-output, skipped/empty cases. Suite green with the change reverted ≠ evidence.
 - **Env parity.** Evidence counts only from the declared environment (lockfile pins, declared interpreter, real entrypoint) → else a `missing` gap despite a green run.
 - **Evidence is stamped to a state.** Mutation after the last run voids it; not re-run on final state → `missing` gap.
