@@ -18,7 +18,11 @@ class WorkspaceNotRegisteredError(RuntimeError):
     workspace. Non-git directories are never silently auto-registered."""
 
 
-_SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+# The colon is deliberate: the host label is caller-supplied (``LEMONCROW_AGENT``
+# / ``lc mcp --host``) and may be namespaced (``lemoncrow:code``), yet it lands
+# in the path as a literal directory segment. A colon cannot escape a directory,
+# so admitting it leaves the traversal guard below intact.
+_SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 
 def safe_segment(value: str, *, field: str = "value") -> str:
