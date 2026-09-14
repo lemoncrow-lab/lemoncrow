@@ -116,11 +116,6 @@ def main() -> int:
     from benchmarks.telegraphic import ensure_scratch_repo, load_prompts
     from benchmarks.telegraphic.extra_arms import EXTRA_ARMS, run_extra_arm
 
-    repo_abs = (args.repo.expanduser().resolve()) if args.repo is not None else ensure_scratch_repo()
-    n_prompts = max((_prompt_index(r["task"]) or 0) for r in original_rows) + 1
-    prompt_entries = load_prompts(limit=n_prompts)
-    reps = args.reps or (max(int(r["rep"]) for r in original_rows) + 1)
-
     codebench_invalid = [r for r in invalid if r["arm"] not in EXTRA_ARMS]
     extra_invalid = [r for r in invalid if r["arm"] in EXTRA_ARMS]
 
@@ -138,6 +133,14 @@ def main() -> int:
         if reply != "y":
             print("Aborted; no tokens spent.")
             return 1
+
+    # Resolved only past the gates above: `ensure_scratch_repo` git-inits a
+    # fixture on first use, so hoisting this makes --dry-run (and a declined
+    # confirmation) touch the disk after promising it would spend nothing.
+    repo_abs = (args.repo.expanduser().resolve()) if args.repo is not None else ensure_scratch_repo()
+    n_prompts = max((_prompt_index(r["task"]) or 0) for r in original_rows) + 1
+    prompt_entries = load_prompts(limit=n_prompts)
+    reps = args.reps or (max(int(r["rep"]) for r in original_rows) + 1)
 
     # ---- codebench arms (baseline/lemoncrow): patch each affected batch's own
     # results.jsonl, then let `codebench.run --resume` fill the gap. ----------

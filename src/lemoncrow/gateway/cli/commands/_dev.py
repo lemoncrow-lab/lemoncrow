@@ -28,8 +28,11 @@ class _DummyGroup:
         return lambda f: _DummyGroup()
 
 
-MCP_TOOL_ONLY_COMMANDS = frozenset({"context", "rescue", "verify", "read", "edit", "search"})
-MCP_TOOL_ONLY_GROUPS = frozenset({"memory", "route"})
+MCP_TOOL_ONLY_COMMANDS = frozenset({"rescue", "verify", "read", "edit", "search"})
+# ``context`` moved COMMANDS -> GROUPS when `lc context doctor` shipped: the name
+# now belongs to a live ``@click.group("context")`` and only the (non-existent)
+# dev registration stays suppressed -- the same arrangement as memory/route.
+MCP_TOOL_ONLY_GROUPS = frozenset({"memory", "route", "context"})
 
 
 def dev_command(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

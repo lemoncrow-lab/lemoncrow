@@ -26,8 +26,8 @@ packages = [
     "copilot",
     "copilot-cli",
     "cursor",
-    "hermes",
+    "lemoncode",
     "opencode",
-    "shared",
+    "pi",
     "skills"
 ]

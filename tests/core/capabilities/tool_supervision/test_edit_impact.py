@@ -10,13 +10,19 @@ symbol-level callers/callees never find them.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from lemoncrow.pro.capabilities.tool_supervision import edit_impact
 from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
+    LITERAL_SCAN_TRUNCATED,
+    LITERAL_SCAN_UNPARSED,
+    SIGNATURE_SCAN_TRUNCATED,
+    SYMBOL_SCAN_TRUNCATED,
     _combine_matches,
     _is_structural_occurrence,
+    _scan_literals,
     contract_literal_impact,
     literal_replacements,
     removed_literals,
@@ -32,11 +38,136 @@ def _astgrep_available() -> bool:
         except AstGrepToolUnavailable:
             return False
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         return True  # importable but a transient error -> assume usable
 
 
 _requires_astgrep = pytest.mark.skipif(not _astgrep_available(), reason="ast-grep binary unavailable")
+
+
+# --------------------------------------------------------------------------- #
+# literal extraction -- a parser, never a regex                               #
+# --------------------------------------------------------------------------- #
+
+
+# Miniature of src/lemoncrow/core/service/api.py as of 983c233f2, reproducing the
+# defect that made the headline ATTENTION section ship invented findings. A regex
+# scanner has no notion of comments or apostrophes, so the unpaired `'` in
+# "daemon's" pairs with a `'` hundreds of lines later, swallows every double quote
+# between them, and mis-slices the rest of the file: the quotes it then reports as
+# string literals are actually the CODE between two literals.
+_APOSTROPHE_BLOB = '''"""Session store."""
+
+
+def state_path(root, session_id):
+    """Resolve the daemon's state file.
+
+    Restarting the daemon's worker pool drops in-flight work.
+    """
+    # The supervisor's queue is drained before the root is rebound.
+    return root / "sessions" / session_id / "state.json"
+
+
+def load(conn, session_id):
+    return conn.execute(
+        "SELECT payload FROM traces WHERE json_extract(payload, '$.session_id') = ?",
+        (session_id,),
+    ).fetchone()
+
+
+ROUTES = {"legacy_key": handle_legacy, "kept_key": handle_kept}
+'''
+
+
+def test_apostrophe_in_docstring_does_not_desynchronise_the_scan() -> None:
+    """One genuinely removed literal -> exactly one finding, and it is the real one.
+
+    On the regex this replaced, this same edit produced exactly one finding too --
+    but it was ``"': handle_legacy, '"``, a slice of code between two literals that
+    exists in no file, while the real removal of ``"legacy_key"`` went unreported.
+    Both halves matter: an invented finding is worse than a missed one, and the
+    parser must not buy its precision by dropping the true positive.
+    """
+    new = _APOSTROPHE_BLOB.replace(
+        '{"legacy_key": handle_legacy, "kept_key": handle_kept}',
+        '{"kept_key": handle_kept}',
+    )
+    edits = [{"path": "src/store.py", "old_string": _APOSTROPHE_BLOB, "new_string": new}]
+
+    assert literal_replacements(edits) == {"legacy_key": None}
+
+
+def test_no_finding_is_a_fragment_of_the_file_it_came_from() -> None:
+    # The generalisation of the case above: every literal the scan reports must be
+    # a string the file actually contains as a string -- never text spanning one.
+    scan = _scan_literals(_APOSTROPHE_BLOB, "src/store.py")
+    assert not scan.reason
+    assert "legacy_key" in scan.literals
+    assert "sessions" in scan.literals
+    for literal in scan.literals:
+        assert f'"{literal}"' in _APOSTROPHE_BLOB or f"'{literal}'" in _APOSTROPHE_BLOB, literal
+
+
+def test_quoted_text_in_a_comment_is_not_a_literal() -> None:
+    blob = "# the 'passwd' key was the old name\nKEY = 'real_key'\n"
+    assert _scan_literals(blob, "src/a.py").literals == frozenset({"real_key"})
+
+
+def test_docstring_prose_is_not_a_contract_literal() -> None:
+    # A string that IS a statement is documentation: no consumer holds it, so its
+    # removal breaks no contract and reporting it is noise dressed as a finding.
+    blob = 'def f():\n    """Return the session id."""\n    return KEYS["session_id"]\n'
+    assert _scan_literals(blob, "src/a.py").literals == frozenset({"session_id"})
+
+
+def test_a_blob_that_is_only_a_literal_is_the_literal_under_edit() -> None:
+    # The docstring rule must not swallow the edit-hook shape where the whole
+    # fragment IS the string being renamed.
+    assert literal_replacements([{"file_path": "src/a.py", "old_string": '"passwd"', "new_string": '"password"'}]) == {
+        "passwd": "password"
+    }
+
+
+def test_rich_edit_range_and_symbol_suffixes_still_resolve_the_language() -> None:
+    # "f.ts:L3-L9" must pick the TypeScript grammar, not degrade on a bad suffix.
+    edits = [{"path": "src/a.ts:L1-L2", "old_string": "const k = 'legacy_key';\n", "new_string": "const k = 'kept';\n"}]
+    assert literal_replacements(edits) == {"legacy_key": "kept"}
+
+
+def test_unparsable_python_reports_nothing_and_says_so() -> None:
+    # A syntax error mid-edit is normal in a diff. The honest answer is no
+    # literals plus a named degradation -- never a regex guess.
+    scan = _scan_literals("KEYS = {'a': 'legacy_key',\n", "src/a.py")
+    assert scan.literals == frozenset()
+    assert scan.reason == LITERAL_SCAN_UNPARSED
+
+
+def test_unparsable_side_is_skipped_rather_than_reported_as_removal() -> None:
+    # Subtracting an unknown set from a known one would mark every literal in the
+    # parsed side as removed -- the fabrication this detector exists to avoid.
+    edits = [{"path": "src/a.py", "old_string": "KEYS = {'legacy_key': 1}\n", "new_string": "KEYS = {\n"}]
+    assert literal_replacements(edits) == {}
+
+
+def test_contract_literal_impact_names_the_degradation() -> None:
+    edits = [{"path": "src/a.py", "old_string": "KEYS = {'legacy_key': 1}\n", "new_string": "KEYS = {\n"}]
+    impact = contract_literal_impact(edits, engine=None, repo_root=Path("."), touched_paths=["src/a.py"])
+    assert impact is not None
+    assert impact["sites"] == []
+    assert impact["degraded"] == [LITERAL_SCAN_UNPARSED]
+
+
+def test_non_python_blob_is_read_with_its_own_grammar() -> None:
+    # TypeScript: the grammar owns the comment, the escaped apostrophe and the
+    # interpolated template, none of which a quote-counting scan can tell apart.
+    blob = "// the 'legacy_key' name is gone\nconst k = 'real_key';\nconst t = `route ${id} end`;\n"
+    assert _scan_literals(blob, "src/a.ts").literals == frozenset({"real_key"})
+
+
+def test_unknown_language_reports_no_literal_and_a_reason() -> None:
+    scan = _scan_literals('key = "legacy_key"\n', "vendor/uv.lock")
+    assert scan.literals == frozenset()
+    assert scan.reason == LITERAL_SCAN_UNPARSED
 
 
 # --------------------------------------------------------------------------- #
@@ -135,6 +266,205 @@ def test_combine_uses_pure_text_when_astgrep_unavailable() -> None:
     assert _combine_matches(None, text) == text
 
 
+def test_astgrep_detection_batches_rules_and_normalizes_scan_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.infra.code_intel import astgrep
+
+    consumer = tmp_path / "db" / "client.py"
+    _write(tmp_path, "db/client.py", "value = cfg['passwd']\n")
+
+    class _FakeAdapter:
+        scan_calls = 0
+
+        def __init__(self, _repo_root: Path) -> None:
+            pass
+
+        def scan(self, *, rules: list[dict], no_ignore: bool, limit: int) -> SimpleNamespace:
+            type(self).scan_calls += 1
+            assert no_ignore is False
+            assert len(rules) == 2  # one literal x one language x two quote patterns
+            # The batch asks for the whole ceiling, never the caller's per-candidate
+            # budget: one global slice over file-ordered output is not a per-rule
+            # allowance, so the cap must sit far above what those budgets can spend.
+            assert limit == edit_impact._ASTGREP_SCAN_MATCH_CEILING
+            return SimpleNamespace(
+                matches=[
+                    SimpleNamespace(
+                        rule_id="lc-impact-0",
+                        file_path=str(consumer),
+                        line=0,
+                        snippet="value = cfg['passwd']",
+                    )
+                ],
+                truncated=False,
+            )
+
+        def search(self, **_kwargs: object) -> None:
+            raise AssertionError("batched rule-mode should avoid per-pattern ast-grep processes")
+
+    monkeypatch.setattr(astgrep, "AstGrepAdapter", _FakeAdapter)
+
+    detection = edit_impact._astgrep_detect(
+        ["passwd"],
+        tmp_path,
+        {"db/base.py"},
+        languages=["python"],
+        limit=30,
+    )
+
+    assert _FakeAdapter.scan_calls == 1
+    assert detection is not None
+    assert detection.by_literal == {"passwd": [("db/client.py", 1, "value = cfg['passwd']")]}
+    assert detection.truncated is False
+    # Pinned so the ceiling cannot drift down towards the per-candidate budgets it
+    # is supposed to stay clear of, unnoticed.
+    assert edit_impact._ASTGREP_SCAN_MATCH_CEILING == 20_000
+
+
+def test_common_candidate_cannot_starve_a_rare_one_out_of_the_batched_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One global slice over file-ordered output is not a per-candidate budget.
+
+    ``scan`` truncates with a single ``raw_matches[:limit]``, so an aggregate
+    allowance handed to a batch of rules is spent by whichever candidate matches
+    first in file order. A candidate whose only consumer sorts late then comes
+    back with zero rows and ``_combine_matches`` -- which treats a non-``None``
+    ast-grep result as authoritative for code files -- discards its text hits
+    too, so the reviewer is told about no sites at all.
+    """
+
+    from lemoncrow.infra.code_intel import astgrep
+
+    for index in range(150):
+        _write(tmp_path, f"app/common_{index:03d}.py", "flag = 'legacy_mode'\n")
+    _write(tmp_path, "zz/rare.py", "name = 'zz_rare_contract'\n")
+
+    class _FakeAdapter:
+        def __init__(self, _repo_root: Path) -> None:
+            pass
+
+        def scan(self, *, rules: list[dict], no_ignore: bool, limit: int) -> SimpleNamespace:
+            # Reproduce ast-grep's contract: matches arrive in file order and the
+            # adapter truncates them with one global slice.
+            raw = [
+                SimpleNamespace(
+                    rule_id="lc-impact-0",
+                    file_path=str(tmp_path / f"app/common_{index:03d}.py"),
+                    line=0,
+                    snippet="flag = 'legacy_mode'",
+                )
+                for index in range(150)
+            ]
+            raw.append(
+                SimpleNamespace(
+                    rule_id="lc-impact-2",
+                    file_path=str(tmp_path / "zz/rare.py"),
+                    line=0,
+                    snippet="name = 'zz_rare_contract'",
+                )
+            )
+            return SimpleNamespace(matches=raw[:limit], truncated=len(raw) > limit)
+
+        def search(self, **_kwargs: object) -> None:
+            raise AssertionError("batched rule-mode should avoid per-pattern ast-grep processes")
+
+    monkeypatch.setattr(astgrep, "AstGrepAdapter", _FakeAdapter)
+
+    detection = edit_impact._astgrep_detect(
+        ["legacy_mode", "zz_rare_contract"],
+        tmp_path,
+        {"db/base.py"},
+        languages=["python"],
+        limit=30,
+    )
+
+    assert detection is not None
+    # The rare candidate keeps its site even though 150 hits for the common one
+    # were emitted ahead of it.
+    assert detection.by_literal["zz_rare_contract"] == [("zz/rare.py", 1, "name = 'zz_rare_contract'")]
+    # And the common candidate spends only its own budget, never the batch's.
+    assert len(detection.by_literal["legacy_mode"]) == 30
+
+
+def test_capped_astgrep_scan_is_reported_as_degraded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scan that hit the materialisation ceiling is partial, not complete."""
+
+    monkeypatch.setattr(
+        edit_impact,
+        "_astgrep_detect",
+        lambda *a, **k: edit_impact._AstGrepDetection(by_literal={"passwd": []}, truncated=True),
+    )
+    edits = [{"old_string": "d['passwd']", "new_string": "d['password']"}]
+
+    impact = contract_literal_impact(edits, engine=None, repo_root=tmp_path, touched_paths=["db/base.py"])
+
+    assert impact is not None
+    assert impact["sites"] == []
+    assert impact["degraded"] == [LITERAL_SCAN_TRUNCATED]
+
+
+def _capped(truncated: bool, key: str) -> object:
+    detection = edit_impact._AstGrepDetection(by_literal={key: []}, truncated=truncated)
+    return lambda *_args, **_kwargs: detection
+
+
+def test_capped_symbol_scan_is_disclosed_as_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A removed symbol whose scan was capped is unproven, not clean.
+
+    ``symbol_contract_impact`` returns a bare site list, so above the ceiling an
+    empty return says "nothing still references this" with exactly the confidence
+    of an exhaustive pass -- the silent-partial-result defect the literal pass was
+    already fixed for.
+    """
+
+    edits = [{"path": "pkg/shared.py", "old_string": "def load_config(path):\n    return path\n", "new_string": ""}]
+
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", _capped(True, "load_config"))
+    capped = edit_impact.symbol_contract_impact(edits, engine=None, repo_root=tmp_path, touched_paths=["pkg/shared.py"])
+
+    assert list(capped) == []
+    assert capped.degraded == (SYMBOL_SCAN_TRUNCATED,)
+    # The edit hook consumes this with ``sites.extend(...)``; the degraded channel
+    # must not have cost it its list-ness.
+    assert isinstance(capped, list)
+
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", _capped(False, "load_config"))
+    complete = edit_impact.symbol_contract_impact(
+        edits, engine=None, repo_root=tmp_path, touched_paths=["pkg/shared.py"]
+    )
+
+    assert complete.degraded == (), "a pass that looked everywhere must not claim to be partial"
+
+
+def test_capped_signature_scan_is_disclosed_as_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same claim for the call-site pass: a capped scan is not 'no caller breaks'."""
+
+    edits = [
+        {
+            "path": "pkg/session.py",
+            "old_string": "def refresh_session(token):\n    return token\n",
+            "new_string": "def refresh_session(token, scope):\n    return token\n",
+        }
+    ]
+
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", _capped(True, "refresh_session"))
+    capped = edit_impact.signature_change_impact(
+        edits, engine=None, repo_root=tmp_path, touched_paths=["pkg/session.py"]
+    )
+
+    assert list(capped) == []
+    assert capped.degraded == (SIGNATURE_SCAN_TRUNCATED,)
+
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", _capped(False, "refresh_session"))
+    complete = edit_impact.signature_change_impact(
+        edits, engine=None, repo_root=tmp_path, touched_paths=["pkg/session.py"]
+    )
+
+    assert complete.degraded == (), "a pass that looked everywhere must not claim to be partial"
+
+
 # --------------------------------------------------------------------------- #
 # contract_literal_impact -- end to end                                       #
 # --------------------------------------------------------------------------- #
@@ -231,6 +561,64 @@ class _FakeEngine:
 
     def search_text(self, query: str, *, path: str = ".", limit: int = 50, ignore_case: bool = False) -> list:
         return self._by_query.get(query, [])
+
+
+def test_removed_private_symbol_does_not_match_unrelated_module_namesake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for PR #25's first ATTENTION finding.
+
+    ``edit_impact.py`` removed its private ``_QUOTED_LITERAL_RE`` while
+    ``bash_exec.py`` happened to define a different private symbol with the same
+    spelling. A bare repository search merged the two and told the reviewer the
+    removal had surviving references. Python private names may be shared inside
+    one package, but an unrelated package is not evidence for this definition.
+    """
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", lambda *a, **k: None)
+    engine = _FakeEngine(
+        {
+            "_QUOTED_LITERAL_RE": [
+                _FakeMatch(
+                    "src/lemoncrow/pro/capabilities/tool_supervision/bash_exec.py",
+                    66,
+                    "_QUOTED_LITERAL_RE = re.compile('other')",
+                )
+            ]
+        }
+    )
+    edits = [
+        {
+            "path": "src/lemoncrow/pro/capabilities/review/edit_impact.py",
+            "old_string": "_QUOTED_LITERAL_RE = re.compile('old')\n",
+            "new_string": "",
+        }
+    ]
+
+    assert (
+        edit_impact.symbol_contract_impact(
+            edits,
+            engine=engine,
+            repo_root=tmp_path,
+            touched_paths=["src/lemoncrow/pro/capabilities/review/edit_impact.py"],
+        )
+        == []
+    )
+
+
+def test_removed_private_symbol_still_finds_sibling_package_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(edit_impact, "_astgrep_detect", lambda *a, **k: None)
+    engine = _FakeEngine({"_emit": [_FakeMatch("pkg/consumer.py", 4, "return _emit(value)")]})
+    edits = [{"path": "pkg/shared.py", "old_string": "def _emit(value):\n    return value\n", "new_string": ""}]
+
+    sites = edit_impact.symbol_contract_impact(
+        edits,
+        engine=engine,
+        repo_root=tmp_path,
+        touched_paths=["pkg/shared.py"],
+    )
+    assert sites and sites[0]["path"] == "pkg/consumer.py:L4"
 
 
 def test_text_fallback_recall_when_astgrep_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -36,6 +37,7 @@ def _fetch_openai_compat(
     api_key: str,
     *,
     filter_prefix: str | None = None,
+    timeout: float = 5.0,
 ) -> list[str]:
     """Fetch models from an OpenAI-compatible /v1/models endpoint."""
     import urllib.request
@@ -46,7 +48,7 @@ def _fetch_openai_compat(
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data: dict[str, Any] = json.loads(resp.read())
         items = data.get("data") or []
         ids = []
@@ -305,6 +307,22 @@ def _fetch_zen(cfg: Any) -> list[str]:
     return models
 
 
+def _fetch_custom(name: str, base_url: str, api_key: str) -> list[str]:
+    """Fetch one user-registered endpoint, namespaced by endpoint name.
+
+    Two boxes commonly serve the same model id, so a custom id is
+    ``custom/<endpoint>/<model>``. The endpoint name is passed here rather than
+    through ``_litellm_id``, whose signature is shared with every other vendor.
+    """
+    prefix = LITELLM_PREFIX["custom"]
+    out: list[str] = []
+    for model_id in _fetch_openai_compat("custom", base_url, api_key):
+        raw = model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
+        if raw:
+            out.append(f"{prefix}{name}/{raw}")
+    return out
+
+
 async def _discover_all(cfg: Any) -> list[str]:
     # The fetchers are synchronous (urllib/boto3); run each in a worker thread
     # so the event loop stays free and providers are polled concurrently.
@@ -357,6 +375,20 @@ async def _discover_all(cfg: Any) -> list[str]:
     # OpenCode Zen (keyless public tier, or the user's own account key)
     if cfg.is_configured("zen"):
         tasks.append(asyncio.to_thread(_fetch_zen, cfg))
+    # User-registered OpenAI-compatible endpoints (`lc model add`)
+    custom_endpoints = cfg.get("custom", "endpoints") or {}
+    if isinstance(custom_endpoints, dict):
+        for ep_name, ep in custom_endpoints.items():
+            if not isinstance(ep, dict):
+                continue
+            base = str(ep.get("base_url") or "").strip()
+            if not base:
+                continue
+            # The literal key when one was stored, else the env var it names --
+            # read here so an `--api-key-env` registration never needs the file
+            # to hold the secret.
+            api_key = str(ep.get("api_key") or "").strip() or os.environ.get(str(ep.get("api_key_env") or ""), "")
+            tasks.append(asyncio.to_thread(_fetch_custom, str(ep_name), base, api_key))
     results = await asyncio.gather(*tasks, return_exceptions=True)
     models: list[str] = []
     seen: set[str] = set()

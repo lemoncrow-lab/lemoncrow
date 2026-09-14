@@ -1166,21 +1166,43 @@ lemoncrow_install_attribution_hook() {
         printf '#!/usr/bin/env bash\n\n' >"$hook"
     fi
 
-    cat >>"$hook" <<EOF
-$marker
+    {
+        echo "$marker"
+        cat <<'BODY'
 # Managed by LemonCrow. Appends the co-author trailer unless already present.
 # Skips merge/squash commit messages.
-LEMONCROW_TRAILER="$trailer"
-case "\$2" in
+#
+# LemonCrow-Session / LemonCrow-Model make a committed range an exact join with
+# the session that authored it, instead of a wall-clock guess. Both are read
+# from the session state SessionStart already wrote, and are omitted entirely
+# when unknown -- an absent trailer is honest, an invented one is not.
+BODY
+        echo "LEMONCROW_TRAILER=\"$trailer\""
+        cat <<'BODY'
+LEMONCROW_STATE="$(git rev-parse --show-toplevel 2>/dev/null)/.lemoncrow/workspace/session_state.json"
+lemoncrow_state_value() {
+  [ -f "$LEMONCROW_STATE" ] || return 0
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$LEMONCROW_STATE" 2>/dev/null | head -n 1
+}
+case "$2" in
   merge|squash) ;;
   *)
-    if ! grep -qF "\$LEMONCROW_TRAILER" "\$1" 2>/dev/null; then
-      printf '\n%s\n' "\$LEMONCROW_TRAILER" >> "\$1"
+    if ! grep -qF "$LEMONCROW_TRAILER" "$1" 2>/dev/null; then
+      printf '\n%s\n' "$LEMONCROW_TRAILER" >> "$1"
+    fi
+    LEMONCROW_SID="$(lemoncrow_state_value session_id)"
+    if [ -n "$LEMONCROW_SID" ] && ! grep -q '^LemonCrow-Session:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Session: %s\n' "$LEMONCROW_SID" >> "$1"
+    fi
+    LEMONCROW_MODEL="$(lemoncrow_state_value model)"
+    if [ -n "$LEMONCROW_MODEL" ] && ! grep -q '^LemonCrow-Model:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Model: %s\n' "$LEMONCROW_MODEL" >> "$1"
     fi
     ;;
 esac
-$end_marker
-EOF
+BODY
+        echo "$end_marker"
+    } >>"$hook"
     chmod +x "$hook"
     info "installed LemonCrow co-author hook at ${hook}"
 }
@@ -2353,6 +2375,15 @@ _ensure_path_persistence() {
         if [[ -d "$node_user_bin" ]]; then
             printf 'export PATH="%s:$PATH"\n' "$node_user_bin"
         fi
+        # `lc review` is the command people run many times a day. It lives in
+        # the sentinel block so uninstall removes it with everything else, and
+        # so a re-install rewrites rather than duplicates it.
+        if [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]]; then
+            case "$profile_file" in
+                *config.fish) printf "alias lcr 'lc review'\n" ;;
+                *)            printf "alias lcr='lc review'\n" ;;
+            esac
+        fi
         printf '%s\n' "$sentinel_end"
     } > "$tmp_input"
 
@@ -3061,6 +3092,7 @@ run_setup() {
     printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
     printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
     printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
+    printf "   %b%s%b review              Review a diff or PR\n" "$C_PURPLE" "$cli" "$C_RESET"
     printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
     if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
         printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"

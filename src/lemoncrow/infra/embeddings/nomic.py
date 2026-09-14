@@ -124,7 +124,7 @@ class NomicEmbedder:
 
             if not hasattr(_DC, "get_usable_length"):
                 _DC.get_usable_length = lambda self, new_seq_length=0, layer_idx=0: self.get_seq_length(layer_idx)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         kw = {"dtype": torch.float16} if device == "cuda" else {}

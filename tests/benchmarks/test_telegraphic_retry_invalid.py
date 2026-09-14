@@ -130,7 +130,15 @@ def test_rerun_patches_only_invalid_rows_and_remerges(run_dir: Path, monkeypatch
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(extra_arms_mod, "run_extra_arm", fake_run_extra_arm)
-    monkeypatch.setattr(sys, "argv", ["retry_invalid.py", "--run-dir", str(run_dir), "--no-capture", "-y"])
+    # `--repo` is pinned so the run never falls back to `ensure_scratch_repo()`,
+    # which git-inits a fixture in the system temp dir on first use. Without it
+    # the subprocess-call assertions below count 3 extra `git` calls on a
+    # machine that has not run this benchmark before, and zero on one that has.
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["retry_invalid.py", "--run-dir", str(run_dir), "--repo", str(run_dir), "--no-capture", "-y"],
+    )
 
     rc = ri.main()
     assert rc == 0

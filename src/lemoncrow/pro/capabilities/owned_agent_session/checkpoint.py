@@ -90,7 +90,7 @@ def list_checkpoints(session_id: str, root: Path | None = None) -> list[Checkpoi
                     snapshot_path=str(f),
                 )
             )
-        except Exception:  # noqa: BLE001 - skip corrupt checkpoint files
+        except Exception:
             pass
     return results
 

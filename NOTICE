@@ -1,0 +1,11 @@
+LemonCrow
+Copyright 2026 Pankaj Kumar (d/b/a LemonCrow)
+
+This product includes software developed as part of the LemonCrow project
+(https://github.com/lemoncrow-lab/lemoncrow), licensed under the Apache License,
+Version 2.0. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0.
+
+This product bundles third-party dependencies distributed under their own
+licenses. See the dependency manifests (pyproject.toml, uv.lock) and
+docs/licensing-report.md for the inventory and their respective terms.

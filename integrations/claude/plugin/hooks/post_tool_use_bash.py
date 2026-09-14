@@ -10,12 +10,10 @@ Fail-open: any error exits silently (code 0) — never blocks the agent.
 
 from __future__ import annotations
 
-import contextlib
 import datetime
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -92,60 +90,45 @@ def _append_command_result_event(
     stderr: str,
     return_code: int | None,
 ) -> None:
-    """Append a command_result event to the session's run.json atomically."""
+    """Append a command_result event without losing concurrent writers."""
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
     except ImportError:
         return
     run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
-    if not run_file.exists():
-        return
 
     try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except (json.JSONDecodeError, OSError):
+        with RunFileLock(run_file):
+            if not run_file.exists():
+                return
+            data = json.loads(run_file.read_text("utf-8"))
+            if not isinstance(data, dict):
+                return
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+
+            short_cmd = command.strip()[:80] + ("…" if len(command.strip()) > 80 else "")
+            ok = return_code == 0 if return_code is not None else True
+            events.append(
+                {
+                    "kind": "command_result",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": f"{'✓' if ok else '✗'} {short_cmd}",
+                    "payload": {
+                        "event": "PostToolUseBash",
+                        "command": command,
+                        "stdout": stdout[:_MAX_OUTPUT_BYTES] if stdout else "",
+                        "stderr": stderr[:_MAX_OUTPUT_BYTES] if stderr else "",
+                        "return_code": return_code,
+                        "truncated": len(stdout or "") > _MAX_OUTPUT_BYTES or len(stderr or "") > _MAX_OUTPUT_BYTES,
+                    },
+                }
+            )
+            atomic_write_json(run_file, data)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
-
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-
-    # Build a short summary line
-    short_cmd = command.strip()[:80] + ("…" if len(command.strip()) > 80 else "")
-    ok = return_code == 0 if return_code is not None else True
-    summary = f"{'✓' if ok else '✗'} {short_cmd}"
-
-    events.append(
-        {
-            "kind": "command_result",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": summary,
-            "payload": {
-                "command": command,
-                "stdout": stdout[:_MAX_OUTPUT_BYTES] if stdout else "",
-                "stderr": stderr[:_MAX_OUTPUT_BYTES] if stderr else "",
-                "return_code": return_code,
-                "truncated": len(stdout or "") > _MAX_OUTPUT_BYTES or len(stderr or "") > _MAX_OUTPUT_BYTES,
-            },
-        }
-    )
-    data["events"] = events
-
-    # Atomic write via temp file + rename
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=run_file.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
-    except (OSError, json.JSONDecodeError):
-        if tmp_path:
-            with contextlib.suppress(OSError):
-                Path(tmp_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

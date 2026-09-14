@@ -68,7 +68,7 @@ class KeepaliveThread:
         while not self._stop.wait(self._interval):
             try:
                 self._ping()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("keepalive ping failed (non-fatal)", exc_info=True)
 
     def _ping(self) -> None:
@@ -81,11 +81,11 @@ class KeepaliveThread:
     def _ping_anthropic(self) -> None:
         try:
             from lemoncrow.infra.internal_llm.litellm_client import chat_with_result
-        except Exception:  # noqa: BLE001
+        except Exception:
             return
         try:
             chat_with_result([{"role": "user", "content": "ping"}], model=self._model)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def _ping_gemini(self) -> None:
@@ -97,11 +97,11 @@ class KeepaliveThread:
             # confined to src/lemoncrow/infra/internal_llm/.
             try:
                 from lemoncrow.infra.internal_llm.litellm_client import chat_with_result
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return
             try:
                 chat_with_result([{"role": "user", "content": "ping"}], model=self._model)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
 

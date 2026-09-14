@@ -215,7 +215,7 @@ def validate_provider(provider_id: str, credentials: dict[str, str]) -> tuple[bo
             extra_kwargs={"max_tokens": 5},
         )
         return True, f"✓ Connected to {cfg['name']} ({result.model or test_model})"
-    except Exception as exc:  # noqa: BLE001 - validation surfaces any failure to the user
+    except Exception as exc:
         return False, f"✗ Failed: {str(exc)[:200]}"
     finally:
         # Restore original env

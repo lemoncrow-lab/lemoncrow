@@ -169,51 +169,39 @@ def _append_session_start_event(
 ) -> None:
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
     except ImportError:
         return
     run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
-    if not run_file.exists():
-        return
 
     try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except (json.JSONDecodeError, OSError):
+        with RunFileLock(run_file):
+            if not run_file.exists():
+                return
+            data = json.loads(run_file.read_text("utf-8"))
+            if not isinstance(data, dict):
+                return
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+            events.append(
+                {
+                    "kind": "note",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": f"session {source} — {model or 'unknown model'}",
+                    "payload": {
+                        "session_id": session_id,
+                        "source": source,
+                        "model": model,
+                        "cwd": cwd,
+                        "transcript_path": transcript_path,
+                        "event": "SessionStart",
+                    },
+                }
+            )
+            atomic_write_json(run_file, data)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
-
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-    events.append(
-        {
-            "kind": "note",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": f"session {source} — {model or 'unknown model'}",
-            "payload": {
-                "session_id": session_id,
-                "source": source,
-                "model": model,
-                "cwd": cwd,
-                "transcript_path": transcript_path,
-                "event": "SessionStart",
-            },
-        }
-    )
-    data["events"] = events
-
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=run_file.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
-    except OSError:
-        if tmp_path:
-            with suppress(Exception):
-                Path(tmp_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,73 @@ def test_internal_links_resolve() -> None:
     assert not actual_broken, "Broken internal links:\n" + "\n".join(actual_broken)
 
 
+CLI_REFERENCE = DOCS_ROOT / "reference" / "cli.md"
+TEXT_BLOCK_PATTERN = re.compile(r"```text\n(.*?)```", re.DOTALL)
+
+
+def _usage_table_basis_cells(text: str) -> list[str]:
+    """Return the BASIS cell of every data row in the ``lc usage`` samples.
+
+    A data row is ``NAME  SESSIONS  ROWS  TOKENS  COST  BASIS`` -- six columns
+    whose second and third are counts. That shape skips the header, the rule,
+    and the prose footer without needing to know any of their wording.
+    """
+
+    cells: list[str] = []
+    for block in TEXT_BLOCK_PATTERN.findall(text):
+        if "BASIS" not in block:
+            continue
+        for line in block.splitlines():
+            columns = line.split()
+            if len(columns) != 6:
+                continue
+            if not all(part.replace(",", "").isdigit() for part in columns[1:3]):
+                continue
+            cells.append(columns[5])
+    return cells
+
+
+def test_cli_reference_shows_only_a_usage_basis_the_code_can_produce() -> None:
+    """The reference must not print a BASIS word ``derive_cost`` cannot reach.
+
+    ``derive_cost`` is the only writer of ``cost_provenance``, and a run
+    ledger's recorded total is LemonCrow's own rate-card sum rather than a
+    vendor figure, so it stamps ``api_estimated`` and never ``provider_billed``.
+    The sample output kept showing ``billed`` -- the exact invoice claim, still
+    shipping in the user-facing CLI reference after the code stopped making it.
+    """
+
+    import inspect
+
+    from lemoncrow.pro.capabilities.usage.collect import derive_cost
+    from lemoncrow.pro.capabilities.usage.models import COST_PROVENANCE_VALUES
+    from lemoncrow.pro.capabilities.usage.render import _BASIS_LABELS
+
+    source = inspect.getsource(derive_cost)
+    reachable = {value for value in COST_PROVENANCE_VALUES if f'"{value}"' in source}
+    assert reachable, "could not read any provenance out of derive_cost"
+    producible = {_BASIS_LABELS[value] for value in reachable} | {"mixed"}
+
+    cells = _usage_table_basis_cells(CLI_REFERENCE.read_text(encoding="utf-8"))
+    assert cells, "no `lc usage` sample table found in the CLI reference"
+    offenders = [cell for cell in cells if not set(cell.split("+")) <= producible]
+    assert not offenders, "CLI reference shows a BASIS the code cannot produce: " + ", ".join(sorted(set(offenders)))
+
+
+def test_cli_reference_does_not_call_a_usage_figure_a_vendor_invoice() -> None:
+    """No dollar figure `lc usage` prints was ever charged by a vendor.
+
+    Every total it shows is summed from LemonCrow's own rate card -- per
+    recorded call when a run ledger has one, over the session aggregate
+    otherwise. Telling a reader that one of them "is a figure the vendor
+    charged" invites them to reconcile it against an invoice it is not.
+    """
+
+    text = CLI_REFERENCE.read_text(encoding="utf-8")
+    offenders = [line.strip() for line in text.splitlines() if re.search(r"vendor (charged|billed)", line)]
+    assert not offenders, "CLI reference claims a usage figure came from a vendor:\n" + "\n".join(offenders)
+
+
 def test_live_docs_do_not_reference_removed_internal_path() -> None:
     offenders: list[str] = []
     for md_file in markdown_files():

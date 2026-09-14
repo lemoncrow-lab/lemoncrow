@@ -164,7 +164,7 @@ def run_agentic_review(
         try:
             response = call(model=model_id, messages=messages, tools=_TOOLS)
             message = response.choices[0].message
-        except Exception:  # noqa: BLE001 - any transport error -> single-shot fallback
+        except Exception:
             return None
         tool_calls = getattr(message, "tool_calls", None) or []
         if not tool_calls:

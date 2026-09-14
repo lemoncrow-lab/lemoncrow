@@ -1985,57 +1985,142 @@ def load_usage_breakdown(root: str | Path) -> dict[str, Any]:
     }
 
 
+HEADLINE_WINDOW_KEY = "30D"
+HEADLINE_WINDOW_LABEL = "last 30d"
+"""The window the headline block quotes. Everything in that block -- spend,
+saved, baseline, share -- is read from this one key, so the headline cannot
+quote a figure from a window it does not name."""
+
+_SAVED_IS_MODELLED = (
+    "  Saved is a modelled counterfactual against a no-LemonCrow baseline, not\n"
+    "  billed money: it cannot be subtracted from Spend or added to a refund."
+)
+
+
+def _spend_for(bucket: dict[str, Any]) -> float | None:
+    """The window's measured spend, or ``None`` when it is genuinely unknown.
+
+    ``reconcile_spend`` deletes the key rather than zeroing it when the usage
+    read model cannot answer, because a rendered ``$0.00`` claims a free month
+    and an absent figure claims nothing. Both states have to survive to here.
+    """
+
+    if bucket.get("spend_available") is False:
+        return None
+    raw = bucket.get("spend")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _spend_provenance(payload: dict[str, Any], window_label: str) -> str:
+    """How the spend figure was obtained, in the words the reader can verify.
+
+    Only a payload stamped by ``reconcile_spend`` may claim the usage read
+    model; a legacy payload gets no claim at all rather than a borrowed one.
+    """
+
+    if payload.get("spend_source") == "usage_read_model":
+        return f"measured · same rows as `lc usage --since {window_label.removeprefix('last ')}`"
+    return ""
+
+
 def render_savings_summary(payload: dict[str, Any]) -> str:
     """Render the default ``lc savings`` view as a compact human summary.
 
-    Surfaces the headline numbers, the 1/7/30-day window table, and the plan
-    line from the ``build_savings_report`` payload. The full raw structure
-    stays available via ``lc savings --json``.
+    The headline block is a closed arithmetic statement over ONE named window:
+    ``Spend + Saved = Baseline`` and ``Share = Saved / Baseline``. It used to
+    read ``Saved $X (P% of $S spend · 30d)`` where ``X`` was the *lifetime*
+    total while ``P`` and ``S`` were 30-day figures -- three quantities from two
+    windows in one sentence, which on a real store printed a saving larger than
+    the spend it was supposedly 44.5% of, and whose actual numerator appeared
+    unannounced four lines below in the window table. Lifetime now has its own
+    labelled line and is never mixed into a windowed ratio.
+
+    Spend comes from the usage read model (see
+    ``lemoncrow.pro.capabilities.usage.spend``), so this screen and
+    ``lc usage --since 30d`` read the same rows. The full raw structure stays
+    available via ``lc savings --json``.
     """
 
     def _int(v: Any) -> str:
         return f"{int(v or 0):,}"
 
-    saved = float(payload.get("saved_usd") or 0.0)
-    calls = int(payload.get("calls_avoided") or 0)
-    tokens = int(payload.get("tokens_saved") or 0)
+    lifetime_saved = float(payload.get("saved_usd") or 0.0)
     breakdown = payload.get("summary_breakdown") or {}
-    d30 = breakdown.get("30D") or {}
-    spend30 = float(d30.get("spend") or 0.0)
+    head = breakdown.get(HEADLINE_WINDOW_KEY) or {}
+    saved_w = float(head.get("usd") or 0.0)
+    spend_w = _spend_for(head)
+    # The window's OWN counts, exactly like saved_w above -- never the lifetime
+    # ones. ``head.get("calls") or payload["calls_avoided"]`` fell through to
+    # the lifetime figure whenever the window's count was a legitimate 0, so a
+    # store with history but no activity in the last 30 days printed
+    # "Window last 30d / Calls avoided 9,876" while the by-window table three
+    # lines below showed 0 for the very same window. Lifetime has its own
+    # labelled line and is never quoted under a window heading.
+    calls = int(head.get("calls") or 0)
+    tokens = int(head.get("tokens") or 0)
+
+    # One fixed value column so the three dollar figures line up: a reader
+    # checks Spend + Saved = Baseline by eye, and ragged columns hide that.
+    def _row(label: str, value: str, basis: str = "") -> str:
+        return f"  {label:<16}{value:>12}" + (f"   {basis}" if basis else "")
 
     lines: list[str] = ["LemonCrow savings", "─" * 56]
-
-    if spend30 > 0:
-        # Same-window ratio: 30-day saved over 30-day spend. The headline
-        # `saved` figure is lifetime, so dividing it by 30-day spend would
-        # inflate the percentage for any history longer than 30 days.
-        saved30 = float(d30.get("usd") or 0.0)
-        pct = saved30 / spend30 * 100
-        lines.append(f"  Saved            {_fmt_usd(saved)}   ({_fmt_pct(pct)} of {_fmt_usd(spend30)} spend · 30d)")
+    lines.append(_row("Window", HEADLINE_WINDOW_LABEL))
+    if spend_w is None:
+        # Absent, not zero: say so instead of implying a free window.
+        lines.append(_row("Spend", "unavailable", "the usage read model could not be read"))
     else:
-        lines.append(f"  Saved            {_fmt_usd(saved)}")
-    lines.append(f"  Calls avoided    {_int(calls)}")
-    lines.append(f"  Tokens kept out  {_fmt_tok(tokens)}")
+        lines.append(_row("Spend", _fmt_usd(spend_w), _spend_provenance(payload, HEADLINE_WINDOW_LABEL)))
+    lines.append(_row("Saved (est.)", _fmt_usd(saved_w), "modelled counterfactual, not billed"))
+    if spend_w is not None:
+        baseline = spend_w + saved_w
+        lines.append(_row("Baseline", _fmt_usd(baseline), "= Spend + Saved, the modelled no-LemonCrow cost"))
+        if baseline > 0:
+            lines.append(_row("Share", _fmt_pct(saved_w / baseline * 100), "= Saved / Baseline"))
+    lines.append(_row("Calls avoided", _int(calls)))
+    lines.append(_row("Tokens kept out", _fmt_tok(tokens)))
     faster_s = float(payload.get("time_saved_seconds") or 0.0)
     if faster_s >= 60:
-        lines.append(f"  Faster (est.)    ~{fmt_duration(faster_s)}   (fewer round-trips)")
-    routing_total = float((payload.get("live") or {}).get("routing_saved_usd") or 0.0)
-    if routing_total > 0:
-        lines.append(f"  Routing saved    {_fmt_usd(routing_total)}   (model routing · included in Saved)")
+        lines.append(_row("Faster (est.)", f"~{fmt_duration(faster_s)}", "fewer round-trips"))
+    routing_w = float(head.get("routing") or 0.0)
+    if routing_w > 0:
+        lines.append(_row("Routing saved", _fmt_usd(routing_w), "model routing · included in Saved"))
 
     if breakdown:
         has_routing = any(float((breakdown.get(k) or {}).get("routing") or 0.0) > 0 for k in ("1D", "7D", "30D"))
         lines.append("")
-        header = f"  {'By window':<12}{'calls':>8}{'saved':>11}{'tokens':>10}"
+        header = f"  {'By window':<12}{'spend':>11}{'saved':>11}{'calls':>8}{'tokens':>10}"
         if has_routing:
             header += f"{'routing':>11}"
         lines.append(header)
         for key, label in (("1D", "1 day"), ("7D", "7 days"), ("30D", "30 days")):
             w = breakdown.get(key) or {}
-            row = f"    {label:<10}{_int(w.get('calls')):>8}{_fmt_usd(float(w.get('usd') or 0.0)):>11}{_fmt_tok(int(w.get('tokens') or 0)):>10}"
+            w_spend = _spend_for(w)
+            spend_cell = "n/a" if w_spend is None else _fmt_usd(w_spend)
+            row = (
+                f"    {label:<10}{spend_cell:>11}{_fmt_usd(float(w.get('usd') or 0.0)):>11}"
+                f"{_int(w.get('calls')):>8}{_fmt_tok(int(w.get('tokens') or 0)):>10}"
+            )
             if has_routing:
                 row += f"{_fmt_usd(float(w.get('routing') or 0.0)):>11}"
             lines.append(row)
+
+    lines.append("")
+    lines.append(_SAVED_IS_MODELLED)
+    unpriced = int(head.get("spend_unpriced_rows") or 0)
+    spend_rows = int(head.get("spend_rows") or 0)
+    if unpriced > 0 and spend_w is not None:
+        lines.append(
+            f"  {unpriced:,} of {spend_rows:,} rows in this window carry no price and are in\n"
+            "  neither figure, so Spend is a floor and Share an upper bound."
+        )
+    if lifetime_saved > 0:
+        lines.append(f"  Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}.")
 
     sub = payload.get("subscription") or {}
     if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
@@ -2085,7 +2170,10 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
         lines.append(f"  {note}")
 
     lines.append("")
-    lines.append("  detail: lc savings detail      json: lc savings --json")
+    # Spelled with the promoted names: `lc savings` is a hidden back-compat
+    # alias now, so pointing a reader at it points them at `lc --help` coming up
+    # empty. Both spellings resolve; only one is discoverable.
+    lines.append("  detail: lc usage optimize detail      json: lc usage optimize --json")
     return "\n".join(lines)
 
 
@@ -2098,53 +2186,78 @@ def render_savings_markdown(payload: dict[str, Any]) -> str:
     mangled box. Consumed by the ``statusline_segment`` MCP tool
     (``format="markdown"``), which is how the lemoncrow skill answers "what are
     my savings?" where no shell is available to run ``lc savings``.
+
+    Carries the same closed arithmetic as the text view: one named window, and
+    ``Spend + Saved = Baseline`` with ``Share = Saved / Baseline``. Lifetime
+    saved is a separate labelled line, never the subject of a windowed ratio.
     """
 
     def _int(v: Any) -> str:
         return f"{int(v or 0):,}"
 
-    saved = float(payload.get("saved_usd") or 0.0)
+    lifetime_saved = float(payload.get("saved_usd") or 0.0)
     breakdown = payload.get("summary_breakdown") or {}
-    d30 = breakdown.get("30D") or {}
-    spend30 = float(d30.get("spend") or 0.0)
+    head = breakdown.get(HEADLINE_WINDOW_KEY) or {}
+    saved_w = float(head.get("usd") or 0.0)
+    spend_w = _spend_for(head)
 
-    lines: list[str] = ["## LemonCrow savings", ""]
-    if spend30 > 0:
-        # Same-window ratio (30d saved / 30d spend), matching the text view:
-        # the headline `saved` figure is lifetime and would inflate the pct.
-        saved30 = float(d30.get("usd") or 0.0)
-        lines.append(
-            f"**{_fmt_usd(saved)} saved** — {_fmt_pct(saved30 / spend30 * 100)} of {_fmt_usd(spend30)} spend (30d)"
-        )
+    lines: list[str] = [f"## LemonCrow savings — {HEADLINE_WINDOW_LABEL}", ""]
+    lines.append("| metric | value | basis |")
+    lines.append("| --- | ---: | --- |")
+    if spend_w is None:
+        lines.append("| Spend | _unavailable_ | usage read model could not be read |")
     else:
-        lines.append(f"**{_fmt_usd(saved)} saved**")
-
-    lines.append("")
-    lines.append("| metric | value |")
-    lines.append("| --- | ---: |")
-    lines.append(f"| Calls avoided | {_int(payload.get('calls_avoided'))} |")
-    lines.append(f"| Tokens kept out | {_fmt_tok(int(payload.get('tokens_saved') or 0))} |")
+        lines.append(
+            f"| Spend | {_fmt_usd(spend_w)} | {_spend_provenance(payload, HEADLINE_WINDOW_LABEL) or 'ledger'} |"
+        )
+    lines.append(f"| Saved (est.) | {_fmt_usd(saved_w)} | modelled counterfactual, not billed |")
+    if spend_w is not None:
+        baseline = spend_w + saved_w
+        lines.append(f"| Baseline | {_fmt_usd(baseline)} | Spend + Saved, the modelled no-LemonCrow cost |")
+        if baseline > 0:
+            lines.append(f"| Share | {_fmt_pct(saved_w / baseline * 100)} | Saved / Baseline |")
+    # The window's own counts, never the lifetime ones -- see
+    # :func:`render_savings_summary` for the figure this fallback used to print
+    # under a heading naming one window.
+    lines.append(f"| Calls avoided | {_int(head.get('calls'))} | |")
+    lines.append(f"| Tokens kept out | {_fmt_tok(int(head.get('tokens') or 0))} | |")
     faster_s = float(payload.get("time_saved_seconds") or 0.0)
     if faster_s >= 60:
-        lines.append(f"| Faster (est.) | ~{fmt_duration(faster_s)} (fewer round-trips) |")
-    routing_total = float((payload.get("live") or {}).get("routing_saved_usd") or 0.0)
-    if routing_total > 0:
-        lines.append(f"| Routing saved | {_fmt_usd(routing_total)} (model routing · included in saved) |")
+        lines.append(f"| Faster (est.) | ~{fmt_duration(faster_s)} | fewer round-trips |")
+    routing_w = float(head.get("routing") or 0.0)
+    if routing_w > 0:
+        lines.append(f"| Routing saved | {_fmt_usd(routing_w)} | model routing · included in Saved |")
 
     if breakdown:
         has_routing = any(float((breakdown.get(k) or {}).get("routing") or 0.0) > 0 for k in ("1D", "7D", "30D"))
         lines.append("")
-        lines.append("| window | calls | saved | tokens |" + (" routing |" if has_routing else ""))
-        lines.append("| --- | ---: | ---: | ---: |" + (" ---: |" if has_routing else ""))
+        lines.append("| window | spend | saved | calls | tokens |" + (" routing |" if has_routing else ""))
+        lines.append("| --- | ---: | ---: | ---: | ---: |" + (" ---: |" if has_routing else ""))
         for key, label in (("1D", "1 day"), ("7D", "7 days"), ("30D", "30 days")):
             w = breakdown.get(key) or {}
+            w_spend = _spend_for(w)
             row = (
-                f"| {label} | {_int(w.get('calls'))} | {_fmt_usd(float(w.get('usd') or 0.0))} "
+                f"| {label} | {'_n/a_' if w_spend is None else _fmt_usd(w_spend)} "
+                f"| {_fmt_usd(float(w.get('usd') or 0.0))} | {_int(w.get('calls'))} "
                 f"| {_fmt_tok(int(w.get('tokens') or 0))} |"
             )
             if has_routing:
                 row += f" {_fmt_usd(float(w.get('routing') or 0.0))} |"
             lines.append(row)
+
+    lines.append("")
+    lines.append(
+        "_Saved is a modelled counterfactual against a no-LemonCrow baseline, not billed "
+        "money: it cannot be subtracted from Spend._"
+    )
+    unpriced = int(head.get("spend_unpriced_rows") or 0)
+    if unpriced > 0 and spend_w is not None:
+        lines.append(
+            f"_{unpriced:,} of {int(head.get('spend_rows') or 0):,} rows in this window carry no price, "
+            "so Spend is a floor and Share is an upper bound._"
+        )
+    if lifetime_saved > 0:
+        lines.append(f"_Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}._")
 
     sub = payload.get("subscription") or {}
     if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
@@ -2761,22 +2874,55 @@ def reconcile_savings_aggregate(root: Path, *, full: bool = False) -> dict[str, 
     return agg
 
 
+_SPEND_COL = 4
+"""Index of the spend column in a day bucket. Named because it is the one
+column :func:`_window_from_aggregate` may not simply sum -- see there."""
+
+
 def _window_from_aggregate(
     agg: dict[str, Any], days: int, now: float
 ) -> tuple[float, int, int, int, float, float, float, float, int, int]:
     """Trailing-*days* totals from the day buckets (<= days+1 buckets summed;
     day granularity rounds the window start down to 00:00 UTC of the cutoff day).
 
+    Every column is a plain sum EXCEPT spend, which is de-duplicated per
+    session id. A Claude session that is resumed across days gets one ledger
+    directory per date partition (``sessions/YYYY/MM/DD/claude/<sid>``), and
+    :func:`_fold_session_file` derives each one's spend from the transcript it
+    resolves by session id -- the SAME transcript for all of them. Each fold
+    therefore re-counts every turn the previous fold already counted, so
+    summing the partitions counted one session's spend two or three times. On a
+    real store that inflated the 30-day spend by $6.5k of $19.1k.
+
+    Both spend derivations are cumulative snapshots of one session rather than
+    additive slices of it (the transcript path re-reads the whole transcript;
+    the ``session_end`` path records a running total per Stop fire), so the
+    correct de-duplication is the largest in-window total per session, not the
+    sum. Savings columns are NOT de-duplicated: each partition's ledger holds
+    its own distinct rows, which really are additive.
+
     Returns (usd, tok, calls, turns, spend, carry_usd, routing, read_usd,
     read_tok, carry_tokens).
     """
     cutoff_day = _day_key(max(0.0, now - days * 86_400))
     totals = [0.0] * 10
-    for entry in agg.get("sessions", {}).values():
+    # session id -> the largest in-window spend any one of its ledger
+    # partitions reported. Summing them instead is the double-count above.
+    spend_by_session: dict[str, float] = {}
+    for key, entry in agg.get("sessions", {}).items():
+        session_spend = 0.0
         for day, vals in (entry.get("days") or {}).items():
-            if day >= cutoff_day:
-                for i, v in enumerate(vals[:10]):
+            if day < cutoff_day:
+                continue
+            for i, v in enumerate(vals[:10]):
+                if i != _SPEND_COL:
                     totals[i] += float(v)
+            if len(vals) > _SPEND_COL:
+                session_spend += float(vals[_SPEND_COL])
+        session_id = str(key).rsplit("/", 1)[-1]
+        if session_spend > spend_by_session.get(session_id, 0.0):
+            spend_by_session[session_id] = session_spend
+    totals[_SPEND_COL] = sum(spend_by_session.values())
     return (
         totals[0],
         int(totals[1]),
@@ -3038,6 +3184,27 @@ def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) ->
     """
     agg = reconcile_savings_aggregate(Path(root))
     by_day: dict[str, dict[str, float | int]] = {}
+    # session key (ONE ledger partition) -> {day: that partition's spend}, over
+    # the days this rollup covers. ``est_cost_usd`` is the spend column and is
+    # the ONE column that may not be summed across partitions: every partition
+    # of a resumed session derives its spend from the same transcript (resolved
+    # by session id), so summing them counts the same turns twice -- the
+    # de-duplication :func:`_window_from_aggregate` applies, which this rollup
+    # was otherwise free to contradict by 2x. The savings columns stay
+    # additive: each partition's ledger holds its own distinct rows.
+    #
+    # Collected per partition rather than reduced per (day, session) on the
+    # spot, because a per-day maximum is NOT the same de-duplication: it is a
+    # sum of per-day maxima where ``_window_from_aggregate`` takes the maximum
+    # of per-partition sums. Those agree only when every partition of a session
+    # lands on the same day (the transcript path, which re-buckets the same
+    # turns onto the same turn-days). The ``session_end`` path puts each
+    # partition's cumulative snapshot on its own Stop day, and that is the
+    # ordinary shape -- ``session_dir`` searches back only ``search_days``, so a
+    # session resumed later mints a new partition on a later day while the old
+    # one keeps its own snapshot on its own. Three such partitions still rolled
+    # up at the full, unmitigated 2x.
+    spend_by_partition: dict[str, dict[str, float]] = {}
 
     def _bucket(day: str) -> dict[str, float | int]:
         return by_day.setdefault(
@@ -3072,12 +3239,29 @@ def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) ->
             b["tokens_saved"] = int(b["tokens_saved"]) + int(vals[1])
             b["calls_avoided"] = int(b["calls_avoided"]) + int(vals[2])
             b["turn_count"] = int(b["turn_count"]) + int(vals[3])
-            b["est_cost_usd"] = float(b["est_cost_usd"]) + float(vals[4])
+            spend_by_partition.setdefault(str(key), {})[day] = float(vals[_SPEND_COL])
             b["carry_usd"] = float(b["carry_usd"]) + float(vals[5])
             b["carry_tokens"] = int(b["carry_tokens"]) + int(vals[9] if len(vals) > 9 else 0)
             b["output_saved_tokens"] = int(b["output_saved_tokens"]) + int(vals[10] if len(vals) > 10 else 0)
             b["output_saved_usd"] = float(b["output_saved_usd"]) + float(vals[11] if len(vals) > 11 else 0.0)
             b["turns_avoided"] = int(b["turns_avoided"]) + int(vals[12] if len(vals) > 12 else 0)
+    # Pick the dominant partition per session id over the WHOLE range -- the
+    # same max-of-per-partition-sums :func:`_window_from_aggregate` takes -- and
+    # then post only that partition's spend, day by day, so the days still add
+    # back up to the window total. Ties break on the partition key so the
+    # rollup stays a pure function of the aggregate.
+    dominant: dict[str, tuple[float, str]] = {}
+    for partition, days_spend in spend_by_partition.items():
+        session_id = partition.rsplit("/", 1)[-1]
+        candidate = (sum(days_spend.values()), partition)
+        best = dominant.get(session_id)
+        if best is None or candidate[0] > best[0] or (candidate[0] == best[0] and candidate[1] < best[1]):
+            dominant[session_id] = candidate
+    for _total, partition in dominant.values():
+        for spend_day, session_spend in spend_by_partition[partition].items():
+            bucket = by_day.get(spend_day)
+            if bucket is not None:
+                bucket["est_cost_usd"] = float(bucket["est_cost_usd"]) + session_spend
     return by_day
 
 

@@ -371,7 +371,7 @@ bill and can sign without convening a committee.
    Contrast with the grep-and-read transcript they recognize.
 3. **Session replay** — replay a recorded session and point at the repeated
    searches and oversized reads. No model reruns; nothing to fake.
-4. **`lc savings`** — the ledger with actual vs counterfactual cost.
+4. **`lc usage`** — the ledger of actual spend; `lc usage optimize` adds the counterfactual.
 5. **Shadow mode** — set it running and tell them to check the number in two
    weeks. That is the close.
 

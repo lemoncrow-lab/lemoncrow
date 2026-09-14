@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.capabilities.plugin_runtime import postgres_try_auto_fix, sql_auto_limit
+from lemoncrow.core.environment import tool_output_spill_enabled
 
 _CONNECTION_KEYS = ("DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL", "MYSQL_URL", "SQLITE_URL")
 _WRITE_PREFIXES = {
@@ -339,11 +340,6 @@ def _sqlite_search(conn: sqlite3.Connection, terms: list[str], *, limit: int = 2
 _MAX_SQL_CELL_BYTES = 4096
 
 
-def _sql_spill_enabled() -> bool:
-    """Mirrors the MCP dispatch layer's T7 kill switch (``LEMONCROW_TOOL_OUTPUT_SPILL``)."""
-    return os.environ.get("LEMONCROW_TOOL_OUTPUT_SPILL", "1").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _cell_spill_hint(full_text: str, *, kept_chars: int) -> str:
     """Canonical truncation footer for one oversized SQL cell.
 
@@ -357,7 +353,9 @@ def _cell_spill_hint(full_text: str, *, kept_chars: int) -> str:
     """
     from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
-    record = tool_output_spill.spill(full_text, tool_name="sql", kind="original") if _sql_spill_enabled() else None
+    record = (
+        tool_output_spill.spill(full_text, tool_name="sql", kind="original") if tool_output_spill_enabled() else None
+    )
     return " " + tool_output_spill.spill_notice(
         verb="truncated",
         original_chars=len(full_text),

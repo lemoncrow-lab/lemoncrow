@@ -125,7 +125,7 @@ def _debug_log(tool_name: str, tool_response: Any) -> None:
         preview = repr(tool_response)[:500]
         with (log_dir / "mcp_output_shrink_debug.log").open("a", encoding="utf-8") as fh:
             fh.write(f"{time.time():.3f} tool={tool_name} shape={shape} preview={preview}\n")
-    except Exception:  # noqa: BLE001 -- debug logging must never break the hook
+    except Exception:
         pass
 
 
@@ -197,7 +197,7 @@ def main() -> int:
         if not isinstance(payload, dict):
             return 0
         return _run(payload)
-    except Exception:  # noqa: BLE001 -- hooks must be fail-open
+    except Exception:
         return 0
 
 

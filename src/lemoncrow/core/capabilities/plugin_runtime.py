@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lemoncrow.core.environment import cache_disabled
+
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.verify_gate import VerifySignals
 
@@ -2621,8 +2623,9 @@ def build_opencode_verify_output(root: str | Path, payload: dict[str, Any]) -> d
     if not session_id:
         return {"no_output": True}
     prompt = str(_read_codex_session_state(root, normalized).get("last_user_prompt") or "")
-    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
-    result = verify_decide(signals, dedup_key=f"opencode:{session_id}", root=_opencode_workspace_root(normalized))
+    workspace = _opencode_workspace_root(normalized)
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt, project_root=workspace)
+    result = verify_decide(signals, dedup_key=f"opencode:{session_id}", root=workspace)
     if not result:
         return {"no_output": True}
     return result
@@ -2954,11 +2957,17 @@ def _unified_diff_sides(diff: str) -> tuple[str, str]:
     return "\n".join(old_lines), "\n".join(new_lines)
 
 
-def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: str) -> VerifySignals:
+def _verify_signals_from_run_ledger(
+    root: str | Path, session_id: str, prompt: str, *, project_root: str | None = None
+) -> VerifySignals:
     """Build host-neutral verify signals from the canonical run.json event ledger.
 
     Shared by Codex and OpenCode -- both record ``file_edit`` / ``command_result``
     events into the same ledger shape, so the verify signals derive identically.
+
+    ``project_root`` is the host's workspace; it decides which temp paths count
+    as throwaway scratch (outside it) versus real project files (inside it, e.g.
+    a checkout under /tmp). Falls back to cwd when the host does not report one.
     """
     from lemoncrow.pro.capabilities.verify_gate import (
         VerifySignals,
@@ -2989,7 +2998,7 @@ def _verify_signals_from_run_ledger(root: str | Path, session_id: str, prompt: s
         ev_payload = raw_payload if isinstance(raw_payload, dict) else {}
         if kind == "file_edit":
             path = str(ev_payload.get("path") or "")
-            if not path or not is_verifiable_path(path, include_docs=True):
+            if not path or not is_verifiable_path(path, include_docs=True, project_root=project_root):
                 continue
             edited.append(path)
             last_edit_idx = idx
@@ -3034,8 +3043,9 @@ def build_codex_verify_output(root: str | Path, payload: dict[str, Any]) -> dict
     if not session_id:
         return {"no_output": True}
     prompt = str(_read_codex_session_state(root, payload).get("last_user_prompt") or "")
-    signals = _verify_signals_from_run_ledger(root, session_id, prompt)
-    result = verify_decide(signals, dedup_key=f"codex:{session_id}", root=_codex_workspace_root(payload))
+    workspace = _codex_workspace_root(payload)
+    signals = _verify_signals_from_run_ledger(root, session_id, prompt, project_root=workspace)
+    result = verify_decide(signals, dedup_key=f"codex:{session_id}", root=workspace)
     if not result:
         return {"no_output": True}
     return {"systemMessage": result["reason"]}
@@ -3163,58 +3173,47 @@ def _codex_ledger_session_id(root: str | Path, payload: dict[str, Any]) -> str:
 
 
 def _codex_atomic_write_json(path: Path, data: dict[str, Any]) -> bool:
-    import tempfile
+    from lemoncrow.core.foundation.run_file_io import atomic_write_json
 
-    tmp_path: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=path.parent, suffix=".tmp", delete=False, encoding="utf-8"
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(path)
+        atomic_write_json(path, data)
         return True
     except (OSError, TypeError, ValueError):
-        if tmp_path:
-            with suppress(OSError):
-                Path(tmp_path).unlink(missing_ok=True)
         return False
 
 
 def _codex_append_ledger_events(root: str | Path, session_id: str, events_to_add: list[dict[str, Any]]) -> bool:
     if not session_id or not events_to_add:
         return False
+    from lemoncrow.core.foundation.run_file_io import RunFileLock
+
     run_file = _codex_run_file(root, session_id)
-    if run_file.exists():
-        try:
-            data = json.loads(run_file.read_text("utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return False
-        if not isinstance(data, dict):
-            return False
-    else:
-        # The MCP server persists run.json only at session close, which the
-        # per-turn Stop hook races (and a killed MCP subprocess never reaches),
-        # so create it here in the canonical session dir. This makes the hook
-        # the ledger writer verify-before-done reads -- the MCP-owns-creation
-        # assumption never held for codex/opencode.
-        data = {"session_id": session_id, "events": [], "files_touched": []}
-        try:
-            run_file.parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return False
-    events = data.setdefault("events", [])
-    if not isinstance(events, list):
+    try:
+        with RunFileLock(run_file):
+            if run_file.exists():
+                try:
+                    data = json.loads(run_file.read_text("utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return False
+                if not isinstance(data, dict):
+                    return False
+            else:
+                data = {"session_id": session_id, "events": [], "files_touched": []}
+                run_file.parent.mkdir(parents=True, exist_ok=True)
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return False
+            events.extend(events_to_add)
+            touched = data.setdefault("files_touched", [])
+            if isinstance(touched, list):
+                for event in events_to_add:
+                    if event.get("kind") == "file_edit":
+                        path_value = (event.get("payload") or {}).get("path")
+                        if isinstance(path_value, str) and path_value and path_value not in touched:
+                            touched.append(path_value)
+            return _codex_atomic_write_json(run_file, data)
+    except OSError:
         return False
-    events.extend(events_to_add)
-    touched = data.setdefault("files_touched", [])
-    if isinstance(touched, list):
-        for event in events_to_add:
-            if event.get("kind") == "file_edit":
-                path_value = (event.get("payload") or {}).get("path")
-                if isinstance(path_value, str) and path_value and path_value not in touched:
-                    touched.append(path_value)
-    return _codex_atomic_write_json(run_file, data)
 
 
 def _normalize_codex_tool(tool_name: str) -> str:
@@ -3475,7 +3474,7 @@ def _codex_error_signature(command: str, error: str) -> str:
 
 
 def _codex_cache_bash(root: str | Path, command: str, stdout: str, stderr: str, rc: int | None) -> None:
-    if str(os.environ.get("LEMONCROW_CACHE_DISABLED") or "").strip().lower() in {"1", "true", "yes", "on"}:
+    if cache_disabled():
         return
     try:
         from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
@@ -3496,6 +3495,20 @@ def _codex_cache_bash(root: str | Path, command: str, stdout: str, stderr: str, 
         pass
 
 
+def _codex_at_head(workspace: str) -> str:
+    """The git HEAD sha this edit was made against, or ``""``.
+
+    Same pure-filesystem resolver the claude hook uses, so both hosts stamp the
+    same fact in the same way. Never a subprocess: this fires after every edit.
+    """
+    try:
+        from lemoncrow.infra.runtime.run_ledger import _resolve_git_anchor
+
+        return str(_resolve_git_anchor(workspace).get("head") or "")
+    except Exception:
+        return ""
+
+
 def _codex_record_file_edits(
     root: str | Path, payload: dict[str, Any], session_id: str, tool_input: dict[str, Any]
 ) -> None:
@@ -3505,6 +3518,10 @@ def _codex_record_file_edits(
     if not targets:
         return
     workspace = _codex_workspace_root(payload)
+    # Codex has no SessionStart model event, so this is usually "" -- which is
+    # the honest answer and must not be papered over with a guess.
+    model = str(_read_codex_session_state(root, payload).get("model") or "").strip()
+    at_head = _codex_at_head(workspace)
     events: list[dict[str, Any]] = []
     for path in targets:
         diff = _codex_edit_diff(tool_input, path, workspace)
@@ -3513,7 +3530,15 @@ def _codex_record_file_edits(
                 "kind": "file_edit",
                 "at": _iso_now(),
                 "summary": f"edited {Path(path).name}",
-                "payload": {"path": path, "diff": diff, "event": "PostToolUse"},
+                "payload": {
+                    "path": path,
+                    "diff": diff,
+                    "event": "PostToolUse",
+                    "session_id": session_id,
+                    "host": "codex",
+                    "model": model,
+                    "at_head": at_head,
+                },
             }
         )
     _codex_append_ledger_events(root, session_id, events)

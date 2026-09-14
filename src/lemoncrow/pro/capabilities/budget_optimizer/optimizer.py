@@ -32,10 +32,11 @@ Usage::
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+from lemoncrow.core.environment import bool_env
 
 # External utility source: maps a ContextBlock to a replacement utility in
 # [0, 1], or a plain mapping of block id -> utility. Used to drive selection
@@ -47,10 +48,7 @@ _PERPLEXITY_FLAG = "LEMONCROW_PERPLEXITY_COMPRESSION"
 
 def _perplexity_compression_enabled() -> bool:
     """True when the default-off ``LEMONCROW_PERPLEXITY_COMPRESSION`` flag is set."""
-    raw = os.environ.get(_PERPLEXITY_FLAG)
-    if raw is None:
-        return False
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env(_PERPLEXITY_FLAG, False)
 
 
 def _resolve_utility(block: ContextBlock, source: UtilitySource) -> float:

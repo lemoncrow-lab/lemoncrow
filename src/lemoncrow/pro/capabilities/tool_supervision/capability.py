@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import subprocess
 import time
 from collections import defaultdict
@@ -21,6 +20,7 @@ from lemoncrow.core.capabilities._optional_runtime import (
     wait_exponential,
 )
 from lemoncrow.core.capabilities.pricing import active_model, get_model_pricing
+from lemoncrow.core.environment import cache_disabled
 
 from .anomaly import ToolAnomalyDetector
 from .circuit_breaker import CircuitBreaker
@@ -86,10 +86,6 @@ def _content_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def _cache_disabled_by_env() -> bool:
-    return str(os.environ.get("LEMONCROW_CACHE_DISABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 class ToolSupervisionCapability:
     """
     Monitors tool usage with:
@@ -117,7 +113,7 @@ class ToolSupervisionCapability:
         self._pybreakers: dict[str, Any] = {}
         self._anomaly = ToolAnomalyDetector()
         self._model = model or active_model()
-        self._cache_enabled = bool(cache_enabled) and not _cache_disabled_by_env()
+        self._cache_enabled = bool(cache_enabled) and not cache_disabled()
         self._cache_ttl_seconds = max(0, int(cache_ttl_seconds))
         self._total_calls = 0
         self._avoided_calls = 0

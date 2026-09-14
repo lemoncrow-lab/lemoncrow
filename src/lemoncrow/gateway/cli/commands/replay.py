@@ -156,5 +156,5 @@ def replay_cmd(
 
         try:
             webbrowser.open(html_out.resolve().as_uri())
-        except Exception:  # noqa: BLE001 - opening a browser must never fail the command
+        except Exception:
             click.echo("(could not open a browser automatically; open the file above manually.)")

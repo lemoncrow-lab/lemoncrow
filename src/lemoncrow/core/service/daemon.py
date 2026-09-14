@@ -111,7 +111,7 @@ def status() -> None:
         with urllib.request.urlopen(f"{root_url}/health", timeout=2) as resp:
             data = resp.read().decode()
         click.echo(f"● lcd  running  {root_url}  {data.strip()}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         click.echo(f"● lcd  stopped  (not reachable at {root_url}/health)")
 
     if _systemctl_available():

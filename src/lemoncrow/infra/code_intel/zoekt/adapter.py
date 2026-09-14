@@ -190,7 +190,7 @@ class ZoektSupervisor:
                 return False
             try:
                 _search, _index, git_index = _resolve_host_binaries(resolution)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return False
             if git_index is None:
                 # Only the git-aware indexer is incremental; without it a refresh
@@ -205,7 +205,7 @@ class ZoektSupervisor:
                 return False
             server.build_index(resolution)
             return True
-        except Exception:  # noqa: BLE001
+        except Exception:
             logging.debug("zoekt incremental refresh failed", exc_info=True)
             return False
         finally:

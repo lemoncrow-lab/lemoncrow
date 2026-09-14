@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -655,3 +656,110 @@ def test_codex_hooks_manifest_includes_new_lifecycle_events() -> None:
     assert "${PLUGIN_ROOT}/hooks/" in rendered
     assert "__LEMONCROW_PYTHON__" in rendered
     assert "__LEMONCROW_REPO_SRC__" in rendered
+
+
+# --------------------------------------------------------------------------
+# Authoring-time provenance: one payload shape across hosts
+# --------------------------------------------------------------------------
+_AUTHORING_KEYS = {"path", "event", "session_id", "host", "model", "at_head"}
+
+
+def _fake_checkout(workspace: Path, head: str) -> None:
+    (workspace / ".git").mkdir(parents=True, exist_ok=True)
+    (workspace / ".git" / "HEAD").write_text(f"{head}\n", encoding="utf-8")
+
+
+def test_codex_file_edit_payload_carries_the_authoring_facts(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    head = "c" * 40
+    _fake_checkout(workspace, head)
+    session_id = "run-codex"
+    _seed_run_file(root, session_id)
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": session_id,
+        "tool_name": "apply_patch",
+        "tool_input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
+        "cwd": str(workspace),
+    }
+    _write_session_state(root, payload, {"session_id": session_id, "model": "gpt-5-codex"})
+
+    plugin_runtime.build_codex_post_tool_use_ledger_output(root, payload)
+
+    body = next(e for e in _events(root, session_id) if e["kind"] == "file_edit")["payload"]
+    assert body["session_id"] == session_id
+    assert body["host"] == "codex"
+    assert body["model"] == "gpt-5-codex"
+    assert body["at_head"] == head
+
+
+def test_codex_model_is_blank_rather_than_guessed(tmp_path: Path) -> None:
+    # Codex has no SessionStart model event, so "" is the honest answer and
+    # must not be papered over with the host name or a default model id.
+    root = tmp_path / ".lemoncrow"
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    session_id = "run-codex"
+    _seed_run_file(root, session_id)
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": session_id,
+        "tool_name": "apply_patch",
+        "tool_input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
+        "cwd": str(workspace),
+    }
+
+    plugin_runtime.build_codex_post_tool_use_ledger_output(root, payload)
+
+    body = next(e for e in _events(root, session_id) if e["kind"] == "file_edit")["payload"]
+    assert body["model"] == ""
+    assert body["at_head"] == ""
+
+
+def test_claude_and_codex_file_edit_payloads_have_the_same_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One record shape, or the read side has to special-case a host.
+
+    ``provenance._exact_edit_anchor`` reads ``path``/``host``/``model`` out of
+    whichever host wrote the event. A key that exists on one side only is a
+    silent gap for exactly the hosts that need this most.
+    """
+    from integrations.claude.plugin.hooks import post_tool_use
+    from lemoncrow.core.foundation import session_window as sw
+    from lemoncrow.core.foundation.paths import session_dir
+
+    root = tmp_path / ".lemoncrow"
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _fake_checkout(workspace, "d" * 40)
+
+    codex_session = "run-codex"
+    _seed_run_file(root, codex_session)
+    codex_payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": codex_session,
+        "tool_name": "apply_patch",
+        "tool_input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
+        "cwd": str(workspace),
+    }
+    plugin_runtime.build_codex_post_tool_use_ledger_output(root, codex_payload)
+    codex_body = next(e for e in _events(root, codex_session) if e["kind"] == "file_edit")["payload"]
+
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setattr(sw, "host_window_id", lambda: None)
+    claude_session = "run-claude"
+    cast(Any, post_tool_use)._append_file_edit_event(claude_session, str(workspace / "a.py"), "@@\n-x\n+y\n")
+    claude_run = json.loads((session_dir(root, "claude", claude_session) / "run.json").read_text(encoding="utf-8"))
+    claude_body = next(e for e in claude_run["events"] if e["kind"] == "file_edit")["payload"]
+
+    # Claude always has a diff; codex only when it could compute one, so the
+    # comparison is over the authoring facts both hosts owe the read side.
+    assert _AUTHORING_KEYS <= set(codex_body)
+    assert _AUTHORING_KEYS <= set(claude_body)
+    assert set(codex_body) - {"diff"} == set(claude_body) - {"diff"}
+    assert codex_body["host"] == "codex"
+    assert claude_body["host"] == "claude"

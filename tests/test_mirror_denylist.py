@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def test_plain_allowlist_unchanged() -> None:
 # `src/` is allowed wholesale, so nothing under it is protected by a deny any
 # more (the `!src/lemoncrow/pro` deny is gone: the engine is published,
 # Apache-2.0). These two tests are the replacement guard -- they run
-# the REAL release/public-paths.txt over the REAL tracked tree, so a new private
+# the REAL scripts/public-paths.txt over the REAL tracked tree, so a new private
 # directory or a committed credential fails here instead of on GitHub.
 
 _PRIVATE_TREES = (
@@ -98,7 +99,7 @@ def test_private_trees_never_reach_the_public_mirror() -> None:
         for path in _tracked_files()
         if path.split("/", 1)[0] in _PRIVATE_TREES and mirror.is_public(path, prefixes)
     ]
-    assert not leaked, f"release/public-paths.txt would publish private files: {leaked[:10]}"
+    assert not leaked, f"scripts/public-paths.txt would publish private files: {leaked[:10]}"
 
 
 def test_no_credentials_in_the_files_the_mirror_would_publish() -> None:
@@ -119,6 +120,32 @@ def test_no_credentials_in_the_files_the_mirror_would_publish() -> None:
     paths = [line.split(":", 1)[1] for line in hits if ":" in line]
     leaked = sorted(p for p in paths if p not in _VERIFIED_SYNTHETIC and mirror.is_public(p, prefixes))
     assert not leaked, f"credential-shaped content inside public paths: {leaked}"
+
+
+def test_every_build_stage_input_is_public() -> None:
+    """A public release build may not reach back into a private-only path."""
+
+    prefixes = mirror.load_public_prefixes()
+    build = (_REPO / "scripts" / "build.sh").read_text(encoding="utf-8")
+    copied: set[str] = set()
+    for raw in build.splitlines():
+        line = raw.strip()
+        if "cp -a " not in line or "$BUILD_STAGE" not in line:
+            continue
+        command = line.split("cp -a ", 1)[1].split('"$BUILD_STAGE', 1)[0].strip()
+        try:
+            words = shlex.split(command)
+        except ValueError:
+            continue
+        for word in words:
+            if word.startswith(("$", "-")) or word in {"&&"}:
+                continue
+            candidate = word.rstrip("/")
+            if candidate and (_REPO / candidate).exists():
+                copied.add(candidate)
+    assert copied, "scripts/build.sh build-stage inputs were not discovered"
+    private = sorted(path for path in copied if not mirror.is_public(path, prefixes))
+    assert not private, f"scripts/build.sh copies private-only inputs into the public release build: {private}"
 
 
 def test_public_workflows_are_rewritten_to_github_workflows() -> None:

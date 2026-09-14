@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import secrets
@@ -14,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -129,16 +128,9 @@ def _output_ceiling(budget: str) -> int:
 
 def _supports_vision(model: str) -> bool:
     """Best-effort LiteLLM vision capability check for Pi's model catalog."""
-    try:
-        import litellm
+    from lemoncrow.infra.internal_llm.litellm_client import supports_vision
 
-        # LiteLLM prints a provider-help banner for unknown/custom model ids.
-        # Capability discovery is best-effort metadata and must stay invisible
-        # to the managed frontend's stdout/stderr.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            return bool(litellm.supports_vision(model=model))
-    except Exception:
-        return False
+    return supports_vision(model)
 
 
 def _picker_model_entries(store_root: Path) -> list[tuple[str, str, str]]:

@@ -9,7 +9,6 @@ from __future__ import annotations
 import difflib
 import json
 import logging
-import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +24,7 @@ from lemoncrow.core.capabilities import (
     ToolSupervisionCapability,
 )
 from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
+from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.paths import (
     WorkspaceNotRegisteredError,
     default_store_root,
@@ -550,7 +550,7 @@ class LemonCrowRuntimeCore:
         Fail-open and headless: any error while evaluating the gate falls
         through to the prior behavior (compress) and never crashes the turn.
         """
-        if os.environ.get("LEMONCROW_AUTO_COMPACT", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        if not bool_env("LEMONCROW_AUTO_COMPACT", False):
             return True
         try:
             from lemoncrow.pro.capabilities.optimization.policy import load_current_policy, should_compact
@@ -558,7 +558,7 @@ class LemonCrowRuntimeCore:
             policy = load_current_policy(self.root)
             fill = self._live_context_fill(ledger)
             return should_compact(fill, policy.compaction)
-        except Exception:  # noqa: BLE001 - fail-open: never crash the turn on gating errors
+        except Exception:
             logging.getLogger(__name__).debug("auto-compact gate failed; falling back to compress", exc_info=True)
             return True
 

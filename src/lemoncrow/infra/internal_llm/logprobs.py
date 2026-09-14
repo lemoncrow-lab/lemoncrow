@@ -122,7 +122,7 @@ def logprobs(text: str, model: str | None = None) -> list[float] | None:
             return _openai_logprobs(text, model)
         if backend == "litellm":
             return _litellm_logprobs(text, model)
-    except Exception:  # noqa: BLE001 - any backend failure -> structural fallback
+    except Exception:
         return None
     # ollama / unknown backends: no logprobs contract -> structural fallback.
     return None

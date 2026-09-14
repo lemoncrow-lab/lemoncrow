@@ -48,6 +48,11 @@ _VENDOR_ENV_VARS: dict[str, tuple[str, ...]] = {
     "together": ("TOGETHER_API_KEY",),
     "fireworks": ("FIREWORKS_API_KEY",),
     "zen": ("OPENCODE_API_KEY",),
+    # User-registered endpoints (`lc model add`) are configured in
+    # providers.json, not in the environment. No env var can enable them, so
+    # this stays empty -- every entry in SUPPORTED_ROUTE_VENDORS needs a key
+    # here, and an absent one is a KeyError in _detect_configured_vendors.
+    "custom": (),
 }
 _VENDOR_HOST_COMMANDS: dict[str, tuple[str, ...]] = {
     "anthropic": ("claude",),
@@ -72,6 +77,7 @@ _VENDOR_HOST_COMMANDS: dict[str, tuple[str, ...]] = {
     "together": (),
     "fireworks": (),
     "zen": (),
+    "custom": (),  # no host CLI: a custom endpoint is reached over HTTP only
 }
 
 # RouteConfig / RouteConfigError / mode aliases are re-exported from the open

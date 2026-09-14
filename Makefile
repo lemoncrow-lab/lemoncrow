@@ -39,7 +39,7 @@ release/build: build ## Alias for build release jobs
 mirror: ## Incremental mirror bench → public repo (history-preserving): make mirror [f=1] [ARGS="--resync"]
 	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror $(FORCE_ARG) $(ARGS)
 
-release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP_MIRROR=1]
+release: ## Bump version, commit, push, tag, mirror + tag public repo (build/release runs there): make release tag=v0.4.X [f=1] [SKIP_MIRROR=1]
 	@set -e; \
  TAG=$${tag:-}; \
  [ -n "$$TAG" ] || { echo "Usage: make release tag=vX.Y.Z"; exit 1; }; \
@@ -61,7 +61,7 @@ release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP
  [ "$$FORCE" = "1" ] && PUSH_FLAG=--force; \
  git push --no-verify $$PUSH_FLAG origin $$TAG; \
  if [ "$$SKIP_MIRROR" = "1" ]; then \
-   echo "✓ Released $$TAG (private only, mirror skipped)"; \
+   echo "✓ Tagged $$TAG (private only, mirror skipped -- no build/release triggered, that now lives on the public repo)"; \
    exit 0; \
  fi; \
  if [ "$$(uname -s)" = "Darwin" ] && command -v gh >/dev/null 2>&1; then \
@@ -70,7 +70,7 @@ release: ## Bump version, commit, push, tag: make release tag=v0.4.X [f=1] [SKIP
  echo "Mirroring to public repo..."; \
  MIRROR_FORCE_ARG=; \
  [ "$$FORCE" = "1" ] && MIRROR_FORCE_ARG=--force; \
- LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror $$MIRROR_FORCE_ARG; \
+ LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror --resync $$MIRROR_FORCE_ARG; \
  PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
  git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
  echo "✓ Released $$TAG (dev + public)"

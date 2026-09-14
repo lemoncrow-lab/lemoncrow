@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.gateway.cli.runtime import InteractiveRuntime
 
 from .adapter import run_chat_completion
@@ -66,13 +67,6 @@ def _float_env(name: str) -> float | None:
         return None
 
 
-def _bool_env(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"", "0", "false", "off", "no"}
-
-
 def create_app(
     project_root: str | None = None,
     yolo: bool = True,
@@ -92,7 +86,7 @@ def create_app(
         cache_policy=os.environ.get("LEMONCROW_CODE_CACHE_POLICY", "auto"),
         max_cost=_float_env("LEMONCROW_CODE_MAX_COST"),
         dynamic_routing=not bool(resolved_model),
-        mcp_enabled=_bool_env("LEMONCROW_CODE_MCP", True),
+        mcp_enabled=bool_env("LEMONCROW_CODE_MCP", True),
         mcp_schema_mode=os.environ.get("LEMONCROW_CODE_MCP_SCHEMA_MODE", "auto"),
         optimization_mode=os.environ.get("LEMONCROW_OPTIMIZATION_MODE", "shadow"),
     )
@@ -152,8 +146,6 @@ def create_app(
     @app.post("/v1/messages/count_tokens", dependencies=[Depends(_require_auth)])
     async def anthropic_count_tokens(req: AnthropicCountRequest) -> dict[str, int]:
         return count_anthropic_tokens(req)
-
-    from lemoncrow.core.environment import bool_env
 
     if bool_env("LEMONCROW_MCP_HTTP"):
         from lemoncrow.gateway.adapters.mcp_http import register_mcp_http

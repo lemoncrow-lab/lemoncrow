@@ -550,8 +550,19 @@ class HistoryStore(SqliteTableStore):
             "domains": [r["domain"] for r in domain_rows if r["domain"]],
         }
 
-    def token_rows(self, *, since: datetime | None = None) -> list[dict[str, Any]]:
-        """Lightweight per-trace token/host/model rows for cost aggregates."""
+    def token_rows(
+        self,
+        *,
+        since: datetime | None = None,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lightweight per-trace token/host/model rows for cost aggregates.
+
+        ``cache_creation_input_tokens`` is in the projection because it is a
+        priced axis of its own ($3.75/M on Anthropic ids) and this is the only
+        view of a trace that some readers get. ``session_id`` narrows the same
+        projection for ``usage explain`` without walking unrelated ledgers.
+        """
         sql = (
             "SELECT id, host, "
             "json_extract(payload, '$.session_id') AS session_id, "
@@ -559,6 +570,7 @@ class HistoryStore(SqliteTableStore):
             "json_extract(payload, '$.input_tokens') AS input_tokens, "
             "json_extract(payload, '$.output_tokens') AS output_tokens, "
             "json_extract(payload, '$.cached_input_tokens') AS cached_input_tokens, "
+            "json_extract(payload, '$.cache_creation_input_tokens') AS cache_creation_input_tokens, "
             "json_extract(payload, '$.thinking_tokens') AS thinking_tokens "
             "FROM traces WHERE task != 'session-auto-record'"
         )
@@ -566,6 +578,9 @@ class HistoryStore(SqliteTableStore):
         if since is not None:
             sql += " AND created_at >= ?"
             params.append(since.isoformat())
+        if session_id:
+            sql += " AND (json_extract(payload, '$.session_id') = ? OR id = ?)"
+            params.extend([session_id, session_id])
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]

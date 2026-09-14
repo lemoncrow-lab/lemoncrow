@@ -41,6 +41,12 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     make_llm_usage_entry,
     summarize_usage_entries,
 )
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    sha256_text as _sha256,
+)
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    utcnow as _utcnow,
+)
 from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
@@ -48,14 +54,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _copilot_event_identity(ev: dict[str, Any]) -> str:

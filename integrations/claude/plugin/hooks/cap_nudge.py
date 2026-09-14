@@ -37,7 +37,7 @@ def main() -> int:
             # systemMessage -> user only; suppressOutput hides this hook's stdout
             # from the transcript. Tool result is untouched.
             sys.stdout.write(json.dumps({"systemMessage": message, "suppressOutput": True}) + "\n")
-    except Exception:  # noqa: BLE001 — fail-open
+    except Exception:
         return 0
     return 0
 

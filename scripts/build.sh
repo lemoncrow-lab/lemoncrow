@@ -4,12 +4,13 @@
 # This is the main entrypoint for CI and local release builds.
 set -euo pipefail
 
-# Force the mypyc-compiled build. This is the release entrypoint, and a pure-Python
-# wheel would ship EVERY source file (including the closed lemoncrow/pro engine).
-# hatch_build.py compiles only when LEMONCROW_ENABLE_MYPYC=1, so hard-set it here: a
-# bare `bash scripts/build.sh` (or a CI job that forgets the prefix) can never produce
-# a source-shipping release, and there is no skip escape hatch. For a pure-Python
-# artifact, run `uv build --wheel` directly instead of this script.
+# Force the mypyc-compiled build. This is the release entrypoint: hatch_build.py
+# compiles ~440 modules with mypyc for runtime performance and ships a much
+# smaller, stripped wheel. It only compiles when LEMONCROW_ENABLE_MYPYC=1, so
+# hard-set it here: a bare `bash scripts/build.sh` (or a CI job that forgets the
+# prefix) can never accidentally produce the far larger pure-Python wheel, and
+# there is no skip escape hatch. For a pure-Python artifact, run
+# `uv build --wheel` directly instead of this script.
 export LEMONCROW_ENABLE_MYPYC=1
 
 # 1. Clean ONLY local build/dist/bundle artifacts so the wheel and release
@@ -33,9 +34,10 @@ fi
 # 2. Build Frontend
 echo "◆ Building Frontend..."
 if [ -d "frontend" ]; then
-    cd frontend && npm ci --silent && npm run build && cd ..
-    rm -rf bundle/frontend/*
-    cp -r frontend/dist/* bundle/frontend/
+    (cd frontend && (npm ci --silent || npm install --silent) && npm run build)
+    rm -rf bundle/frontend
+    mkdir -p bundle/frontend
+    cp -r frontend/dist/. bundle/frontend/
 fi
 
 # 3. Build mypyc-compiled wheel
@@ -67,7 +69,10 @@ trap cleanup_build_stage EXIT INT TERM
 cp -a pyproject.toml hatch_build.py README.md LICENSE LICENSE-APACHE NOTICE "$BUILD_STAGE/"
 [[ -f uv.lock ]] && cp -a uv.lock "$BUILD_STAGE/"
 cp -a src integrations "$BUILD_STAGE/"
-[[ -d vendor ]] && cp -a vendor "$BUILD_STAGE/"
+if [[ -d vendor ]]; then
+    mkdir -p "$BUILD_STAGE/vendor"
+    cp -a vendor/babel-stub vendor/babel-99.0.0-py3-none-any.whl "$BUILD_STAGE/vendor/"
+fi
 # pyproject.toml declares benchmarks as a uv workspace member. The wheel build
 # does not need benchmark sources, only enough metadata for workspace discovery.
 if [[ -f benchmarks/pyproject.toml ]]; then
@@ -146,15 +151,30 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
           scripts/uninstall_lemoncode.sh scripts/uninstall_opencode.sh \
           scripts/build_host_skills.sh scripts/sync_agent_context.py; do
-    [[ -f "$s" ]] && cp -f "$s" "bundle/scripts/$(basename "$s")"
+    # Not `[[ -f ]] && cp`: a silent skip here is how a script goes missing from
+    # the tarball unnoticed (the public mirror omitted five of these once).
+    [[ -f "$s" ]] || { echo "✗ $s is missing from this tree — cannot bundle it" >&2; exit 1; }
+    cp -f "$s" "bundle/scripts/$(basename "$s")"
 done
 # Every host install_hosts.sh can dispatch to must ship, or the install dies at
 # "installer script not found" for that host only — a partial install reported
 # as "One or more host integrations failed". Fail the build instead.
-for host in $(grep -oE '^\s+--(antigravity|claude|codex|copilot|cursor|hermes|pi|lemoncode|opencode)\)' scripts/install_hosts.sh \
+# POSIX classes, not \s: BSD/macOS `grep -E` does not honour \s, and an empty
+# host list would make this guard silently pass on the macOS release legs.
+for host in $(grep -oE '^[[:space:]]+--(antigravity|claude|codex|copilot|cursor|hermes|pi|lemoncode|opencode)\)' scripts/install_hosts.sh \
                 | tr -d ' )-' | sort -u); do
     [[ -f "bundle/scripts/install_${host}.sh" ]] \
         || { echo "✗ bundle/scripts/install_${host}.sh missing — add it to the bundling list above" >&2; exit 1; }
+done
+# Same for the uninstallers: uninstall.sh `continue`s past a missing script, so a
+# host whose uninstaller did not ship is left fully installed with no message.
+# Read the host list out of uninstall.sh so the two cannot drift apart.
+uninstall_hosts="$(sed -n 's/^[[:space:]]*for host in \(.*\); do$/\1/p' scripts/uninstall.sh | head -1)"
+[[ -n "$uninstall_hosts" ]] \
+    || { echo "✗ could not read the per-host uninstaller list from scripts/uninstall.sh" >&2; exit 1; }
+for host in $uninstall_hosts; do
+    [[ -f "bundle/scripts/uninstall_${host}.sh" ]] \
+        || { echo "✗ bundle/scripts/uninstall_${host}.sh missing — add it to the bundling list above" >&2; exit 1; }
 done
 # Bundle lib/ (shared installer functions + managed context helpers).
 mkdir -p bundle/scripts/lib

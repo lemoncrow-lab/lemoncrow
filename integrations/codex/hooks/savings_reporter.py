@@ -47,7 +47,7 @@ def main() -> int:
             messages.append(ledger_message.strip())
         if messages:
             sys.stdout.write(json.dumps({"systemMessage": "\n\n".join(messages)}) + "\n")
-    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
+    except Exception:
         pass
     return 0
 

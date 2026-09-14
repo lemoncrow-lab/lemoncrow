@@ -74,7 +74,7 @@ def try_score_semantic(query: str, texts: Sequence[str]) -> list[float] | None:
         # fall back to .embed() for the latter).
         query_vec = embed_queries(embedder, [query])[0]
         chunk_vecs = embed_documents(embedder, list(texts))
-    except Exception:  # noqa: BLE001 -- ranking must never break the caller's fetch
+    except Exception:
         return None
 
     def _cosine(a: Sequence[float], b: Sequence[float]) -> float:

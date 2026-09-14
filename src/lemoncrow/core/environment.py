@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 MEMORY_BACKEND_ENV_VAR = "LEMONCROW_MEMORY_BACKEND"
 TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 MEMORY_BACKENDS = frozenset({"sqlite", "letta", "openmemory"})
-
 HIDDEN_LLM_TOOLS = frozenset(
     {
         # Single-primary retrieval surface: `explore` (ranked source + call-graph
@@ -57,22 +56,22 @@ HIDDEN_LLM_TOOLS = frozenset(
         # but not surfaced to agents.
         "index",
         "blame",
+        # Review-author workflow hooks. These are invoked deliberately by the
+        # host/plugin while it still owns exact session/revision provenance;
+        # advertising them beside normal coding tools would invite arbitrary
+        # calls without that lifecycle context and clutter the lean tool surface.
+        "review_rationale",
+        "review_evidence",
+        "review_feedback_addressed",
         # Code-intel cache admin (status + invalidate) folded into one tool.
         "cache",
         # Semantic/embedding search: registered and callable, but hidden until an
-        # embedding backend is wired up. Deterministic search (regex/glob, symbol
-        # locate/relations, repo-map) lives on `grep`; when embeddings land,
-        # remove `search` here to surface it as the 6th visible tool.
+        # embedding backend is wired up.
         "search",
-        # MCP proxy for OTHER configured stdio MCP servers: registered and
-        # callable by name (tests, CLI, adopt-mode plumbing) but off the
-        # advertised surface — shadow mode shrinks host-lane MCP outputs via
-        # hooks and needs no visible tool. Remove here when adopt mode lands
-        # so the proxy becomes the advertised route to adopted servers.
+        # MCP proxy for other configured stdio MCP servers: callable by name but
+        # not advertised until adopt mode needs it as the public route.
         "mcp",
-        # Power/admin surfaces kept off the lean agent surface: durable memory
-        # writes, raw SQL, and AST-shape codemod. Callable by name (tests, CLI,
-        # power use) but not advertised to agents.
+        # Power/admin surfaces kept off the lean agent surface.
         "memory",
         "sql",
         "codemod",
@@ -96,6 +95,21 @@ def bool_env(name: str, default: bool = False, env: Mapping[str, str] | None = N
     if not raw:
         return default
     return raw.strip().lower() in TRUE_ENV_VALUES
+
+
+def tool_output_spill_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """T7 kill switch: spill oversized tool output instead of discarding the overflow.
+
+    Read by every layer that produces oversized results (MCP dispatch, bash,
+    sql, web_fetch), so the var name and its default-on live here rather than
+    being restated per call site.
+    """
+    return bool_env("LEMONCROW_TOOL_OUTPUT_SPILL", True, env)
+
+
+def cache_disabled(env: Mapping[str, str] | None = None) -> bool:
+    """Global opt-out for LemonCrow's tool-result caches (``LEMONCROW_CACHE_DISABLED``)."""
+    return bool_env("LEMONCROW_CACHE_DISABLED", False, env)
 
 
 def mcp_tool_description(tool_name: str, description: str | None) -> str:

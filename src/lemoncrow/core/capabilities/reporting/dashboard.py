@@ -171,7 +171,7 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
     for run_file in list_run_files(root):
         try:
             snap: dict[str, Any] = json.loads(run_file.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 - best-effort per-run row; skip unreadable files
+        except Exception:
             continue
         ts_raw = str(snap.get("updated_at") or snap.get("created_at") or "")
         try:
@@ -188,7 +188,7 @@ def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
             # transcript-based carry component here, unlike bulk aggregation
             # paths (see build_report's docstring).
             report = build_report(snap, root, include_carry_credit=True)
-        except Exception:  # noqa: BLE001 - best-effort per-run row; skip unreadable files
+        except Exception:
             continue
         if not rows_added:
             lines.append("")
@@ -580,13 +580,29 @@ def _recommended_candidate(result: Any) -> Any:
     return min(candidates, key=lambda candidate: abs(candidate.weekly_cost_usd - target_cost))
 
 
-def _render_optimization_summary(result: Any) -> None:
+_MATERIAL_WEEKLY_DELTA_USD = 0.005
+"""Smallest weekly cost delta that survives ``${:.2f}`` rounding.
+
+Below this the recommended policy and the current one print the identical cost,
+so announcing a "Recommended:" change is a claim the same screen refutes.
+"""
+
+
+def _render_optimization_summary(result: Any, *, days: int = 7) -> None:
+    """Print the advisor block for a *days*-long analysis window.
+
+    *days* is a parameter rather than the literal ``7`` it used to be: the
+    caller's ``--days`` is what the advisor actually analysed, and a header that
+    said "last 7 days" over a 30-day analysis was simply false.
+    """
+
     current = next(candidate for candidate in result.candidates if candidate.id == "current")
     recommended = _recommended_candidate(result)
     click.echo("Optimization Autopilot")
     click.echo("─────────────────────────────────────────────────")
     click.echo(
-        f"Analysed your last 7 days: {result.sessions_analysed} sessions, {result.replayable_tasks} replayable tasks"
+        f"Analysed your last {days} days: {result.sessions_analysed} sessions, "
+        f"{result.replayable_tasks} replayable tasks"
     )
     click.echo("")
     click.echo(f"Current setting: {result.current_policy.name}")
@@ -595,20 +611,33 @@ def _render_optimization_summary(result: Any) -> None:
     click.echo(f"  Latency mult:      {current.latency_mult:.2f}x")
     click.echo(f"  Escalation rate:   {current.escalation_rate:.0%}")
     click.echo("")
+    # The delta is taken from the two costs printed above, not from
+    # result.weekly_savings_usd: the recommended candidate is picked as the
+    # nearest cost to a target, so the advisor's own savings figure can differ
+    # from the difference the reader can see, and the reader is right.
+    delta_usd = current.weekly_cost_usd - recommended.weekly_cost_usd if recommended is not None else 0.0
     if recommended is None:
         click.echo(result.message)
+    elif abs(delta_usd) < _MATERIAL_WEEKLY_DELTA_USD:
+        # An "optimisation" that changes nothing is not a recommendation; the
+        # old code printed "Recommended: Custom  (-0%)" with an all-zero savings
+        # breakdown, which is a vanity headline over an empty result.
+        click.echo("No change recommended: the auto-tuned policy matches your current setting on this window.")
+        click.echo(f"  Cost / week:      ${recommended.weekly_cost_usd:.2f}  (same as current)")
+        click.echo(f"  Estimated quality: {recommended.estimated_quality:.1%}  ({result.quality_delta:+.1%})")
     else:
-        savings_pct = (
-            result.weekly_savings_usd / result.baseline_weekly_cost_usd if result.baseline_weekly_cost_usd > 0 else 0.0
-        )
+        savings_pct = delta_usd / current.weekly_cost_usd if current.weekly_cost_usd > 0 else 0.0
         click.echo("Recommended: Custom (auto-tuned from your sessions)")
-        click.echo(f"  Cost / week:      ${recommended.weekly_cost_usd:.2f}  (-{savings_pct:.0%})")
+        click.echo(
+            f"  Cost / week:      ${recommended.weekly_cost_usd:.2f}  "
+            f"({-delta_usd:+.2f}/wk vs current, {savings_pct:+.1%})"
+        )
         click.echo(f"  Estimated quality: {recommended.estimated_quality:.1%}  ({result.quality_delta:+.1%})")
         click.echo(f"  Latency mult:      {recommended.latency_mult:.2f}x")
         click.echo(f"  Escalation rate:   {recommended.escalation_rate:.0%}")
         click.echo("")
         breakdown = potential_savings_breakdown(recommended, result.baseline_weekly_cost_usd, result.weekly_savings_usd)
-        click.echo("  Savings breakdown (Read / Carry / Output / Routing / Total):")
+        click.echo("  Modelled savings breakdown (Read / Carry / Output / Routing / Total), $/wk:")
         click.echo(f"    Read savings:     {_fmt_usd(breakdown['read_saved_usd'])}/wk")
         click.echo(f"    Carry credit:     {_fmt_usd(breakdown['carry_saved_usd'])}/wk")
         click.echo("    Output savings:   $0.00/wk (not yet modeled)")

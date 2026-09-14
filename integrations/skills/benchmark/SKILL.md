@@ -325,4 +325,4 @@ uv run lemoncrow eval retrieval --channel semantic
 - **Internal/dev** benchmarking of LemonCrow itself → the suite commands:
   `lc benchmark {codebench,lemoncrowbench,mcp,providers}`.
 - Where savings came from on **recent sessions** (not a fresh run) → `/savings`
-  or `lc savings --deep`.
+  or `lc usage optimize`.

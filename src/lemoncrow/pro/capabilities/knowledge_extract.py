@@ -265,7 +265,7 @@ def extract_rules(
         }
     try:
         output = (runner or _run_backend)(prompt, host=host, model=model, root=root)
-    except Exception as exc:  # noqa: BLE001 - extraction must never crash the caller
+    except Exception as exc:
         return {**base, "error": str(exc)}
     rules = parse_rules(output)
     applied = 0 if dry_run else merge_into_overlay(root, rules, repo_root=repo_root, scope=scope)

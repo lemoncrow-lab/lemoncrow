@@ -42,7 +42,8 @@ from its transcript JSONL, Codex/OpenCode from the run ledger -- and calls
 LEMONCROW_VERIFY_BEFORE_DONE=0, the completeness checks alone with
 LEMONCROW_VERIFY_COMPLETENESS=0, and specific extensions with
 LEMONCROW_VERIFY_SKIP_SUFFIXES=.md,.csv (comma/space-separated, leading dot
-optional).
+optional). Scratchpad and out-of-project temp files are exempt outright (see
+``is_scratch_path``); LEMONCROW_VERIFY_SKIP_PATHS adds further exempt prefixes.
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -174,13 +176,73 @@ def skip_suffixes() -> frozenset[str]:
     return frozenset(out)
 
 
+def scratch_prefixes() -> tuple[str, ...]:
+    """Extra directories whose edits never demand a verification run.
+
+    From ``LEMONCROW_VERIFY_SKIP_PATHS`` (comma/space-separated absolute
+    prefixes); empty by default, and unlike the temp roots below these are
+    exempt unconditionally, project root or not.
+    """
+    return tuple(
+        os.path.normpath(tok).replace("\\", "/")
+        for tok in re.split(r"[,\s]+", os.environ.get("LEMONCROW_VERIFY_SKIP_PATHS", "").strip())
+        if tok
+    )
+
+
+def temp_roots() -> tuple[str, ...]:
+    """System temp directories (``TMPDIR`` honoured), normalised."""
+    out: list[str] = []
+    for raw in (tempfile.gettempdir(), "/tmp", "/var/tmp", "/private/tmp", "/private/var/folders"):
+        root = os.path.normpath(raw).replace("\\", "/")
+        if root and root != "/" and root not in out:
+            out.append(root)
+    return tuple(out)
+
+
+def _under(path: str, roots: tuple[str, ...]) -> bool:
+    return any(path == root or path.startswith(root + "/") for root in roots)
+
+
+def is_scratch_path(path: str, *, project_root: str | None = None) -> bool:
+    """True for throwaway working state, which is never a graded deliverable.
+
+    Scratchpad and temp files are intermediate state the agent writes for its
+    own use, so demanding "run tests" against them burns a turn on something
+    with no suite and no consumer.
+
+    A temp path is exempt only when it falls *outside* the project being worked
+    in (``project_root``, default cwd): a repo cloned to ``/tmp/myrepo`` is a
+    real project and its edits stay gated, while ``/tmp/report.html`` written
+    from that repo does not. Never fires under bench mode, where a graded
+    artifact can legitimately live anywhere.
+    """
+    if bench_mode_on():
+        return False
+    p = os.path.normpath(os.path.abspath(path.split("#")[0])).replace("\\", "/")
+    if "/scratchpad/" in p:
+        return True
+    if _under(p, scratch_prefixes()):
+        return True
+    if not _under(p, temp_roots()):
+        return False
+    try:
+        root = os.path.normpath(os.path.abspath(project_root or os.getcwd())).replace("\\", "/")
+    except OSError:  # cwd deleted out from under us -- treat as outside any project
+        return True
+    return not (p == root or p.startswith(root + "/"))
+
+
 def is_code_path(path: str) -> bool:
     return Path(path.split("#")[0]).suffix.lower() in _CODE_SUFFIXES
 
 
-def is_verifiable_path(path: str, *, include_docs: bool = False) -> bool:
+def is_verifiable_path(path: str, *, include_docs: bool = False, project_root: str | None = None) -> bool:
     """A path whose edit should demand a verification run: source, or a
-    text/data deliverable. Prose docs count only when ``include_docs`` (bench)."""
+    text/data deliverable. Prose docs count only when ``include_docs`` (bench).
+    ``project_root`` is forwarded to :func:`is_scratch_path`."""
+    if is_scratch_path(path, project_root=project_root):
+        return False
     suf = Path(path.split("#")[0]).suffix.lower()
     if suf in skip_suffixes():
         return False
@@ -352,6 +414,10 @@ def decide(signals: VerifySignals, *, dedup_key: str = "", root: str = ".") -> d
     for detector A, a filesystem grep under ``root``. ``dedup_key`` gates the
     fire-once-per-nudge state; pass "" to disable dedup (always evaluate).
 
+    ``root`` is the host's workspace and doubles as the project root for the
+    scratch-path re-filter below -- pass the real workspace, or a checkout under
+    a temp dir has its edits silently treated as throwaway scratch.
+
     Callers own the ``disabled()`` and per-host "already stopping" early-exits.
     """
     edited = signals.edited
@@ -390,7 +456,7 @@ def decide(signals: VerifySignals, *, dedup_key: str = "", root: str = ".") -> d
         # command that named it, even when the run ordering signal is missing.
         if signals.verified or (signals.checked and not any(is_code_path(p) for p in edited)):
             return None
-        source_edited = [p for p in edited if is_verifiable_path(p, include_docs=bench_mode_on())]
+        source_edited = [p for p in edited if is_verifiable_path(p, include_docs=bench_mode_on(), project_root=root)]
         if not source_edited:
             return None
         # Fire once PER (file, edit-count). A file is nudged only when its number

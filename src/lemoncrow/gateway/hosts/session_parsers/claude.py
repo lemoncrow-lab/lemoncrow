@@ -13,7 +13,6 @@ Session layout::
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -41,6 +40,12 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     snapshot_edited_files,
     summarize_usage_entries,
 )
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    sha256_text as _sha256,
+)
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    utcnow as _utcnow,
+)
 from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
@@ -58,16 +63,19 @@ _FILE_TOOLS = {
     "Write",
     "MultiEdit",
 }
+# MCP-namespaced file tools. ``_FILE_TOOLS`` above names only the host's own
+# built-ins, so a session whose default edit path is the LemonCrow MCP server
+# imported with an empty ``files_touched`` -- 1731 claude traces on the machine
+# this was measured on. That is the root cause of ``lc review`` printing
+# "Generated with: unknown": the correlator's authorship gate needs a recorded
+# edit to a reviewed file, and there was none to find. Unlike the host/model/HEAD
+# facts, this one *is* recoverable from the retained transcripts, so a re-import
+# fixes it. The server mounts under several names depending on the install.
+_MCP_EDIT_TOOLS = frozenset({"mcp__lc__edit", "mcp__lemoncrow__edit", "mcp__plugin_lemoncrow_lc__edit"})
+_MCP_READ_TOOLS = frozenset({"mcp__lc__read", "mcp__lemoncrow__read", "mcp__plugin_lemoncrow_lc__read"})
+_LC_PATH_DECORATION_RE = re.compile(r":(?:full|summary|outline|minified|head=\d+|tail=\d+|L\d+(?:-L\d+)?)$")
 _SUBAGENT_TOOL_NAMES = {"agent", "task"}
 _MAX_SESSION_AGE_DAYS = 5
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -200,6 +208,78 @@ def _infer_file_edit_diff(tool_name: str, inp: dict[str, Any], result_text: str 
         return f"Modified {inp.get('file_path') or inp.get('path')}"
 
     return ""
+
+
+def _undecorate_lc_path(raw: str) -> str:
+    """Strip the selectors a LemonCrow path carries (``f.py:minified:L10-L14``).
+
+    They stack, so this peels until the string stops changing. What is left is
+    the path the correlator can match against a packet path.
+    """
+
+    text = str(raw).strip()
+    while True:
+        stripped = _LC_PATH_DECORATION_RE.sub("", text)
+        if stripped == text:
+            return text
+        text = stripped
+
+
+def _mcp_edit_records(inp: dict[str, Any]) -> list[FileEditRecord]:
+    """Project one ``mcp__*__edit`` call onto the edits it made.
+
+    The MCP edit tool batches hunks -- ``{"edits": [{path, old?, new, replace?}]}``
+    -- so there is no top-level ``file_path`` for the built-in branch above to
+    find, which is why those calls recorded nothing at all.
+    """
+
+    out: list[FileEditRecord] = []
+    edits = inp.get("edits")
+    if not isinstance(edits, list):
+        return out
+    for entry in edits:
+        if not isinstance(entry, dict):
+            continue
+        path = _undecorate_lc_path(str(entry.get("path") or entry.get("file_path") or ""))
+        if not path:
+            continue
+        new = str(entry.get("new") or entry.get("new_string") or "")
+        old = str(entry.get("old") or entry.get("old_string") or "")
+        if old:
+            diff = f"- {old[:2000]}\n+ {new[:2000]}"
+        elif new:
+            diff = f"+ {new[:4000]}"
+        else:
+            # A structured edit whose payload this importer does not model. The
+            # path is still a recorded edit, so it is stored as one rather than
+            # demoted to a read.
+            diff = f"Modified {path}"
+        out.append(FileEditRecord(path=path, diff=diff[:4096], event="edit"))
+    return out
+
+
+def _mcp_read_paths(inp: dict[str, Any]) -> list[str]:
+    """Project one ``mcp__*__read`` call onto the paths it opened.
+
+    A bare ``str`` is the importer's spelling for "read", which is exactly what
+    these are -- ``split_files_touched`` keeps them off the edit side.
+    """
+
+    out: list[str] = []
+    files = inp.get("files")
+    if not isinstance(files, list):
+        return out
+    for entry in files:
+        if isinstance(entry, str):
+            raw: object = entry
+        elif isinstance(entry, dict):
+            raw = entry.get("path") or ""
+        else:
+            continue
+        path = _undecorate_lc_path(str(raw or ""))
+        if path:
+            out.append(path)
+    return out
 
 
 class ClaudeImporter:
@@ -557,6 +637,13 @@ class ClaudeImporter:
                                     files_touched.append(fp_str)
                                 if tid:
                                     file_index_by_tool_use_id[tid] = len(files_touched) - 1
+                        elif name in _MCP_EDIT_TOOLS:
+                            # No tool_use_id index: one call carries many paths,
+                            # so there is no single slot for the tool_result pass
+                            # to enrich -- and the args already carry the diff.
+                            files_touched.extend(_mcp_edit_records(inp))
+                        elif name in _MCP_READ_TOOLS:
+                            files_touched.extend(_mcp_read_paths(inp))
                         if name == "Bash":
                             cmd = str(inp.get("command") or "").strip()
                             if cmd:

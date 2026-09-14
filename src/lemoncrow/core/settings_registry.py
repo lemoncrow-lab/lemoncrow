@@ -278,17 +278,19 @@ SETTINGS: list[SettingSpec] = [
         "retrieval.ann_cache_limit",
         "LEMONCROW_ANN_CACHE_LIMIT",
         "int",
-        200000,
+        0,
         "retrieval",
-        "Max entries kept in the approximate-nearest-neighbor symbol cache.",
+        "Max symbol vectors kept resident in the ANN matrix cache. 0 (default) sizes it from available RAM "
+        "and the embedding dim, capped at 2,000,000; set a positive value to pin an exact row count.",
     ),
     SettingSpec(
         "retrieval.ann_cache_max_mb",
         "LEMONCROW_ANN_CACHE_MAX_MB",
         "int",
-        512,
+        0,
         "retrieval",
-        "Memory ceiling (MB) for the ANN symbol cache.",
+        "Memory ceiling (MB) the ANN matrix cache and its streaming chunks are sized against. "
+        "0 (default) derives the ceiling from available RAM minus the hard reserve.",
     ),
     SettingSpec(
         "retrieval.ann_retrieval",

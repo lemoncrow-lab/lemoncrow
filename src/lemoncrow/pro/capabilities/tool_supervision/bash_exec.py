@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lemoncrow.core.environment import tool_output_spill_enabled
 from lemoncrow.core.foundation.redaction import redact_tool_output
 from lemoncrow.pro.capabilities.tool_supervision import output_delta
 from lemoncrow.pro.capabilities.tool_supervision.bash_output_compression import (
@@ -311,11 +312,6 @@ def _head_tail_lines(lines: list[str], head: int, tail: int) -> tuple[str, int, 
     return "\n".join(parts), omitted, omitted_chars
 
 
-def _bash_spill_enabled() -> bool:
-    """Mirrors the MCP dispatch layer's T7 kill switch (``LEMONCROW_TOOL_OUTPUT_SPILL``)."""
-    return os.environ.get("LEMONCROW_TOOL_OUTPUT_SPILL", "1").strip().lower() in {"1", "true", "yes", "on"}
-
-
 # Footer economics: below this many omitted chars the [lc: shrunk ...] footer
 # costs more attention than the trim saved -- a "4 passed" result must not
 # drag a spill notice for elided progress dots.
@@ -339,7 +335,7 @@ def _spill_hint(full_text: str, kept_chars: int) -> str:
     *full_text* is empty, or the write fails, so the caller falls back to the
     bare marker.
     """
-    if not full_text or not _bash_spill_enabled():
+    if not full_text or not tool_output_spill_enabled():
         return ""
     if len(full_text) - kept_chars < _SPILL_NOTICE_MIN_OMITTED_CHARS:
         return ""  # trim too small to be worth a footer at all

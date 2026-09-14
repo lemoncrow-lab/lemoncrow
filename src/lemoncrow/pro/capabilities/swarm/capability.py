@@ -2665,7 +2665,7 @@ def _ensure_fitness_baseline(state: SwarmRunState) -> None:
     try:
         spec.baseline = measure_baseline(spec, worktree)
         state.ranking_notes.append(f"Auto-measured fitness baseline = {spec.baseline:g} on the base snapshot.")
-    except Exception as exc:  # noqa: BLE001 - a bad fitness must not wedge the coordinator
+    except Exception as exc:
         state.limitations.append(f"Fitness baseline auto-measure failed: {exc}")
 
 
@@ -2769,7 +2769,7 @@ def launch_swarm_children(root: Path, state_path: Path) -> SwarmRunState:
         state.stop_reason = "Interrupted."
         save_swarm_state(state_path, state)
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Git/worktree failures must not leave the run wedged in "running" with
         # leaked worktrees. Finalize state and reclaim worktrees instead.
         state = load_swarm_state(state_path)

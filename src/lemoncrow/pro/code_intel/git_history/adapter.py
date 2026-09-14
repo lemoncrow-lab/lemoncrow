@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -13,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.pro.code_intel.git_history import require_pygit2
 from lemoncrow.pro.code_intel.git_history.graveyard import SymbolGraveyard
 from lemoncrow.pro.code_intel.git_history.walker import resolve_history_bootstrap_commits, walk_history
@@ -53,7 +53,7 @@ def history_indexing_enabled() -> bool:
     graveyard head-state cross-process so a new MCP server reuses prior work
     instead of re-walking. Then look elsewhere for remaining per-call cost.
     """
-    return str(os.environ.get("LEMONCROW_HISTORY_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env("LEMONCROW_HISTORY_ENABLED", False)
 
 
 class DeletedHistorySearchAdapter:

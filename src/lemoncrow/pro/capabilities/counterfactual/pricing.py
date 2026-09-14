@@ -11,6 +11,7 @@ tracking instead of maintaining a separate price table.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 
@@ -19,6 +20,8 @@ from lemoncrow.core.capabilities.pricing import (
     _load_pricing_table,
     get_model_pricing,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -124,6 +127,17 @@ def _build_candidates() -> tuple[CandidateModel, ...]:
                 context_window=context_window,
             )
         )
+    # Endpoints the user registered with `lc model add` are candidates on the
+    # same terms as the vendor models -- routing must not need a second model
+    # abstraction to see them. Imported here, not at module scope: the endpoint
+    # module builds CandidateModel, so the dependency only runs one way.
+    try:
+        from lemoncrow.pro.capabilities.model_setup.endpoints import user_candidate_models
+
+        candidates.extend(user_candidate_models())
+    except Exception as exc:
+        # A hand-edited providers.json must never take routing down with it.
+        logger.debug("user candidate models unavailable: %s", exc)
     return tuple(candidates)
 
 

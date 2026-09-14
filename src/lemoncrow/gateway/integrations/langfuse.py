@@ -53,7 +53,7 @@ def _client() -> Any:
         host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
         _CLIENT = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
         return _CLIENT
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("langfuse client init failed", exc_info=True)
         return None
 
@@ -154,7 +154,7 @@ def emit_trace(payload: dict[str, Any]) -> None:
                     }
                 ),
             )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("Suppressed exception in emit_trace", exc_info=True)
 
 
@@ -200,7 +200,7 @@ def emit_tool_call(
                 level="ERROR" if error else "DEFAULT",
                 status_message=error or None,
             )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("Suppressed exception in emit_tool_call", exc_info=True)
 
 
@@ -213,7 +213,7 @@ def shutdown() -> None:
     try:
         client.flush()
         client.shutdown()
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("langfuse shutdown failed", exc_info=True)
     finally:
         _CLIENT = None

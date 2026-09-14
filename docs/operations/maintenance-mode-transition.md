@@ -14,7 +14,7 @@ account and no network. See the final report for details.
 
 All file:line references are against the private dev repo
 (`lemoncrow-dev`). The public GitHub repo is a filtered mirror produced by
-`scripts/mirror.py` from `release/public-paths.txt`.
+`scripts/mirror.py` from `scripts/public-paths.txt`.
 
 ---
 
@@ -180,7 +180,7 @@ deleted with the account system.
 
 **Verdict: the public repo cannot currently build/run the core runtime from
 source.** The whole engine is `lemoncrow.pro` (265 `.py` here), excluded from
-the mirror (`release/public-paths.txt` `!src/lemoncrow/pro/` plus pre-split
+the mirror (`scripts/public-paths.txt` `!src/lemoncrow/pro/` plus pre-split
 history denies) and shipped `.so`-only; `hatch_build.py` compiles it and deletes
 the `.py`, with an "IP-leak guard" that fails the build if any `pro` module
 can't be compiled. 34 module-top-level `from lemoncrow.pro …` imports across
@@ -331,7 +331,7 @@ split license — see §5.2.
   random-local id.
 - `core/service/code_warm.py:187`, `pro/capabilities/code_context/engine.py:179,
   3994`, `pro/capabilities/knowledge_extract.py:36` — drop free-tier caps.
-- `release/public-paths.txt` — remove the `pro`/pre-split denies.
+- `scripts/public-paths.txt` — remove the `pro`/pre-split denies.
 - `hatch_build.py` — never delete `.py`; ship source; mypyc optional.
 - `scripts/lib/common.sh`, `scripts/install.sh`, `scripts/uninstall.sh` — remove
   login/init prompts; don't enable telemetry; fix uninstall gaps; harden

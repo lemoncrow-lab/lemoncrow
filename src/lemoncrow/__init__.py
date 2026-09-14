@@ -44,7 +44,7 @@ try:
     from importlib.metadata import version as _version
 
     __version__ = _version(__name__.split(".")[0])
-except Exception:  # noqa: BLE001 — metadata may be missing in dev/bundle contexts
+except Exception:
     # Fallback: read pyproject.toml directly for dev/uninstalled usage.
     _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     if _pyproject.exists():
@@ -63,7 +63,7 @@ try:
     from lemoncrow.core.settings import apply_settings_env as _apply_settings_env
 
     _apply_settings_env()
-except Exception:  # noqa: BLE001 - settings must never block import
+except Exception:
     pass
 
 

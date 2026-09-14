@@ -39,10 +39,10 @@ def _code_fingerprint() -> str:
         if count == 0:
             raise OSError("no retrieval sources found")
         _CODE_FINGERPRINT = digest.hexdigest()[:16]
-    except Exception:  # noqa: BLE001 - any failure falls back to package version
+    except Exception:
         try:
             from lemoncrow import __version__ as _pkg_version
-        except Exception:  # noqa: BLE001
+        except Exception:
             _pkg_version = "unknown"
         _CODE_FINGERPRINT = f"v:{_pkg_version}"
     return _CODE_FINGERPRINT

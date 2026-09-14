@@ -136,6 +136,19 @@ def _request_session_identity() -> tuple[str, str]:
     return str(ctx.get("session_id") or "").strip(), str(ctx.get("host") or "").strip()
 
 
+def _request_session_model() -> str:
+    """Model id stamped on this thread by the daemon dispatcher, or ``""``.
+
+    The HTTP dispatcher is the only place the calling host's model is visible to
+    the MCP process, so an authoring record that wants to name the model has to
+    read it here. ``""`` on the stdio path -- an empty string, never a guess.
+    """
+    ctx = getattr(_request_session, "value", None)
+    if not ctx:
+        return ""
+    return str(ctx.get("model") or "").strip()
+
+
 def _set_request_ledger(session_id: str | None) -> Any:
     """Scope _get_ledger() to a per-session ledger on the CURRENT thread; returns
     the prior value to restore. A falsy session_id is a no-op (stdio / no session

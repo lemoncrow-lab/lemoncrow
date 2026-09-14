@@ -141,3 +141,44 @@ def test_store_bundle_builds_in_unregistered_non_git_dir(tmp_path: Path, monkeyp
     store_root = tmp_path / DEFAULT_STORE_DIRNAME
     store = create_store(store_root)
     assert store.knowledge.blocks_dir == store_root / "blocks"
+
+
+def _git(args: list[str], cwd: Path) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+def test_workspace_store_dir_never_shows_up_in_git_status(tmp_path: Path) -> None:
+    """Reviewing a repo must not add a line to that repo's `git status`.
+
+    Everything under `<repo>/.lemoncrow/` is runtime data LemonCrow wrote for
+    itself -- the code index, `workspace/*.sqlite`, session state, review
+    artifacts. A tool that reports on a change while adding `?? .lemoncrow/` to
+    the change it is reporting on is lying by addition, so the self-ignore is
+    written where every workspace artifact path is derived rather than by each
+    writer. One `.gitignore` at the `.lemoncrow/` level is what makes the cover
+    total: a future artifact nobody has written yet is already ignored.
+    """
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init", "-q"], repo)
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _git(["add", "a.py"], repo)
+    _git(["commit", "-qm", "init"], repo)
+
+    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
+
+    store_dir = resolve_workspace_store_dir(workspace_root=repo)
+    store_dir.mkdir(parents=True, exist_ok=True)
+    (store_dir / "code_context.sqlite").write_bytes(b"not really sqlite")
+    (store_dir / "zoekt").mkdir(parents=True, exist_ok=True)
+    (store_dir / "zoekt" / "shard.zoekt").write_bytes(b"shard")
+
+    assert store_dir.parent == repo / DEFAULT_STORE_DIRNAME
+    assert _git(["status", "--porcelain"], repo) == ""

@@ -104,7 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             with contextlib.suppress(OSError):
                 lock.unlink()
-    except Exception:  # noqa: BLE001 - detached child must never surface a crash
+    except Exception:
         return 0
     return 0
 

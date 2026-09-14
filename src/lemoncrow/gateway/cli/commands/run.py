@@ -385,7 +385,7 @@ def _run_ci_session(
 
 @click.group("run")
 def run_group() -> None:
-    """Run an owned coding session on your own API credentials."""
+    """Explain a past run, or drive an owned coding session."""
 
 
 @run_group.command("start", context_settings={"ignore_unknown_options": False})
@@ -530,6 +530,51 @@ def run_report(obj: dict[str, Any], session_id: str, as_json: bool) -> None:
         click.echo(receipt.format_receipt())
 
 
+@run_group.command("explain")
+@click.argument("run_id", required=False, default=None)
+@click.option("--limit", default=20, show_default=True, type=int, help="Max signals to show per category.")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
+@click.pass_context
+def run_explain_cmd(ctx: click.Context, run_id: str | None, limit: int, as_json: bool) -> None:
+    """Explain what happened in a run, pointing at evidence rather than guessing.
+
+    RUN_ID is a session id or a unique prefix; omit it for the latest run.
+    Every line cites the record it came from, and any evidence source that was
+    missing is named rather than silently treated as "nothing happened there".
+    """
+    from lemoncrow.gateway.cli.commands._shared import _latest_ledger_path
+    from lemoncrow.pro.capabilities.run_explain.attribution import explain_run_attribution, render_attribution
+
+    root = _root_from_obj(ctx.obj or {})
+
+    target = (run_id or "").strip()
+    if not target:
+        latest = _latest_ledger_path(root)
+        if latest is None:
+            raise click.ClickException(f"no run ledger found under {root}. Pass a run id or record a session first.")
+        target = latest.parent.name
+
+    try:
+        report = explain_run_attribution(root, target, limit_per_category=limit)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        _emit(report.to_dict(), as_json=True)
+        return
+
+    _emit(render_attribution(report), as_json=False)
+
+
+# `run explain` is the launched surface; start/resume/report drive owned coding
+# sessions that are still undocumented, so they stay individually hidden while
+# the group itself becomes visible. Mirrors commands/__init__.py::_h so
+# LEMONCROW_SHOW_ALL=1 still reveals everything.
+if os.environ.get("LEMONCROW_SHOW_ALL") != "1":
+    for _unlaunched in (run_start, run_resume, run_report):
+        _unlaunched.hidden = True
+
+
 def _print_receipt_from_session(session: OwnedAgentSession) -> None:
     from lemoncrow.pro.capabilities.owned_agent_session.receipt import SessionReceipt
 
@@ -541,4 +586,4 @@ def _print_receipt_from_session(session: OwnedAgentSession) -> None:
     click.echo(receipt.format_receipt())
 
 
-__all__ = ["run_group"]
+__all__ = ["run_explain_cmd", "run_group"]

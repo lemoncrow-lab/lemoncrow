@@ -26,10 +26,10 @@ fine-grained token pruner (T11).
 from __future__ import annotations
 
 import math
-import os
 import re
 from dataclasses import dataclass, field
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.infra.internal_llm import chunk_entropy, logprobs
 
 __all__ = ["CodeChunk", "perplexity_compression_enabled", "rank_code_chunks"]
@@ -75,10 +75,7 @@ _STOPWORDS = frozenset(
 
 def perplexity_compression_enabled() -> bool:
     """True when the default-off ``LEMONCROW_PERPLEXITY_COMPRESSION`` flag is set."""
-    raw = os.environ.get(_FLAG)
-    if raw is None:
-        return False
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env(_FLAG, False)
 
 
 @dataclass

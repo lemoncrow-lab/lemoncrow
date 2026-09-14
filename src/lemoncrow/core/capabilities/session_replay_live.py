@@ -95,7 +95,7 @@ def _build_engine(repo_root: Path) -> Any | None:
         from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
         return CodeContextEngine(repo_root, autosync_enabled=False)
-    except Exception:  # noqa: BLE001 - engine is best-effort
+    except Exception:
         return None
 
 
@@ -104,7 +104,7 @@ def _real_code_search(engine: Any | None, query: str, *, endpoint: str | None) -
         return {"tool": "code_search", "mode": "unavailable", "query": query}
     try:
         res = engine.tool_explore(query, max_files=4, auto_index=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"tool": "code_search", "mode": "error", "query": query, "error": str(exc)[:200]}
 
     hits: list[dict[str, Any]] = []
@@ -220,7 +220,7 @@ def _classify_bash(command: str) -> dict[str, Any]:
         rewritten = getattr(pol, "rewrite_target", None) or getattr(pol, "rewritten_command", None)
         if rewritten and str(rewritten).strip() and str(rewritten).strip() != command:
             decision["rewrite"] = str(rewritten).strip()[:300]
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return decision
 
@@ -255,7 +255,7 @@ def _simulate_bash(turn: dict[str, Any], recorded_output: str) -> dict[str, Any]
             truncated=bool(getattr(rr, "truncated", False)),
             note="LemonCrow bash capping applied to the recorded output; the command is NOT re-run.",
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         out["mode"] = "preview"
         out["note"] = "Command is NOT executed by replay; classified only."
     return out
@@ -321,5 +321,5 @@ def _real_web_fetch(turn: dict[str, Any], *, allow_network: bool) -> dict[str, A
         res = fetch_url(url, summary=True, max_chars=800)
         content = str((res or {}).get("content") or "")
         return {"tool": "web_fetch", "mode": "real", "url": url, "content": content[:800]}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"tool": "web_fetch", "mode": "error", "url": url, "error": str(exc)[:200]}

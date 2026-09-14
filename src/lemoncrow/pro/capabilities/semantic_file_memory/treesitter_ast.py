@@ -23,9 +23,10 @@ Adding a new language is editing ``_LANG_CONFIG``:
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
+
+from lemoncrow.core.environment import bool_env
 
 _logger = logging.getLogger(__name__)
 _logger = logging.getLogger(__name__)
@@ -433,7 +434,7 @@ def _get_parser(lang: str) -> Any:
     # Hermetic/offline runs (codebench containers) cannot reach the grammar CDN;
     # a miss holds a process-wide download lock for the full global timeout and
     # stalls every indexer worker. Opt out instead of paying that hang.
-    if os.environ.get("LEMONCROW_TREE_SITTER_OFF", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if bool_env("LEMONCROW_TREE_SITTER_OFF", False):
         return None
     try:
         from tree_sitter_language_pack import get_parser

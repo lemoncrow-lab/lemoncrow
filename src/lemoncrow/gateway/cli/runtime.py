@@ -336,8 +336,9 @@ class InteractiveRuntime:
         import litellm
 
         from lemoncrow.core.capabilities.providers.zen import apply_zen_transport
+        from lemoncrow.pro.capabilities.model_setup.transport import apply_custom_transport
 
-        request_kwargs = apply_zen_transport(request_kwargs)
+        request_kwargs = apply_custom_transport(apply_zen_transport(request_kwargs))
         max_retries = max(0, int(os.environ.get("LEMONCROW_LLM_MAX_RETRIES", "6")))
         base_delay = max(1.0, float(os.environ.get("LEMONCROW_LLM_RETRY_BASE_SECONDS", "8")))
         for attempt in range(max_retries + 1):

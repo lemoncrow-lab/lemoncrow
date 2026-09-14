@@ -53,7 +53,13 @@ from lemoncrow.core.capabilities.workflow_runtime_state import (
 from lemoncrow.core.capabilities.workflow_runtime_state import (
     write_workflow_runtime_state as _write_workflow_runtime_state,
 )
-from lemoncrow.core.environment import mcp_tool_description, mcp_tool_mode, mcp_tool_visible_to_llm
+from lemoncrow.core.environment import (
+    bool_env,
+    mcp_tool_description,
+    mcp_tool_mode,
+    mcp_tool_visible_to_llm,
+    tool_output_spill_enabled,
+)
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import RawArtifact, Trace, to_jsonable
 from lemoncrow.core.foundation.redaction import redact
@@ -113,6 +119,7 @@ from lemoncrow.gateway.adapters.mcp.ledger import (  # noqa: F401  (re-exported 
     _record_full_read,
     _request_ledger,
     _request_session_identity,
+    _request_session_model,
     _resolve_live_session_id,
     _workspace_ws_hash,
 )
@@ -3426,7 +3433,7 @@ def _http_project_override_allowed() -> bool:
     caller pivot the server outside its workspace, so acceptance is gated behind
     ``LEMONCROW_HTTP_ALLOW_PROJECT_OVERRIDE`` AND confined to the workspace root.
     """
-    return os.environ.get("LEMONCROW_HTTP_ALLOW_PROJECT_OVERRIDE", "0").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env("LEMONCROW_HTTP_ALLOW_PROJECT_OVERRIDE", False)
 
 
 def _project_override_root() -> Path:
@@ -3511,6 +3518,145 @@ def _workspace_root() -> Path:
         or os.getcwd()
     )
     return Path(workspace)
+
+
+@mcp_tool(name="review_rationale")
+def tool_review_rationale(
+    entries: Annotated[
+        list[dict[str, Any]],
+        Field(
+            description=(
+                "Compact author rationale for non-obvious code decisions. One call after the code is final; "
+                "each item: {path, body, optional title, symbol, line, end_line, evidence[]}. "
+                "This records intent only — never correctness or approval."
+            )
+        ),
+    ],
+) -> dict[str, Any]:
+    """Record Claude's own rationale for later human review.
+
+    Captures author intent while the author still knows it. Records are bound to
+    the exact file content and exact Claude session, but **do not** create or
+    advance a ReviewRevision. The review imports them only when those bytes are
+    actually captured, so an agent cannot move a diff underneath a reviewer.
+    """
+
+    session_id, host = _resolved_host_session()
+    if host != "claude" or not session_id:
+        raise ValueError("review_rationale currently requires an exact Claude Code session")
+    workspace = _workspace_root()
+    active_root = _session_worktree_root(workspace) or workspace
+    from lemoncrow.core.foundation.paths import default_store_root
+    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
+    from lemoncrow.pro.capabilities.review.rationale import record_author_rationales
+
+    repo_root = detect_repo_root(active_root)
+    records = record_author_rationales(
+        default_store_root(),
+        repo_root,
+        host=host,
+        session_id=session_id,
+        model=_get_mcp_model(),
+        entries=entries,
+    )
+    return {
+        "status": "recorded",
+        "session_id": session_id,
+        "count": len(records),
+        "rationales": [
+            {"id": record.id, "path": record.path, "title": record.title, "symbol": record.symbol} for record in records
+        ],
+        "note": "author intent only; human review remains required",
+    }
+
+
+@mcp_tool(name="review_evidence")
+def tool_review_evidence(
+    entries: Annotated[
+        list[dict[str, Any]],
+        Field(
+            description=(
+                "Outcome evidence produced while implementing. One call after verification; each item has exactly one "
+                "of {file, url}, plus optional {title, path, kind, capture}. Use path to associate proof with a changed "
+                "source file. For a loopback preview URL, set capture=true and LemonCrow captures a screenshot itself. "
+                "Verification artifacts may additionally include status=PASS|FAIL|NOT_RUN|UNKNOWN and detail. "
+                "Supported kinds: screenshot, video, playwright_trace, document, live_preview."
+            )
+        ),
+    ],
+) -> dict[str, Any]:
+    """Capture author-produced proof without creating or advancing a review."""
+
+    session_id, host = _resolved_host_session()
+    if host != "claude" or not session_id:
+        raise ValueError("review_evidence currently requires an exact Claude Code session")
+    workspace = _workspace_root()
+    active_root = _session_worktree_root(workspace) or workspace
+    from lemoncrow.core.foundation.paths import default_store_root
+    from lemoncrow.pro.capabilities.review.evidence_capture import record_agent_evidence
+    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
+
+    repo_root = detect_repo_root(active_root)
+    records = record_agent_evidence(
+        default_store_root(),
+        repo_root,
+        host=host,
+        session_id=session_id,
+        model=_get_mcp_model(),
+        entries=entries,
+    )
+    return {
+        "status": "recorded",
+        "session_id": session_id,
+        "count": len(records),
+        "evidence": [
+            {"id": record.id, "kind": record.kind, "title": record.title, "path": record.path} for record in records
+        ],
+        "note": "captured for the matching review revision; human review remains required",
+    }
+
+
+@mcp_tool(name="review_feedback_addressed")
+def tool_review_feedback_addressed(
+    annotation_ids: Annotated[
+        list[str],
+        Field(
+            description=(
+                "LemonCrow annotation IDs from human feedback that you actually addressed. "
+                "Call only after making the changes and running relevant verification. "
+                "This records an author claim for re-review; it never resolves human comments."
+            )
+        ),
+    ],
+) -> dict[str, Any]:
+    """Let the exact authoring Claude session say which delivered comments it addressed."""
+
+    session_id, host = _resolved_host_session()
+    if host != "claude" or not session_id:
+        raise ValueError("review_feedback_addressed currently requires an exact Claude Code session")
+    workspace = _workspace_root()
+    active_root = _session_worktree_root(workspace) or workspace
+    from lemoncrow.core.foundation.paths import default_store_root
+    from lemoncrow.pro.capabilities.review.delivery import mark_feedback_addressed
+    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
+    from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+    repo_root = detect_repo_root(active_root)
+    store = ReviewStore(default_store_root())
+    records = mark_feedback_addressed(
+        store,
+        repo_root,
+        annotation_ids,
+        host=host,
+        session_id=session_id,
+    )
+    return {
+        "status": "addressed",
+        "session_id": session_id,
+        "count": len(records),
+        "annotation_ids": [record.id for record in records],
+        "note": "author claim only; each human comment remains open until the reviewer resolves it",
+    }
 
 
 _last_session_cwd: str | None = None
@@ -6804,6 +6950,9 @@ def _compute_and_record_diffs(
     import difflib
 
     led = _get_ledger()
+    # The model is only knowable from the in-flight request context, and only
+    # here -- so it is read once and stamped onto every edit this call records.
+    model = _request_session_model()
     for path, (fp, existed, old_content) in snapshots.items():
         try:
             new_content = fp.read_text(encoding="utf-8") if fp.exists() else None
@@ -6818,9 +6967,9 @@ def _compute_and_record_diffs(
         new_lines = (new_content or "").splitlines(keepends=True)
         diff_text = "".join(difflib.unified_diff(old_lines, new_lines, fromfile=f"a/{path}", tofile=f"b/{path}"))
         if diff_text:
-            led.record_file_event(path=path, event="edit", diff=diff_text)
+            led.record_file_event(path=path, event="edit", diff=diff_text, model=model)
         else:
-            led.record_file_event(path=path, event="edit")
+            led.record_file_event(path=path, event="edit", model=model)
 
 
 # All spellings an LLM might hallucinate for the old/new pair, in priority order.
@@ -8011,7 +8160,7 @@ SQL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
 
 def _sql_autodiscover_enabled() -> bool:
     """Opt-in gate for discovering a sql connection from DATABASE_URL / .env."""
-    return os.environ.get("LEMONCROW_SQL_AUTODISCOVER", "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env("LEMONCROW_SQL_AUTODISCOVER", False)
 
 
 @mcp_tool(
@@ -12862,12 +13011,12 @@ _CODE_CONTENT_TOOLS = frozenset({"read"})
 
 def _tool_output_spill_enabled() -> bool:
     """T7 flag: spill oversized output instead of discarding the overflow."""
-    return os.environ.get("LEMONCROW_TOOL_OUTPUT_SPILL", "1").strip().lower() in {"1", "true", "yes", "on"}
+    return tool_output_spill_enabled()
 
 
 def _auto_compact_output_enabled() -> bool:
     """T8 flag: auto-apply compact_output.compact() to oversized results."""
-    return os.environ.get("LEMONCROW_AUTO_COMPACT_OUTPUT", "0").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env("LEMONCROW_AUTO_COMPACT_OUTPUT", False)
 
 
 # None (not 0.0) baselines so the FIRST attempt always fires: time.monotonic()

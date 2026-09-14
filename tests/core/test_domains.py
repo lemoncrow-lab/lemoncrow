@@ -183,8 +183,13 @@ def test_domain_cli_info_unknown_bundle(tmp_path: Path) -> None:
 def test_domain_cli_no_pack_commands() -> None:
     """The old 'pack' group must not be present in the CLI."""
     runner = CliRunner()
+    # Check registered command *names*, not raw help prose: unrelated commands may
+    # legitimately use words like "packet" in their one-line description.
+    commands = getattr(cli, "commands", {})
+    assert "pack" not in commands
+    assert "domain" in commands
     result = runner.invoke(cli, ["--help"])
-    assert "pack" not in result.output or "domain" in result.output
+    assert result.exit_code == 0
     # Specifically the old 'pack' group should be gone
     result2 = runner.invoke(cli, ["pack", "--help"])
     assert result2.exit_code != 0

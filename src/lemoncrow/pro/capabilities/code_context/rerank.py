@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.core.service.telemetry import emit_product_local
 from lemoncrow.infra.embeddings.ollama_embedder import _resolve_host
 from lemoncrow.infra.internal_llm.exceptions import OllamaUnavailable
@@ -27,13 +28,6 @@ _SOURCE_PREFIX_CHARS = 16_384
 _CACHE_FINGERPRINT_VERSION = 1
 
 _RerankScorer = Callable[[str, list[str], float], list[float]]
-
-
-def _bool_env(name: str, *, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _int_env(name: str, *, default: int, minimum: int) -> int:
@@ -94,7 +88,7 @@ class SearchReranker:
                 )
             ),
         )
-        self.enabled = bool(self.model) and _bool_env("LEMONCROW_CODE_RERANKER_ENABLED", default=True)
+        self.enabled = bool(self.model) and bool_env("LEMONCROW_CODE_RERANKER_ENABLED", True)
         self._scorer = scorer or self._score_via_ollama
 
     def pre_rerank_limit(self, limit: int, *, mode: str, scope: str) -> int:

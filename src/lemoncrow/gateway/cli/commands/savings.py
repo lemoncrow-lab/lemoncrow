@@ -109,10 +109,34 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
         )
         sys.stdout.flush()
         return
+    payload = build_savings_payload(ctx.obj["root"])
+    if as_json:
+        _emit(payload, as_json=True)
+    else:
+        from lemoncrow.core.capabilities.savings_summary import render_savings_summary
+
+        click.echo(render_savings_summary(payload))
+
+
+def build_savings_payload(root: Path) -> dict[str, Any]:
+    """The savings report payload, extracted verbatim from ``savings_cmd``.
+
+    Lifted out so ``lc usage optimize`` and ``lc savings`` render the identical
+    dict rather than two drifting copies of it.
+
+    One deliberate departure from the old body: before returning, every spend
+    figure is re-read from the usage read model via
+    :func:`~lemoncrow.pro.capabilities.usage.spend.reconcile_spend`. The savings
+    aggregate keeps its own ``spend`` column, derived from Claude transcripts by
+    session id, and on a real store it disagreed with ``lc usage --since 30d``
+    by 64% -- both numbers printed on the same screen. There is now one source
+    of truth for spend and the savings ledger is not it.
+    """
+
     from lemoncrow.core.capabilities.plugin_runtime import build_savings_report
     from lemoncrow.pro.capabilities.session_optimizer import build_trace_optimization_report
 
-    runs = _ledger_dir(ctx.obj["root"])
+    runs = _ledger_dir(root)
     bad_plans_blocked = 0
     rescue_events = 0
     rubric_failures = 0
@@ -142,18 +166,15 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
                         rescue_events += 1
                 if kind == "rubric_run" and (ev.get("payload") or {}).get("status") == "blocked":
                     rubric_failures += 1
-    payload = build_savings_report(ctx.obj["root"])
-    store = _load_store(ctx.obj["root"])
+    payload: dict[str, Any] = build_savings_report(root)
+    store = _load_store(root)
     payload["optimization"] = build_trace_optimization_report(_recent_traces(store, days=7), days=7)
     payload["bad_plans_blocked"] = bad_plans_blocked
     payload["rescue_events"] = rescue_events
     payload["rubric_failures_caught"] = rubric_failures
-    if as_json:
-        _emit(payload, as_json=True)
-    else:
-        from lemoncrow.core.capabilities.savings_summary import render_savings_summary
+    from lemoncrow.pro.capabilities.usage.spend import reconcile_spend
 
-        click.echo(render_savings_summary(payload))
+    return reconcile_spend(payload, root)
 
 
 def _recent_traces(store: Any, *, days: int) -> list[Any]:
@@ -220,34 +241,50 @@ def _benchmark_evidence_from_options(
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def optimize_group(ctx: click.Context, host: str | None, days: int, limit: int, as_json: bool) -> None:
-    """Show and apply Optimization Advisor recommendations."""
+    """Realized savings, then the Optimization Advisor's recommendations."""
     if ctx.invoked_subcommand is not None:
         return
 
     from lemoncrow.core.capabilities.reporting.dashboard import _render_optimization_summary
+    from lemoncrow.core.capabilities.savings_summary import render_savings_summary
     from lemoncrow.pro.capabilities.optimization import append_history
 
     report = _legacy_optimize_report(ctx, host, days, limit)
     result = _advisor_result(ctx, host, days)
     append_history(ctx.obj["root"], result)
     report["advisor"] = result.to_dict()
+    # `lc usage optimize` is the optimisation surface, and "what you already
+    # saved" is half of that answer. Added as a key rather than replacing the
+    # payload so `lc optimize --json` keeps every field it has always had.
+    savings = build_savings_payload(ctx.obj["root"])
+    report["savings"] = savings
     if as_json:
         _emit(report, as_json=True)
         return
-    _render_optimization_summary(result)
+    click.echo(render_savings_summary(savings))
     click.echo("")
+    _render_optimization_summary(result, days=days)
+    click.echo("")
+    # This block is a THIRD dollar figure on a screen that already shows spend
+    # and realized savings, and it is neither of them: it is a per-heuristic
+    # upper bound on what some sessions might have avoided, never validated
+    # against a replay and never additive with the realized total above. It gets
+    # said in words, and the false 4-decimal precision goes with it.
+    click.echo(f"Heuristic opportunities (last {days}d) — upper bounds, not additive with Saved above:")
     click.echo(
-        f"Legacy trace recommendations: {report['estimated_tokens_saved']} tokens, ${report['estimated_usd_saved']:.4f}"
+        f"  ceiling if every heuristic below fired perfectly: "
+        f"{report['estimated_tokens_saved']:,} tokens, ${report['estimated_usd_saved']:,.2f}"
     )
     if not report["recommendations"]:
-        click.echo("No legacy trace recommendations found for this window.")
+        click.echo("  No heuristic opportunities found for this window.")
         return
     for index, recommendation in enumerate(report["recommendations"], start=1):
         click.echo("")
         click.echo(f"{index}. {recommendation['title']}  {recommendation['severity']}")
         click.echo(f"   Sessions: {recommendation['session_count']}")
         click.echo(
-            f"   Savings: {recommendation['estimated_tokens_saved']} tokens, ${recommendation['estimated_usd_saved']:.4f}"
+            f"   Upper bound: {recommendation['estimated_tokens_saved']:,} tokens, "
+            f"${recommendation['estimated_usd_saved']:,.2f}"
         )
         click.echo(f"   Action: {recommendation['action']}")
 
@@ -902,3 +939,8 @@ def savings_reset(ctx: click.Context, force: bool, dry_run: bool) -> None:
 
 savings_cmd.add_command(savings_detail, name="detail")
 savings_cmd.add_command(savings_reset, name="reset")
+# The same two objects also hang off `optimize`, which registers as
+# `lc usage optimize`: `lc usage optimize detail` / `... reset` are the
+# forward-facing spellings of `lc savings detail` / `lc savings reset`.
+optimize_group.add_command(savings_detail, name="detail")
+optimize_group.add_command(savings_reset, name="reset")

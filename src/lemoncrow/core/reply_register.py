@@ -32,7 +32,7 @@ def _persisted_level() -> str | None:
         from lemoncrow.core.settings import _resolve_root, load_raw
 
         value = load_raw(_resolve_root()).get(TELEGRAPHIC_SETTING_KEY)
-    except Exception:  # noqa: BLE001 -- level lookup must never break persona rendering
+    except Exception:
         return None
     return value if isinstance(value, str) else None
 

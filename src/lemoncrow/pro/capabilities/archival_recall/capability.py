@@ -65,7 +65,7 @@ def _embed_with_timeout(embedder: Embedder, texts: list[str]) -> list[list[float
     def _run() -> None:
         try:
             result.extend(embedder.embed(texts))
-        except BaseException as exc:  # noqa: BLE001 - surfaced via `error`, never raised here
+        except BaseException as exc:
             error.append(exc)
         finally:
             _embed_inflight.release()

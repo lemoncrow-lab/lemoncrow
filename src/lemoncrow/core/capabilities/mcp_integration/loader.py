@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lemoncrow.core.environment import bool_env
+
 logger = logging.getLogger(__name__)
 
 # Server names under which a host config registers LemonCrow's own MCP server.
@@ -80,7 +82,7 @@ def _is_trusted_config_path(config_path: Path) -> bool:
     a workspace/repo-level config resolved outside a trusted root requires the
     operator to set ``LEMONCROW_MCP_ALLOW_UNTRUSTED``.
     """
-    if os.environ.get(_TRUST_OPT_IN_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
+    if bool_env(_TRUST_OPT_IN_ENV, False):
         return True
     try:
         resolved = config_path.resolve()
@@ -154,7 +156,7 @@ def _add_mcp_servers(
 def _load_json_config(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 - config load is best-effort
+    except Exception as exc:
         logger.debug("Failed to load MCP config %s: %s", path, exc)
         return None
 
@@ -265,7 +267,7 @@ class MCPServerProcess:
             # Initialize with JSON-RPC handshake
             self._initialize()
             return True
-        except Exception as exc:  # noqa: BLE001 - spawn is best-effort
+        except Exception as exc:
             logger.debug("Failed to start MCP server %s: %s", self.config.name, exc)
             return False
 
@@ -308,7 +310,7 @@ class MCPServerProcess:
                         message = error.get("message") if isinstance(error, dict) else str(error)
                         return _RPCError(str(message))
                     return resp.get("result")
-            except Exception as exc:  # noqa: BLE001 - rpc is best-effort
+            except Exception as exc:
                 logger.debug("MCP RPC error for %s: %s", self.config.name, exc)
         return None
 
@@ -323,7 +325,7 @@ class MCPServerProcess:
             try:
                 self._proc.stdin.write((json.dumps(message) + "\n").encode())
                 self._proc.stdin.flush()
-            except Exception as exc:  # noqa: BLE001 - notify is best-effort
+            except Exception as exc:
                 logger.debug("MCP notify error for %s: %s", self.config.name, exc)
 
     def _read_response_line(self) -> bytes | None:
@@ -342,7 +344,7 @@ class MCPServerProcess:
         def _read() -> None:
             try:
                 result.put(stdout.readline())
-            except Exception:  # noqa: BLE001 - reader thread is best-effort
+            except Exception:
                 result.put(None)
 
         threading.Thread(target=_read, daemon=True).start()

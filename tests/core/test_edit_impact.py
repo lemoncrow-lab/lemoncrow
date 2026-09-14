@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
+    _call_patterns,
+    _call_queries,
+    _def_signatures,
+    _is_call_occurrence,
     _is_identifier_occurrence,
+    _method_uncertainty,
     _removed_module_symbols,
     _signature_change_params,
     literal_replacements,
@@ -103,3 +108,85 @@ def test_signature_change_ignores_annotation_commas_and_self() -> None:
         }
     ]
     assert _signature_change_params(edits) == {"build": ["sink"]}
+
+
+# --- method signature changes (plan §4.1's own example) ----------------------
+
+
+def test_def_signatures_qualifies_methods_by_class() -> None:
+    """Indentation is the only class signal an edit hunk carries; it is enough."""
+    text = (
+        "class SessionManager:\n"
+        "    def refresh(self, user):\n"
+        "        pass\n"
+        "\n"
+        "    class Inner:\n"
+        "        def nested(self, a):\n"
+        "            pass\n"
+        "\n"
+        "\n"
+        "def helper(x):\n"
+        "    pass\n"
+    )
+    keys = _def_signatures(text)
+    # A sibling class never claims a module-level function that merely follows it.
+    assert set(keys) == {"SessionManager.refresh", "Inner.nested", "helper"}
+    assert keys["SessionManager.refresh"] == "self, user"
+
+
+def test_signature_change_keys_a_method_by_its_class() -> None:
+    edits = [
+        {
+            "old_string": "class SessionManager:\n    def refresh(self, user):\n        pass",
+            "new_string": "class SessionManager:\n    def refresh(self, user, context):\n        pass",
+        }
+    ]
+    assert _signature_change_params(edits) == {"SessionManager.refresh": ["context"]}
+
+
+def test_a_method_moved_between_classes_is_not_a_signature_change() -> None:
+    """Old and new are matched on the qualified key, so a move is a move.
+
+    Matching on the bare name would report ``refresh`` as having gained ``context``
+    on whichever class happened to be compared -- a change no reviewer could verify.
+    """
+    edits = [
+        {
+            "old_string": "class A:\n    def refresh(self, user):\n        pass",
+            "new_string": "class B:\n    def refresh(self, user, context):\n        pass",
+        }
+    ]
+    assert _signature_change_params(edits) == {}
+
+
+def test_call_detection_matches_the_shape_each_kind_of_def_is_actually_called_by() -> None:
+    """A method is reached as ``obj.name(``; a module-level function never is."""
+    assert _call_patterns("SessionManager.refresh") == ["$OBJ.refresh($$$)"]
+    assert _call_patterns("refresh_session") == ["refresh_session($$$)"]
+    assert _call_queries("SessionManager.refresh") == [".refresh("]
+    assert _call_queries("refresh_session") == ["refresh_session"]
+
+    method = "SessionManager.refresh"
+    assert _is_call_occurrence("return manager.refresh(user)", method)
+    assert _is_call_occurrence("self.refresh(user)", method)
+    assert not _is_call_occurrence("# manager.refresh(user)", method)  # comment
+    assert not _is_call_occurrence("return refresh(user)", method)  # not through a receiver
+    assert not _is_call_occurrence("return manager.refresh_all(user)", method)  # substring
+
+    module_level = "refresh_session"
+    assert _is_call_occurrence("return refresh_session(token)", module_level)
+    assert not _is_call_occurrence("return api.refresh_session(token)", module_level)  # attribute of another obj
+
+
+def test_method_uncertainty_states_the_doubt_and_never_invents_certainty() -> None:
+    """One definition is proof of ownership; anything else, or no answer, is not."""
+    assert _method_uncertainty("SessionManager", "refresh", 1) == ""
+
+    ambiguous = _method_uncertainty("SessionManager", "refresh", 3)
+    # A bounded search can only under-report, so the count is stated as a lower bound.
+    assert "at least 3 definitions named refresh()" in ambiguous
+    assert "SessionManager.refresh" in ambiguous
+
+    # A census that could not run is treated exactly like an ambiguous one.
+    unknown = _method_uncertainty("SessionManager", "refresh", None)
+    assert unknown and "could not count" in unknown

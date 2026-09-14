@@ -34,6 +34,10 @@ LITELLM_PREFIX: dict[str, str] = {
     # Zen keeps its own namespace; providers/zen.py rewrites it to openai/ +
     # api_base at the litellm call site.
     "zen": "zen/",
+    # User-registered OpenAI-compatible endpoints (`lc model add`). Ids are
+    # custom/<endpoint>/<model>; model_setup/transport.py rewrites them to
+    # openai/ + api_base the same way Zen does.
+    "custom": "custom/",
 }
 
 
@@ -114,6 +118,12 @@ class ProviderConfig:
                 return True
             if ((self._raw.get(provider) or {}).get(field_name) or "").strip():
                 return True
+        # A provider the file describes but _ENV does not know (a user-added
+        # endpoint) is configured when it says where to reach it. _ENV stays a
+        # ClassVar; this is what makes `lc model add` visible to discovery.
+        entry = self._raw.get(provider)
+        if isinstance(entry, dict) and (str(entry.get("base_url") or "").strip() or entry.get("endpoints")):
+            return True
         if provider == "ollama":
             return bool(self.get("ollama", "base_url"))
         if provider == "zen":
@@ -125,7 +135,9 @@ class ProviderConfig:
         return False
 
     def configured_providers(self) -> list[str]:
-        return [p for p in self._ENV if self.is_configured(p)]
+        # Known providers first, then whatever else the file declares, deduped
+        # with order preserved -- otherwise a user-added key is never reported.
+        return [p for p in dict.fromkeys([*self._ENV, *self._raw]) if self.is_configured(p)]
 
     def export_env(self) -> None:
         """Push file-only values into os.environ (env vars always win)."""

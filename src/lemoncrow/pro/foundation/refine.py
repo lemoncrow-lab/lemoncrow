@@ -101,7 +101,7 @@ def _embed_scores(
     texts = [_dedup_text(incoming), *[_dedup_text(b) for b in pool]]
     try:
         vectors = embedder.embed(texts)
-    except Exception:  # noqa: BLE001 - embedding is optional; degrade to tokens
+    except Exception:
         return None
     if not vectors or len(vectors) != len(pool) + 1:
         return None

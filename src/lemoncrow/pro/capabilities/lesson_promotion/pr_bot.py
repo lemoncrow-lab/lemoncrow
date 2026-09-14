@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.lesson_models import LessonCandidate, LessonPromotion
 from lemoncrow.core.foundation.models import Playbook
 from lemoncrow.core.foundation.renderer import render_playbook_markdown
@@ -20,7 +21,7 @@ _BOT_EMAIL = "bot@lemoncrow"
 
 
 def _is_enabled(env: Mapping[str, str]) -> bool:
-    return env.get(_BOT_ENV_FLAG, "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env(_BOT_ENV_FLAG, False, env)
 
 
 def _run_subprocess(args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:

@@ -691,6 +691,11 @@ def _installer_sandbox(
 
     src = tmp_path / "bundle"
     (src / "scripts").mkdir(parents=True)
+    # Every production distribution must carry the Review Reader frontend.
+    # Keep the sandbox minimal but structurally equivalent to build.sh output.
+    (src / "frontend" / "assets").mkdir(parents=True)
+    (src / "frontend" / "index.html").write_text("<html>fresh review frontend</html>\n")
+    (src / "frontend" / "assets" / "ReviewReader-test.js").write_text("// review reader\n")
     bundle = src / "scripts" / "bundle.sh"
     if use_real_bundle:
         (src / "scripts" / "lib").mkdir()
@@ -789,6 +794,22 @@ def test_installer_fails_loudly_when_bundle_installs_nothing(tmp_path: Path) -> 
     assert "ready!" not in output
     # The broken link must be gone, not merely left in place.
     assert not link.is_symlink() and not link.exists(), output
+
+
+def test_local_installer_replaces_stale_frontend_tree(tmp_path: Path) -> None:
+    home, src = _installer_sandbox(tmp_path, _HAPPY_BUNDLE)
+    installed = home / ".lemoncrow" / "install" / "frontend"
+    (installed / "assets").mkdir(parents=True)
+    (installed / "index.html").write_text("<html>stale dashboard</html>\n")
+    (installed / "assets" / "ReviewWorkspace-old.js").write_text("// stale\n")
+
+    result = _run_installer(home, src)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert (installed / "index.html").read_text() == (src / "frontend" / "index.html").read_text()
+    assert (installed / "assets" / "ReviewReader-test.js").is_file()
+    assert not (installed / "assets" / "ReviewWorkspace-old.js").exists()
 
 
 def test_installer_repairs_dangling_link_and_spares_foreign_entries(tmp_path: Path) -> None:

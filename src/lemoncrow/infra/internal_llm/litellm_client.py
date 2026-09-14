@@ -23,8 +23,10 @@ Provider credentials are read by LiteLLM from the standard cloud env vars:
 
 from __future__ import annotations
 
+import io
 import json
 import os
+from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
 from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable
@@ -43,11 +45,20 @@ def _resolve_model(model: str | None) -> str:
     return model or os.environ.get("LEMONCROW_LITELLM_MODEL") or "gpt-4o-mini"
 
 
-def _with_zen_transport(request_kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Rewrite ``zen/<model>`` requests into litellm's OpenAI-compatible form."""
-    from lemoncrow.core.capabilities.providers.zen import apply_zen_transport
+def _with_provider_transport(request_kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite ``zen/`` and ``custom/`` requests into litellm's OpenAI-compatible form.
 
-    return apply_zen_transport(request_kwargs)
+    Both rewrites are no-ops for any other model, so chaining them is safe on
+    every call. ``custom/`` runs last because a Zen id can never be a custom one.
+    """
+    from lemoncrow.core.capabilities.providers.zen import apply_zen_transport
+    from lemoncrow.pro.capabilities.model_setup.transport import apply_custom_transport
+
+    return apply_custom_transport(apply_zen_transport(request_kwargs))
+
+
+# Retained so any caller of the pre-custom-endpoint name keeps working.
+_with_zen_transport = _with_provider_transport
 
 
 def _content(response: Any) -> str:
@@ -93,7 +104,7 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
     )
     try:
         response = litellm.completion(
-            **_with_zen_transport(
+            **_with_provider_transport(
                 {
                     "model": chosen_model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -137,7 +148,7 @@ def chat_with_result(
         request_kwargs["api_key"] = api_key
     if extra_kwargs:
         request_kwargs.update(extra_kwargs)
-    request_kwargs = _with_zen_transport(request_kwargs)
+    request_kwargs = _with_provider_transport(request_kwargs)
     try:
         if json_schema is None:
             response = litellm.completion(**request_kwargs)
@@ -204,7 +215,7 @@ def tool_completion(
     """
     litellm = _litellm_module()
     return litellm.completion(
-        **_with_zen_transport(
+        **_with_provider_transport(
             {
                 "model": _resolve_model(model),
                 "messages": messages,
@@ -247,3 +258,20 @@ def _cache_capability(*, chosen_model: str, cache_metadata: dict[str, Any] | Non
 def _supports_anthropic_cache_control(chosen_model: str) -> bool:
     normalized = chosen_model.strip().lower()
     return "anthropic" in normalized or "claude" in normalized
+
+
+def supports_vision(model: str) -> bool:
+    """Best-effort vision-capability lookup for *model*, or False if unknowable.
+
+    Lives here rather than at the call site so the litellm import stays behind
+    the infra boundary (see tests/infra/test_no_external_llm_clients.py).
+    LiteLLM prints a provider-help banner for unknown or custom model ids, and
+    capability discovery is metadata: it must never reach a managed frontend's
+    stdout/stderr, so both streams are swallowed.
+    """
+    try:
+        litellm = _litellm_module()
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            return bool(litellm.supports_vision(model=model))
+    except Exception:
+        return False

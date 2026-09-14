@@ -9,7 +9,8 @@ Hazard 5 (PATTERNS): ``memory`` and ``route`` are *duplicate* names -- the
 suppressed dev ``@_dev_group("memory")`` / ``@_dev_group("route")`` share a name
 with a live ``@cli.group`` that MUST remain resolvable. This test locks both
 halves so a future relocation cannot silently leak dev commands or remove the
-live groups.
+live groups. ``context`` joined them when ``lc context doctor`` shipped: it moved
+out of ``MCP_TOOL_ONLY_COMMANDS`` because the name now carries a live group.
 
 registrations are exercised (matching ``tests/gateway/test_cli.py``).
 """
@@ -56,8 +57,8 @@ def test_mcp_only_commands_absent_from_help_output() -> None:
 
 
 def test_mcp_only_groups_have_live_equivalents() -> None:
-    """memory/route are in MCP_TOOL_ONLY_GROUPS but the live groups must resolve."""
-    assert set(MCP_TOOL_ONLY_GROUPS) == {"memory", "route"}
+    """memory/route/context are in MCP_TOOL_ONLY_GROUPS but the live groups must resolve."""
+    assert set(MCP_TOOL_ONLY_GROUPS) == {"memory", "route", "context"}
     ctx = _root_ctx()
     for name in MCP_TOOL_ONLY_GROUPS:
         live = cli.get_command(ctx, name)

@@ -29,21 +29,41 @@ mkdir -p "$hooks_dir"
 hook="$hooks_dir/prepare-commit-msg"
 
 emit_block() {
-  cat <<EOF
-$MARKER
+  echo "$MARKER"
+  cat <<'BODY'
 # Managed by LemonCrow (install_attribution_hook.sh). Appends the co-author
 # trailer unless already present. Skips merge/squash commit messages.
-LEMONCROW_TRAILER="$TRAILER"
-case "\$2" in
+#
+# LemonCrow-Session / LemonCrow-Model make a committed range an exact join with
+# the session that authored it, instead of a wall-clock guess. Both are read
+# from the session state SessionStart already wrote, and are omitted entirely
+# when unknown -- an absent trailer is honest, an invented one is not.
+BODY
+  echo "LEMONCROW_TRAILER=\"$TRAILER\""
+  cat <<'BODY'
+LEMONCROW_STATE="$(git rev-parse --show-toplevel 2>/dev/null)/.lemoncrow/workspace/session_state.json"
+lemoncrow_state_value() {
+  [ -f "$LEMONCROW_STATE" ] || return 0
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$LEMONCROW_STATE" 2>/dev/null | head -n 1
+}
+case "$2" in
   merge|squash) ;;
   *)
-    if ! grep -qF "\$LEMONCROW_TRAILER" "\$1" 2>/dev/null; then
-      printf '\n%s\n' "\$LEMONCROW_TRAILER" >> "\$1"
+    if ! grep -qF "$LEMONCROW_TRAILER" "$1" 2>/dev/null; then
+      printf '\n%s\n' "$LEMONCROW_TRAILER" >> "$1"
+    fi
+    LEMONCROW_SID="$(lemoncrow_state_value session_id)"
+    if [ -n "$LEMONCROW_SID" ] && ! grep -q '^LemonCrow-Session:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Session: %s\n' "$LEMONCROW_SID" >> "$1"
+    fi
+    LEMONCROW_MODEL="$(lemoncrow_state_value model)"
+    if [ -n "$LEMONCROW_MODEL" ] && ! grep -q '^LemonCrow-Model:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Model: %s\n' "$LEMONCROW_MODEL" >> "$1"
     fi
     ;;
 esac
-$END_MARKER
-EOF
+BODY
+  echo "$END_MARKER"
 }
 
 if [ -f "$hook" ]; then

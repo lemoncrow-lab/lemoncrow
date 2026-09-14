@@ -119,7 +119,7 @@ def load_auth_user() -> dict[str, object] | None:
         if time.time() - cached_at > AUTH_USER_CACHE_TTL:
             return None  # stale
         return data
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -136,7 +136,7 @@ def save_auth_user(data: dict[str, object]) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -217,7 +217,7 @@ def stable_machine_device_id() -> str:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(device_id)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return device_id
 

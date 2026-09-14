@@ -28,6 +28,8 @@ SUPPORTED_ROUTE_VENDORS = (
     "together",
     "fireworks",
     "zen",
+    # User-registered OpenAI-compatible endpoints (`lc model add`).
+    "custom",
 )
 
 EditMode = Literal["pin-actual-vendor", "allow-cross-vendor"]

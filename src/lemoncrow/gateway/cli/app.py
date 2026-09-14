@@ -190,6 +190,13 @@ def cli(ctx: click.Context, root: Path, print_prompts: tuple[str, ...]) -> None:
     """LemonCrow - Agent Reasoning Runtime."""
     ctx.ensure_object(dict)
     ctx.obj["root"] = root
+    # ``ctx.obj["root"]`` reaches only the commands that read it, and the custom
+    # endpoint readers cannot -- see model_setup/transport.set_active_store_root.
+    if ctx.get_parameter_source("root") not in (None, click.ParameterSource.DEFAULT):
+        from lemoncrow.pro.capabilities.model_setup.transport import set_active_store_root
+
+        set_active_store_root(root)
+        ctx.call_on_close(lambda: set_active_store_root(None))
     if print_prompts:
         if ctx.invoked_subcommand is not None:
             raise click.ClickException("--print cannot be combined with a subcommand")

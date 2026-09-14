@@ -21,6 +21,21 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _parse_dt(value: Any) -> datetime | None:
+    """Parse a recorded ISO timestamp, or ``None`` when it carries nothing.
+
+    Naive stamps are read as UTC: every writer in-tree emits UTC, and mixing an
+    aware default with a naive restore leaves the two uncomparable.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 # Hard cap on the bytes of any single string value inside an event payload.
 # Per-event payloads carry arbitrary tool/command output, and ``snapshot``
 # re-serializes the entire events list on every ``persist`` -- so one oversized
@@ -124,6 +139,257 @@ def iter_run_files(root: str | Path) -> list[Path]:
     return []
 
 
+_EMPTY_GIT_ANCHOR: dict[str, str] = {"head": "", "branch": "", "repo_root": ""}
+
+
+def _read_ref(git_dir: Path, ref: str) -> str:
+    """Resolve a symbolic ref to a sha by reading files -- loose, then packed.
+
+    Also follows ``commondir`` so a linked worktree (whose refs live in the main
+    checkout's .git) resolves instead of silently reporting nothing.
+    """
+    roots = [git_dir]
+    common = git_dir / "commondir"
+    if common.is_file():
+        pointer = Path(common.read_text(encoding="utf-8").strip())
+        roots.append(pointer if pointer.is_absolute() else (git_dir / pointer))
+    for base in roots:
+        loose = base / ref
+        if loose.is_file():
+            return loose.read_text(encoding="utf-8").strip()
+    for base in roots:
+        packed = base / "packed-refs"
+        if not packed.is_file():
+            continue
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            if line.startswith(("#", "^")):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[1].strip() == ref:
+                return parts[0].strip()
+    return ""
+
+
+def _resolve_git_anchor(workspace_path: str) -> dict[str, str]:
+    """Return ``{"head", "branch", "repo_root"}`` for *workspace_path*.
+
+    Why this exists: nothing else in the session substrate records which commit
+    a run was working against, which makes after-the-fact "who wrote this diff"
+    correlation a heuristic. Stamping HEAD into the ledger turns that into an
+    exact join for every future run.
+
+    Read straight off ``.git`` -- no subprocess. Forking ``git`` from the
+    multi-threaded MCP process costs seconds per call, and this runs on every
+    snapshot. Every failure degrades to empty strings: a run ledger must never
+    fail to persist because a workspace is not a checkout.
+    """
+    if not workspace_path:
+        return dict(_EMPTY_GIT_ANCHOR)
+    try:
+        start = Path(workspace_path)
+        git_dir: Path | None = None
+        repo_root = ""
+        for parent in [start, *start.parents]:
+            marker = parent / ".git"
+            if marker.is_dir():
+                git_dir, repo_root = marker, str(parent)
+                break
+            if marker.is_file():
+                # Linked worktree or submodule: ".git" holds "gitdir: <path>".
+                pointer = marker.read_text(encoding="utf-8").strip()
+                if pointer.startswith("gitdir:"):
+                    target = Path(pointer.split(":", 1)[1].strip())
+                    git_dir = target if target.is_absolute() else (parent / target).resolve()
+                    repo_root = str(parent)
+                break
+        if git_dir is None or not git_dir.is_dir():
+            return dict(_EMPTY_GIT_ANCHOR)
+        head_text = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if head_text.startswith("ref:"):
+            ref = head_text.split(":", 1)[1].strip()
+            return {"head": _read_ref(git_dir, ref), "branch": ref.rsplit("/", 1)[-1], "repo_root": repo_root}
+        return {"head": head_text, "branch": "", "repo_root": repo_root}
+    except (OSError, ValueError, UnicodeDecodeError):
+        return dict(_EMPTY_GIT_ANCHOR)
+
+
+# --------------------------------------------------------------------------- #
+# Merge-on-persist                                                             #
+# --------------------------------------------------------------------------- #
+#
+# ``persist`` is not the only writer of a session's run.json. The Claude
+# PostToolUse hooks append ``file_edit`` and ``command_result`` events to the
+# very same file from a separate process, and those carry the at_head/model/
+# host provenance ``lc review`` joins a diff to its author on. Writing a
+# snapshot of in-memory state straight over the file deleted every one of them
+# -- an unloaded process-global ledger persisting once wiped the whole run --
+# so the snapshot is folded into what is already on disk instead of replacing
+# it. Every writer also holds the shared per-run RunFileLock across its whole
+# read/merge/replace transaction; atomic rename alone prevents torn JSON but
+# cannot prevent a concurrent writer from being overwritten.
+
+
+# Sort position for an event whose ``at`` is missing or unparseable, so the
+# merged order is still total. Every writer in-tree stamps one.
+_UNDATED_EVENT_AT = datetime.min.replace(tzinfo=UTC)
+
+
+def _event_identity(event: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Identity of one serialized event, comparable across writers.
+
+    The instant is normalized because the two writers spell the same moment
+    differently -- pydantic emits ``...Z``, the hook emits ``...+00:00`` -- and
+    comparing the raw strings would read one event as two and duplicate it on
+    every persist.
+    """
+    at = _parse_dt(event.get("at"))
+    stamp = at.astimezone(UTC).isoformat() if at is not None else str(event.get("at") or "")
+    try:
+        payload = json.dumps(event.get("payload") or {}, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        payload = repr(event.get("payload"))
+    return (str(event.get("kind") or ""), stamp, str(event.get("summary") or ""), payload)
+
+
+# The host hook names an out-of-process writer stamps into ``payload.event``
+# when it appends straight to run.json: the Claude plugin hooks under
+# ``integrations/claude/plugin/hooks/`` and the codex/opencode writer in
+# ``core.capabilities.plugin_runtime._codex_append_ledger_events``.
+#
+# Only these are folded back in on persist. Everything else in run.json came
+# from some process's own ``record*`` calls, and those stamp ``payload.event``
+# with their own vocabulary (``edit``, ``revert``, a workflow step name). A
+# ledger rebuilt from scratch re-stamps ``at`` with the current instant, so its
+# events never match the identity of the ones already on disk -- folding them
+# in would union rather than replace and double the file on every rebuild.
+# Three real callers rebuild: LedgerReconstructor.reconstruct, the service
+# worker's session re-ingest (core/service/worker.py) and ``lc swarm
+# run-child``, which reuses one ledger id across attempts.
+_OUT_OF_PROCESS_EVENTS = frozenset(
+    {
+        "PostToolUse",
+        "PostToolUseFailure",
+        "SessionStart",
+        "SessionEnrichment",
+        "Stop",
+        "UserPromptSubmit",
+        "PreCompact",
+        "PostCompact",
+        "PostToolUseBash",
+        "codex_exec",
+    }
+)
+
+
+def _appended_out_of_process(event: dict[str, Any]) -> bool:
+    """True when *event* was written straight to run.json by a host hook."""
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("event") or "") in _OUT_OF_PROCESS_EVENTS
+
+
+def _output_chars(event: dict[str, Any]) -> int:
+    """``payload.output_chars`` as an int, or 0 for anything else."""
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return 0
+    try:
+        return int(payload.get("output_chars", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _merge_persisted_events(memory_events: list[dict[str, Any]], disk_events: Any) -> list[dict[str, Any]]:
+    """The in-memory events plus every hook-appended on-disk event they lack.
+
+    Only events a host hook appended out of process are recovered (see
+    :func:`_appended_out_of_process`); an in-process event on disk that this
+    ledger does not hold belongs to a run this object is replacing, not
+    extending, and folding it in would double a rebuilt ledger on every persist.
+
+    Identity is counted as a *multiset*, so the same event shape appended twice
+    out of process survives as two events while one that merely round-tripped
+    through ``load``/``persist`` is not duplicated. The union is ordered by
+    instant -- the order both writers appended in -- and trimmed to the same
+    ceiling ``record`` enforces on ``self.events``, so merging can never make
+    run.json grow past the bound the eviction cap already set.
+    """
+    if not isinstance(disk_events, list) or not disk_events:
+        return memory_events
+    credits: dict[tuple[str, str, str, str], int] = {}
+    for event in memory_events:
+        key = _event_identity(event)
+        credits[key] = credits.get(key, 0) + 1
+    recovered: list[dict[str, Any]] = []
+    for candidate in disk_events:
+        if not isinstance(candidate, dict) or not _appended_out_of_process(candidate):
+            continue
+        key = _event_identity(candidate)
+        held = credits.get(key, 0)
+        if held:
+            credits[key] = held - 1  # already represented in memory
+            continue
+        recovered.append(candidate)
+    if not recovered:
+        return memory_events
+    merged = [*memory_events, *recovered]
+    merged.sort(key=lambda event: _parse_dt(event.get("at")) or _UNDATED_EVENT_AT)
+    ceiling = _MAX_RETAINED_EVENTS + _EVENT_EVICTION_CHUNK
+    if _MAX_RETAINED_EVENTS and len(merged) > ceiling:
+        del merged[:-ceiling]
+    return merged
+
+
+def _merge_persisted_paths(memory_paths: list[str], disk_paths: Any) -> list[str]:
+    """Union of the touched paths held in memory and those a hook appended."""
+    if not isinstance(disk_paths, list) or not disk_paths:
+        return memory_paths
+    merged = list(memory_paths)
+    known = set(merged)
+    for candidate in disk_paths:
+        text = str(candidate)
+        if text and text not in known:
+            known.add(text)
+            merged.append(text)
+    return merged
+
+
+def _merge_with_persisted(snapshot: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Fold whatever another process appended to *path* back into *snapshot*.
+
+    Degrades to the snapshot unchanged on anything unreadable: persisting a run
+    must never fail because the file already on disk is missing or damaged.
+    """
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return snapshot
+    if not isinstance(recorded, dict):
+        return snapshot
+    snapshot["files_touched"] = _merge_persisted_paths(
+        list(snapshot.get("files_touched") or []), recorded.get("files_touched")
+    )
+    # A loaded ledger restores aggregate counters but intentionally does not
+    # replay CostTracker history, because replaying would append duplicate calls
+    # to cost_history.json. Preserve the already-recorded per-run cost snapshot
+    # until this process has fresh tracker state of its own.
+    if not snapshot.get("cost") and isinstance(recorded.get("cost"), dict) and recorded["cost"]:
+        snapshot["cost"] = recorded["cost"]
+    memory_events: list[dict[str, Any]] = list(snapshot.get("events") or [])
+    merged = _merge_persisted_events(memory_events, recorded.get("events"))
+    if merged is memory_events:
+        return snapshot
+    snapshot["events"] = merged
+    # These three describe the events actually written, so they are recomputed
+    # over the union rather than left describing this process's memory alone.
+    tool_calls = [event for event in merged if event.get("kind") == "tool_call"]
+    snapshot["tool_call_count"] = len(tool_calls)
+    snapshot["total_tool_output_chars"] = sum(_output_chars(event) for event in tool_calls)
+    snapshot["alert_count"] = sum(1 for event in merged if event.get("kind") == "watchdog_alert")
+    return snapshot
+
+
 class RunLedger:
     """Append-only ledger for a single agent run."""
 
@@ -186,6 +452,11 @@ class RunLedger:
         # Per-call cost tracking (lazy: tracker only persists if a root is set).
         self._cost_root: Path | None = root
         self.cost_tracker: CostTracker | None = CostTracker(root) if root is not None else None
+        # Git HEAD/branch/root of the workspace, resolved once on first
+        # snapshot rather than in __init__: a ledger is constructed on paths
+        # that never persist (and by load(), which restores the recorded value
+        # instead), so the filesystem walk should not be paid up front.
+        self._git: dict[str, str] | None = None
 
     # ----- setters -------------------------------------------------------- #
 
@@ -376,12 +647,29 @@ class RunLedger:
             {"ok": ok, "error_signature": error_signature, "stdout": stdout, "stderr": stderr},
         )
 
-    def record_file_event(self, path: str, event: str, diff: str | None = None) -> LedgerEvent:
+    def record_file_event(self, path: str, event: str, diff: str | None = None, *, model: str = "") -> LedgerEvent:
+        """Record an edit together with who made it, against which HEAD.
+
+        ``session_id`` / ``agent`` / ``model`` / ``at_head`` are the same four
+        keys the claude and codex PostToolUse hooks write, so the MCP ``lc edit``
+        path is a peer authoring surface rather than a second-class one. They go
+        in ``payload`` because ``LedgerEvent`` is ``extra="forbid"`` with a fixed
+        field set -- the payload dict is the extension point. ``model`` is
+        supplied by the caller (only the MCP dispatcher knows it) and stays
+        ``""`` when unknown: an empty string is a fact, a guess is not.
+        """
         with self._lock:
             if path and path not in self.files_touched:
                 self.files_touched.append(path)
         kind = "file_revert" if event == "revert" else "file_edit"
-        payload = {"path": path, "event": event}
+        payload = {
+            "path": path,
+            "event": event,
+            "session_id": self.session_id,
+            "host": self.agent or "",
+            "model": model,
+            "at_head": self.git_anchor().get("head", ""),
+        }
         if diff:
             payload["diff"] = diff
         return self.record(kind, f"{event}:{path}", payload)
@@ -542,6 +830,16 @@ class RunLedger:
 
     # ----- snapshot / persistence ----------------------------------------- #
 
+    def git_anchor(self) -> dict[str, str]:
+        """Commit this run is working against; empty strings outside a checkout.
+
+        Resolved once and cached: HEAD can move mid-session, and the value that
+        makes a run correlatable is the one it started from.
+        """
+        if self._git is None:
+            self._git = _resolve_git_anchor(self.workspace_path)
+        return dict(self._git)
+
     def snapshot(self) -> dict[str, Any]:
         # Hold the lock across the whole snapshot so a concurrent record_*/setter
         # cannot mutate any list/dict mid-read (torn snapshot) and every field is
@@ -565,6 +863,7 @@ class RunLedger:
                 "task": self.task,
                 "domain": self.domain,
                 "workspace_path": self.workspace_path,
+                "git": self.git_anchor(),
                 "status": self.status,
                 "tool_call_count": len(tool_calls),
                 "total_tool_output_chars": total_output,
@@ -604,18 +903,17 @@ class RunLedger:
         if target_root is None:
             raise ValueError("RunLedger.persist requires a root directory.")
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
 
         path = session_dir(target_root, self.agent or "claude", self.session_id) / "run.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Write to a sibling temp file then atomically rename, so a crash
-        # mid-write can never leave a truncated run.json behind.
-        tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            tmp.write_text(json.dumps(self.snapshot(), indent=2), encoding="utf-8")
-            os.replace(tmp, path)
-        except BaseException:
-            tmp.unlink(missing_ok=True)
-            raise
+        # Atomic rename prevents torn JSON, but only the per-run lock prevents a
+        # hook that appends between our read and rename from being overwritten.
+        # Every in-tree run.json writer takes this same lock.
+        with RunFileLock(path):
+            payload = _merge_with_persisted(self.snapshot(), path)
+            atomic_write_json(path, payload)
+        return path
         return path
 
     @classmethod
@@ -635,17 +933,37 @@ class RunLedger:
         # Old ledgers intentionally remain unscoped instead of inheriting the
         # workspace environment of whichever process happens to load them.
         led.workspace_path = str(snap.get("workspace_path") or "")
+        # Absent on every ledger written before the anchor existed. Left unset
+        # (not {}) in that case so a session that resumes still resolves one;
+        # re-resolving is only wrong when the file already recorded the answer.
+        recorded_git = snap.get("git")
+        if isinstance(recorded_git, dict) and recorded_git:
+            led._git = {str(key): str(value) for key, value in recorded_git.items()}
         led.status = snap.get("status", "running")
         for ev in snap.get("events", []):
-            led.events.append(
-                LedgerEvent(
-                    kind=ev.get("kind"),
-                    summary=ev.get("summary", ""),
-                    payload=ev.get("payload", {}),
-                )
-            )
+            # ``at`` is the whole point of an append-only ledger: dropping it
+            # reset every event's timestamp to load time, which silently
+            # rewrote the one field that says *when* an edit happened.
+            # ``LedgerEvent.at`` defaults to now, so only pass it when the file
+            # actually recorded a parseable stamp.
+            fields: dict[str, Any] = {
+                "kind": ev.get("kind"),
+                "summary": ev.get("summary", ""),
+                "payload": ev.get("payload", {}),
+            }
+            recorded_at = _parse_dt(ev.get("at"))
+            if recorded_at is not None:
+                fields["at"] = recorded_at
+            led.events.append(LedgerEvent(**fields))
             if ev.get("kind") == "checkpoint":
                 led._checkpoint_seq += 1
+        # Wall-clock bounds of the run, restored for the same reason: a loaded
+        # ledger that claims it was created just now is not the run on disk.
+        created_at = _parse_dt(snap.get("created_at"))
+        if created_at is not None:
+            led.created_at = created_at
+        updated_at = _parse_dt(snap.get("updated_at"))
+        led.updated_at = updated_at if updated_at is not None else led.created_at
         led.current_plan = list(snap.get("current_plan") or [])
         led.files_touched = list(snap.get("files_touched") or [])
         led.tools_called = list(snap.get("tools_called") or [])

@@ -24,7 +24,7 @@ def _astgrep_available() -> bool:
         except AstGrepToolUnavailable:
             return False
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         return True
 
 

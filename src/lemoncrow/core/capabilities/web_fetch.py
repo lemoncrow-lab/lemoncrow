@@ -9,7 +9,6 @@ import ipaddress
 import json
 import logging
 import math
-import os
 import re
 import socket
 import time
@@ -28,6 +27,8 @@ from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.poolmanager import SSL_KEYWORDS
 from urllib3.response import BaseHTTPResponse
 from urllib3.util.connection import _set_socket_options
+
+from lemoncrow.core.environment import bool_env, tool_output_spill_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -175,10 +176,9 @@ _LOOPBACK_ALLOW_ENV = "LEMONCROW_WEB_FETCH_ALLOW_LOOPBACK"
 def _loopback_allowed() -> bool:
     """Loopback fetches are DENIED by default (localhost SSRF); opt in via env.
 
-    Same truthy-string convention as the other env toggles in this module
-    (see ``_spill_enabled``).
+    Same truthy-string convention as the other env toggles in this module.
     """
-    return os.environ.get(_LOOPBACK_ALLOW_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool_env(_LOOPBACK_ALLOW_ENV, False)
 
 
 def _assert_fetchable_ip(raw_ip: str) -> None:
@@ -388,11 +388,6 @@ def fetch_url(
     )
 
 
-def _spill_enabled() -> bool:
-    """Mirrors the MCP dispatch layer's T7 kill switch (``LEMONCROW_TOOL_OUTPUT_SPILL``)."""
-    return os.environ.get("LEMONCROW_TOOL_OUTPUT_SPILL", "1").strip().lower() in {"1", "true", "yes", "on"}
-
-
 # Bounds the `summary=true` gist body -- mirrors the `read` tool's `:summary`
 # budget so an agent learns one gist-size convention across both tools.
 _SUMMARY_TARGET_CHARS = 4096
@@ -427,7 +422,11 @@ def _summarize_rendered_content(content: str, *, char_limit: int) -> str:
 
     target_chars = min(char_limit, _SUMMARY_TARGET_CHARS)
     original_chars = len(content)
-    record = tool_output_spill.spill(content, tool_name="web_fetch", kind="original") if _spill_enabled() else None
+    record = (
+        tool_output_spill.spill(content, tool_name="web_fetch", kind="original")
+        if tool_output_spill_enabled()
+        else None
+    )
 
     tier = llm_summary_tier(content, target_chars=target_chars)
     if tier is not None:
@@ -461,7 +460,7 @@ def _truncate_with_spill(content: str, char_limit: int) -> str:
 
     head = content[:char_limit].rstrip()
     record = None
-    if _spill_enabled():
+    if tool_output_spill_enabled():
         record = tool_output_spill.spill(content, tool_name="web_fetch", kind="original")
     footer = tool_output_spill.spill_notice(
         verb="truncated",
@@ -526,7 +525,7 @@ def _truncate_with_relevance(content: str, char_limit: int, query: str) -> str:
     assembled, meta = rank_and_select(chunks, query=query, char_budget=max(256, char_limit - 300))
 
     pointer = ""
-    if _spill_enabled():
+    if tool_output_spill_enabled():
         from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
         record = tool_output_spill.spill(content, tool_name="web_fetch", kind="original")
@@ -1262,7 +1261,7 @@ def _spill_original_pdf(body: bytes) -> Any:
     switch as text overflow spilling. Best-effort: returns ``None`` on any
     failure so a PDF still renders even if the spill write doesn't happen.
     """
-    if not _spill_enabled():
+    if not tool_output_spill_enabled():
         return None
     from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 
@@ -1291,7 +1290,7 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".gif"}
 
 def _spill_pdf_image(data: bytes, *, suffix: str) -> Any:
     """Persist one embedded PDF image and return its spill record (or None)."""
-    if not _spill_enabled():
+    if not tool_output_spill_enabled():
         return None
     from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
 

@@ -10,11 +10,6 @@ import os
 from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.paths import default_store_root
 
-
-def _bool_env(name: str, default: bool) -> bool:
-    return bool_env(name, default)
-
-
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
@@ -27,7 +22,7 @@ class ServiceConfig:
 
     @property
     def service_enabled(self) -> bool:
-        return _bool_env("LEMONCROW_SERVICE_ENABLED", False)
+        return bool_env("LEMONCROW_SERVICE_ENABLED", False)
 
     @property
     def require_auth(self) -> bool:
@@ -41,7 +36,7 @@ class ServiceConfig:
         An explicit ``LEMONCROW_REQUIRE_AUTH`` always wins, in either direction.
         """
         if "LEMONCROW_REQUIRE_AUTH" in os.environ:
-            return _bool_env("LEMONCROW_REQUIRE_AUTH", False)
+            return bool_env("LEMONCROW_REQUIRE_AUTH", False)
         return not _is_loopback_host(self.host)
 
     @property

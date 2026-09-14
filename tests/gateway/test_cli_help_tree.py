@@ -84,15 +84,14 @@ def test_help_tree_includes_hidden_command_paths() -> None:
 def test_help_tree_excludes_mcp_only_entries() -> None:
     """MCP-tool-only *commands* must never appear as top-level entries.
 
-    The suppressed *commands* (``context``/``rescue``/``verify``/``read``/
-    ``edit``/``search``) have no live equivalent, so their dev registration is
-    dropped entirely. The suppressed dev *groups* ``route``/``memory`` share a
-    name with a live ``@cli.group`` (PATTERNS hazard 5), so the live groups DO
-    appear -- they are covered by ``test_cli_mcp_only.py``.
+    The suppressed *commands* (``rescue``/``verify``/``read``/``edit``/
+    ``search``) have no live equivalent, so their dev registration is dropped
+    entirely. The suppressed dev *groups* ``route``/``memory``/``context`` share
+    a name with a live group (PATTERNS hazard 5), so the live groups DO appear --
+    they are covered by ``test_cli_mcp_only.py``.
     """
     tree = render_help_tree()
     for mcp_only in (
-        "lc context\n",
         "lc rescue\n",
         "lc verify\n",
         "lc read\n",
@@ -101,9 +100,10 @@ def test_help_tree_excludes_mcp_only_entries() -> None:
     ):
         assert mcp_only not in tree, f"leaked MCP-only command: {mcp_only!r}"
 
-    # The live ``route``/``memory`` groups must remain present.
+    # The live ``route``/``memory``/``context`` groups must remain present.
     assert "lc route\n" in tree
     assert "lc memory\n" in tree
+    assert "lc context\n" in tree
 
 
 def test_top_level_help_still_succeeds() -> None:

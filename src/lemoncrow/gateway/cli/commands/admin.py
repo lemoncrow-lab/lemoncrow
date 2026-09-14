@@ -37,7 +37,9 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     write_workspace_opencode_agents,
 )
 from lemoncrow.core.foundation.models import Playbook, Rubric
+from lemoncrow.core.foundation.paths import detect_git_root as _detect_git_root
 from lemoncrow.core.foundation.paths import detect_host
+from lemoncrow.core.foundation.paths import ensure_gitignore as _ensure_gitignore
 from lemoncrow.core.settings import CATEGORIES as SETTINGS_CATEGORIES
 from lemoncrow.gateway.cli.commands._shared import (
     _core_runtime,
@@ -45,32 +47,6 @@ from lemoncrow.gateway.cli.commands._shared import (
     _load_store,
 )
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
-
-
-def _detect_git_root(search_path: Path) -> Path | None:
-    """Return the git repo root containing search_path, or None if not in a repo.
-
-    Walks upward for a ``.git`` entry (a directory in a normal clone, a file in a
-    worktree/submodule) rather than shelling out to ``git rev-parse``. Forking a
-    git subprocess from this fully-imported, multi-threaded process costs seconds
-    (page-table copy of a large parent), while the walk is a few ``stat`` calls
-    and needs no ``git`` binary.
-    """
-    try:
-        current = search_path.resolve()
-    except OSError:
-        return None
-    for candidate in (current, *current.parents):
-        git_entry = candidate / ".git"
-        # A worktree/submodule uses a `.git` *file* (a gitlink); a normal clone
-        # uses a `.git` *directory*, which always contains HEAD. Requiring HEAD
-        # matches `git rev-parse` and rejects stray/empty `.git` dirs.
-        if git_entry.is_file() or (git_entry.is_dir() and (git_entry / "HEAD").is_file()):
-            return candidate
-    return None
-
-
-from lemoncrow.core.foundation.paths import ensure_gitignore as _ensure_gitignore  # noqa: E402
 
 
 def _bootstrap_cap_verdict(root: Path) -> bool:
@@ -491,6 +467,40 @@ def _apply_workspace_model_config(
     return results
 
 
+# The shell body of the ``prepare-commit-msg`` hook, byte-identical to the one
+# ``integrations/claude/plugin/scripts/install_attribution_hook.sh`` and
+# ``scripts/lib/common.sh`` emit. Kept as a raw string so the sed expression's
+# backslashes survive unmangled.
+#
+# ``LemonCrow-Session`` / ``LemonCrow-Model`` are what make a committed range an
+# exact join with the session that authored it, rather than a wall-clock guess:
+# ``lc review <range>`` can read the trailer instead of scoring candidates. Both
+# are omitted when the session state does not name them -- an absent trailer is
+# honest, an invented one is not.
+_ATTRIBUTION_HOOK_BODY = r"""LEMONCROW_STATE="$(git rev-parse --show-toplevel 2>/dev/null)/.lemoncrow/workspace/session_state.json"
+lemoncrow_state_value() {
+  [ -f "$LEMONCROW_STATE" ] || return 0
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$LEMONCROW_STATE" 2>/dev/null | head -n 1
+}
+case "$2" in
+  merge|squash) ;;
+  *)
+    if ! grep -qF "$LEMONCROW_TRAILER" "$1" 2>/dev/null; then
+      printf '\n%s\n' "$LEMONCROW_TRAILER" >> "$1"
+    fi
+    LEMONCROW_SID="$(lemoncrow_state_value session_id)"
+    if [ -n "$LEMONCROW_SID" ] && ! grep -q '^LemonCrow-Session:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Session: %s\n' "$LEMONCROW_SID" >> "$1"
+    fi
+    LEMONCROW_MODEL="$(lemoncrow_state_value model)"
+    if [ -n "$LEMONCROW_MODEL" ] && ! grep -q '^LemonCrow-Model:' "$1" 2>/dev/null; then
+      printf 'LemonCrow-Model: %s\n' "$LEMONCROW_MODEL" >> "$1"
+    fi
+    ;;
+esac
+"""
+
+
 def _install_attribution_hook(git_root: Path) -> str | None:
     """Install the LemonCrow co-author ``prepare-commit-msg`` hook.
 
@@ -530,14 +540,7 @@ def _install_attribution_hook(git_root: Path) -> str | None:
         "# Managed by LemonCrow (lc init). Appends the co-author trailer unless already present.\n"
         "# Skips merge/squash commit messages.\n"
         f'LEMONCROW_TRAILER="{trailer}"\n'
-        'case "$2" in\n'
-        "  merge|squash) ;;\n"
-        "  *)\n"
-        '    if ! grep -qF "$LEMONCROW_TRAILER" "$1" 2>/dev/null; then\n'
-        '      printf \'\\n%s\\n\' "$LEMONCROW_TRAILER" >> "$1"\n'
-        "    fi\n"
-        "    ;;\n"
-        "esac\n"
+        f"{_ATTRIBUTION_HOOK_BODY}"
         f"{end_marker}\n"
     )
     hook_path.write_text(content, encoding="utf-8")

@@ -13,7 +13,7 @@ signed deal. `BUILD` is a roadmap conversation, never a close-the-deal promise.
 
 | Benefit | Status |
 | --- | --- |
-| Per-session and aggregate savings with counterfactual pricing (`lc savings`, `lc dashboard`) | SHIPPED |
+| Per-session and aggregate savings with counterfactual pricing (`lc usage optimize`, `lc dashboard`) | SHIPPED |
 | Weekly spend-trend and opportunity summary (`lc insights`) | SHIPPED |
 | Team usage rollup per member (`lc team usage`) | SHIPPED |
 | Org spend dashboard split by team / repo / host / model | ADD-ON |

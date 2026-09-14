@@ -38,6 +38,8 @@ LemonCrow keeps existing agents sharp on real codebases with a ranked code graph
 
 | Document                                      | Description                                              |
 | --------------------------------------------- | -------------------------------------------------------- |
+| [`lc review`](./reference/review.md)          | What the review command is for and the core loop         |
+| [`lc review` walkthrough](./reference/review-walkthrough.md) | Hands-on, ten-minute tour on a scratch repo |
 | [CLI Reference](./reference/cli.md)           | Current public CLI reference                             |
 | [Architecture](./reference/architecture.md)   | System architecture                                     |
 | [OpenAI Gateway](./reference/openai-gateway.md) | OpenAI-compatible gateway surface                     |

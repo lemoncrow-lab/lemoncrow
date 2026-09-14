@@ -257,6 +257,31 @@ def test_savings_reset_clears_counters(tmp_path: Path) -> None:
     assert after["tokens_saved"] == 0
 
 
+def test_usage_optimize_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The promoted spelling of `savings detail` (spec §5.2)."""
+    grant_oauth_pro(monkeypatch)
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    res = _invoke(root, "usage", "optimize", "detail", "--json")
+    assert res.exit_code == 0
+    payload = json.loads(res.output)
+    assert "summary" in payload
+    assert "operations" in payload
+    entitlements.reload()
+
+
+def test_usage_optimize_reset_clears_counters(tmp_path: Path) -> None:
+    """The promoted spelling of `savings reset` (spec §5.2)."""
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    res = _invoke(root, "usage", "optimize", "reset", "--force")
+    assert res.exit_code == 0
+    assert "reset" in res.output
+
+    after = json.loads(_invoke(root, "usage", "--json").output)
+    assert after["totals"]["rows"] == 0
+
+
 # --------------------------------------------------------------------------- #
 # benchmark hosts / benchmark packs / benchmark full                         #
 # --------------------------------------------------------------------------- #

@@ -9,8 +9,11 @@ import click
 
 from lemoncrow.gateway.cli.commands._shared import _emit
 
-# The store is split into six per-concern SQLite files (see infra.storage.bundle).
+# The store is split into per-concern SQLite files (see infra.storage.bundle).
 # Trace history -- the large, reclaimable data -- lives in the history file.
+# lemoncrow_reviews.db is not a StoreBundle member (it is constructed at its
+# call site, like recall.db), so it has to be named here explicitly or
+# `lc db vacuum` would silently skip the one store holding hand-made state.
 HISTORY_DB_NAME = "lemoncrow_history.db"
 SPLIT_DB_NAMES = (
     HISTORY_DB_NAME,
@@ -19,6 +22,7 @@ SPLIT_DB_NAMES = (
     "lemoncrow_jobs.db",
     "lemoncrow_memory.db",
     "lemoncrow_telemetry.db",
+    "lemoncrow_reviews.db",
 )
 
 

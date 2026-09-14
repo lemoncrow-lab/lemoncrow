@@ -239,17 +239,31 @@ def _scan_sessions(
     """Load session stats from the last *since* window.
 
     Returns (sessions_list, total_session_count_in_window).
+
+    Both on-disk layouts are read. ``sessions/<id>/`` is the legacy flat one;
+    every session written since :func:`session_dir` landed is at
+    ``sessions/YYYY/MM/DD/<host>/<id>/``, and globbing only the flat shape --
+    which is what this did -- found nothing at all on a real store. `lc context
+    doctor` then printed "disable by default" against 19 sources on the strength
+    of zero observations. The pair of globs mirrors ``aggregate_session_stats``
+    (``core/capabilities/plugin_runtime.py``), which reads the same tree.
     """
     sessions_dir = root / "sessions"
     if not sessions_dir.is_dir():
         return [], 0
 
-    results: list[dict[str, Any]] = []
-    for stats_path in sorted(sessions_dir.glob("*/stats.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    dated: list[tuple[float, Path]] = []
+    for stats_path in (*sessions_dir.glob("*/stats.json"), *sessions_dir.glob("*/*/*/*/*/stats.json")):
         try:
-            mtime = datetime.fromtimestamp(stats_path.stat().st_mtime, tz=UTC)
+            dated.append((stats_path.stat().st_mtime, stats_path))
         except OSError:
+            # A session directory can be pruned while this walk is running; a
+            # vanished file is one fewer observation, never a crashed audit.
             continue
+
+    results: list[dict[str, Any]] = []
+    for mtime_raw, stats_path in sorted(dated, key=lambda pair: pair[0], reverse=True):
+        mtime = datetime.fromtimestamp(mtime_raw, tz=UTC)
         if mtime < since:
             continue
         try:

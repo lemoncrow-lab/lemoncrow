@@ -1387,6 +1387,29 @@ def test_tool_callers_and_callees_aggregate_results_for_ambiguous_name(tmp_path:
     assert callees["edge_count"] >= 1
 
 
+def test_tool_callers_batch_matches_scalar_ambiguity_and_related_sites(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "def helper() -> int:\n    return 1\n\ndef run_a() -> int:\n    return helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "b.py").write_text(
+        "def helper() -> int:\n    return 2\n\ndef run_b() -> int:\n    return helper()\n",
+        encoding="utf-8",
+    )
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
+    engine.index_repo()
+
+    scalar = engine.tool_callers(symbol_name="helper", limit=20, auto_index=False)
+    batch = engine.tool_callers_batch(["helper", "helper"], limit=20, auto_index=False)["helper"]
+
+    assert batch["ambiguity"]["merged_target_count"] == scalar["ambiguity"]["merged_target_count"] == 2
+    assert {(item["name"], item["path"], item["line"]) for item in batch["related"]} == {
+        (item["name"], item["path"], item["line"]) for item in scalar["related"]
+    }
+    assert batch["target"]["path"] == scalar["target"]["path"]
+
+
 def test_tool_callees_resolves_indexed_targets_for_ambiguous_callee_name(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a_helpers.py").write_text("def helper() -> int:\n    return 1\n", encoding="utf-8")

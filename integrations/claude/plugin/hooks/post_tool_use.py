@@ -11,14 +11,12 @@ Fail-open: any error exits silently (code 0) — never blocks the agent.
 
 from __future__ import annotations
 
-import contextlib
 import datetime
 import difflib
 import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +25,12 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
+def _workspace_root() -> str:
+    return os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+
+
 def _session_state_path() -> Path:
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    workspace = _workspace_root()
     return Path(workspace).expanduser().resolve() / ".lemoncrow" / "workspace" / "session_state.json"
 
 
@@ -123,6 +125,66 @@ def _compute_diff(tool_name: str, tool_input: dict) -> tuple[str, str]:  # type:
 
 
 # ---------------------------------------------------------------------------
+# Provenance at authoring time
+# ---------------------------------------------------------------------------
+#
+# The four keys below turn "which agent wrote this diff" from a post-hoc score
+# into a recorded fact. They are written here, at the moment of the edit,
+# because nothing downstream can reconstruct them: HEAD moves, the model id is
+# never repeated after SessionStart, and the host is only knowable from inside
+# the host. Every one of them degrades to "" rather than to a guess.
+
+
+def _session_model(session_id: str, state: dict) -> str:  # type: ignore[type-arg]
+    """Model id for *session_id*, or ``""`` -- never a guess.
+
+    Claude's PostToolUse payload does not carry the model, so it is read from
+    the two places SessionStart already wrote it. ``session_state.json`` is
+    workspace-shared, so its model is trusted only while its ``session_id``
+    still matches ours; otherwise this window's own identity file is the
+    authority. Neither read is on a hot path the agent waits on twice: the
+    state dict is already in hand, and the window file is a single stat+read.
+    """
+    if str(state.get("session_id") or "").strip() == session_id:
+        model = str(state.get("model") or "").strip()
+        if model:
+            return model
+    try:
+        from lemoncrow.core.foundation.session_window import (
+            host_window_id,
+            window_file_path,
+            workspace_hash,
+        )
+
+        window = host_window_id()
+        if window is None:
+            return ""
+        path = window_file_path(_lemoncrow_root(), workspace_hash(_workspace_root()), window[0], window[1])
+        payload = json.loads(path.read_text("utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    if str(payload.get("session_id") or "").strip() != session_id:
+        return ""
+    return str(payload.get("model") or "").strip()
+
+
+def _at_head() -> str:
+    """The git HEAD sha this edit was made against, or ``""``.
+
+    Reuses the ledger's pure-filesystem resolver: no subprocess, so this costs
+    two small file reads on a hook that fires after every edit.
+    """
+    try:
+        from lemoncrow.infra.runtime.run_ledger import _resolve_git_anchor
+
+        return str(_resolve_git_anchor(_workspace_root()).get("head") or "")
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # RunLedger event writer
 # ---------------------------------------------------------------------------
 
@@ -133,56 +195,52 @@ _MAX_DIFF_CHARS = 4000
 
 
 def _append_file_edit_event(session_id: str, file_path: str, diff: str) -> None:
-    """Append a file_edit event to the session's run.json atomically."""
+    """Append a file_edit event without losing concurrent run.json writers."""
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
     except ImportError:
         return
     run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
-    if not run_file.exists():
-        return
 
     try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except (json.JSONDecodeError, OSError):
+        with RunFileLock(run_file):
+            if run_file.exists():
+                data = json.loads(run_file.read_text("utf-8"))
+                if not isinstance(data, dict):
+                    return
+            else:
+                data = {"session_id": session_id, "agent": "claude", "events": []}
+
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+            short_path = Path(file_path).name
+            if len(diff) > _MAX_DIFF_CHARS:
+                diff = diff[:_MAX_DIFF_CHARS] + f"\n...[diff truncated, {len(diff)} chars total]"
+            state = _read_session_state()
+            events.append(
+                {
+                    "kind": "file_edit",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": f"edited {short_path}",
+                    "payload": {
+                        "path": file_path,
+                        "diff": diff,
+                        "event": "PostToolUse",
+                        "session_id": session_id,
+                        "host": "claude",
+                        "model": _session_model(session_id, state),
+                        "at_head": _at_head(),
+                    },
+                }
+            )
+            touched = data.setdefault("files_touched", [])
+            if isinstance(touched, list) and file_path not in touched:
+                touched.append(file_path)
+            atomic_write_json(run_file, data)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
-
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-    short_path = Path(file_path).name
-    if len(diff) > _MAX_DIFF_CHARS:
-        diff = diff[:_MAX_DIFF_CHARS] + f"\n...[diff truncated, {len(diff)} chars total]"
-    events.append(
-        {
-            "kind": "file_edit",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": f"edited {short_path}",
-            "payload": {
-                "path": file_path,
-                "diff": diff,
-                "event": "PostToolUse",
-            },
-        }
-    )
-    data["events"] = events
-
-    # Atomic write via temp file + rename
-    tmp_path: str | None = None
-    try:
-        dir_ = run_file.parent
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=dir_,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
-    except (OSError, TypeError, ValueError):
-        if tmp_path:
-            with contextlib.suppress(OSError):
-                Path(tmp_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

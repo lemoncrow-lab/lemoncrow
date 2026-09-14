@@ -221,7 +221,7 @@ def _dormant() -> bool:
             or str(Path.home() / ".lemoncrow")
         )
         return bool(cap_exhausted(root))
-    except Exception:  # noqa: BLE001 — hooks must never crash; fail-open (active)
+    except Exception:
         return False
 
 
@@ -235,7 +235,7 @@ def main() -> int:
         result = decide(payload)
         if result is not None:
             print(json.dumps(result))
-    except Exception:  # noqa: BLE001  # fail-open: a hook must never crash the agent
+    except Exception:  # fail-open: a hook must never crash the agent
         return 0
     return 0
 

@@ -30,6 +30,10 @@ EXPECTED_TOOLS = {
     "index",
     "blame",
     "cache",
+    # Review authoring hooks are registered/callable but hidden from tools/list.
+    "review_rationale",
+    "review_evidence",
+    "review_feedback_addressed",
 }
 
 

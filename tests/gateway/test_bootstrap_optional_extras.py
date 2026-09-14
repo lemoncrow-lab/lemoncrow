@@ -451,6 +451,13 @@ def test_local_installer_removes_stale_managed_payload(tmp_path: Path) -> None:
     (current_skill / "SKILL.md").write_text("---\nname: benchmark\ndescription: current\n---\n", encoding="utf-8")
     (source / "scripts").mkdir()
     (source / "scripts" / "bundle.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    # install.sh --local refuses a bundle with no review frontend, so the
+    # fixture has to look like a real `make build` output. This test is about
+    # stale-payload cleanup, not about that guard.
+    review_assets = source / "frontend" / "assets"
+    review_assets.mkdir(parents=True)
+    (source / "frontend" / "index.html").write_text("<!doctype html>\n", encoding="utf-8")
+    (review_assets / "ReviewReader-deadbeef.js").write_text("export {};\n", encoding="utf-8")
 
     install_dir = tmp_path / "install"
     stale_skill = install_dir / "integrations" / "skills" / "design-review"

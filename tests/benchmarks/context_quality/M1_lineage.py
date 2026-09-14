@@ -172,7 +172,7 @@ def run_benchmark(repo_root: pathlib.Path | None = None) -> dict[str, Any]:
                 provenance_filter="commit",
             )
             correct = _grade_result(results, q.expected_sha, q.keywords)
-        except Exception:  # noqa: BLE001 — safety net: count as incorrect rather than crash benchmark
+        except Exception:
             correct = False
             results = []
         pass_count += int(correct)

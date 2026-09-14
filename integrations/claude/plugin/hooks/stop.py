@@ -106,65 +106,52 @@ def _sessions_root() -> Path:
 def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> None:
     """Append a session_stats note event to the active run file."""
     if not session_id:
-        # Fallback: read from workspace state (only when caller didn't supply it).
         state = _load_state()
         session_id = state.get("session_id") or state.get("active_session_id")
     if not session_id:
         return
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
         return
-    if not run_file.exists():
-        return
-    try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except Exception:
-        logger.exception("Failed to load run file in _write_token_event")
-        return
 
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-    events.append(
-        {
-            "kind": "note",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": (
-                f"session end — {stats['total_tokens']:,} tokens "
-                f"(+{stats['output_tokens']:,} out), "
-                f"~${stats['est_cost_usd']:.4f}"
-            ),
-            "payload": {
-                "input_tokens": stats["input_tokens"],
-                "output_tokens": stats["output_tokens"],
-                "total_tokens": stats["total_tokens"],
-                "est_cost_usd": stats["est_cost_usd"],
-                "tool_calls": stats["tool_calls"],
-                "top_tools": dict(sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]),
-                "event": "Stop",
-            },
-        }
-    )
-    data["events"] = events
-
-    tmp_path: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=run_file.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
+        with RunFileLock(run_file):
+            if not run_file.exists():
+                return
+            data = json.loads(run_file.read_text("utf-8"))
+            if not isinstance(data, dict):
+                return
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+            events.append(
+                {
+                    "kind": "note",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": (
+                        f"session end — {stats['total_tokens']:,} tokens "
+                        f"(+{stats['output_tokens']:,} out), "
+                        f"~${stats['est_cost_usd']:.4f}"
+                    ),
+                    "payload": {
+                        "input_tokens": stats["input_tokens"],
+                        "output_tokens": stats["output_tokens"],
+                        "total_tokens": stats["total_tokens"],
+                        "est_cost_usd": stats["est_cost_usd"],
+                        "tool_calls": stats["tool_calls"],
+                        "top_tools": dict(sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]),
+                        "event": "Stop",
+                    },
+                }
+            )
+            atomic_write_json(run_file, data)
     except Exception:
         logger.exception("Failed to write token event")
-        if tmp_path:
-            with contextlib.suppress(Exception):
-                Path(tmp_path).unlink(missing_ok=True)
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -431,66 +418,49 @@ def _write_session_enrichment(
     user_prompts: list[str],
     transcript_path: str,
 ) -> None:
-    """Append session_metadata note to the active run file.
-
-    Written by the Stop hook so the run file always contains the real session
-    title (first user message) and the full prompt history, regardless of what
-    the agent reported via ``record``.
-    """
+    """Append session metadata without losing concurrent run-file writers."""
     if not session_id:
         return
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
 
         run_file = session_dir(_sessions_root(), "claude", session_id) / "run.json"
     except ImportError:
         return
-    if not run_file.exists():
-        return
+
     try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except Exception:
-        logger.exception("Failed to load run file in _write_session_enrichment")
-        return
+        with RunFileLock(run_file):
+            if not run_file.exists():
+                return
+            data = json.loads(run_file.read_text("utf-8"))
+            if not isinstance(data, dict):
+                return
 
-    # Update top-level task with session_title when the agent left it blank
-    if session_title and not (data.get("task") or "").strip():
-        data["task"] = session_title
+            if session_title and not (data.get("task") or "").strip():
+                data["task"] = session_title
 
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-    events.append(
-        {
-            "kind": "note",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": f"session_title: {(session_title or '')[:80]}",
-            "payload": {
-                "session_title": session_title,
-                "transcript_path": transcript_path,
-                "user_prompts": user_prompts[:50],  # cap at 50 turns
-                "prompt_count": len(user_prompts),
-                "event": "SessionEnrichment",
-            },
-        }
-    )
-    data["events"] = events
-
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=run_file.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+            events.append(
+                {
+                    "kind": "note",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": f"session_title: {(session_title or '')[:80]}",
+                    "payload": {
+                        "session_title": session_title,
+                        "transcript_path": transcript_path,
+                        "user_prompts": user_prompts[:50],
+                        "prompt_count": len(user_prompts),
+                        "event": "SessionEnrichment",
+                    },
+                }
+            )
+            atomic_write_json(run_file, data)
     except Exception:
         logger.exception("Failed to write session enrichment")
-        if tmp_path:
-            with contextlib.suppress(Exception):
-                Path(tmp_path).unlink(missing_ok=True)
+        return
 
 
 def _load_session_aggregate(session_id: str) -> dict[str, Any]:

@@ -60,7 +60,7 @@ gap (both loaded by the IDE and by `cursor-agent`):
   **$0 saved** even though cost is correct.
 - **`stop`** → `stop.py`: refreshes attribution and logs a savings recap. Cursor's
   `stop` output supports only `followup_message`, so the recap is a diagnostic
-  breadcrumb — the user-facing savings surface is `lc savings` / `lc dashboard`.
+  breadcrumb — the user-facing surface is `lc usage` / `lc dashboard`.
 
 ### `cursor-agent` CLI approval
 
@@ -104,7 +104,8 @@ Every LemonCrow MCP tool call inside Cursor records a savings row
 (`sessions/<date>/cursor/<id>/savings.jsonl`), aggregated by:
 
 ```bash
-lc savings          # headline $ saved / tokens / calls avoided (all hosts)
+lc usage            # what was actually spent, by host / model / project
+lc usage optimize   # headline $ saved / tokens / calls avoided (all hosts)
 lc dashboard        # per-host breakdown, spend, 1D/7D/30D windows
 ```
 

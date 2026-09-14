@@ -117,7 +117,7 @@ def main() -> int:
         if not isinstance(payload, dict):
             return 0
         return _run(payload)
-    except Exception:  # noqa: BLE001 -- fail-open contract: never break the tool result
+    except Exception:
         return 0
 
 

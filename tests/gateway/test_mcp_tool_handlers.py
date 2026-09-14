@@ -31,10 +31,10 @@ from lemoncrow.infra.storage.factory import create_store, make_memory_store
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from tests.helpers import grant_oauth_pro, init_store_at
 
-# Single-primary retrieval surface: `explore` (ranked source + call-graph
-# relations + blast-radius in one call) + `read`, plus edit/bash/web_fetch.
-# `grep`, `relations`, `search`, `memory`, `sql`, `codemod` are registered but
-# hidden from agents (grep/relations stay callable as escape hatch / drill-in).
+# Review authoring hooks are registered/callable workflow tools, but hidden from
+# generic tools/list because they only make sense with exact host/session
+# provenance. `grep`, `relations`, `search`, `memory`, `sql`, `codemod` and the
+# review hooks remain callable as internal/power surfaces.
 EXPECTED_TOOLS = {
     "read",
     "edit",

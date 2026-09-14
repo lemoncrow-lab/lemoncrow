@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lemoncrow.core.environment import cache_disabled
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 
 logger = logging.getLogger(__name__)
@@ -313,10 +314,6 @@ def _cache_state_path(repo_root: Path) -> Path:
     return resolve_workspace_store_dir(workspace_root=repo_root) / "smart_state.json"
 
 
-def _cache_disabled() -> bool:
-    return str(os.environ.get("LEMONCROW_CACHE_DISABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _load_state(repo_root: Path) -> dict[str, Any]:
     state_path = _cache_state_path(repo_root)
     if not state_path.is_file():
@@ -485,7 +482,7 @@ def search_read(
     search_base = _resolve_search_base(path, workspace_root)
     search_target = str(search_base)
     cache_hit = False
-    if _cache_disabled():
+    if cache_disabled():
         grep_output = _run_grep(query, search_target)
     else:
         # Compute the fingerprint-based key lazily: it walks the tree, so it must

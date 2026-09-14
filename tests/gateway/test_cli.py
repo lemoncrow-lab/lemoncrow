@@ -263,6 +263,9 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
+    # `savings` is now a hidden back-compat alias (spec §5.1) -- installed
+    # statusline scripts still shell out to it, so this exercises the alias
+    # exactly as they do. The promoted spelling is `lc usage optimize`.
     res = _invoke(root, "savings", "--json")
 
     assert res.exit_code == 0, res.output

@@ -148,7 +148,7 @@ def extract_credited_paths(tool_name: str, result: Any) -> list[str]:
             out.extend(_iter_credited(result))
         elif tool_name == "explore":
             _collect_from_explore(result, out)
-    except Exception:  # noqa: BLE001 - total + defensive: never raise to the dispatcher
+    except Exception:
         return []
     # Distinct, preserve first-seen order.
     seen: set[str] = set()

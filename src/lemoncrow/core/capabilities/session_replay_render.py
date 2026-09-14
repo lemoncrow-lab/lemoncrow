@@ -137,7 +137,7 @@ def _dur(seconds: float) -> str:
         from lemoncrow.core.capabilities.savings_summary import fmt_duration
 
         return str(fmt_duration(float(seconds)))
-    except Exception:  # noqa: BLE001
+    except Exception:
         s = max(0.0, float(seconds))
         return f"{s:.0f}s" if s < 90 else f"{s / 60:.1f}m"
 

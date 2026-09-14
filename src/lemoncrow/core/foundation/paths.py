@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from collections.abc import MutableMapping
@@ -173,6 +174,29 @@ def host_workspace_root() -> Path | None:
         value = os.environ.get(var, "").strip()
         if value:
             return Path(value).expanduser().resolve()
+    return None
+
+
+def detect_git_root(search_path: Path) -> Path | None:
+    """Return the git repo root containing search_path, or None if not in a repo.
+
+    Walks upward for a ``.git`` entry (a directory in a normal clone, a file in a
+    worktree/submodule) rather than shelling out to ``git rev-parse``. Forking a
+    git subprocess from this fully-imported, multi-threaded process costs seconds
+    (page-table copy of a large parent), while the walk is a few ``stat`` calls
+    and needs no ``git`` binary.
+    """
+    try:
+        current = search_path.resolve()
+    except OSError:
+        return None
+    for candidate in (current, *current.parents):
+        git_entry = candidate / ".git"
+        # A worktree/submodule uses a `.git` *file* (a gitlink); a normal clone
+        # uses a `.git` *directory*, which always contains HEAD. Requiring HEAD
+        # matches `git rev-parse` and rejects stray/empty `.git` dirs.
+        if git_entry.is_file() or (git_entry.is_dir() and (git_entry / "HEAD").is_file()):
+            return candidate
     return None
 
 
@@ -453,6 +477,27 @@ def confine_to_root(candidate: str | Path, root: str | Path) -> Path:
     return resolved_candidate
 
 
+_SELF_IGNORE_CONTENT = "# LemonCrow runtime data — keep the directory, ignore its contents\n*\n"
+
+
+def ensure_dir_gitignore(directory: Path) -> list[str]:
+    """Make *directory* ignore its own contents, keeping the directory itself.
+
+    The one place the ``*``-inside-our-own-directory rule is written down.
+    Callers must only point this at a directory LemonCrow created: writing
+    ``*`` into a directory the user owns would silently untrack their work.
+
+    Idempotent: returns ``["*"]`` when it wrote, ``[]`` when the file was
+    already correct.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    gitignore_path = directory / ".gitignore"
+    if gitignore_path.exists() and gitignore_path.read_text("utf-8") == _SELF_IGNORE_CONTENT:
+        return []
+    gitignore_path.write_text(_SELF_IGNORE_CONTENT, encoding="utf-8")
+    return ["*"]
+
+
 def ensure_gitignore(project_root: Path) -> list[str]:
     """Create/update ``.lemoncrow/.gitignore`` to ignore everything inside ``.lemoncrow/``.
 
@@ -461,17 +506,45 @@ def ensure_gitignore(project_root: Path) -> list[str]:
     being committed.  Idempotent: returns a non-empty list on first run (entries
     added) and an empty list on subsequent runs (already correct).
     """
-    lemoncrow_dir = project_root / ".lemoncrow"
-    lemoncrow_dir.mkdir(parents=True, exist_ok=True)
-    gitignore_path = lemoncrow_dir / ".gitignore"
-    content = "# LemonCrow runtime data \u2014 keep the directory, ignore its contents\n*\n"
-    if gitignore_path.exists() and gitignore_path.read_text("utf-8") == content:
-        return []
-    gitignore_path.write_text(content, encoding="utf-8")
-    return ["*"]
+    return ensure_dir_gitignore(project_root / DEFAULT_STORE_DIRNAME)
 
 
 _ensure_gitignore = ensure_gitignore  # compat alias for internal use
+
+
+# ``.lemoncrow`` directories this process has already self-ignored. The courtesy
+# is one write per store per process, not one per resolve: a single command
+# resolves the store dir dozens of times (code index, four workspace sqlite
+# files, session state, embeddings, ...), and re-reading the file each time
+# would turn a path lookup into per-call I/O.
+_self_ignored_stores: set[str] = set()
+
+
+def _ensure_store_self_ignored(store_root: Path) -> None:
+    """Make ``<workspace>/.lemoncrow/`` ignore its own contents, once per process.
+
+    Everything beneath it is rebuildable runtime data that LemonCrow wrote:
+    the code index, ``workspace/*.sqlite``, session state, review artifacts.
+    None of it belongs in a user's commit, and ``?? .lemoncrow/`` appearing in
+    the ``git status`` of the repository being reviewed is the tool adding noise
+    to the very change it is reporting on.
+
+    It happens here, where every workspace artifact path is derived, rather than
+    at each of the several dozen writers, because "we write under here" and
+    "git ignores it" have to be one step: a rule each new writer must remember
+    is a rule that will be forgotten exactly once, in a user's repository.
+
+    Never raises: a read-only or otherwise unwritable checkout is a reason to
+    skip the courtesy, not to fail the command that asked for a path. The memo
+    is written first on purpose, so a failure is not retried on every resolve.
+    """
+
+    key = str(store_root)
+    if key in _self_ignored_stores:
+        return
+    _self_ignored_stores.add(key)
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        ensure_dir_gitignore(store_root)
 
 
 def resolve_workspace_store_dir(root: Path | str | None = None, workspace_root: Path | str | None = None) -> Path:
@@ -491,9 +564,17 @@ def resolve_workspace_store_dir(root: Path | str | None = None, workspace_root: 
     :func:`resolve_workspace_root`, using *root* as a legacy hint (may raise
     ``WorkspaceNotRegisteredError`` when cwd is outside any git repo or
     registered workspace).
+
+    Side effect, once per store per process: ``<workspace_root>/.lemoncrow/``
+    is created carrying a ``.gitignore`` that ignores its own contents (see
+    :func:`_ensure_store_self_ignored`). Resolving this path is the one moment
+    every writer of project-local runtime data has in common, so it is where
+    "LemonCrow wrote here" and "git does not see it" are kept inseparable.
     """
     ws = Path(workspace_root).expanduser().resolve() if workspace_root is not None else resolve_workspace_root(root)
-    return ws / DEFAULT_STORE_DIRNAME / "workspace"
+    store_root = ws / DEFAULT_STORE_DIRNAME
+    _ensure_store_self_ignored(store_root)
+    return store_root / "workspace"
 
 
 def resolve_store_root_for_workspace(workspace_root: Path | str | None = None) -> Path:
@@ -535,6 +616,7 @@ __all__ = [
     "WorkspaceNotRegisteredError",
     "confine_to_root",
     "default_store_root",
+    "detect_git_root",
     "detect_host",
     "find_session_dir",
     "flat_session_dir",

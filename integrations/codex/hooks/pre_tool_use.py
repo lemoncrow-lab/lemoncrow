@@ -23,7 +23,7 @@ def main() -> int:
         hook_output = output.get("hookSpecificOutput")
         if isinstance(hook_output, dict):
             sys.stdout.write(json.dumps({"hookSpecificOutput": hook_output}) + "\n")
-    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
+    except Exception:
         pass
     return 0
 

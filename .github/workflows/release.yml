@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  binary-build:
+    name: Build release archive (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-latest
+          - os: macos-15-intel
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Build release archive
+        run: LEMONCROW_ENABLE_MYPYC=1 bash scripts/build.sh
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.os }}
+          path: dist/lemoncrow-distribution-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [binary-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: binaries/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          cat <<EOF > RELEASE_NOTES.md
+          ## LemonCrow ${VERSION}
+
+          ### Installation
+
+          \`\`\`bash
+          curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+          \`\`\`
+
+          ### Assets
+          - \`install.sh\` — public installer script
+          - \`sessions.sh\` — session management utility
+          - \`lemoncrow-distribution-*.tar.gz\` — bundled production binaries for supported platforms
+          EOF
+
+      # This workflow runs directly on THIS (public) repo: scripts/mirror.py
+      # rewrites it from .github/public-workflows/release.yml (private repo)
+      # to .github/workflows/release.yml here. The full source tree (pro/
+      # included) is Apache-2.0 and fully mirrored, so the wheel built here
+      # from source is identical to one built in the private repo — no
+      # cross-repo publish needed, no PAT required.
+      #
+      # `make release` (private repo) pushes the release tag to this repo's
+      # mirrored SHA before this workflow's trigger can fire, so the tag
+      # already points at the right commit -- never delete/recreate it here.
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # Delete only a pre-existing Release object on retry -- never the
+          # tag, which is the mirrored commit that triggered this run.
+          gh release delete "${TAG}" -y || true
+
+          for f in binaries/*.tar.gz; do
+            shasum -a 256 "$f" | awk '{print $1}' > "${f}.sha256"
+          done
+
+          shopt -s nullglob
+          assets=(binaries/* scripts/install.sh scripts/sessions.sh)
+
+          if (( ${#assets[@]} == 0 )); then
+            echo "::error::No release assets were found."
+            exit 1
+          fi
+
+          gh release create "${TAG}" \
+            --latest \
+            --title "LemonCrow ${TAG}" \
+            --notes-file RELEASE_NOTES.md \
+            "${assets[@]}"
+
+  cleanup-old-releases:
+    name: Cleanup old releases
+    needs: [release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Delete old releases (keep latest 3)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASES=$(gh release list --limit 100 --json tagName,createdAt \
+            | jq -r 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
+
+          for tag in $RELEASES; do
+            echo "Deleting old release: $tag"
+            gh release delete "$tag" -y --cleanup-tag || gh release delete "$tag" -y
+          done

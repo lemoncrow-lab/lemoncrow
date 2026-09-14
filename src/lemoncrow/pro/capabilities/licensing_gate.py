@@ -70,7 +70,7 @@ def verify_cap_token(token: str, *, public_key_hex: str | None = None) -> dict[s
             return None
         payload = json.loads(payload_bytes)
         return payload if isinstance(payload, dict) else None
-    except Exception:  # noqa: BLE001 — any parse/crypto error = untrusted
+    except Exception:
         return None
 
 

@@ -441,6 +441,23 @@ def apply_minified_edit(
         if window is None:
             raise MinifiedEditError("old_string not found in minified view", code="no_match")
         index, end = window.start_offset, window.end_offset
+        # A fuzzy window may tolerate typos inside a line; it may not quietly
+        # swallow whole lines old_string never mentioned. Those lines are not
+        # in new_string either, so applying the replacement would DELETE them
+        # -- an edit that removes code the caller never asked to touch. Count
+        # non-blank lines: more in the span than in old_string means exactly
+        # that surplus. (`find_best_fuzzy_window` stopped reporting this shape
+        # as ambiguous in 819be11f6, which picks the best of overlapping
+        # windows instead of refusing; the safety check has to live here now.)
+        matched_lines = [line for line in result.content[index:end].splitlines() if line.strip()]
+        claimed_lines = [line for line in old_string.splitlines() if line.strip()]
+        if len(matched_lines) > len(claimed_lines):
+            raise MinifiedEditError(
+                f"fuzzy match spans {len(matched_lines)} lines but old_string accounts for "
+                f"{len(claimed_lines)}; applying it would delete the surplus",
+                code="ambiguous",
+                hint="Add surrounding lines to make the match unique.",
+            )
     else:
         if count > 1:
             raise MinifiedEditError(

@@ -227,7 +227,7 @@ def _ensure_commit_chunks(
                         _LINEAGE_INDEX_VERSION,
                     )
                 )
-            except Exception:  # noqa: BLE001 - benchmark bootstrap should skip malformed seed rows
+            except Exception:
                 continue
             if len(rows) == len(target_shas):
                 break

@@ -103,7 +103,7 @@ def heuristic_summary(text: str, *, path: str | Path | None = None, target_chars
             body = _summarize_log(text, target_chars)
         elif kind == "code":
             body = _summarize_code(text)
-    except Exception:  # noqa: BLE001 -- a format-specific extractor must never break :summary
+    except Exception:
         body = ""
     if not body.strip():
         body = _summarize_prose(text, target_chars)
@@ -123,7 +123,7 @@ def llm_summary_tier(text: str, *, target_chars: int = 4096) -> tuple[str, str] 
         from lemoncrow.infra.internal_llm import summarize as _internal_summarize
 
         llm_text = _internal_summarize(text, max_tokens=max(256, target_chars // 4)).strip()
-    except Exception:  # noqa: BLE001 -- LLM failure must never break a summary
+    except Exception:
         return None
     if not llm_text:
         return None

@@ -161,7 +161,7 @@ class _ProxyRegistry:
                 continue
             try:
                 tools = proc.list_tools()
-            except Exception as exc:  # noqa: BLE001 - never raise out of catalog()
+            except Exception as exc:
                 servers[name] = {"error": f"failed to list tools: {exc}"}
                 continue
             servers[name] = {"tools": [_slim_tool(t) for t in tools]}

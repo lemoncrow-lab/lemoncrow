@@ -193,6 +193,50 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .review import review_cmd
+
+        # `lc review` is a headline product surface — visible in --help.
+        cli.add_command(review_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .model import model_group
+
+        cli.add_command(model_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .context_doctor import context_group
+
+        cli.add_command(context_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .resume_context import resume_context_cmd
+
+        _h(resume_context_cmd)  # bounded continuation brief; promote once users pull it
+        cli.add_command(resume_context_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .savings import optimize_group as _optimize_group
+        from .savings import savings_cmd as _savings_cmd
+        from .usage import usage_group
+
+        # `lc usage` is the canonical accounting surface (plan 2026-09-07 §4.2).
+        usage_group.add_command(_optimize_group, name="optimize")
+        cli.add_command(usage_group)
+        # `savings` stays a permanent back-compat alias: installed statusline
+        # scripts shell out to `lc savings --segment` from outside this repo.
+        _h(_savings_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .update import update_cmd
 
         cli.add_command(update_cmd)
@@ -328,7 +372,7 @@ def register(cli: click.Group) -> None:
     try:
         from .run import run_group
 
-        _h(run_group)  # owned coding sessions — undocumented; hidden until launched
+        # `lc run explain` is user-facing; the unlaunched start/resume/report stay hidden in run.py.
         cli.add_command(run_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True

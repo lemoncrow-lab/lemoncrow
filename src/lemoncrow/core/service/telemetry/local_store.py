@@ -281,7 +281,7 @@ class LocalTelemetryStore:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=5000")
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass  # ignore if already set or fails
         return conn
 

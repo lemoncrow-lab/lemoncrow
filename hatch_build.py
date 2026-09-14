@@ -144,8 +144,6 @@ _SKIP_PATHS = {
     "lemoncrow/core/capabilities/workspace_host_overrides.py",
     "lemoncrow/core/domains/loader.py",
     "lemoncrow/core/domains/manager.py",
-    "lemoncrow/core/foundation/store.py",
-    "lemoncrow/core/foundation/watchdogs.py",
     "lemoncrow/core/service/telemetry/exporters/otel.py",
     "lemoncrow/gateway/cli/commands/project.py",
     "lemoncrow/gateway/openai_gateway/adapter.py",

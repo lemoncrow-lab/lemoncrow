@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Incremental, history-preserving git mirror: source branch → public repo.
 
-Includes only paths listed in release/public-paths.txt (allowlist) from every
+Includes only paths listed in scripts/public-paths.txt (allowlist) from every
 commit tree via git plumbing -- no squash, no wipe, real history preserved.
 
 State (two refs, pushed to `origin`/lemoncrow-dev so any checkout can pick them up):
@@ -27,7 +27,7 @@ Options:
 
 Allowlist changes need --resync:
   An incremental run applies only the paths each new commit *touched*, so
-  widening release/public-paths.txt (e.g. removing a deny) publishes nothing
+  widening scripts/public-paths.txt (e.g. removing a deny) publishes nothing
   for files that did not also change in that commit -- the public tree would
   silently keep only a fragment of the newly-allowed subtree. `--resync`
   rebuilds the full filtered tree at the source ref and commits the difference
@@ -45,7 +45,7 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-PUBLIC_PATHS_FILE = REPO_ROOT / "release" / "public-paths.txt"
+PUBLIC_PATHS_FILE = REPO_ROOT / "scripts" / "public-paths.txt"
 DEFAULT_SOURCE_REF = "HEAD"
 MIRROR_DEV_TAG = "refs/mirror/last"  # watermark: last mirrored source SHA
 MIRROR_PUB_TAG = "refs/mirror/last-pub"  # public SHA created by last run
@@ -612,7 +612,7 @@ def main() -> int:
             return 0
         meta = get_commit_metadata(dev_tip)
         meta["message"] = (
-            "mirror: resync public tree with release/public-paths.txt\n\n"
+            "mirror: resync public tree with scripts/public-paths.txt\n\n"
             "Publishes every path the allowlist now allows. Incremental mirroring\n"
             "only applies the paths each commit touched, so files that became\n"
             "public without changing were missing from the public tree.\n"

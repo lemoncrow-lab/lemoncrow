@@ -34,6 +34,7 @@ try:
 except ImportError:  # pragma: no cover - non-POSIX platforms
     fcntl = None  # type: ignore[assignment]
 
+from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.core.foundation.weakref_token import WeakRefToken
 from lemoncrow.core.service.telemetry import emit_product_local
@@ -190,7 +191,7 @@ def _is_implicit_tmp_index_blocked(repo_root: Path) -> bool:
     affected by this -- this only gates the *implicit* build a plain tool call
     (e.g. ``code_search``) would otherwise trigger on an unindexed /tmp dir.
     """
-    if os.environ.get("LEMONCROW_ALLOW_TMP_AUTOINDEX", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if bool_env("LEMONCROW_ALLOW_TMP_AUTOINDEX", False):
         return False
     try:
         resolved = repo_root.resolve()
@@ -1323,6 +1324,99 @@ def _sized_cache_kb(floor_kb: int) -> int:
     return max(floor_kb, min(budget_kb, _SQLITE_CACHE_CEILING_KB))
 
 
+# ── ANN resident-matrix RAM sizing ──────────────────────────────────────────
+# Semantic search keeps the whole symbol_vectors table resident as one
+# rows x dim float32 matrix when the repo is small enough, and streams it in
+# chunks when it isn't. Both sides of that switch used to be fixed constants
+# (2,000,000 rows / 50,000 rows-per-chunk) tuned on a 128GB machine: at
+# dim=1536 that is a ~7.5GB anonymous allocation for the resident matrix and
+# ~300MB (x _ANN_STREAM_PEAK_FACTOR) per streamed chunk, with nothing checking
+# whether the host can actually back it. Same repo, same index, on a 4-8GB
+# laptop: OOM. Both are now derived from _ram_budget_bytes() -- the same
+# available-RAM-minus-hard-reserve budget the SQLite cache sizing uses -- with
+# the old constants kept only as upper bounds, so a big machine behaves exactly
+# as before and a small one degrades to streaming instead of dying.
+_ANN_CACHE_ROW_CEILING = 2_000_000
+_ANN_CHUNK_ROWS_CEILING = 50_000
+# Never stream in slivers: below this the per-query round-trip count dominates.
+# 2k rows is ~12MB at dim=1536, affordable even on a heavily loaded small host.
+_ANN_CHUNK_ROWS_FLOOR = 2_000
+# Per-row cost beyond the float32 vector itself: the parallel `ids` list holds
+# one Python str per row (~90-120B including the object header and list slot).
+_ANN_ROW_OVERHEAD_BYTES = 120
+# The streaming path holds a chunk roughly three times over at its peak: the
+# sqlite3 fetchall() row list, the joined `buf` bytearray, and the bytes() copy
+# np.frombuffer reads from.
+_ANN_STREAM_PEAK_FACTOR = 3
+# Share of the RAM budget the ANN matrix may claim. Not the whole budget:
+# _sized_cache_kb() sizes SQLite's page cache against the same figure, and two
+# independent consumers each spending "the budget" is how the budget stops
+# meaning anything. Override via LEMONCROW_ANN_CACHE_RAM_FRACTION.
+
+
+def _ann_ram_fraction() -> float:
+    try:
+        frac = float(os.environ.get("LEMONCROW_ANN_CACHE_RAM_FRACTION", "") or "0.5")
+    except ValueError:
+        return 0.5
+    return frac if 0.0 < frac <= 1.0 else 0.5
+
+
+def _positive_int_env(name: str) -> int | None:
+    """Env var as a positive int, or None when unset/0/unparseable.
+
+    0 is deliberately "unset", not "zero": every one of these knobs defaults to
+    0 in the settings registry meaning "derive it", and a persisted 0 reaching
+    the resolvers as a literal ceiling would silently disable the very cache it
+    is meant to auto-size.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    return value if value > 0 else None
+
+
+def _ann_ram_budget_bytes() -> int:
+    """Bytes the ANN paths may spend. ``LEMONCROW_ANN_CACHE_MAX_MB`` pins it
+    outright; otherwise it is the ANN share of the shared RAM budget."""
+    max_mb = _positive_int_env("LEMONCROW_ANN_CACHE_MAX_MB")
+    if max_mb is not None:
+        return max_mb * 1024 * 1024
+    return max(0, int(_ram_budget_bytes() * _ann_ram_fraction()))
+
+
+def _resolve_ann_cache_limit(embedding_dim: int) -> int:
+    """Vector count at/below which the full matrix is cached resident.
+
+    A positive ``LEMONCROW_ANN_CACHE_LIMIT`` still pins an exact row count in
+    either direction (the documented escape hatch). Otherwise the count is
+    whatever the ANN RAM budget actually affords at this embedding dim, capped
+    at the historical ceiling. A host with nothing to spare resolves to 0, i.e.
+    always stream -- slower per query but bounded, and a bounded slow query
+    beats an OOM kill.
+    """
+    override = _positive_int_env("LEMONCROW_ANN_CACHE_LIMIT")
+    if override is not None:
+        return override
+    if embedding_dim <= 0:
+        return 0
+    rows = _ann_ram_budget_bytes() // (embedding_dim * 4 + _ANN_ROW_OVERHEAD_BYTES)
+    return int(min(rows, _ANN_CACHE_ROW_CEILING))
+
+
+def _resolve_ann_chunk_rows(embedding_dim: int) -> int:
+    """Rows per chunk in the streaming path, sized so peak RAM stays inside the
+    ANN budget (see _ANN_STREAM_PEAK_FACTOR), floored so a tiny budget doesn't
+    turn one query into thousands of round-trips."""
+    if embedding_dim <= 0:
+        return _ANN_CHUNK_ROWS_CEILING
+    per_row = (embedding_dim * 4 + _ANN_ROW_OVERHEAD_BYTES) * _ANN_STREAM_PEAK_FACTOR
+    rows = _ann_ram_budget_bytes() // per_row
+    return int(max(_ANN_CHUNK_ROWS_FLOOR, min(rows, _ANN_CHUNK_ROWS_CEILING)))
+
+
+_SEARCH_CONN_LOCAL = threading.local()
 _SEARCH_CONN_LOCAL = threading.local()
 
 
@@ -6686,10 +6780,7 @@ class CodeContextEngine:
         # parts + symbol names. Surfaces files whose paths/symbols match query terms
         # (e.g. 'timezone.py' for a timezone query) with zero latency and no API calls.
         # Only fires when LEMONCROW_RERANK=1 and there are enough candidates to reorder.
-        if (
-            str(os.environ.get("LEMONCROW_RERANK") or "").strip().lower() in {"1", "true", "yes", "on"}
-            and len(selected_files) > 3
-        ):
+        if bool_env("LEMONCROW_RERANK", False) and len(selected_files) > 3:
             _stop = {"the", "a", "an", "in", "of", "to", "for", "is", "it", "on", "at", "fix", "bug", "issue"}
             _qwords = frozenset(re.split(r"[\s\W]+", query.lower())) - _stop - {""}
             # Build symbol-name lookup for each file from already-ranked symbols
@@ -7200,6 +7291,153 @@ class CodeContextEngine:
             budget_tokens=budget_tokens,
             auto_index=auto_index,
         )
+
+    def tool_callers_batch(
+        self,
+        symbol_names: list[str],
+        *,
+        limit: int = 20,
+        auto_index: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        """Depth-1 caller payloads for exact bare names in a few SQL passes.
+
+        This is the batch counterpart to ``tool_callers(symbol_name=..., depth=1)``
+        used by consumers that must qualify many already-known symbol names (the
+        review impact pass is the first one). It deliberately accepts only exact
+        bare names: there is no fuzzy fallback in a batch, because silently
+        resolving a changed symbol to a similarly named definition would be worse
+        than falling back to the ordinary single-name tool call.
+
+        The local call graph itself is keyed by bare callee name, just like
+        :meth:`_find_callers_local`, so same-named definitions are intentionally
+        represented by an ``ambiguity`` block and one merged caller set. Callers
+        are still capped per name by *limit* and returned through the same compact
+        field-name projection as ``tool_callers``.
+        """
+
+        names = list(dict.fromkeys(name for name in symbol_names if name))
+        if not names:
+            return {}
+        bounded_limit = max(1, limit)
+        if auto_index:
+            self._ensure_indexed()
+        self._sync_symbol_intel()
+
+        placeholders = ",".join("?" for _ in names)
+        target_rows: dict[str, list[sqlite3.Row]] = {name: [] for name in names}
+        caller_rows: dict[str, list[sqlite3.Row]] = {name: [] for name in names}
+        with self._connect() as conn:
+            self._init_schema(conn)
+            rows = conn.execute(
+                f"SELECT * FROM symbols WHERE repo_id = ? AND symbol_name IN ({placeholders}) "
+                "ORDER BY symbol_name, file_path, start_line, end_line, qualified_name, symbol_id",
+                (self.repo_id, *names),
+            ).fetchall()
+            for row in rows:
+                name = str(row["symbol_name"])
+                # ``_symbol_lookup_matches`` asks search_symbols(limit=20), so
+                # retain the same ambiguity ceiling rather than making the batch
+                # path claim knowledge the scalar path never considered.
+                if len(target_rows[name]) < 20:
+                    target_rows[name].append(row)
+
+            edge_rows = conn.execute(
+                f"""
+                SELECT DISTINCT
+                       e.callee_short_name,
+                       e.caller_symbol_name,
+                       e.caller_qualified_name,
+                       e.caller_file_path,
+                       e.caller_start_line,
+                       e.caller_end_line,
+                       s.symbol_id AS hydrated_symbol_id,
+                       s.qualified_name AS hydrated_qualified_name,
+                       s.kind AS hydrated_kind,
+                       s.end_line AS hydrated_end_line
+                FROM call_edges AS e
+                LEFT JOIN symbols AS s
+                  ON s.repo_id = e.repo_id
+                 AND s.file_path = e.caller_file_path
+                 AND s.start_line = e.caller_start_line
+                 AND s.symbol_name = e.caller_symbol_name
+                WHERE e.repo_id = ? AND e.callee_short_name IN ({placeholders})
+                ORDER BY e.callee_short_name, e.caller_file_path, e.caller_start_line,
+                         e.caller_qualified_name
+                """,
+                (self.repo_id, *names),
+            ).fetchall()
+            # Keep one extra unique row per name to preserve truncation metadata.
+            for row in edge_rows:
+                name = str(row["callee_short_name"])
+                if name in caller_rows and len(caller_rows[name]) <= bounded_limit:
+                    caller_rows[name].append(row)
+
+        payloads: dict[str, dict[str, Any]] = {}
+        for name in names:
+            rows = target_rows.get(name) or []
+            if not rows:
+                continue
+            targets: list[dict[str, Any]] = []
+            for row in rows:
+                symbol = _row_to_symbol(dict(row))
+                targets.append({**symbol.model_dump(mode="json"), "provenance": _LOCAL_PROVENANCE})
+            nodes_by_id: dict[str, CallGraphNode] = {}
+            for row in caller_rows.get(name, ()):
+                cf = str(row["caller_file_path"])
+                cs = int(row["caller_start_line"])
+                cn = str(row["caller_symbol_name"])
+                cq = str(row["caller_qualified_name"])
+                hydrated_id = row["hydrated_symbol_id"]
+                if hydrated_id is not None:
+                    node = CallGraphNode(
+                        symbol_id=str(hydrated_id),
+                        symbol_name=cn,
+                        qualified_name=str(row["hydrated_qualified_name"] or cq),
+                        file_path=cf,
+                        kind=str(row["hydrated_kind"] or "function"),
+                        start_line=cs,
+                        end_line=int(row["hydrated_end_line"] or row["caller_end_line"]),
+                        provenance="local_index",
+                    )
+                else:
+                    synthetic_id = "local-call::" + hashlib.sha1(f"{cf}:{cs}:{cq}".encode()).hexdigest()[:16]
+                    node = CallGraphNode(
+                        symbol_id=synthetic_id,
+                        symbol_name=cn,
+                        qualified_name=cq,
+                        file_path=cf,
+                        kind="function",
+                        start_line=cs,
+                        end_line=int(row["caller_end_line"]),
+                        provenance="local_index",
+                    )
+                nodes_by_id.setdefault(node.symbol_id, node)
+
+            all_nodes = sorted(nodes_by_id.values(), key=lambda item: (item.file_path, item.start_line, item.symbol_id))
+            truncated = len(all_nodes) > bounded_limit
+            nodes = all_nodes[:bounded_limit]
+            target_ids = [str(target["symbol_id"]) for target in targets]
+            edges = [
+                CallGraphEdge(caller_symbol_id=node.symbol_id, callee_symbol_id=target_id, depth=1)
+                for target_id in target_ids
+                for node in nodes
+                if node.symbol_id != target_id
+            ]
+            traversal = CallGraphTraversalResult(
+                nodes=nodes,
+                edges=edges,
+                truncated=truncated,
+                data_status="available" if edges else "empty",
+                message=None if edges else "no related call edges were found",
+                snapshot=None,
+            )
+            payload = build_call_graph_payload(targets[0], direction="callers", depth=1, result=traversal)
+            ambiguity = self._ambiguity_metadata(operation_name="callers", targets=targets)
+            if ambiguity is not None:
+                payload["ambiguity"] = ambiguity
+            payload["provenance"] = str(targets[0].get("provenance") or _LOCAL_PROVENANCE)
+            payloads[name] = apply_field_name_shortening(payload)
+        return payloads
 
     def tool_callees(
         self,
@@ -8737,35 +8975,37 @@ class CodeContextEngine:
         (~100x faster than json.loads: 2s vs 218s for linux's 1.24M vectors) and
         the matmul itself is memory-bandwidth-bound (~141ms at linux scale).
 
-        Small repos (≤ _ANN_CACHE_LIMIT vectors): load once, cache as a numpy
+        Small repos (≤ the resident-matrix limit): load once, cache as a numpy
         matrix, rank with a single ``matrix @ query_vec`` product (<10ms warm).
 
-        Large repos (> _ANN_CACHE_LIMIT): stream in _ANN_CHUNK_SIZE rows at a
-        time, frombuffer each chunk, keep a rolling top-K heap -- peak RAM ≈ one
-        chunk (~300 MB at dim=1536, chunk=50k) instead of the full matrix (7.5 GB
-        for linux). No matrix cache in this path.
+        Large repos (over it): stream a chunk of rows at a time, frombuffer each
+        chunk, keep a rolling top-K heap -- peak RAM ≈ one chunk instead of the
+        full matrix (7.5 GB for linux). No matrix cache in this path.
+
+        Both the limit and the chunk size are sized to the host's spare RAM (see
+        _resolve_ann_cache_limit / _resolve_ann_chunk_rows), so the same repo
+        that keeps a 7.5GB matrix resident on a workstation streams it in small
+        bounded chunks on a laptop instead of OOM-ing it.
 
         N5 (model-id/dim drift) and N16 (index_version staleness) are enforced
         in both paths via the embedder_name + embedding_dim filters.
         """
-        # Rows below this threshold are loaded into a cached matrix (fast repeat
-        # queries, ~2s one-time load then a single in-memory matmul per query);
-        # above it, chunked streaming re-reads the whole table from disk on
-        # EVERY query instead -- the dominant cost at linux scale (~20-30s/query,
-        # ~25 chunked disk reads of a 1.24M-row table per query, even though the
-        # matmul itself is only ~1.9 GFLOPs / tens of ms once resident). 200k was
-        # conservative for memory-constrained hosts (a full matrix is
-        # rows*dim*4 bytes, ~7.5GB for linux's 1.24M*1536); raised to 2M so a
-        # single ~7.5GB resident matrix (trivial on a machine with double-digit+
-        # GB RAM) beats 25 disk round-trips per query. Overridable down for truly
-        # memory-constrained hosts.
-        _ANN_CACHE_LIMIT = int(os.environ.get("LEMONCROW_ANN_CACHE_LIMIT", "2000000"))
-        _ANN_CHUNK_SIZE = 50_000  # rows/chunk ≈ 300 MB peak at dim=1536
-
         embedder = self._semantic_ranker.embedder
         embedding_dim = embedder.dim
         if embedding_dim <= 0:
             return []
+        # Rows at/below this threshold are loaded into a cached matrix (fast
+        # repeat queries, ~2s one-time load then a single in-memory matmul per
+        # query); above it, chunked streaming re-reads the whole table from disk
+        # on EVERY query instead -- the dominant cost at linux scale
+        # (~20-30s/query, ~25 chunked disk reads of a 1.24M-row table per query,
+        # even though the matmul itself is only ~1.9 GFLOPs / tens of ms once
+        # resident). So cache as much as the machine can actually back, and no
+        # more: the resident matrix is rows*dim*4 bytes of anonymous memory
+        # (~7.5GB for linux's 1.24M*1536), which a big host should absolutely
+        # spend and a small one must not.
+        _ANN_CACHE_LIMIT = _resolve_ann_cache_limit(embedding_dim)
+        _ANN_CHUNK_SIZE = _resolve_ann_chunk_rows(embedding_dim)
         query_vector = self._semantic_ranker.embed_query(query)
         if not query_vector:
             return []
@@ -8787,7 +9027,7 @@ class CodeContextEngine:
         # uncompressed cosine distances while this path is newly wired in.
         # Returns None (falls through to the numpy path below) when the
         # extension, index, or scan is unavailable for any reason.
-        if os.environ.get("LEMONCROW_DISABLE_SQLITE_VECTOR", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        if not bool_env("LEMONCROW_DISABLE_SQLITE_VECTOR", False):
             sqlite_vec_result = self._search_symbols_sqlite_vector(
                 query_vector,
                 embedder_name=embedder.name,
@@ -8826,9 +9066,10 @@ class CodeContextEngine:
                 # ── large-repo chunked path (bounded RAM, exact) ──────────────
                 # Stream _ANN_CHUNK_SIZE rows at a time; each chunk's packed blobs
                 # reconstruct with one np.frombuffer (no json.loads, no per-row
-                # Python lists), so peak RAM ≈ one chunk (~300 MB at dim=1536)
-                # instead of the full matrix (7.5 GB for linux). A rolling
-                # min-heap keeps the top-window without a full-corpus sort.
+                # Python lists), so peak RAM ≈ one chunk (~300 MB at dim=1536 on
+                # a host with room for the full 50k chunk, proportionally less
+                # on one without) instead of the full matrix (7.5 GB for linux).
+                # A rolling min-heap keeps the top-window without a full-corpus sort.
                 import heapq
 
                 _bytes_per_vec = embedding_dim * 4
@@ -8986,7 +9227,7 @@ class CodeContextEngine:
         # resident when this returns without re-warming.
         if cached is not None:
             self._ann_vectors_cache = None
-        cap = int(os.environ.get("LEMONCROW_ANN_CACHE_LIMIT", "2000000"))
+        cap = _resolve_ann_cache_limit(dim)
         with self._connect() as conn:
             self._init_schema(conn)
             try:
@@ -10778,16 +11019,18 @@ class CodeContextEngine:
             # Keep the in-memory vector matrix across tool calls when it is small
             # enough: re-reading + unpacking the blob store is NOT cheap (317 ms
             # for a 42k-vector repo, seconds at linux scale), so dropping it made
-            # every interactive semantic query pay a full reload. Retain up to
-            # LEMONCROW_ANN_CACHE_MAX_MB (default 512) of matrix so the common
-            # single-repo session stays warm; drop anything larger so a giant
-            # corpus never pins RAM (those use the chunked path anyway). The
+            # every interactive semantic query pay a full reload. Retain up to the
+            # ANN RAM budget so the common single-repo session stays warm; drop
+            # anything larger so a giant corpus never pins RAM (those use the
+            # chunked path anyway). The ceiling comes from _ann_ram_budget_bytes()
+            # rather than a literal read of LEMONCROW_ANN_CACHE_MAX_MB because 0
+            # means "derive it from RAM" for that knob -- read literally it is a
+            # 0-byte cap that evicts the matrix after every single tool call. The
             # cache key carries index_version, so a reindex still invalidates it.
             _cache = self._ann_vectors_cache
             if _cache is not None:
                 _mtx = _cache[2]
-                _cap_mb = int(os.environ.get("LEMONCROW_ANN_CACHE_MAX_MB", "512"))
-                if getattr(_mtx, "nbytes", 0) > _cap_mb * 1024 * 1024:
+                if getattr(_mtx, "nbytes", 0) > _ann_ram_budget_bytes():
                     self._ann_vectors_cache = None
             with contextlib.suppress(Exception):
                 conn.commit()
@@ -11159,7 +11402,7 @@ class CodeContextEngine:
         """Kick off a background pre-warm of the semantic ANN matrix cache.
 
         ``_search_symbols_semantic_ann``'s small-repo fast path (vector count at
-        or below ``_ANN_CACHE_LIMIT``, which covers even linux's 1.24M) loads the
+        or below the RAM-derived resident-matrix limit) loads the
         whole vectors table into an in-memory matrix and caches it in
         ``self._ann_vectors_cache`` on first use. That load is real cost -- tens
         of seconds at linux scale, confirmed dominated by materializing ~1.24M
@@ -11190,7 +11433,7 @@ class CodeContextEngine:
                 cached = self._ann_vectors_cache
                 if cached is not None and cached[0] == cache_key:
                     return
-                ann_cache_limit = int(os.environ.get("LEMONCROW_ANN_CACHE_LIMIT", "2000000"))
+                ann_cache_limit = _resolve_ann_cache_limit(embedding_dim)
                 with self._connect() as conn:
                     self._init_schema(conn)
                     vec_count: int = conn.execute(
@@ -11278,67 +11521,6 @@ class CodeContextEngine:
             raise ValueError(f"path escape denied: {value}") from exc
         return resolved
 
-    def _extract_python_symbols(self, source: str) -> list[_ExtractedSymbol]:
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return []
-        offsets = _line_offsets(source)
-        lines = source.splitlines()
-        symbols: list[_ExtractedSymbol] = []
-
-        def line_text(line_no: int) -> str:
-            if 1 <= line_no <= len(lines):
-                return lines[line_no - 1].strip()
-            return ""
-
-        def add_node(node: ast.AST, name: str, kind: str, parent: str | None) -> None:
-            start_line = int(getattr(node, "lineno", 1))
-            end_line = int(getattr(node, "end_lineno", start_line))
-            col = int(getattr(node, "col_offset", 0))
-            end_col = int(getattr(node, "end_col_offset", 0))
-            start_byte = offsets[max(0, start_line - 1)] + col
-            end_byte = offsets[max(0, end_line - 1)] + end_col if end_col else offsets[min(end_line, len(offsets) - 1)]
-            qualified = f"{parent}.{name}" if parent else name
-            doc = (
-                ast.get_docstring(node)
-                if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
-                else None
-            )
-            symbols.append(
-                _ExtractedSymbol(
-                    name=name,
-                    qualified_name=qualified,
-                    kind=kind,
-                    signature=line_text(start_line),
-                    start_byte=start_byte,
-                    end_byte=max(start_byte, end_byte),
-                    start_line=start_line,
-                    end_line=end_line,
-                    parent_symbol=parent,
-                    doc_summary=(stripped.splitlines()[0][:200] if doc and (stripped := doc.strip()) else None),
-                )
-            )
-
-        def walk_body(body: list[ast.stmt], parent: str | None = None) -> None:
-            for node in body:
-                if isinstance(node, ast.ClassDef):
-                    add_node(node, node.name, "class", parent)
-                    walk_body(node.body, node.name if parent is None else f"{parent}.{node.name}")
-                elif isinstance(node, ast.AsyncFunctionDef):
-                    add_node(node, node.name, "method" if parent else "async_function", parent)
-                elif isinstance(node, ast.FunctionDef):
-                    add_node(node, node.name, "method" if parent else "function", parent)
-                elif parent is None and isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            add_node(node, target.id, "variable", None)
-                elif parent is None and isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                    add_node(node, node.target.id, "variable", None)
-
-        walk_body(tree.body)
-        return sorted(symbols, key=lambda item: (item.start_line, item.qualified_name))
-
     @staticmethod
     def _python_call_name(node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
@@ -11349,112 +11531,6 @@ class CodeContextEngine:
         if isinstance(node, ast.Call):
             return CodeContextEngine._python_call_name(node.func)
         return None
-
-    def _extract_tag_symbols(self, path: Path, source: str, language: str) -> list[_ExtractedSymbol]:
-        del language
-        try:
-            tags = [tag for tag in extract_tags(path) if tag.kind == "definition"]
-        except (OSError, SyntaxError):
-            return []
-        offsets = _line_offsets(source)
-        lines = source.splitlines()
-        sorted_tags = sorted(tags, key=lambda tag: (tag.line, tag.name))
-        symbols: list[_ExtractedSymbol] = []
-        for index, tag in enumerate(sorted_tags):
-            start_line = max(1, tag.line)
-            next_line = sorted_tags[index + 1].line - 1 if index + 1 < len(sorted_tags) else start_line
-            end_line = max(start_line, min(next_line, len(lines)))
-            start_byte = offsets[start_line - 1] if start_line - 1 < len(offsets) else tag.byte_range[0]
-            end_byte = offsets[end_line] if end_line < len(offsets) else tag.byte_range[1]
-            signature = lines[start_line - 1].strip() if start_line <= len(lines) else tag.name
-            symbols.append(
-                _ExtractedSymbol(
-                    name=tag.name,
-                    qualified_name=tag.name,
-                    kind=self._kind_from_signature(signature),
-                    signature=signature,
-                    start_byte=start_byte,
-                    end_byte=max(start_byte, end_byte),
-                    start_line=start_line,
-                    end_line=end_line,
-                )
-            )
-        return symbols
-
-    def _python_imports(self, path: Path, source: str) -> list[tuple[str, str | None]]:
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return []
-        imports: list[tuple[str, str | None]] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    imports.append((alias.name, self._resolve_python_module(path.parent, alias.name)))
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imports.append((node.module, self._resolve_python_module(path.parent, node.module)))
-        return imports
-
-    def _javascript_imports(self, path: Path, source: str) -> list[tuple[str, str | None]]:
-        imports: list[tuple[str, str | None]] = []
-        for match in _JS_IMPORT_RE.finditer(source):
-            raw = next(group for group in match.groups() if group)
-            target = None
-            if raw.startswith("."):
-                target = self._resolve_relative_module(path.parent, raw, [".ts", ".tsx", ".js", ".jsx"])
-            imports.append((raw, target))
-        return imports
-
-    def _resolve_python_module(self, base: Path, module: str) -> str | None:
-        parts = module.split(".")
-        search_bases: list[Path] = []
-        for candidate in [base, *base.parents, self.repo_root, self.repo_root / "src"]:
-            resolved = candidate.resolve()
-            if resolved not in search_bases:
-                search_bases.append(resolved)
-        for search_base in search_bases:
-            candidate = search_base / Path(*parts).with_suffix(".py")
-            if candidate.is_file():
-                return _safe_relpath(self.repo_root, candidate)
-            package = search_base / Path(*parts) / "__init__.py"
-            if package.is_file():
-                return _safe_relpath(self.repo_root, package)
-            # src-layout imports often omit the top-level src directory while
-            # file-local parent probing starts below it. Also handle package-root
-            # candidates such as lemoncrow.core.foo -> src/lemoncrow/core/foo.py.
-            src_candidate = self.repo_root / "src" / Path(*parts).with_suffix(".py")
-            if src_candidate.is_file():
-                return _safe_relpath(self.repo_root, src_candidate)
-            src_package = self.repo_root / "src" / Path(*parts) / "__init__.py"
-            if src_package.is_file():
-                return _safe_relpath(self.repo_root, src_package)
-        return None
-
-    def _resolve_relative_module(self, base: Path, raw: str, suffixes: list[str]) -> str | None:
-        candidate_base = (base / raw).resolve()
-        candidates: list[Path] = []
-        if candidate_base.suffix:
-            candidates.append(candidate_base)
-        else:
-            candidates.extend(candidate_base.with_suffix(suffix) for suffix in suffixes)
-            candidates.extend(candidate_base / f"index{suffix}" for suffix in suffixes)
-            candidates.extend(candidate_base / f"mod{suffix}" for suffix in suffixes)
-        for candidate in candidates:
-            if candidate.is_file():
-                return _safe_relpath(self.repo_root, candidate)
-        return None
-
-    def _kind_from_signature(self, signature: str) -> str:
-        stripped = signature.lstrip()
-        if stripped.startswith("class "):
-            return "class"
-        if stripped.startswith(("interface ", "type ")):
-            return "type"
-        if stripped.startswith(("function ", "func ", "fn ")):
-            return "function"
-        if stripped.startswith(("struct ", "enum ", "trait ")):
-            return "class"
-        return "variable"
 
     def _symbols_for_files(self, file_paths: list[str], *, limit: int) -> list[SymbolRecord]:
         if not file_paths:

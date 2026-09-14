@@ -7,8 +7,6 @@ from typing import Any
 
 __all__ = [
     "BudgetPlan",
-    "CapabilityNode",
-    "CapabilityRegistry",
     "ContextBlock",
     "ContextCompressionCapability",
     "ContextReuseCapability",
@@ -56,8 +54,6 @@ def __getattr__(name: str) -> Any:
             "lemoncrow.pro.capabilities.proof_gate.capability",
             "ProofGateCapability",
         ),
-        "CapabilityNode": ("lemoncrow.core.capabilities.registry", "CapabilityNode"),
-        "CapabilityRegistry": ("lemoncrow.core.capabilities.registry", "CapabilityRegistry"),
         "SemanticFileMemoryCapability": (
             "lemoncrow.pro.capabilities.semantic_file_memory",
             "SemanticFileMemoryCapability",

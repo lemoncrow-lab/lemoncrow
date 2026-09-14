@@ -20,14 +20,15 @@ It never blocks or rolls back an edit, and fails open (returns ``None``) on any 
 
 from __future__ import annotations
 
+import io
 import re
-from collections.abc import Callable
+import tokenize
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lemoncrow.core.foundation.redaction import redact_tool_output
-
-_QUOTED_LITERAL_RE = re.compile(r"'((?:\\.|[^'\\])*)'|\"((?:\\.|[^\"\\])*)\"|`((?:\\.|[^`\\])*)`")
 
 # Decorators whose removal silently strips attributes/methods callers may use, with
 # no call-graph edge to surface the breakage. ``functools.lru_cache``/``cache`` add
@@ -69,6 +70,71 @@ _QUOTES = ("'", '"', "`")
 _DELIMITERS = frozenset("[]{}():,=")
 _MAX_FILE_BYTES = 1_000_000
 
+# Recorded when a blob could not be parsed, so no literal was extracted from it.
+# The name rides out of ``contract_literal_impact`` and into the review packet's
+# ``degraded`` list: an absent signal is honest, a guessed one is not.
+LITERAL_SCAN_UNPARSED = "contract_literal_unparsed"
+
+# Recorded when the batched ast-grep scan found more matches than one pass will
+# materialise. Same contract as the name above: a candidate missing from a capped
+# scan may be missing for a reason that has nothing to do with the code, so the
+# packet says "this pass was partial" instead of presenting it as exhaustive.
+LITERAL_SCAN_TRUNCATED = "contract_literal_scan_truncated"
+
+# The same claim, for the two detectors whose ast-grep pass shares that ceiling:
+# a candidate with no rows may be missing because the cap cut the scan short, not
+# because no site survives. Distinct names because a reviewer reading ``degraded``
+# is owed which pass went partial, not just that one did.
+SYMBOL_SCAN_TRUNCATED = "symbol_contract_scan_truncated"
+SIGNATURE_SCAN_TRUNCATED = "signature_change_scan_truncated"
+
+
+class DetectorSites(list[dict[str, Any]]):
+    """A detector's flat site list plus the names of anything partial about it.
+
+    ``symbol_contract_impact`` and ``signature_change_impact`` are consumed two
+    ways: the edit hook does ``sites.extend(detector(...))`` and wants a plain
+    list, while the review packet harvests a ``degraded`` channel so a capped or
+    fallen-back pass is never presented as an exhaustive one. Subclassing ``list``
+    serves both -- the first caller needs no change at all, and the second reads
+    ``.degraded`` -- where a mapping return would have silently turned the hook's
+    ``extend`` into a list of key strings.
+
+    Empty ``degraded`` is the normal case and means what it says: this pass looked
+    everywhere it claims to have looked.
+    """
+
+    def __init__(self, sites: Iterable[dict[str, Any]] = (), *, degraded: Sequence[str] = ()) -> None:
+        super().__init__(sites)
+        self.degraded: tuple[str, ...] = tuple(degraded)
+
+
+# Tree-sitter node kinds that are string literals but whose kind name does not
+# contain "string" (YAML quoted scalars, C-family chars, PHP/HTML attributes).
+_EXTRA_STRING_NODE_KINDS = frozenset(
+    {
+        "char_literal",
+        "character_literal",
+        "single_quote_scalar",
+        "double_quote_scalar",
+        "quoted_attribute_value",
+        "encapsed_string",
+    }
+)
+# Kind-name fragments that mark a string node as an interpolation template
+# (`${x}`, `#{x}`) rather than a literal. Its source text is not a value any
+# consumer can hold verbatim, so searching for it can only mislead.
+_INTERPOLATION_MARKERS = ("interpolation", "substitution")
+# Suffixes of tree-sitter kinds naming the *inside* of a string node; the walk
+# stops at the outermost string node, so these are belt-and-braces.
+_STRING_PART_SUFFIXES = ("_content", "_fragment")
+# Rich-edit target suffixes ("f.py:L3-L9", "f.py:full", "f.py:head=40"). Only the
+# file extension matters here, so they are stripped before language detection.
+_TARGET_SUFFIX_RE = re.compile(
+    r":(?:L?\d+(?:-L?\d*)?|full|minified|summary|outline|head=\d+|tail=\d+)(?:=(?:true|1))?$",
+    re.IGNORECASE,
+)
+
 # Edited-file extension -> ast-grep language name. ast-grep matches per language,
 # so detection covers the language(s) of the files actually edited.
 _EXT_TO_ASTGREP_LANG = {
@@ -101,20 +167,301 @@ if TYPE_CHECKING:
     from lemoncrow.core.capabilities.tool_supervision_contract import _TextSearcher
 
 
-def _quoted_literals(text: str) -> set[str]:
-    out: set[str] = set()
-    for match in _QUOTED_LITERAL_RE.finditer(text):
-        literal = next((group for group in match.groups() if group is not None), "")
-        # Escaped values can't be searched literally without language-specific
-        # decoding; one-character and very long prose strings are noisy.
-        if (
-            2 <= len(literal) <= 80
-            and "\\" not in literal
-            and "\n" not in literal
-            and literal.strip().lower() not in _NOISY_LITERALS
-        ):
-            out.add(literal)
+@dataclass(frozen=True)
+class _LiteralScan:
+    """The quoted literals a parser found in one blob -- or why it found none.
+
+    ``reason`` non-empty means the blob was never parsed, so ``literals`` is
+    *unknown*, not *empty*. The distinction is the whole point of this type: a
+    caller that treats an unparsed side's empty set as fact and subtracts it
+    reports every literal on the other side as removed, which is precisely the
+    fabrication this detector exists to avoid.
+    """
+
+    literals: frozenset[str] = frozenset()
+    # 1-based source line -> the literals whose token starts on it. Carried out
+    # of the same parse so rename detection never re-scans a line in isolation
+    # (a single line of a multi-line expression rarely parses on its own).
+    by_line: dict[int, frozenset[str]] = field(default_factory=dict)
+    reason: str = ""
+
+
+def _accept_literal(literal: str) -> bool:
+    """Keep only literals that can be searched for verbatim and mean something.
+
+    Escaped values can't be searched literally without language-specific
+    decoding; one-character and very long prose strings are noisy.
+    """
+    return (
+        2 <= len(literal) <= 80
+        and "\\" not in literal
+        and "\n" not in literal
+        and literal.strip().lower() not in _NOISY_LITERALS
+    )
+
+
+def _string_token_body(token: str) -> str | None:
+    """Inner *source* text of a Python string token, or ``None`` when unsearchable.
+
+    Source form, not decoded value: every downstream consumer (engine text search,
+    ast-grep pattern) matches file bytes, so handing them a decoded escape would
+    search for text that exists in no file. f-strings are dropped outright -- their
+    source is a template, and neither the template nor its fixed slices are a value
+    a parallel consumer can hold.
+    """
+    index = 0
+    while index < len(token) and token[index].isalpha():
+        index += 1
+    if "f" in token[:index].lower():
+        return None
+    rest = token[index:]
+    for quote in ('"""', "'''", '"', "'"):
+        if len(rest) >= 2 * len(quote) and rest.startswith(quote) and rest.endswith(quote):
+            return rest[len(quote) : -len(quote)]
+    return None
+
+
+def _python_literal_tokens(text: str) -> list[tuple[int, str]] | None:
+    """``(line, inner source)`` per Python string literal; ``None`` if untokenizable.
+
+    ``tokenize`` is the entire reason this is not a regex: it knows that a ``#``
+    inside a string opens no comment, that a quote inside a comment opens no
+    string, and that ``'daemon\\'s'`` is one token rather than the start of a
+    desynchronised scan that mis-slices every quote in the rest of the file.
+
+    Bare string statements -- docstrings -- are skipped. A string that *is* a
+    statement is prose: no consumer holds it, so its removal breaks no contract,
+    and reporting one as a "contract literal still used elsewhere" is noise
+    dressed as a finding.
+
+    Unless the blob is nothing *but* strings. Edit hooks hand over fragments, and
+    ``old_string='"passwd"'`` is a caller renaming that literal and nothing else --
+    the one case where a bare string statement is the subject of the edit rather
+    than documentation around it.
+    """
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except Exception:  # unparsable blob: report nothing, never guess
+        return None
+    # COMMENT/NL carry no literals and would break statement-boundary tracking.
+    coded = [tok for tok in tokens if tok.type not in (tokenize.COMMENT, tokenize.NL)]
+    breaks = (tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENCODING)
+    structural = (*breaks, tokenize.ENDMARKER)
+    out: list[tuple[int, str]] = []
+    bare: list[tuple[int, str]] = []
+    has_other_code = False
+    at_statement_start = True
+    for position, tok in enumerate(coded):
+        if tok.type in breaks or (tok.type == tokenize.OP and tok.string == ";"):
+            at_statement_start = True
+            continue
+        opened_statement = at_statement_start
+        at_statement_start = False
+        if tok.type != tokenize.STRING:
+            has_other_code = has_other_code or tok.type not in structural
+            continue
+        body = _string_token_body(tok.string)
+        if body is None:
+            continue
+        if opened_statement:
+            following = coded[position + 1] if position + 1 < len(coded) else None
+            ends_statement = (
+                following is None
+                or following.type in (tokenize.NEWLINE, tokenize.ENDMARKER)
+                or (following.type == tokenize.OP and following.string == ";")
+            )
+            if ends_statement:
+                bare.append((tok.start[0], body))  # docstring, pending the check below
+                continue
+        out.append((tok.start[0], body))
+    return out if has_other_code else out + bare
+
+
+def _is_string_node(kind: str) -> bool:
+    if kind in _EXTRA_STRING_NODE_KINDS:
+        return True
+    return "string" in kind and not kind.endswith(_STRING_PART_SUFFIXES)
+
+
+def _tree_sitter_string_body(node: Any, source: bytes) -> str | None:
+    """Inner source text of one tree-sitter string node, or ``None`` to skip it.
+
+    Skips anything whose delimiters this function cannot name with certainty --
+    interpolated templates, Rust-style ``r#".."#``, YAML plain scalars. Skipping
+    costs one candidate; guessing at the delimiters is how a scanner starts
+    inventing them.
+    """
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if any(marker in str(getattr(current, "type", "")) for marker in _INTERPOLATION_MARKERS):
+            return None
+        stack.extend(getattr(current, "children", ()) or ())
+    try:
+        raw = source[int(node.start_byte) : int(node.end_byte)].decode("utf-8")
+    except (UnicodeDecodeError, TypeError, ValueError):
+        return None
+    index = 0
+    while index < len(raw) and raw[index].isalpha():
+        index += 1
+    rest = raw[index:]
+    if len(rest) < 2 or rest[0] not in _QUOTES or rest[-1] != rest[0]:
+        return None
+    return rest[1:-1]
+
+
+def _tree_sitter_literal_tokens(text: str, language: str) -> list[tuple[int, str]] | None:
+    """``(line, inner source)`` per string node; ``None`` when the blob won't parse.
+
+    A grammar's string nodes are the non-Python equivalent of ``tokenize``: they
+    already exclude comments and already own their escapes. ``has_error`` is
+    treated as unparsed rather than partial, because a tree with an ERROR node is
+    exactly where the parser's own idea of "inside a string" went wrong -- and a
+    syntax error mid-edit is normal in a diff, not exceptional.
+    """
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import tree_sitter_parser
+
+    try:
+        parser = tree_sitter_parser(language)
+        if parser is None:
+            return None
+        source = text.encode("utf-8")
+        root = parser.parse(source).root_node
+    except Exception:  # grammar missing or wedged: report nothing
+        return None
+    if bool(getattr(root, "has_error", False)):
+        return None
+    out: list[tuple[int, str]] = []
+    stack: list[Any] = [root]
+    while stack:
+        node = stack.pop()
+        if _is_string_node(str(getattr(node, "type", ""))):
+            body = _tree_sitter_string_body(node, source)
+            if body is not None:
+                out.append((int(node.start_point[0]) + 1, body))
+            continue  # outermost string node only -- its children are its own parts
+        stack.extend(getattr(node, "children", ()) or ())
     return out
+
+
+def _blob_path(edit: Mapping[str, Any]) -> str:
+    """The file path an edit descriptor targets, stripped of range/symbol suffixes."""
+    raw = edit.get("path") or edit.get("file_path") or ""
+    if not isinstance(raw, str):
+        return ""
+    path = raw.split("#", 1)[0]
+    while True:
+        trimmed = _TARGET_SUFFIX_RE.sub("", path)
+        if trimmed == path:
+            return trimmed
+        path = trimmed
+
+
+def _blob_language(path: str) -> str | None:
+    """Parser language for an edited blob, or ``None`` when nothing can parse it.
+
+    A blob handed over without a path is a fragment from the edit hook, whose
+    supervised surface is Python; assuming Python there is safe because assuming
+    wrong costs a failed tokenize and a degraded reason, never a made-up literal.
+    """
+    if not path:
+        return "python"
+    from lemoncrow.infra.tree_sitter.tags import detect_language
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import supported_tree_sitter_languages
+
+    try:
+        language = detect_language(Path(path))
+    except Exception:  # unknown extension registry state: report nothing
+        return None
+    if language == "python":
+        return language
+    if language is not None and language in supported_tree_sitter_languages():
+        return language
+    return None
+
+
+def _scan_literals(text: str, path: str = "") -> _LiteralScan:
+    """Extract quoted literals from one blob with a real parser, or report failure.
+
+    There is no regex fallback on purpose. A regex has no notion of comments,
+    apostrophes or escapes, so one ``daemon's`` in a docstring desynchronises it
+    for the rest of the file and it starts emitting captured *code* fragments
+    (``' / session_id / '``) as contract literals. Those fabrications are rare by
+    construction, so the rarity gate downstream keeps them -- the most
+    credible-looking findings in the report are the invented ones. Emitting
+    nothing plus a degraded reason is the only honest failure mode.
+    """
+    language = _blob_language(path)
+    if language is None:
+        # Nothing here can parse this file. Only say a signal was lost if the
+        # blob has quotes at all -- a file with none had no literals to lose.
+        lost = any(quote in text for quote in _QUOTES)
+        return _LiteralScan(reason=LITERAL_SCAN_UNPARSED if lost else "")
+    found = _python_literal_tokens(text) if language == "python" else _tree_sitter_literal_tokens(text, language)
+    if found is None:
+        return _LiteralScan(reason=LITERAL_SCAN_UNPARSED)
+    literals: set[str] = set()
+    lines: dict[int, set[str]] = {}
+    for line, body in found:
+        if not _accept_literal(body):
+            continue
+        literals.add(body)
+        lines.setdefault(line, set()).add(body)
+    return _LiteralScan(
+        literals=frozenset(literals),
+        by_line={line: frozenset(values) for line, values in lines.items()},
+    )
+
+
+def _literal_replacements(edits: list[dict[str, Any]], *, limit: int) -> tuple[dict[str, str | None], bool]:
+    """``literal_replacements`` plus whether any edit's blob went unparsed.
+
+    An edit whose old *or* new side failed to parse is skipped entirely. Half a
+    comparison is worse than none: subtracting an unknown set from a known one
+    marks every literal on the known side as removed.
+    """
+    replacements: dict[str, str | None] = {}
+    unparsed = False
+    for edit in edits:
+        old = edit.get("old_string")
+        new = edit.get("new_string")
+        if not isinstance(old, str) or not isinstance(new, str):
+            continue
+        path = _blob_path(edit)
+        old_scan = _scan_literals(old, path)
+        new_scan = _scan_literals(new, path)
+        if old_scan.reason or new_scan.reason:
+            unparsed = True
+            continue
+        removed = old_scan.literals - new_scan.literals
+        added = new_scan.literals - old_scan.literals
+        for literal in removed:
+            replacements.setdefault(literal, None)
+        if not removed or not added:
+            continue
+        new_line_set = set(new.splitlines())
+        old_lines = old.splitlines()
+        sorted_added = sorted(added)
+        for line_no, on_line in sorted(old_scan.by_line.items()):
+            present = on_line & removed
+            if len(present) != 1 or not 1 <= line_no <= len(old_lines):
+                continue
+            literal = next(iter(present))
+            old_line = old_lines[line_no - 1]
+            for quote in _QUOTES:
+                token = f"{quote}{literal}{quote}"
+                if token not in old_line:
+                    continue
+                target = next(
+                    (r for r in sorted_added if old_line.replace(token, f"{quote}{r}{quote}") in new_line_set),
+                    None,
+                )
+                if target is not None:
+                    replacements[literal] = target
+                    break
+    # Prefer longer literals: more contract-specific, less noisy.
+    ordered = sorted(replacements, key=lambda value: (-len(value), value))[:limit]
+    return {literal: replacements[literal] for literal in ordered}, unparsed
 
 
 def literal_replacements(edits: list[dict[str, Any]], *, limit: int = 6) -> dict[str, str | None]:
@@ -132,40 +479,13 @@ def literal_replacements(edits: list[dict[str, Any]], *, limit: int = 6) -> dict
     unrelated lines and manufactures phantom renames. Requiring the literal to be
     genuinely absent from ``new`` likewise stops a still-present key (unchanged, merely
     shifted next to the churn) from ever being reported as removed or renamed.
+
+    Both sides are read by a parser (``tokenize`` for Python, the tree-sitter grammar
+    otherwise), so comments, apostrophes and escapes are the parser's problem rather
+    than a scanner's guess. A blob that will not parse contributes nothing; see
+    ``_scan_literals`` for why there is deliberately no regex fallback.
     """
-    replacements: dict[str, str | None] = {}
-    for edit in edits:
-        old = edit.get("old_string")
-        new = edit.get("new_string")
-        if not isinstance(old, str) or not isinstance(new, str):
-            continue
-        removed = _quoted_literals(old) - _quoted_literals(new)
-        added = _quoted_literals(new) - _quoted_literals(old)
-        for literal in removed:
-            replacements.setdefault(literal, None)
-        if not removed or not added:
-            continue
-        new_line_set = set(new.splitlines())
-        sorted_added = sorted(added)
-        for old_line in old.splitlines():
-            present = _quoted_literals(old_line) & removed
-            if len(present) != 1:
-                continue
-            literal = next(iter(present))
-            for quote in _QUOTES:
-                token = f"{quote}{literal}{quote}"
-                if token not in old_line:
-                    continue
-                target = next(
-                    (r for r in sorted_added if old_line.replace(token, f"{quote}{r}{quote}") in new_line_set),
-                    None,
-                )
-                if target is not None:
-                    replacements[literal] = target
-                    break
-    # Prefer longer literals: more contract-specific, less noisy.
-    ordered = sorted(replacements, key=lambda value: (-len(value), value))[:limit]
-    return {literal: replacements[literal] for literal in ordered}
+    return _literal_replacements(edits, limit=limit)[0]
 
 
 def removed_literals(edits: list[dict[str, Any]], *, limit: int = 6) -> list[str]:
@@ -222,7 +542,7 @@ def decorator_contract_impact(
             access = f"{name}.{attr}"
             try:
                 hits = engine.search_text(access, path=".", limit=20, ignore_case=False)
-            except Exception:  # noqa: BLE001 -- evidence-only; never break the edit
+            except Exception:
                 hits = []
             for hit in hits:
                 path = getattr(hit, "file_path", None)
@@ -318,6 +638,40 @@ def _line_lookup(repo_root: Path, cache: dict[str, list[str]], path: str, line: 
     return lines[line - 1].strip() if 1 <= line <= len(lines) else ""
 
 
+def _astgrep_repo_path(repo_root: Path, raw_path: str) -> str:
+    """Normalize ast-grep run/scan output to the detector's repo-relative contract."""
+
+    path = Path(raw_path)
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return raw_path
+
+
+# Ceiling on how many matches one batched ast-grep scan will materialise. Every
+# candidate is budgeted separately in the accumulation loop below, so this exists
+# only to bound the objects a pathological repo can build -- never to decide which
+# candidates are represented at all. When it does bind, the result says so.
+_ASTGREP_SCAN_MATCH_CEILING = 20_000
+
+
+@dataclass(frozen=True)
+class _AstGrepDetection:
+    """Per-candidate ast-grep sites, plus whether the scan itself was capped.
+
+    ``truncated`` is not cosmetic. It means ast-grep matched more than one pass
+    materialises, so a candidate with no rows may be absent because the cap cut
+    the output short rather than because the code has no such site. Carrying it
+    out is what lets the caller degrade instead of reporting a capped scan as an
+    exhaustive one.
+    """
+
+    by_literal: dict[str, list[tuple[str, int, str]]]
+    truncated: bool = False
+
+
 def _astgrep_detect(
     literals: list[str],
     repo_root: Path,
@@ -326,17 +680,110 @@ def _astgrep_detect(
     languages: list[str],
     limit: int,
     pattern_builder: Callable[[str], list[str]] = _astgrep_patterns,
-) -> dict[str, list[tuple[str, int, str]]] | None:
-    """Structural detection via ast-grep. ``None`` means it could not run (caller falls back).
+) -> _AstGrepDetection | None:
+    """Structural detection via ast-grep. ``None`` means it could not run.
 
-    ``pattern_builder`` maps a candidate to its ast-grep patterns -- quoted-literal
-    nodes by default; a symbol detector swaps in the bare identifier.
+    The normal path batches every candidate/language/pattern into one ast-grep
+    ``scan`` invocation. Large reviews used to spawn one process for every
+    combination (124 children on LemonCrow's 444-file dogfood range), making
+    process startup a double-digit-second part of review capture. If rule mode
+    rejects any generated pattern, fall back to the legacy per-pattern calls so
+    batching can never reduce detector coverage.
     """
     if not languages:
         return None
     try:
         from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
-    except Exception:  # noqa: BLE001
+    except Exception:
+        return None
+
+    adapter = AstGrepAdapter(repo_root)
+    line_cache: dict[str, list[str]] = {}
+    out: dict[str, list[tuple[str, int, str]]] = {literal: [] for literal in literals}
+    seen_by_literal: dict[str, set[tuple[str, int]]] = {literal: set() for literal in literals}
+
+    rules: list[dict[str, Any]] = []
+    literal_by_rule: dict[str, str] = {}
+    rule_index = 0
+    for literal in literals:
+        for language in languages:
+            for pattern in pattern_builder(literal):
+                rule_id = f"lc-impact-{rule_index}"
+                rule_index += 1
+                literal_by_rule[rule_id] = literal
+                rules.append(
+                    {
+                        "id": rule_id,
+                        "language": language,
+                        "severity": "info",
+                        "message": literal,
+                        "rule": {"pattern": pattern},
+                    }
+                )
+    if not rules:
+        return None
+
+    try:
+        result = adapter.scan(
+            rules=rules,
+            no_ignore=False,
+            # ``scan`` truncates with one global slice over file-ordered output,
+            # so an aggregate allowance is not a per-rule budget: a candidate that
+            # matches in hundreds of early files eats the whole slice and a rare
+            # candidate whose one file sorts late gets zero rows -- reported to the
+            # reviewer as "no remaining sites". Materialise far past what the
+            # per-candidate budgets below can spend and let those budgets, not
+            # file order, decide what each candidate keeps.
+            limit=_ASTGREP_SCAN_MATCH_CEILING,
+        )
+    except AstGrepToolUnavailable:
+        return None
+    except Exception:
+        return _astgrep_detect_unbatched(
+            literals,
+            repo_root,
+            touched,
+            languages=languages,
+            limit=limit,
+            pattern_builder=pattern_builder,
+        )
+
+    for match in result.matches:
+        matched_literal = literal_by_rule.get(match.rule_id)
+        if matched_literal is None:
+            continue
+        path = _astgrep_repo_path(repo_root, match.file_path)
+        if not path or path in touched:
+            continue
+        # Each candidate gets its own ``limit``, counted after the ``touched``
+        # filter: an in-patch hit is never evidence, so it must not spend the
+        # budget that decides whether an out-of-patch consumer is reported.
+        if len(out[matched_literal]) >= limit:
+            continue
+        line = match.line + 1  # ast-grep JSON ranges are 0-based; report 1-based
+        key = (path, line)
+        if key in seen_by_literal[matched_literal]:
+            continue
+        seen_by_literal[matched_literal].add(key)
+        snippet = _line_lookup(repo_root, line_cache, path, line) or (match.snippet or "").strip()
+        out[matched_literal].append((path, line, snippet))
+    return _AstGrepDetection(by_literal=out, truncated=result.truncated)
+
+
+def _astgrep_detect_unbatched(
+    literals: list[str],
+    repo_root: Path,
+    touched: set[str],
+    *,
+    languages: list[str],
+    limit: int,
+    pattern_builder: Callable[[str], list[str]],
+) -> _AstGrepDetection | None:
+    """Compatibility fallback for ast-grep builds/patterns that cannot batch."""
+
+    try:
+        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+    except Exception:
         return None
     adapter = AstGrepAdapter(repo_root)
     line_cache: dict[str, list[str]] = {}
@@ -349,22 +796,24 @@ def _astgrep_detect(
                 try:
                     result = adapter.search(pattern=pattern, language=language, limit=limit)
                 except AstGrepToolUnavailable:
-                    return None  # binary missing -> let caller use the text fallback
-                except Exception:  # noqa: BLE001
-                    continue  # malformed pattern for this language, etc.
+                    return None
+                except Exception:
+                    continue
                 ran = True
                 for match in result.matches:
-                    path = match.file_path
+                    path = _astgrep_repo_path(repo_root, match.file_path)
                     if not path or path in touched:
                         continue
-                    line = match.line + 1  # ast-grep JSON ranges are 0-based; report 1-based
+                    line = match.line + 1
                     key = (path, line)
                     if key in seen:
                         continue
                     seen.add(key)
                     snippet = _line_lookup(repo_root, line_cache, path, line) or (match.snippet or "").strip()
                     out[literal].append((path, line, snippet))
-    return out if ran else None
+    # ``search`` already applies ``limit`` per pattern, so this path has no
+    # aggregate slice that one candidate could spend on another's behalf.
+    return _AstGrepDetection(by_literal=out) if ran else None
 
 
 def _text_detect(
@@ -390,7 +839,7 @@ def _text_detect(
         for query in query_builder(literal):
             try:
                 hits = engine.search_text(query, limit=limit)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             for hit in hits:
                 path = getattr(hit, "file_path", None)
@@ -411,15 +860,26 @@ def _text_detect(
 def _combine_matches(
     astgrep_matches: list[tuple[str, int, str]] | None,
     text_matches: list[tuple[str, int, str]],
+    *,
+    astgrep_authoritative: bool = True,
 ) -> list[tuple[str, int, str]]:
     """Best of both: ast-grep is authoritative for code files; text adds only the
-    non-code files (config, templates, docs) ast-grep can't parse."""
+    non-code files (config, templates, docs) ast-grep can't parse.
+
+    ``astgrep_authoritative=False`` keeps the code-file text matches too. It exists
+    for the attribute-call pattern ``$OBJ.name($$$)``: this module cannot assert that
+    every ast-grep grammar spells an attribute call that way, and an ast-grep pass
+    that runs but matches nothing would silently erase the text layer's hits -- which
+    is exactly the invisibility that pattern was added to fix. The same gate still
+    filters the text hits, so the union costs recall's worth of precision, not a
+    fabricated site.
+    """
     if astgrep_matches is None:
         return list(text_matches)  # ast-grep unavailable -> pure text recall
     seen = {(path, line) for path, line, _ in astgrep_matches}
     combined = list(astgrep_matches)
     for path, line, snippet in text_matches:
-        if Path(path).suffix.lower() in _EXT_TO_ASTGREP_LANG:
+        if astgrep_authoritative and Path(path).suffix.lower() in _EXT_TO_ASTGREP_LANG:
             continue  # code file -> ast-grep already covered it precisely
         if (path, line) in seen:
             continue
@@ -442,11 +902,16 @@ def contract_literal_impact(
     Detection prefers ast-grep (structural, precise); it degrades to *engine* text
     search when ast-grep can't run. Matches inside *touched_paths* are excluded --
     only parallel consumers the agent may have missed are evidence. Returns ``None``
-    when no literal was removed or nothing remains elsewhere.
+    when no literal was removed and every blob parsed.
+
+    When some blob would not parse, the return carries ``degraded:
+    [LITERAL_SCAN_UNPARSED]`` even with an empty ``sites`` list, so a caller can
+    say "this pass was partial" instead of implying it looked everywhere.
     """
-    replacements = literal_replacements(edits)
+    replacements, unparsed = _literal_replacements(edits, limit=6)
+    partial: list[str] = [LITERAL_SCAN_UNPARSED] if unparsed else []
     if not replacements:
-        return None
+        return {"sites": [], "degraded": partial} if partial else None
     touched = set(touched_paths)
     literals = list(replacements)
 
@@ -459,7 +924,12 @@ def contract_literal_impact(
     # text heuristic only approximates away.
     candidate_paths = [match[0] for matches in text_by_literal.values() for match in matches]
     languages = _astgrep_languages(list(touched) + candidate_paths)
-    astgrep_by_literal = _astgrep_detect(literals, repo_root, touched, languages=languages, limit=search_limit)
+    detection = _astgrep_detect(literals, repo_root, touched, languages=languages, limit=search_limit)
+    if detection is not None and detection.truncated:
+        # A capped scan may simply never have reached a candidate's files, so an
+        # empty result below means "not looked at everywhere", not "not present".
+        partial.append(LITERAL_SCAN_TRUNCATED)
+    astgrep_by_literal = detection.by_literal if detection is not None else None
 
     sites: list[dict[str, Any]] = []
     for literal in literals:
@@ -486,11 +956,14 @@ def contract_literal_impact(
                 entry["new"] = replacements[literal]
             sites.append(entry)
     if not sites:
-        return None
-    return {
+        return {"sites": [], "degraded": partial} if partial else None
+    out: dict[str, Any] = {
         "reason": ("These sites still use the old form you just changed -- update each or say why not."),
         "sites": sites,
     }
+    if partial:
+        out["degraded"] = partial
+    return out
 
 
 # Column-0 (module-level) definitions whose removal breaks importers in other files:
@@ -517,26 +990,81 @@ def _defined_module_symbols(text: str) -> set[str]:
     return out
 
 
-def _removed_module_symbols(edits: list[dict[str, Any]]) -> list[str]:
-    """Names of module-level defs/classes/constants defined in *old* but not *new*.
+def _removed_module_symbol_sources(edits: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """``(name, defining path)`` for module-level symbols removed by *edits*.
 
-    A removed or renamed module symbol breaks every ``import`` / reference in other
-    files, with no surviving definition for the call graph to resolve. Only genuine
-    removals are returned: a name still defined in *new* (unchanged, merely shifted)
-    is skipped -- the same discipline ``literal_replacements`` applies to strings.
+    Keeping the defining path is load-bearing for Python private names: a bare
+    search for ``_helper`` can otherwise merge an unrelated private namesake in
+    another package and manufacture a removed-symbol finding. Empty paths are
+    preserved for hook payloads that genuinely do not carry one; those retain
+    the legacy conservative behaviour rather than pretending we know scope.
     """
-    removed: list[str] = []
-    seen: set[str] = set()
+    removed: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for edit in edits:
         old = edit.get("old_string")
         new = edit.get("new_string")
         if not isinstance(old, str) or not isinstance(new, str):
             continue
+        source_path = _blob_path(edit)
         for name in _defined_module_symbols(old) - _defined_module_symbols(new):
-            if len(name) >= _MIN_SYMBOL_LEN and name not in seen:
-                seen.add(name)
-                removed.append(name)
+            item = (name, source_path)
+            if len(name) >= _MIN_SYMBOL_LEN and item not in seen:
+                seen.add(item)
+                removed.append(item)
     return removed
+
+
+def _removed_module_symbols(edits: list[dict[str, Any]]) -> list[str]:
+    """Names only, kept for the detector's public/tested helper contract."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for name, _source_path in _removed_module_symbol_sources(edits):
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def _path_defines_module_symbol(repo_root: Path, path: str, name: str) -> bool:
+    """Whether *path* owns a module-level definition of *name* itself.
+
+    A repository-wide bare-name search returns both imports/references and
+    unrelated same-named definitions. If a candidate file defines the name, its
+    bare uses belong to that local definition; treating them as surviving
+    references to a symbol removed somewhere else is a namesake false positive.
+    Read failures deliberately return False so this remains a conservative
+    enrichment rather than a precondition.
+    """
+
+    try:
+        root = repo_root.expanduser().resolve()
+        target = (root / path).resolve()
+        target.relative_to(root)
+        if not target.is_file() or target.stat().st_size > _MAX_FILE_BYTES:
+            return False
+        return name in _defined_module_symbols(target.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return False
+
+
+def _private_symbol_out_of_scope(name: str, source_path: str, candidate_path: str) -> bool:
+    """Whether a Python private-name hit cannot belong to *source_path*.
+
+    One leading underscore is treated package-private (same directory allowed),
+    matching LemonCrow's review call-graph gate. Double-leading names are
+    file-private/name-mangled unless they are public dunder protocol. Other
+    languages and pathless hook payloads are left untouched.
+    """
+    if not source_path or Path(source_path).suffix.lower() not in {".py", ".pyi"}:
+        return False
+    if not name.startswith("_") or (name.startswith("__") and name.endswith("__")):
+        return False
+    if candidate_path == source_path:
+        return False
+    if name.startswith("__"):
+        return True
+    return Path(candidate_path).parent != Path(source_path).parent
 
 
 def _symbol_tokens(name: str) -> list[str]:
@@ -560,7 +1088,7 @@ def symbol_contract_impact(
     touched_paths: list[str],
     max_matches_per_symbol: int = 2,
     search_limit: int = 30,
-) -> list[dict[str, Any]]:
+) -> DetectorSites:
     """Sites in untouched files still referencing a module-level symbol this edit
     removed or renamed (a def / class / constant).
 
@@ -569,11 +1097,17 @@ def symbol_contract_impact(
     detection is structural -- ast-grep matches the identifier as an AST node (not a
     string or comment), with the engine's indexed text search as the language-agnostic
     fallback. Same discipline: exclude touched files, drop ambient names by file
-    spread, fail-open. Returns a flat site list (empty when nothing remains elsewhere).
+    spread, fail-open. Returns a flat site list (empty when nothing remains elsewhere),
+    carrying ``degraded`` when the ast-grep pass behind it was capped -- an empty list
+    from a truncated scan means "not looked at everywhere", not "nothing remains".
     """
-    names = _removed_module_symbols(edits)
+    symbol_sources = _removed_module_symbol_sources(edits)
+    names = list(dict.fromkeys(name for name, _source_path in symbol_sources))
     if not names:
-        return []
+        return DetectorSites()
+    sources_by_name: dict[str, tuple[str, ...]] = {}
+    for name, source_path in symbol_sources:
+        sources_by_name[name] = (*sources_by_name.get(name, ()), source_path)
     touched = set(touched_paths)
     text_by_name = _text_detect(
         names,
@@ -585,13 +1119,31 @@ def symbol_contract_impact(
     )
     candidate_paths = [match[0] for matches in text_by_name.values() for match in matches]
     languages = _astgrep_languages(list(touched) + candidate_paths)
-    astgrep_by_name = _astgrep_detect(
+    detection = _astgrep_detect(
         names, repo_root, touched, languages=languages, limit=search_limit, pattern_builder=_symbol_tokens
     )
+    # A capped scan may never have reached a name's files, so a name that ends up
+    # with no sites below is unproven, not clean. Say so rather than let the
+    # caller read silence as an exhaustive "nothing remains".
+    partial = [SYMBOL_SCAN_TRUNCATED] if detection is not None and detection.truncated else []
+    astgrep_by_name = detection.by_literal if detection is not None else None
     sites: list[dict[str, Any]] = []
     for name in names:
         astgrep_found = astgrep_by_name.get(name) if astgrep_by_name is not None else None
         found = _combine_matches(astgrep_found, text_by_name.get(name) or [])
+        source_paths = sources_by_name.get(name, ())
+        # A file that owns its own definition of this spelling is a namesake,
+        # not an importer of the removed definition. Drop the whole file before
+        # scope checks so its local uses cannot masquerade as references.
+        namesake_paths = {path for path, _line, _snippet in found if _path_defines_module_symbol(repo_root, path, name)}
+        if namesake_paths:
+            found = [match for match in found if match[0] not in namesake_paths]
+        if source_paths:
+            found = [
+                match
+                for match in found
+                if any(not _private_symbol_out_of_scope(name, source_path, match[0]) for source_path in source_paths)
+            ]
         if not found:
             continue
         # Rarity gate: a name referenced across many files is ambient, not a contract.
@@ -607,7 +1159,7 @@ def symbol_contract_impact(
                     "snippet": redact_tool_output(snippet)[:80],
                 }
             )
-    return sites
+    return DetectorSites(sites, degraded=partial)
 
 
 def _split_top_level(param_str: str) -> list[str]:
@@ -661,17 +1213,48 @@ def _required_param_names(param_str: str) -> set[str]:
     return required
 
 
-_DEF_SIGNATURE_RE = re.compile(r"(?:^|\n)[ \t]*(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(")
+_DEF_SIGNATURE_RE = re.compile(r"(?:^|\n)(?P<indent>[ \t]*)(?:async[ \t]+)?def[ \t]+(?P<name>\w+)[ \t]*\(")
+# Indentation is the only class signal a raw edit hunk carries, and it is enough:
+# Python's own scoping rule says the nearest preceding ``class`` indented *less*
+# than a ``def`` owns it.
+_CLASS_HEADER_RE = re.compile(r"(?:^|\n)(?P<indent>[ \t]*)class[ \t]+(?P<name>\w+)")
+
+
+def _owner_class(headers: list[tuple[int, int, str]], indent: int, offset: int) -> str:
+    """The class enclosing a def at *offset* with *indent*, or ``""`` for module level.
+
+    *headers* is ``(offset, indent, name)`` for every ``class`` in the same text, in
+    source order. The last header that both precedes the def and is indented less
+    than it is the innermost enclosing class; a class at the same indentation is a
+    sibling, not a parent, which is what keeps a module-level function that happens
+    to follow a class body unqualified.
+    """
+    owner = ""
+    for start, header_indent, name in headers:
+        if start >= offset:
+            break
+        if header_indent < indent:
+            owner = name
+    return owner
 
 
 def _def_signatures(text: str) -> dict[str, str]:
-    """Map each ``def NAME`` to its raw parameter string, balanced across newlines.
+    """Map each def to its raw parameter string, balanced across newlines.
+
+    The key is ``Class.name`` for a method and the bare ``name`` for a module-level
+    function. That qualifier is load-bearing rather than cosmetic: a method is only
+    ever reached as ``obj.name(...)``, so a detector holding nothing but the bare
+    name cannot build a call-site query for it and cannot say which class a call it
+    does find belongs to. Python code is method-heavy, so a bare-name-only map made
+    the common case of this detector structurally undetectable.
 
     A def whose parameter list is not closed within *text* (a hunk that cuts the
     signature mid-way) is skipped -- never guessed at."""
+    headers = [
+        (match.start(), len(match.group("indent")), match.group("name")) for match in _CLASS_HEADER_RE.finditer(text)
+    ]
     out: dict[str, str] = {}
     for match in _DEF_SIGNATURE_RE.finditer(text):
-        name = match.group(1)
         idx = match.end()  # just past the '('
         depth = 1
         while idx < len(text) and depth > 0:
@@ -681,16 +1264,30 @@ def _def_signatures(text: str) -> dict[str, str]:
             elif char in ")]}":
                 depth -= 1
             idx += 1
-        if depth == 0:
-            out[name] = text[match.end() : idx - 1]
+        if depth != 0:
+            continue
+        owner = _owner_class(headers, len(match.group("indent")), match.start())
+        name = match.group("name")
+        out[f"{owner}.{name}" if owner else name] = text[match.end() : idx - 1]
     return out
+
+
+def _split_owner(key: str) -> tuple[str, str]:
+    """Split a ``_def_signatures`` key into ``(class_name_or_empty, bare_name)``."""
+    owner, _, name = key.rpartition(".")
+    return owner, name
 
 
 def _signature_change_params(edits: list[dict[str, Any]]) -> dict[str, list[str]]:
     """Map each def present in BOTH old and new to the parameters that BECAME required
     -- newly added without a default, or an existing param that lost its default.
     Either breaks callers that don't pass it. Renamed/removed defs are the job of
-    ``symbol_contract_impact``; a benign change (a new *optional* param) yields nothing."""
+    ``symbol_contract_impact``; a benign change (a new *optional* param) yields nothing.
+
+    Keys are ``_def_signatures`` keys, so a method is reported as ``Class.name``. Old
+    and new are matched on that same qualified key: moving ``refresh`` from one class
+    to another is a removal plus an addition, not a signature change, and matching on
+    the bare name would have called it a signature change on whichever class won."""
     out: dict[str, list[str]] = {}
     for edit in edits:
         old = edit.get("old_string")
@@ -698,25 +1295,109 @@ def _signature_change_params(edits: list[dict[str, Any]]) -> dict[str, list[str]
         if not isinstance(old, str) or not isinstance(new, str):
             continue
         old_sigs = _def_signatures(old)
-        for name, new_params in _def_signatures(new).items():
-            if name not in old_sigs or len(name) < _MIN_SYMBOL_LEN:
+        for key, new_params in _def_signatures(new).items():
+            if key not in old_sigs or len(_split_owner(key)[1]) < _MIN_SYMBOL_LEN:
                 continue
-            newly_required = _required_param_names(new_params) - _required_param_names(old_sigs[name])
+            newly_required = _required_param_names(new_params) - _required_param_names(old_sigs[key])
             if newly_required:
-                out.setdefault(name, []).extend(sorted(newly_required))
+                out.setdefault(key, []).extend(sorted(newly_required))
     return out
 
 
-def _call_patterns(name: str) -> list[str]:
-    return [f"{name}($$$)"]  # ast-grep: a call whose callee is the bare identifier
+def _call_patterns(key: str) -> list[str]:
+    """ast-grep patterns for a call to *key*.
+
+    A module-level function is called by its bare identifier. A method is not: it is
+    reached through a receiver, so the pattern has to be the attribute call. Matching
+    a method with the bare-identifier pattern is what made ``SessionManager.refresh``
+    invisible while module-level ``refresh_session`` was found.
+    """
+    owner, name = _split_owner(key)
+    return [f"$OBJ.{name}($$$)"] if owner else [f"{name}($$$)"]
 
 
-def _is_call_occurrence(line: str, name: str) -> bool:
-    """Text-fallback gate: *name* is invoked as a bare call (``name(``) -- not an
-    attribute call, a substring, or a comment."""
+def _call_queries(key: str) -> list[str]:
+    """Text-search queries for a call to *key* -- ``.name(`` for a method, the bare name
+    for a module-level function. The literal ``.name(`` is both precise and cheap, so
+    the search budget is not spent on every unrelated mention of the bare name."""
+    owner, name = _split_owner(key)
+    return [f".{name}("] if owner else [name]
+
+
+def _is_call_occurrence(line: str, key: str) -> bool:
+    """Text-fallback gate: *key* is invoked as a call on this line -- not a substring
+    and not a comment.
+
+    A module-level name must be a *bare* call (``name(``), never an attribute of some
+    other object. A method is the mirror image: it must be an *attribute* call
+    (``obj.name(``), because that is the only way a receiver reaches it.
+    """
     if line.lstrip().startswith("#"):
         return False
+    owner, name = _split_owner(key)
+    if owner:
+        return re.search(rf"\.[ \t]*{re.escape(name)}[ \t]*\(", line) is not None
     return re.search(rf"(?<![\w.]){re.escape(name)}[ \t]*\(", line) is not None
+
+
+# How many definition sites the ownership census may look at. It only ever answers
+# "one, or more than one", so a small bound is enough and keeps the extra query cheap.
+_DEFINITION_CENSUS_LIMIT = 12
+
+
+def _definition_spread(name: str, engine: _TextSearcher | None, *, limit: int) -> int | None:
+    """How many places in the repo write ``def name(``; ``None`` when unknowable.
+
+    A literal text search, deliberately: it is the one ownership census that needs no
+    index, no ast-grep and no type inference, so it answers on a fresh clone. It is
+    only ever used to *lower* a claim -- an over-count downgrades a true finding to
+    uncertain, which is the safe direction -- and ``None`` (engine absent, or the
+    search failed) is treated the same way rather than as "unique".
+
+    Zero hits means the search could not even see the definition this edit just made,
+    so the census is broken rather than empty; that also answers ``None``.
+    """
+    if engine is None:
+        return None
+    try:
+        hits = engine.search_text(f"def {name}(", path=".", limit=limit, ignore_case=False)
+    except Exception:
+        # Evidence-only, and a census that did not run must never read as "unique".
+        return None
+    seen: set[tuple[str, int]] = set()
+    for hit in hits:
+        path = getattr(hit, "file_path", None)
+        line = getattr(hit, "line", None)
+        if isinstance(path, str) and path:
+            seen.add((path, line if isinstance(line, int) else -1))
+    return len(seen) or None
+
+
+def _method_uncertainty(owner: str, name: str, spread: int | None) -> str:
+    """Why an attribute call site may not belong to *owner*; ``""`` when it must.
+
+    ``obj.refresh(...)`` names a method, not a class. Nothing in a text or ast-grep
+    match says what ``obj`` is, so the only honest way to attribute the call is to
+    show that no other definition of that name exists to attribute it to. When one
+    does -- or when the census could not run -- the finding still prints, carrying
+    this sentence, because a reviewer who is told "this may be another class" can
+    check in seconds while a silently dropped finding is a defect nobody sees.
+    """
+    if spread is None:
+        return (
+            f"unverified: could not count the definitions of {name}() in this repo, "
+            f"so these call sites are not confirmed to be {owner}.{name}"
+        )
+    if spread > 1:
+        # "at least", not a bare count: the census is a bounded search, so it can
+        # under-report and never over-report. A lower bound is true either way, and
+        # a finding whose whole point is refusing to over-claim must not open with
+        # an exact number it cannot stand behind.
+        return (
+            f"unverified: at least {spread} definitions named {name}() in this repo -- "
+            f"a call site here may belong to another class, not {owner}.{name}"
+        )
+    return ""
 
 
 def signature_change_impact(
@@ -727,52 +1408,85 @@ def signature_change_impact(
     touched_paths: list[str],
     max_matches_per_symbol: int = 2,
     search_limit: int = 30,
-) -> list[dict[str, Any]]:
-    """Call sites in untouched files of a function whose signature gained a required
+) -> DetectorSites:
+    """Call sites in untouched files of a def whose signature gained a required
     parameter -- callers that don't pass it now break.
 
-    This is the one contract change the call graph CAN see (the symbol survives the
-    edit, so it stays resolvable); detection stays structural for consistency and
-    freshness-independence -- ast-grep matches the call expression, engine text search
-    backs it up. Only *required* additions fire (a new optional param is non-breaking),
-    so the common signature tweak stays silent. Fail-open; touched files excluded."""
+    Detection is textual and structural, never graph-based: ast-grep matches the call
+    expression and the engine's text search backs it up. That is a deliberate choice
+    (it works on a stale or absent index) and it is also the honest description --
+    an earlier version of this docstring claimed the call graph could see this change
+    because the symbol survives the edit, which was never what the code did.
+
+    Two shapes, because Python has two: a module-level ``name(...)`` call, and a
+    method reached only as ``obj.name(...)``. The second is the common case and used
+    to be structurally invisible -- both the ast-grep pattern and the text gate
+    required a bare identifier, so ``SessionManager.refresh`` gaining a parameter
+    produced nothing at all while module-level ``refresh_session`` produced the right
+    finding. Methods now carry their class (``Class.name``) and are matched as
+    attribute calls.
+
+    A method finding is qualified, not asserted: a receiver's type is unknowable here,
+    so when any other definition of the bare name exists -- or the census that would
+    prove otherwise could not run -- the site ships with an ``uncertainty`` sentence
+    instead of being either dropped or printed as fact.
+
+    Only *required* additions fire (a new optional param is non-breaking), so the
+    common signature tweak stays silent. Fail-open; touched files excluded. The
+    return carries ``degraded`` when the ast-grep pass behind it was capped, so a
+    caller can tell "no surviving call sites" from "the scan stopped early"."""
     changed = _signature_change_params(edits)
     if not changed:
-        return []
-    names = list(changed)
+        return DetectorSites()
+    keys = list(changed)
     touched = set(touched_paths)
-    text_by_name = _text_detect(
-        names, engine, touched, limit=search_limit, query_builder=_symbol_tokens, gate=_is_call_occurrence
+    text_by_key = _text_detect(
+        keys, engine, touched, limit=search_limit, query_builder=_call_queries, gate=_is_call_occurrence
     )
-    candidate_paths = [match[0] for matches in text_by_name.values() for match in matches]
+    candidate_paths = [match[0] for matches in text_by_key.values() for match in matches]
     languages = _astgrep_languages(list(touched) + candidate_paths)
-    astgrep_by_name = _astgrep_detect(
-        names, repo_root, touched, languages=languages, limit=search_limit, pattern_builder=_call_patterns
+    detection = _astgrep_detect(
+        keys, repo_root, touched, languages=languages, limit=search_limit, pattern_builder=_call_patterns
     )
+    # Same disclosure as the symbol pass: above the materialisation ceiling a key
+    # can lose every row to file order alone, and an unreported cap would present
+    # that as "no caller is broken".
+    partial = [SIGNATURE_SCAN_TRUNCATED] if detection is not None and detection.truncated else []
+    astgrep_by_key = detection.by_literal if detection is not None else None
     sites: list[dict[str, Any]] = []
-    for name in names:
-        astgrep_found = astgrep_by_name.get(name) if astgrep_by_name is not None else None
-        found = _combine_matches(astgrep_found, text_by_name.get(name) or [])
+    for key in keys:
+        owner, name = _split_owner(key)
+        astgrep_found = astgrep_by_key.get(key) if astgrep_by_key is not None else None
+        found = _combine_matches(astgrep_found, text_by_key.get(key) or [], astgrep_authoritative=not owner)
         if not found:
             continue
         # Rarity gate: a name called across many files is ambient, not a contract.
         if len({match[0] for match in found}) > _MAX_LITERAL_FILE_SPREAD:
             continue
+        # One census per changed method, after the gates -- a finding that will not
+        # be reported never pays for the query.
+        uncertainty = (
+            _method_uncertainty(owner, name, _definition_spread(name, engine, limit=_DEFINITION_CENSUS_LIMIT))
+            if owner
+            else ""
+        )
         found.sort(key=lambda match: (_is_test_path(match[0]), match[0], match[1]))
-        required = ", ".join(changed[name])
+        required = ", ".join(changed[key])
         for path, line, snippet in found[:max_matches_per_symbol]:
-            sites.append(
-                {
-                    "path": f"{path}:L{line}",
-                    "old": f"{name}(...)",
-                    "new": f"now requires: {required}",
-                    "snippet": redact_tool_output(snippet)[:80],
-                }
-            )
-    return sites
+            site: dict[str, Any] = {
+                "path": f"{path}:L{line}",
+                "old": f"{key}(...)",
+                "new": f"now requires: {required}",
+                "snippet": redact_tool_output(snippet)[:80],
+            }
+            if uncertainty:
+                site["uncertainty"] = uncertainty
+            sites.append(site)
+    return DetectorSites(sites, degraded=partial)
 
 
 __all__ = [
+    "DetectorSites",
     "contract_literal_impact",
     "decorator_contract_impact",
     "literal_replacements",

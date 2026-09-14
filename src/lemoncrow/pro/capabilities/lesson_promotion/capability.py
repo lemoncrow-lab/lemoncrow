@@ -37,7 +37,7 @@ def ingest_failed_trace(store: StoreBundle, trace: Trace) -> None:
         return
     try:
         LessonPromoterCapability(store).ingest_trace(trace)
-    except Exception:  # noqa: BLE001 - lesson ingest is best-effort
+    except Exception:
         _log.debug("lesson ingest skipped for trace %s", trace.id, exc_info=True)
 
 
@@ -77,7 +77,7 @@ class LessonPromoterCapability:
         text = self._trace_text(trace)
         try:
             vectors = self._embedder.embed([text])
-        except Exception as exc:  # noqa: BLE001 - an embedder failure must not abort ingest
+        except Exception as exc:
             # Fall back to an empty vector for THIS trace only. Reassigning
             # self._embedder would permanently disable embeddings for the rest of
             # the instance's life on a single transient failure.

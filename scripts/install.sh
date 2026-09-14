@@ -19,6 +19,7 @@
 #   LEMONCROW_VERBOSE         If set to 1, show verbose output
 #   LEMONCROW_NON_INTERACTIVE If set to 1, skip all prompts (auto-install all hosts)
 #   LEMONCROW_NO_PATH         If set to 1, skip adding to PATH
+#   LEMONCROW_NO_ALIAS        If set to 1, do not write the `lcr` shell alias
 #   LEMONCROW_NO_HOSTS        If set to 1, skip ALL post-extract setup (bundle.sh): host
 #                           integrations AND dependency installs (uv/node/jj/rtk) are
 #                           skipped — download & extract only
@@ -363,6 +364,7 @@ _clean_managed_install_tree() {
         "$LEMONCROW_INSTALL_DIR/constraints.txt" \
         "$LEMONCROW_INSTALL_DIR/constraints.resolved.txt" \
         "$LEMONCROW_INSTALL_DIR/deploy" \
+        "$LEMONCROW_INSTALL_DIR/frontend" \
         "$LEMONCROW_INSTALL_DIR/integrations" \
         "$LEMONCROW_INSTALL_DIR/scripts" \
         "$LEMONCROW_INSTALL_DIR/vendor"
@@ -377,11 +379,18 @@ _clean_managed_install_tree() {
 if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
     LOCAL_SRC_ABS="$(cd "${LEMONCROW_LOCAL_SRC}" 2>/dev/null && pwd)" \
         || fail "Local bundle not found at '${LEMONCROW_LOCAL_SRC}'. Run 'make build' first."
+    [[ -f "${LOCAL_SRC_ABS}/frontend/index.html" ]] \
+        || fail "Local bundle is missing frontend/index.html. Run 'make build' again before installing."
+    local_review_chunk="$(find "${LOCAL_SRC_ABS}/frontend/assets" -maxdepth 1 -name 'ReviewReader-*.js' -print -quit 2>/dev/null || true)"
+    [[ -n "$local_review_chunk" ]] \
+        || fail "Local bundle is missing the Review Reader frontend chunk. Run 'make build' again before installing."
     mkdir -p "${LEMONCROW_INSTALL_DIR}"
     INSTALL_DIR_ABS="$(cd "${LEMONCROW_INSTALL_DIR}" && pwd)"
     if [[ "${LOCAL_SRC_ABS}" != "${INSTALL_DIR_ABS}" ]]; then
         _clean_managed_install_tree
         cp -r "${LOCAL_SRC_ABS}/." "${INSTALL_DIR_ABS}/"
+        cmp -s "${LOCAL_SRC_ABS}/frontend/index.html" "${INSTALL_DIR_ABS}/frontend/index.html" \
+            || fail "Installed frontend does not match the local production bundle. Refusing a mixed-version install."
     fi
     _write_install_stamp "local:${LOCAL_SRC_ABS}"
 elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
@@ -526,14 +535,36 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
             info "Symlinked ${short_bin} -> ${LOCAL_BIN}/${short_bin}"
         fi
     done
+    # `lcr` -> `lc review`, the command people run many times a day. It goes
+    # inside the sentinel block so `uninstall.sh` takes it away again, and it is
+    # appended on its own when an earlier install already wrote the PATH line.
+    _alias_line() {
+        case "$PROFILE" in
+            *config.fish) echo "alias lcr 'lc review'" ;;
+            *)            echo "alias lcr='lc review'" ;;
+        esac
+    }
+
     if [[ -f "$PROFILE" ]] && ! grep -q "lemoncrow.*PATH" "$PROFILE" 2>/dev/null; then
         {
             echo ""
             echo "# >>> lemoncrow >>>"
             echo "export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
+            [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] && _alias_line
             echo "# <<< lemoncrow <<<"
         } >> "$PROFILE"
         info "Added to PATH in ${PROFILE/#$HOME/~}"
+    elif [[ -f "$PROFILE" && "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] \
+        && ! grep -q "alias lcr" "$PROFILE" 2>/dev/null; then
+        {
+            echo ""
+            echo "# >>> lemoncrow >>>"
+            _alias_line
+            echo "# <<< lemoncrow <<<"
+        } >> "$PROFILE"
+    fi
+    if [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] && grep -q "alias lcr" "$PROFILE" 2>/dev/null; then
+        info "\`lcr\` runs \`lc review\` (LEMONCROW_NO_ALIAS=1 to skip)"
     fi
 fi
 

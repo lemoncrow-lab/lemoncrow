@@ -13,7 +13,9 @@ _THROTTLE_SECONDS = 1.0  # skip disk write if stats.json was written this recent
 
 
 def _lemoncrow_root() -> Path:
-    return Path(os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow")
+    return Path(
+        os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or Path.home() / ".lemoncrow"
+    )
 
 
 def _throttled(root: Path, session_id: str) -> bool:
@@ -45,7 +47,7 @@ def main() -> int:
         # limited to the user_prompt batching nudge and the failure-hook rescue
         # nudge; everything heuristic was removed as unproven noise.
         update_session_stats(root, payload)
-    except Exception:  # noqa: BLE001 - lifecycle hooks must be fail-open
+    except Exception:
         pass
     return 0
 

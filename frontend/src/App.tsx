@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
   Brain,
   GitBranch,
@@ -41,6 +41,13 @@ const NAV_ITEMS: NavItem[] = [
 // Sigma/WebGL and the layout worker are map-only dependencies. Keep them out
 // of the analytics dashboard's initial bundle.
 const CodeMap = lazy(() => import("./pages/CodeMap"));
+
+// The local review workspace (`lc review --open`). @pierre/diffs pulls in
+// Shiki's grammars and themes, so it stays a lazy route and never reaches the
+// dashboard's initial bundle. Not in the nav: it is opened from the CLI with a
+// per-process token in the URL fragment, and it is a full-screen surface of its
+// own rather than a dashboard page.
+const ReviewReader = lazy(() => import("./review/ReviewReader"));
 
 /**
  * Reusable dismissible notification banner. The mechanism is intentionally kept
@@ -98,9 +105,21 @@ function ThemeToggle() {
 
 export default function App() {
   const { range, setRange } = useTimeRange();
+  // The review workspace is its own full-screen surface, opened from the CLI
+  // against a loopback service that serves only the review API. The dashboard's
+  // header, time window and nav all point at the analytics backend, which is
+  // not running there -- rendering them would be chrome that leads nowhere.
+  const bare = useLocation().pathname.startsWith("/review");
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-surface to-surface-tint font-mono text-neutral-200">
+    <div
+      className={
+        bare
+          ? "min-h-full font-mono text-neutral-200"
+          : "min-h-full bg-gradient-to-b from-surface to-surface-tint font-mono text-neutral-200"
+      }
+    >
+      {!bare && (
       <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4">
@@ -135,7 +154,9 @@ export default function App() {
           </div>
         </div>
       </header>
+      )}
 
+      {!bare && (
       <nav className="border-neutral-800 bg-neutral-950/70 px-6 py-3">
         <div className="flex flex-wrap gap-2">
           {NAV_ITEMS.map((item) => (
@@ -157,8 +178,15 @@ export default function App() {
           ))}
         </div>
       </nav>
+      )}
 
-      <main className="min-h-[calc(100vh-180px)] bg-gradient-to-br from-neutral-950 to-neutral-950/80">
+      <main
+        className={
+          bare
+            ? "min-h-screen bg-neutral-950"
+            : "min-h-[calc(100vh-180px)] bg-gradient-to-br from-neutral-950 to-neutral-950/80"
+        }
+      >
         <div className="">
           <ErrorBoundary label="Page">
             <Routes>
@@ -200,6 +228,20 @@ export default function App() {
                 element={<Navigate to="/system/health" replace />}
               />
               <Route path="/system/:section" element={<System />} />
+              <Route
+                path="/review"
+                element={
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-[560px] items-center justify-center text-sm text-neutral-300">
+                        Loading review workspace…
+                      </div>
+                    }
+                  >
+                    <ReviewReader />
+                  </Suspense>
+                }
+              />
             </Routes>
           </ErrorBoundary>
         </div>

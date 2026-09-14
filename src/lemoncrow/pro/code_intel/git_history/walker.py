@@ -84,7 +84,7 @@ def _load_blob_text(repo: Any, tree: Any, file_path: str) -> str | None:
     try:
         raw_bytes = cast(bytes, blob.read_raw())
         return raw_bytes.decode("utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

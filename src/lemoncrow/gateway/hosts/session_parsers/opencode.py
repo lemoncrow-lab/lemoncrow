@@ -32,6 +32,12 @@ from lemoncrow.gateway.hosts.session_parsers._common import (
     summarize_usage_entries,
     truncate_serialized_session,
 )
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    sha256_text as _sha256,
+)
+from lemoncrow.gateway.hosts.session_parsers._common import (
+    utcnow as _utcnow,
+)
 from lemoncrow.infra.storage.bundle import StoreBundle
 
 logger = logging.getLogger(__name__)
@@ -42,14 +48,6 @@ def _ms_to_dt(ms: Any) -> datetime:
         return datetime.fromtimestamp(int(ms) / 1000, tz=UTC)
     except (TypeError, ValueError):
         return datetime.now(UTC)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 # Tool names (including MCP-provided ones, commonly suffixed like

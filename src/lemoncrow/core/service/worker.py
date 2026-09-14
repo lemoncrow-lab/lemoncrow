@@ -34,10 +34,33 @@ from lemoncrow.infra.storage.bundle import StoreBundle
 # Terminal jobs (succeeded/failed/dead) older than this are pruned.
 DEFAULT_JOB_RETENTION_DAYS = 14
 
+# Archived reviews older than this are deleted with their revisions, blobs and
+# evidence artifacts. Longer than the job cutoff on purpose: a review a human
+# explicitly archived is a discarded record of somebody's work, not a spent
+# queue row, and the artifacts make it the larger thing on disk.
+DEFAULT_REVIEW_RETENTION_DAYS = 90
+
 logger = logging.getLogger(__name__)
 
 # Type alias for a job handler function.
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _prune_archived_reviews(store_root: Path, older_than_days: int) -> int:
+    """Delete disposable reviews, surfacing cleanup failure to the worker.
+
+    Job-row retention runs first. If the review store is locked, corrupt or from
+    a newer incompatible schema, raising here makes the maintenance job fail and
+    enter the worker's normal retry path instead of recording false success with
+    ``deleted_reviews=0``. The already-completed job-row prune is idempotent.
+    """
+
+    try:
+        from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+        return int(ReviewStore(store_root).prune(older_than_days=older_than_days))
+    except Exception as exc:
+        raise RuntimeError(f"review retention cleanup failed: {type(exc).__name__}: {exc}") from exc
 
 
 class Worker:
@@ -123,11 +146,25 @@ class Worker:
 
         def retention_cleanup_handler(payload: dict[str, Any]) -> dict[str, Any]:
             days = int(payload.get("days", DEFAULT_JOB_RETENTION_DAYS) or DEFAULT_JOB_RETENTION_DAYS)
+            review_days = int(
+                payload.get("review_days", DEFAULT_REVIEW_RETENTION_DAYS) or DEFAULT_REVIEW_RETENTION_DAYS
+            )
+            store_root = Path(
+                getattr(getattr(self._store, "jobs", None), "root", None) or default_store_root()
+            ).resolve()
             prune = getattr(self._store, "prune_jobs", None)
             if not callable(prune):
                 return {"status": "skipped", "reason": "store does not support prune_jobs"}
             deleted = int(prune(older_than_days=max(1, days)))
-            return {"status": "success", "deleted_jobs": deleted}
+            # The review store is the other durable thing this host accumulates.
+            # Job rows are pruned first; if review cleanup then fails, the handler
+            # raises so the worker records a failed maintenance job and retries
+            # rather than treating "could not inspect the review store" as zero.
+            return {
+                "status": "success",
+                "deleted_jobs": deleted,
+                "deleted_reviews": _prune_archived_reviews(store_root, max(1, review_days)),
+            }
 
         return {
             JOB_CONSOLIDATE_BLOCKS: consolidate_handler,

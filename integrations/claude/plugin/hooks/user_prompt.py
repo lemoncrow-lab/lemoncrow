@@ -101,55 +101,41 @@ def _lemoncrow_root() -> Path:
 def _append_prompt_event(session_id: str, prompt: str) -> None:
     try:
         from lemoncrow.core.foundation.paths import session_dir
+        from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
     except ImportError:
         return
     run_file = session_dir(_lemoncrow_root(), "claude", session_id) / "run.json"
-    if not run_file.exists():
-        return
 
     try:
-        data = json.loads(run_file.read_text("utf-8"))
-    except Exception:
-        logger.exception("Failed to read run file")
-        return
-
-    events: list[dict[str, Any]] = data.setdefault("events", [])
-    truncated = len(prompt) > _MAX_PROMPT_BYTES
-    stored_prompt = prompt[:_MAX_PROMPT_BYTES]
-    short = stored_prompt[:100].replace("\n", " ")
-
-    events.append(
-        {
-            "kind": "agent_message",
-            "at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "summary": f"user: {short}{'…' if len(stored_prompt) > 100 else ''}",
-            "payload": {
-                "role": "user",
-                "prompt": stored_prompt,
-                "truncated": truncated,
-                "event": "UserPromptSubmit",
-            },
-        }
-    )
-    data["events"] = events
-
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=run_file.parent,
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-        ) as tmp:
-            json.dump(data, tmp, indent=2)
-            tmp_path = tmp.name
-        Path(tmp_path).replace(run_file)
+        with RunFileLock(run_file):
+            if not run_file.exists():
+                return
+            data = json.loads(run_file.read_text("utf-8"))
+            if not isinstance(data, dict):
+                return
+            events = data.setdefault("events", [])
+            if not isinstance(events, list):
+                return
+            truncated = len(prompt) > _MAX_PROMPT_BYTES
+            stored_prompt = prompt[:_MAX_PROMPT_BYTES]
+            short = stored_prompt[:100].replace("\n", " ")
+            events.append(
+                {
+                    "kind": "agent_message",
+                    "at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    "summary": f"user: {short}{'…' if len(stored_prompt) > 100 else ''}",
+                    "payload": {
+                        "role": "user",
+                        "prompt": stored_prompt,
+                        "truncated": truncated,
+                        "event": "UserPromptSubmit",
+                    },
+                }
+            )
+            atomic_write_json(run_file, data)
     except Exception:
         logger.exception("Failed to update run file")
-        if tmp_path:
-            with contextlib.suppress(Exception):
-                Path(tmp_path).unlink(missing_ok=True)
+        return
 
 
 def _persist_last_user_prompt(prompt: str) -> None:

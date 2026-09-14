@@ -1,0 +1,127 @@
+# Paths included in the public mirror.
+# Everything else is private by default — new directories never leak.
+# One path per line. Directory paths include all files under them.
+# File paths include only that specific file.
+#
+# To publish new content, add it here and re-run `make mirror ARGS="--resync"`
+# -- widening the allowlist needs a full-tree resync, because an incremental run
+# only applies paths each new commit touched (`--force` also works, but rewrites
+# all public history).
+
+# === Source code, CLI, MCP server ===
+src/
+
+# === Tests & benchmarks ===
+tests/
+benchmarks/
+
+# === Public documentation & docs site ===
+docs/
+docs-site/
+
+# === Web dashboard & landing page (landing/ is a submodule; frontend/ is not) ===
+frontend/
+landing/
+
+# === Agent integrations ===
+integrations/
+
+# === Scripts (installers, builders, mirror) ===
+scripts/LICENSE
+scripts/build_host_skills.sh
+scripts/build.sh
+scripts/bundle.sh
+scripts/install_agents.sh
+scripts/install_antigravity.sh
+scripts/install_claude.sh
+scripts/install_codex.sh
+scripts/install_copilot.sh
+scripts/install_cursor.sh
+scripts/install_hermes.sh
+scripts/install_hosts.sh
+scripts/install_lemoncode.sh
+scripts/install_opencode.sh
+scripts/install_pi.sh
+scripts/install.sh
+scripts/lib/
+scripts/local.sh
+scripts/managed_context.sh
+scripts/mirror.py
+scripts/public-paths.txt
+scripts/reconcile.sh
+scripts/refresh_model_prices.py
+scripts/runtime_evidence.py
+scripts/sessions.sh
+scripts/status.sh
+scripts/sync_agent_context.py
+scripts/uninstall_antigravity.sh
+scripts/uninstall_claude.sh
+scripts/uninstall_codex.sh
+scripts/uninstall_copilot.sh
+scripts/uninstall_cursor.sh
+scripts/uninstall_hermes.sh
+scripts/uninstall_lemoncode.sh
+scripts/uninstall_opencode.sh
+scripts/uninstall.sh
+scripts/verify_agent_clis.sh
+scripts/verify_lemoncrow_postgres.sh
+scripts/verify_lemoncrow_service.sh
+scripts/verify_claude.sh
+scripts/verify_codex.sh
+scripts/verify_copilot.sh
+scripts/verify_opencode.sh
+scripts/worktree_env.py
+
+# === Examples ===
+examples/
+
+# === Vendored stubs (required by pyproject.toml path dependency) ===
+vendor/babel-stub/
+vendor/babel-99.0.0-py3-none-any.whl
+
+# === CI/CD workflows (public-only) ===
+# Stored outside `.github/workflows` so GitHub does not run them in the private
+# repo. scripts/mirror.py rewrites this directory to `.github/workflows` publicly.
+.github/public-workflows/
+# Retain the former paths in historical mirror commits.
+.github/workflows/cla.yml
+.github/workflows/docs-governance.yml
+.github/workflows/tests.yml
+
+# === Git hooks (developer tooling) ===
+.githooks/
+
+# === Cursor plugin marketplace manifest (repo-root-relative `source`, per
+# Cursor's own plugin spec -- distinct resolution from .claude-plugin/'s) ===
+.cursor-plugin/
+
+# === Root-level files ===
+AGENTS.md
+BENCHMARKS.md
+CLA.md
+CLAUDE.md
+CONTRIBUTING.md
+LICENSE
+LICENSE-APACHE
+Makefile
+NOTICE
+README.md
+hatch_build.py
+pyproject.toml
+uv.lock
+.python-version
+.gitattributes
+.gitignore
+.gitmodules
+requirements-audit.txt
+
+# === Engine: published, Apache-2.0 ===========================================
+# `src/lemoncrow/pro` IS published (covered by the broad `src/` allow above),
+# Apache-2.0 like the rest of the tree. There is no deny for it any more, and
+# the public repository builds the whole runtime from source.
+
+# Large generated embedding corpus (build artifact); excluded to keep the mirror small.
+!benchmarks/embedding/corpus.jsonl
+
+# Tests that intentionally validate private documentation and cannot run in the public checkout.
+!tests/gateway/test_host_trace_confidence.py

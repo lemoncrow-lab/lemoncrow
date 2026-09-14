@@ -6,13 +6,15 @@
 
 # LemonCrow Runtime
 
-### Keep your coding agent sharp on real codebases
+### Understand what your coding agents changed
 
-**Context engineering, done right.**
+**Review-first developer workspace.**
 
-LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required.
+Agents produce changes faster than you can read them, so review becomes the work. `lc review` answers what changed, what it affects outside the diff, which agent session wrote it, and what was actually tested — deterministically, with no model call and no generated prose. What it cannot establish it names as unknown instead of guessing, and the verdict stays yours.
 
-**State-of-the-art context engineering.** Read less, output less, without compromising correctness — out-measuring grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
+LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required. That code intelligence is what the review answers are built on.
+
+**Supporting proof — state-of-the-art context engineering.** Read less, output less, without compromising correctness — out-measuring grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
@@ -24,8 +26,9 @@ LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a l
 [![LemonCode](https://img.shields.io/badge/LemonCode-supported-blue?style=flat-square)](integrations/lemoncode)
 [![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
+[![Pi](https://img.shields.io/badge/Pi-supported-blue?style=flat-square)](integrations/pi)
 
-[Results](#results) · [Philosophy](#philosophy--optimize-the-journey-not-the-hop) · [What it does](#what-lemoncrow-does) · [Quick start](#quick-start) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Removal](#removal)
+[Review](#understand-what-the-agent-did) · [Results](#results) · [Philosophy](#philosophy--optimize-the-journey-not-the-hop) · [What it does](#what-lemoncrow-does) · [Quick start](#quick-start) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Removal](#removal)
 
 </div>
 
@@ -35,6 +38,18 @@ cd your-project && lc init
 ```
 
 <div align="center"><sub>Checksummed GitHub release · no login, no network — details in <a href="#quick-start">Quick start</a>.</sub></div>
+
+---
+
+## Contents
+
+**Get it running:** [Quick start](#quick-start) · [More ways to run](#more-ways-to-run)
+
+**See it work:** [Results](#results) · [Philosophy](#philosophy--optimize-the-journey-not-the-hop) · [What LemonCrow does](#what-lemoncrow-does) · [Understand what the agent did](#understand-what-the-agent-did) · [Agents and skills](#agents-and-skills) · [Code hygiene](#code-hygiene)
+
+**Know the edges:** [What it does not do](#what-lemoncrow-does-not-do) · [Privacy and network behavior](#privacy-and-network-behavior) · [Supported environments](#supported-environments)
+
+**Everything else:** [Roadmap](#roadmap--savings-optimization) · [Learn more](#learn-more) · [Removal](#removal) · [Why I built this](#why-i-built-this) · [Building from source](#development--building-from-source) · [License](#license)
 
 ---
 
@@ -158,15 +173,82 @@ What's unchanged: the host, the model, your workflow — internals: [Architectur
 
 **Caveat — Cursor (CLI vs IDE).** Built-ins can't be hidden there, so
 LemonCrow is additive — Claude Code and Codex can displace most of their
-built-in toolset, Cursor can't. Measured on SWE-bench Lite (10 tasks,
-`cursor-grok-4.5-high`, matched prompts): **Cursor CLI + LemonCrow was ~40%
-cheaper** than Cursor CLI baseline (tokens −39.8%, cost −41.2%); the same
-tasks in **Cursor IDE did not show that saving** — CLI is the cheaper Cursor
-path today. Reproduce from `reports/benchmark/swe/20260802T121526Z/`. One
-flagged inference in that number: Cursor's server-side cache-write choice is
-implied from hit rates (1 − billed/integral), not confirmed in their docs or
-exposed via local counters — treat the caching mechanism as unproven; the
-cost delta itself is measured from Usage/token totals on the pinned run.
+built-in toolset, Cursor can't.
+
+- Measured on SWE-bench Lite (10 tasks, `cursor-grok-4.5-high`, matched
+  prompts): **Cursor CLI + LemonCrow was ~40% cheaper** than the Cursor CLI
+  baseline (tokens −39.8%, cost −41.2%).
+- The same tasks in **Cursor IDE did not show that saving** — CLI is the
+  cheaper Cursor path today. Reproduce from
+  `reports/benchmark/swe/20260802T121526Z/`.
+- One flagged inference in that number: Cursor's server-side cache-write
+  choice is implied from hit rates (1 − billed/integral), not confirmed in
+  their docs or exposed via local counters — treat the caching mechanism as
+  unproven. The cost delta itself is measured from Usage/token totals on the
+  pinned run.
+
+### Understand what the agent did
+
+When agents write a lot more code, the bottleneck moves to reading it. Three
+commands answer *what did they actually do* — deterministically. No model is
+called, no prose is generated, and every gap is named rather than guessed:
+
+```bash
+lc review           # what changed, what it affects, which session made it, what was tested
+lc review --staged  # ... for exactly what you are about to commit
+lc review --open    # ... in the three-pane local review workspace
+lc usage            # where your AI usage went, by host / model / project / day
+lc model add http://localhost:11434/v1 --name ollama  # your own endpoint, probed not assumed
+```
+
+The first screen is a diff with an order and a reason. The second one is the
+reason to use it — review is a loop, because the agent comes back:
+
+```bash
+lc review --mark src/auth.py                       # I read this one
+lc review --comment "ttl is hardcoded" --on src/auth.py:L81
+#   ... the agent revises ...
+lc review --since-my-review                        # what does my approval no longer cover?
+lc review --feedback                               # hand the objections back
+```
+
+```
+CHANGED SINCE MY REVIEW  (1)   src/auth.py         <- you approved it; it was rewritten
+UNCHANGED REVIEWED       (9)   nothing to re-read  <- work you do not redo
+COMMENT ANCHORS  relocated  src/auth.py L81→L87    <- your comment followed the code
+```
+
+Marks are bound to content, not line numbers, so ten lines added above a
+function do not reopen it and a rewrite of its body does. A comment is
+re-anchored only when the new location is unambiguous — otherwise it is
+**orphaned rather than moved**, and a discarded verdict is announced, never
+quietly dropped. Ten-minute hands-on tour:
+[`lc review` walkthrough](docs/reference/review-walkthrough.md).
+
+`lc review` orders files by review risk instead of by path, names the call sites
+a change reaches but did **not** touch, and prints the agent session behind it
+alongside whatever test evidence exists.
+
+It is just as explicit about what it can't establish:
+
+- session-to-commit correlation is a heuristic (`--session-id` overrides it);
+- files-read capture exists only on Claude Code;
+- test status comes only from recorded exit codes — nothing is ever
+  synthesized as `PASS`.
+
+The packet always ends with `Human review REQUIRED`.
+
+`lc usage` reports what was spent rather than a guess dressed as a number: an
+unpriced local model reads `local`, subscription usage reads `seat`, unpriced
+rows are counted out loud instead of folded in at zero, and every total states
+the basis it was computed on. `lc model` registers any OpenAI-compatible
+endpoint — vLLM, Ollama, LM Studio, an internal gateway — and probes its real
+capabilities so routing does not have to assume them.
+
+Adjacent: `lc run explain` (one run, every line citing the record it came from),
+`lc resume-context` (a bounded continuation brief for the next session), and
+`lc context doctor` (what your context declares vs. what your sessions use).
+Full flags and real output: [CLI reference](docs/reference/cli.md).
 
 ## Quick start
 
@@ -207,6 +289,13 @@ prompt with the pairing code:
 | ChatGPT                         | Settings → Plugins → Browse Plugins → (next to search) + → Create |
 | Claude (web, desktop, mobile)   | Settings → Connectors → Add custom connector                       |
 | Cursor / VS Code / Zed / others | Add a remote (streamable-HTTP) MCP server                          |
+
+> ⚠ The pairing code is a password — don't share the tunnel URL. This
+> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
+> server runs. Stop it (Ctrl-C) when you're done.
+
+<details>
+<summary><strong>Persistent URLs, background service, flags, and known quirks</strong></summary>
 
 The pairing code is stored per server, so restarting `lc mcp serve` keeps the
 same code — nothing to re-type. Use `--new-pairing-code` to rotate it, or
@@ -250,9 +339,7 @@ client sent and got back.
 **Known ChatGPT-side quirk:** persistent connections are far more reliable — ChatGPT can lose tool access mid-conversation on a fresh message and won't regain it without reattaching; workaround: branch off the chat, reattach the tool, continue.
 **Permissions:** connection or reconnect complaints usually mean Settings → Plugins needs `Allow All` for the tool.
 
-> ⚠ The pairing code is a password — don't share the tunnel URL. This
-> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
-> server runs. Stop it (Ctrl-C) when you're done.
+</details>
 
 ### Inspect your past sessions (Offline Replay, dry mode)
 
@@ -411,8 +498,9 @@ exactly what was removed and preserved. Preview with `--dry-run`.
 
 ## Why I built this
 
-I'm a solo builder, previously at Google doing performance optimization and cost savings. I kept burning my weekly credits before the week was out. Every
-"token-saving" tool I tried showed a curated slice of tasks where it won — never the full spread. Claimed 50-70% savings that didn't hold across task variety; in practice they either saved too little to justify the complexity, or the fat system prompts they add offset whatever they saved.
+I'm a solo builder, previously at Google doing performance optimization and cost savings. I kept burning my weekly credits before the week was out.
+
+Every "token-saving" tool I tried showed a curated slice of tasks where it won — never the full spread. Claimed 50-70% savings that didn't hold across task variety; in practice they either saved too little to justify the complexity, or the fat system prompts they add offset whatever they saved.
 
 So I built LemonCrow and measured in absolute dollars, not curated wins
 ([BENCHMARKS.md](BENCHMARKS.md)) — across SWE-bench, Terminal-Bench, and even
@@ -444,6 +532,6 @@ It runs locally: files on your machine, no server, no seats.
 team workspaces shared across machines, shared context and memory, SSO, org-wide
 usage dashboards, retention and audit export, and support. The runtime stays
 open source — the service is what's sold. Interested, or want it run for you?
-Contact <legal@lemoncrow.com>.
+Contact <contact@lemoncrow.com>.
 
 See [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -164,7 +164,7 @@ def apply_settings_env(root: str | Path | None = None, *, env: dict[str, str] | 
     try:
         resolved_root = Path(root) if root is not None else _resolve_root()
         raw = load_raw(resolved_root)
-    except Exception:  # noqa: BLE001 - settings must never block a plain `import lemoncrow`
+    except Exception:
         return
     for key, value in raw.items():
         spec = _BY_KEY.get(key)

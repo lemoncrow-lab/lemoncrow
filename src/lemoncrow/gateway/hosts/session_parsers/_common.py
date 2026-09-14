@@ -525,12 +525,36 @@ def persist_imported_run_snapshot(
             "total_cache_read_tokens": sum(int(call["cache_read_tokens"]) for call in calls),
             "total_cache_write_tokens": sum(int(call["cache_write_tokens"]) for call in calls),
         },
-        "events": [],
     }
 
     path = run_dir / "run.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # Merge, never clobber. The hooks write ``file_edit`` / ``command_result``
+    # events and a ``git`` anchor into this same file at edit time; a bare
+    # write_text of an importer-computed payload with ``"events": []`` destroyed
+    # every one of them on the next ``lc usage`` or session import. Those events
+    # are the only exact record of who authored a change, and nothing can
+    # reconstruct them afterwards, so the on-disk value wins for the three keys
+    # the importer cannot know and the computed keys win everywhere else.
+    existing = _read_run_snapshot(path)
+    merged: dict[str, Any] = dict(existing)
+    merged.update(payload)
+    for key in ("events", "files_touched", "git"):
+        recorded = existing.get(key)
+        if recorded:
+            merged[key] = recorded
+    merged.setdefault("events", [])
+    path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     return path
+
+
+def _read_run_snapshot(path: Path) -> dict[str, Any]:
+    """Return the run.json already on disk, or ``{}`` when there is nothing usable."""
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _tool_args_hash(args: dict[str, Any] | None) -> str:
