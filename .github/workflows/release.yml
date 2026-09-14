@@ -145,6 +145,9 @@ jobs:
       - name: Delete old releases (keep latest 3)
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job intentionally has no checkout. Give gh explicit repo
+          # context so it never tries to discover a .git directory.
+          GH_REPO: ${{ github.repository }}
         run: |
           RELEASES=$(gh release list --limit 100 --json tagName,createdAt \
             | jq -r 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
