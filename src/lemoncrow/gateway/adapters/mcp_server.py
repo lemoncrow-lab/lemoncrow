@@ -3689,23 +3689,19 @@ def _record_session_cwd(name: str, args: Any) -> None:
         _last_session_cwd = cwd.strip()
 
 
-def _session_worktree_root(workspace_root: Path) -> Path | None:
-    """The linked git worktree the session is working in, else None.
+def _linked_worktree_root(workspace_root: Path, candidate_dir: Path) -> Path | None:
+    """The linked worktree of ``workspace_root`` that contains ``candidate_dir``, else None.
 
     Detected without spawning git: a linked worktree's ``.git`` is a *file*
     holding ``gitdir: <path>``, and for a worktree of THIS repo that path lives
     under ``<workspace_root>/.git/worktrees/``. A normal checkout has ``.git``
     as a directory, which ends the walk immediately.
 
-    Returns None for every uncertain case -- no recorded cwd, a plain
-    directory, a worktree belonging to a different repo -- so resolution falls
-    back to the workspace root exactly as before.
+    Returns None for every uncertain case -- a plain directory, a worktree
+    belonging to a different repo, the workspace root itself.
     """
-    recorded = _last_session_cwd
-    if not recorded:
-        return None
     try:
-        candidate = Path(recorded).expanduser().resolve()
+        candidate = candidate_dir.expanduser().resolve()
         if not candidate.is_dir():
             return None
         root = workspace_root.resolve()
@@ -3726,6 +3722,19 @@ def _session_worktree_root(workspace_root: Path) -> Path | None:
     except OSError:
         return None
     return None
+
+
+def _session_worktree_root(workspace_root: Path) -> Path | None:
+    """The linked git worktree the session is working in, else None.
+
+    Returns None for every uncertain case -- no recorded cwd, a plain
+    directory, a worktree belonging to a different repo -- so resolution falls
+    back to the workspace root exactly as before.
+    """
+    recorded = _last_session_cwd
+    if not recorded:
+        return None
+    return _linked_worktree_root(workspace_root, Path(recorded))
 
 
 # Thread-local slot for passing real tokens_saved from tool handlers to the
@@ -5447,7 +5456,7 @@ def render_tool_result_text(name: str, result: Any) -> str | None:
         # `resolved_against` rides as a one-liner suffix like vcs_status rather
         # than tripping the JSON fallback -- a redirected edit is still a clean
         # success and should not render as a structured dump.
-        base_keys = keys - {"vcs_status", "resolved_against"}
+        base_keys = keys - {"vcs_status", "resolved_against", "resolved_against_source"}
         if base_keys <= {"calls_saved"}:
             text = "ok"
         elif base_keys <= {"applied", "calls_saved"}:
@@ -5459,7 +5468,10 @@ def render_tool_result_text(name: str, result: Any) -> str | None:
         if text:
             resolved_against = payload.get("resolved_against")
             if isinstance(resolved_against, str) and resolved_against:
-                text = f"{text} | resolved against worktree {resolved_against} (from last bash cwd)"
+                if payload.get("resolved_against_source") == "explicit":
+                    text = f"{text} | resolved against root {resolved_against} (explicit root argument)"
+                else:
+                    text = f"{text} | resolved against worktree {resolved_against} (from last bash cwd)"
             vcs_raw = payload.get("vcs_status")
             vcs = vcs_raw if isinstance(vcs_raw, dict) else {}
             vcs_lines = vcs.get("lines")
@@ -6811,6 +6823,71 @@ def _collect_touched_paths(edits: list[dict[str, Any]], *, repo_root: str | Path
     return dict(sorted(paths.items()))
 
 
+# Scratch directories writes are allowed into besides the workspace and any
+# opted-in additional directory: staging a file before moving it in is ordinary
+# tool work, and refusing it would break callers that predate `root=`. One
+# literal covers macOS's /tmp -> /private/tmp symlink, because every root is
+# resolved before it is compared.
+_SCRATCH_EDIT_ROOTS: tuple[Path, ...] = (Path("/tmp"),)
+
+
+def _resolve_explicit_edit_root(raw_root: str, *, workspace_root: Path, extra_roots: list[Path]) -> Path | None:
+    """Validate an explicit ``root=`` for edit resolution; None when out of bounds.
+
+    Accepts the workspace root (and anything under it), a linked worktree of it
+    -- worktrees often live outside the repo directory -- and any directory
+    already opted in for writes. Anything else is refused rather than honored:
+    a root naming a foreign checkout would misdirect writes exactly the way the
+    inference this argument exists to override can.
+    """
+    candidate = Path(raw_root).expanduser()
+    if not candidate.is_absolute():
+        candidate = workspace_root / candidate
+    try:
+        candidate = candidate.resolve()
+        if not candidate.is_dir():
+            return None
+    except OSError:
+        return None
+    root = workspace_root.resolve()
+    if candidate == root or candidate.is_relative_to(root):
+        return candidate
+    if _linked_worktree_root(workspace_root, candidate) is not None:
+        return candidate
+    # Resolved on both sides: an additional directory reached through a symlink
+    # (or the /tmp literal on macOS) contains nothing lexically.
+    if any(candidate == r or candidate.is_relative_to(r) for r in (extra.resolve() for extra in extra_roots)):
+        return candidate
+    return None
+
+
+def _ambiguous_relative_edit_paths(
+    edits: list[dict[str, Any]], *, inferred_root: Path, workspace_root: Path
+) -> list[tuple[str, list[Path]]]:
+    """Relative edit paths naming an existing file under more than one root.
+
+    Returns ``(raw_path, [existing candidate, ...])`` for each edit whose
+    relative path resolves onto a real file in both the inferred worktree and
+    the workspace root. A path that exists in one root is unambiguous, and one
+    that exists in neither is a create -- neither is reported.
+    """
+    roots = [inferred_root.resolve(), workspace_root.resolve()]
+    if roots[0] == roots[1]:
+        return []
+    ambiguous: list[tuple[str, list[Path]]] = []
+    for edit in edits:
+        raw = str(edit.get("file_path") or edit.get("path") or "")
+        if not raw:
+            continue
+        candidate = Path(_snapshot_path(raw))
+        if candidate.is_absolute():
+            continue
+        hits = [root / candidate for root in roots if (root / candidate).is_file()]
+        if len(hits) > 1:
+            ambiguous.append((raw, hits))
+    return ambiguous
+
+
 def _snapshot_paths(paths: dict[str, Path]) -> dict[str, tuple[Path, bool, str | None]]:
     """Snapshot each file's pre-edit state for rollback.
 
@@ -7314,6 +7391,13 @@ EDIT_TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "root": {
+            "type": "string",
+            "description": (
+                "Directory relative paths resolve against — the workspace root, one of its "
+                "worktrees, or an allowed dir. Beats the inferred worktree."
+            ),
+        },
     },
 }
 
@@ -7517,6 +7601,7 @@ def _silence_clean_edit_result(result: dict[str, Any]) -> dict[str, Any]:
         # which is exactly where a wrong worktree inference would hide.
         if "resolved_against" in result:
             silent["resolved_against"] = result["resolved_against"]
+            silent["resolved_against_source"] = result.get("resolved_against_source", "inferred")
         return silent
     for key in _EDIT_NOISE_KEYS:
         result.pop(key, None)
@@ -7605,7 +7690,8 @@ def _anchor_snippet(text: str, limit: int = _RETRY_ANCHOR_CHARS) -> str:
         "call, even same-file (ranges use the original snapshot). {path, old, new} "
         "only without a fresh range. Whole or brand-new file: {path, new, "
         "replace:true}. Minified-view line numbers → add :minified "
-        "('f.py:minified:L10-L14'). No re-read after success."
+        "('f.py:minified:L10-L14'). root='/abs/dir' pins where relative paths "
+        "resolve (worktrees). No re-read after success."
     ),
     param_aliases={"post_edit_hooks": "hooks"},
     # Policy knobs, not agent choices: accepted by name (tests, power use) but
@@ -7623,6 +7709,7 @@ def _anchor_snippet(text: str, limit: int = _RETRY_ANCHOR_CHARS) -> str:
 )
 def tool_smart_edit(
     edits: list[dict[str, Any]],
+    root: str | None = None,
     atomic: bool = True,
     hooks: bool = True,
     post_edit_timeout_ms: int = 30_000,
@@ -7660,22 +7747,84 @@ def tool_smart_edit(
     # `resolved_against` rides on the result, survives the clean-success
     # squelch, and renders as a suffix on the one-liner. Absolute paths are
     # unaffected -- _resolve_snapshot_path only applies a root to relative ones.
+    # A caller who knows the checkout passes `root` and skips the guessing
+    # entirely; see _resolve_explicit_edit_root.
     _session_worktree = _session_worktree_root(repo_root)
-    _edit_root = _session_worktree or repo_root
     edits = [_normalize_edit_aliases(e) for e in edits]
     _require_edits(edits)
 
-    paths = _collect_touched_paths(edits, repo_root=_edit_root)
     # Confine writes to the workspace root plus any additional directories from
     # Claude Code's additionalDirectories setting or LEMONCROW_ADDITIONAL_DIRS env.
     # Read tools accept any absolute path; writes need explicit opt-in.
-    # Path("/tmp").resolve() as well as "/tmp": on macOS /tmp is a symlink to
-    # /private/tmp, and the candidates below are resolved, so the bare literal
-    # never matched and the /tmp allowance was dead on that platform.
-    _extra_roots = [*_claude_additional_dirs(repo_root), Path("/tmp"), Path("/tmp").resolve()]
+    # _SCRATCH_EDIT_ROOTS carries the scratch allowance ("/tmp") and needs no
+    # twin "/private/tmp" entry: _allowed_edit_roots resolves every root before
+    # comparing, so one literal covers macOS's symlink.
+    _extra_roots = [*_claude_additional_dirs(repo_root), *_SCRATCH_EDIT_ROOTS]
     if _session_worktree is not None:
         _extra_roots.append(_session_worktree)
-    _allowed_edit_roots = [repo_root, _edit_root, *_extra_roots]
+
+    # An explicit `root` is the caller NAMING the checkout, so it outranks both
+    # the inference and the workspace root, and nothing is guessed underneath
+    # it. Out of bounds is refused, never quietly ignored.
+    _explicit_root: Path | None = None
+    if isinstance(root, str) and root.strip():
+        _explicit_root = _resolve_explicit_edit_root(root, workspace_root=repo_root, extra_roots=_extra_roots)
+        if _explicit_root is None:
+            return {
+                "failed": [
+                    {
+                        "paths": [root],
+                        "error": (
+                            f"root {root} is not this workspace ({repo_root}), one of its linked "
+                            "worktrees, or an allowed additional directory -- pass one of those, or "
+                            "drop root to resolve against the workspace root"
+                        ),
+                    }
+                ],
+                "rolled_back": True,
+            }
+        _extra_roots.append(_explicit_root)
+    _edit_root = _explicit_root or _session_worktree or repo_root
+    # Resolved against resolved. Touched paths arrive through
+    # _resolve_snapshot_path's .resolve(), while _workspace_root() hands back
+    # whatever the env or CLI gave it -- a macOS /tmp or /var path, a home
+    # reached through a symlink -- and is_relative_to is purely lexical, so an
+    # unresolved root lexically contains none of its own files. Compare the
+    # resolved forms; the escape error still prints the caller's own path.
+    _allowed_edit_roots = [_candidate.resolve() for _candidate in (repo_root, _edit_root, *_extra_roots)]
+    # Every later membership test below takes a RESOLVED path, so it needs the
+    # resolved root for the same reason -- under a symlinked workspace an
+    # unresolved one silently drops all hook diagnostics and every path the
+    # contract review would have read.
+    _repo_root_resolved = repo_root.resolve()
+
+    # A relative path naming an existing file in BOTH the inferred worktree and
+    # the workspace root has no right answer: the worktree came from another
+    # tool's cwd, not from the caller, so choosing one writes a correct change
+    # into a checkout nobody named (observed: an edit landing in an unrelated
+    # task's worktree). Refuse and make the caller say which. A path that exists
+    # under exactly one root, or under neither (a create), still resolves.
+    if _explicit_root is None and _session_worktree is not None:
+        _ambiguous = _ambiguous_relative_edit_paths(edits, inferred_root=_edit_root, workspace_root=repo_root)
+        if _ambiguous:
+            _collisions = "; ".join(
+                f"{raw} exists in " + " and ".join(str(hit) for hit in hits) for raw, hits in _ambiguous
+            )
+            return {
+                "failed": [
+                    {
+                        "paths": [raw for raw, _hits in _ambiguous],
+                        "error": (
+                            f"ambiguous relative edit path: {_collisions}. The worktree was inferred "
+                            "from the last bash cwd, not named by you -- pass an absolute path, or "
+                            "root=<dir>, to say which checkout you mean"
+                        ),
+                    }
+                ],
+                "rolled_back": True,
+            }
+
+    paths = _collect_touched_paths(edits, repo_root=_edit_root)
 
     _escaped_edit_paths = [
         str(_p) for _p in paths.values() if not any(_p == _r or _p.is_relative_to(_r) for _r in _allowed_edit_roots)
@@ -7891,7 +8040,11 @@ def tool_smart_edit(
 
         from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
-        result = apply_rich_edits(edits, atomic=atomic, repo_root=_edit_root, allowed_roots=_extra_roots)
+        # The SAME roots the confinement check above allows, not just the extras:
+        # rich_edit._resolve confines to [repo_root=_edit_root, *allowed_roots], so
+        # passing only _extra_roots dropped the main checkout and refused every
+        # absolute path under it while a worktree was inferred.
+        result = apply_rich_edits(edits, atomic=atomic, repo_root=_edit_root, allowed_roots=_allowed_edit_roots)
 
         # Sync the long-lived engine's index-version cache so the next explore
         # call gets a cache miss and re-queries the FTS5 index (which the
@@ -8029,7 +8182,7 @@ def tool_smart_edit(
         result["diagnostics"] = [
             d
             for d in result["diagnostics"]
-            if d.get("severity") in ("error", "warning") and _diag_in_repo_root(d, repo_root)
+            if d.get("severity") in ("error", "warning") and _diag_in_repo_root(d, _repo_root_resolved)
         ]
         if not result["diagnostics"]:
             result.pop("diagnostics")
@@ -8046,7 +8199,7 @@ def tool_smart_edit(
                 msg = d.get("message", "")
                 return f"{loc} {code}: {msg}" if code else f"{loc}: {msg}"
 
-            _diag_lines = [_fmt_diag(d, repo_root) for d in result.pop("diagnostics")]
+            _diag_lines = [_fmt_diag(d, _repo_root_resolved) for d in result.pop("diagnostics")]
             # Cap: a touched file with many pre-existing findings must not dump
             # an unbounded lint report into the edit result.
             if len(_diag_lines) > _EDIT_DIAG_CAP:
@@ -8091,15 +8244,23 @@ def tool_smart_edit(
             result,
             edits,
             repo_root=repo_root,
-            touched_paths=[str(p.relative_to(repo_root)) for p in paths.values() if p.is_relative_to(repo_root)],
+            touched_paths=[
+                str(p.relative_to(_repo_root_resolved)) for p in paths.values() if p.is_relative_to(_repo_root_resolved)
+            ],
         )
         # Incremental: refresh the shared index for the touched files now, so a
         # follow-up search/explore reflects this edit without the autosync lag.
         _reindex_edited_files(repo_root, [str(p) for p in paths.values()])
-    # Disclose the worktree redirect. It is an inference, so a wrong one has to
-    # be visible in the same breath as the write it misdirected.
-    if _session_worktree is not None:
+    # Disclose which root the relative paths resolved against, and whether the
+    # caller named it: an inference that went wrong has to be visible in the
+    # same breath as the write it misdirected, and an explicit root carries the
+    # trust an inference does not.
+    if _explicit_root is not None:
+        result["resolved_against"] = str(_explicit_root)
+        result["resolved_against_source"] = "explicit"
+    elif _session_worktree is not None:
         result["resolved_against"] = str(_session_worktree)
+        result["resolved_against_source"] = "inferred"
     return _silence_clean_edit_result(result)
 
 

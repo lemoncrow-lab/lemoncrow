@@ -575,9 +575,11 @@ def test_schema_top_level_params_have_descriptions() -> None:
 
     props = EDIT_TOOL_INPUT_SCHEMA["properties"]
     # atomic/hooks are hidden policy knobs: absent from the advertised schema,
-    # still accepted by the handler by name.
-    assert set(props) == {"edits"}
+    # still accepted by the handler by name. `root` IS advertised -- a caller
+    # cannot pin path resolution to a checkout it never learns about.
+    assert set(props) == {"edits", "root"}
     assert props["edits"]["description"].strip()
+    assert props["root"]["description"].strip()
     for hidden in ("atomic", "hooks"):
         assert hidden in TOOLS["edit"]["handler"].__wrapped__.__code__.co_varnames
 
@@ -1325,9 +1327,13 @@ def _repo_with_worktree(root: Path) -> Path:
 
 
 def test_relative_edit_follows_the_session_into_a_worktree(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A relative path writes to the worktree the session is in, not the main checkout."""
+    """A relative path writes to the worktree the session is in, not the main checkout.
+
+    The file exists ONLY in the worktree here -- one candidate root, so the
+    redirect is unambiguous. A path that exists in both checkouts is refused
+    instead (see the ambiguity test below).
+    """
     wt = _repo_with_worktree(workspace)
-    (workspace / "target.txt").write_text("MAIN\n", encoding="utf-8")
     (wt / "target.txt").write_text("WORKTREE\n", encoding="utf-8")
     monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
 
@@ -1341,7 +1347,142 @@ def test_relative_edit_follows_the_session_into_a_worktree(workspace: Path, monk
     assert "failed" not in payload, payload
     assert (wt / "target.txt").read_text(encoding="utf-8") == "EDITED\n"
     # The whole point: the main checkout is untouched.
-    assert (workspace / "target.txt").read_text(encoding="utf-8") == "MAIN\n"
+    assert not (workspace / "target.txt").exists()
+
+
+def test_relative_path_in_both_checkouts_is_refused_not_guessed(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An inferred worktree must not pick a checkout when the path exists in both.
+
+    The same repo-relative path usually exists in the worktree AND the main
+    checkout; the worktree came from another tool's cwd, so resolving to it
+    silently writes a correct change into a copy the caller never named.
+    """
+    wt = _repo_with_worktree(workspace)
+    (workspace / "target.txt").write_text("SHARED\n", encoding="utf-8")
+    (wt / "target.txt").write_text("SHARED\n", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "target.txt", "old_string": "SHARED", "new_string": "EDITED"}],
+        }
+    )
+
+    assert payload["rolled_back"] is True, payload
+    error = payload["failed"][0]["error"]
+    # Both candidates are named, so the caller can pick one without re-deriving them.
+    assert str(wt / "target.txt") in error, error
+    assert str(workspace / "target.txt") in error, error
+    assert "root=" in error, error
+    assert (wt / "target.txt").read_text(encoding="utf-8") == "SHARED\n"
+    assert (workspace / "target.txt").read_text(encoding="utf-8") == "SHARED\n"
+
+
+def test_relative_create_under_an_inferred_worktree_is_not_refused(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path that exists in no candidate root has nothing to collide with."""
+    wt = _repo_with_worktree(workspace)
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    text = _edit_text(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "fresh.txt", "new_string": "NEW\n", "replace": True}],
+        }
+    )
+
+    assert "failed" not in text, text
+    assert (wt / "fresh.txt").read_text(encoding="utf-8") == "NEW\n"
+    assert not (workspace / "fresh.txt").exists()
+    # A create still discloses the redirect it was resolved through.
+    assert f"resolved against worktree {wt} (from last bash cwd)" in text, text
+
+
+def test_explicit_root_beats_the_inferred_worktree(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`root` is the caller naming the checkout, so nothing is inferred under it."""
+    wt = _repo_with_worktree(workspace)
+    (workspace / "target.txt").write_text("SHARED\n", encoding="utf-8")
+    (wt / "target.txt").write_text("SHARED\n", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    text = _edit_text(
+        {
+            "post_edit_hooks": False,
+            "root": str(workspace),
+            "edits": [{"file_path": "target.txt", "old_string": "SHARED", "new_string": "EDITED"}],
+        }
+    )
+
+    assert (workspace / "target.txt").read_text(encoding="utf-8") == "EDITED\n"
+    assert (wt / "target.txt").read_text(encoding="utf-8") == "SHARED\n"
+    # Disclosed like the inference, but marked as the caller's choice -- the two
+    # carry different trust.
+    assert f"resolved against root {workspace} (explicit root argument)" in text, text
+
+
+def test_explicit_root_outside_the_workspace_is_refused(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A root that is neither this workspace, a worktree of it, nor an allowed dir.
+
+    The scratch allowance is dropped for the duration: pytest's basetemp lives
+    under /tmp on Linux, which is a real allowed write root, so a directory
+    placed there is legitimately in bounds and the refusal under test would
+    never fire. Removing the allowance is what makes `outside` outside on every
+    platform -- the companion test below pins the allowance itself.
+    """
+    wt = _repo_with_worktree(workspace)
+    monkeypatch.setattr(mcp_server, "_SCRATCH_EDIT_ROOTS", ())
+    outside = tmp_path.parent / "outside-root"
+    outside.mkdir(parents=True, exist_ok=True)
+    (outside / "target.txt").write_text("OUTSIDE\n", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "root": str(outside),
+            "edits": [{"file_path": "target.txt", "old_string": "OUTSIDE", "new_string": "EDITED"}],
+        }
+    )
+
+    assert payload["rolled_back"] is True, payload
+    assert str(outside) in payload["failed"][0]["error"], payload
+    assert (outside / "target.txt").read_text(encoding="utf-8") == "OUTSIDE\n"
+
+
+def test_explicit_root_under_a_scratch_root_is_allowed(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scratch root is a real write root, so naming one as `root` is in bounds.
+
+    Writes under the scratch allowance predate `root=` -- staging a file before
+    moving it in is ordinary tool work -- so validating the argument must not
+    quietly narrow what was already writable.
+    """
+    wt = _repo_with_worktree(workspace)
+    # Outside the workspace, or the workspace root would allow it on its own and
+    # the scratch allowance under test would carry nothing.
+    scratch = tmp_path.parent / "scratch-root"
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "target.txt").write_text("SCRATCH\n", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "_SCRATCH_EDIT_ROOTS", (scratch,))
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "root": str(scratch),
+            "edits": [{"file_path": "target.txt", "old_string": "SCRATCH", "new_string": "EDITED"}],
+        }
+    )
+
+    assert "failed" not in payload, payload
+    assert (scratch / "target.txt").read_text(encoding="utf-8") == "EDITED\n"
 
 
 def test_worktree_redirect_is_disclosed_to_the_model(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1393,6 +1534,62 @@ def test_a_worktree_of_another_repo_does_not_redirect(
     monkeypatch.setattr(mcp_server, "_last_session_cwd", str(foreign_wt))
 
     assert mcp_server._session_worktree_root(workspace) is None
+
+
+def test_absolute_main_checkout_path_survives_a_worktree_inference(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An inferred worktree must not refuse absolute paths in the main checkout.
+
+    The handler confines writes to [repo_root, edit_root, *extras] but used to
+    hand rich_edit only the extras, so its own second check -- against
+    [edit_root, *allowed_roots] -- never saw the main checkout and rejected
+    every absolute path under it as a workspace escape.
+    """
+    wt = _repo_with_worktree(workspace)
+    target = workspace / "main_only.txt"
+    target.write_text("MAIN\n", encoding="utf-8")
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": str(target), "old_string": "MAIN", "new_string": "EDITED"}],
+        }
+    )
+
+    assert "failed" not in payload, payload
+    assert target.read_text(encoding="utf-8") == "EDITED\n"
+
+
+def test_absolute_edit_under_a_symlinked_workspace_root_is_not_an_escape(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workspace reached through a symlink still contains its own files.
+
+    Touched paths come back resolved, while the workspace root arrives however
+    the env handed it over -- and ``is_relative_to`` is lexical, so an
+    unresolved root lexically contains none of its own files. On macOS every
+    workspace under /tmp or /var reaches the handler this way.
+    """
+    real = workspace / "real"
+    real.mkdir()
+    link = workspace / "link"
+    link.symlink_to(real, target_is_directory=True)
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(link))
+    wt = _repo_with_worktree(real)
+    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
+    (link / "main_only.txt").write_text("MAIN\n", encoding="utf-8")
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": str(link / "main_only.txt"), "old_string": "MAIN", "new_string": "EDITED"}],
+        }
+    )
+
+    assert "failed" not in payload, payload
+    assert (real / "main_only.txt").read_text(encoding="utf-8") == "EDITED\n"
 
 
 def test_bash_cwd_is_what_teaches_edit_where_the_session_is(monkeypatch: pytest.MonkeyPatch) -> None:

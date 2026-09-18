@@ -137,7 +137,11 @@ def _resolve(root: Path, raw_path: str, allowed_roots: list[Path] | None = None)
     path = Path(spec.path)
     resolved = path if path.is_absolute() else root / path
     resolved = resolved.resolve()
-    roots = [root, *(allowed_roots or [])]
+    # `resolved` is resolved, so the roots must be too: is_relative_to is
+    # lexical, and a root carrying a symlink (macOS /tmp, /var, a symlinked
+    # home) lexically contains none of its own files. The message below still
+    # names `root` as the caller passed it.
+    roots = [Path(r).resolve() for r in (root, *(allowed_roots or []))]
     if not any(resolved == r or resolved.is_relative_to(r) for r in roots):
         raise ValueError(
             f"path escape denied: {raw_path} is outside the workspace root {root} — "
