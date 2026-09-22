@@ -539,7 +539,8 @@ SETTINGS: list[SettingSpec] = [
         "int",
         None,
         "code_context",
-        "Poll interval (ms) the code index autosync uses to check for changes.",
+        "Interval (ms) between the code index autosync's full-tree checks for changes: default 300000 "
+        "(5 minutes), minimum 60000. A git HEAD move reindexes within a minute without waiting for it.",
     ),
     SettingSpec(
         "code_context.file_watcher",

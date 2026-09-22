@@ -179,6 +179,69 @@ _MAX_FILE_BYTES = 1_000_000
 # it's a real ceiling only for large monorepos, which is exactly what Pro's
 # uncapped large-repo indexing is for.
 _FREE_TIER_MAX_FILES = 2_500
+# file_line_fts.rowid is (files.rowid << _LINE_ROWID_BITS) | line, so one file's
+# line rows occupy one contiguous rowid range and a reindex drops them with a
+# single range delete instead of scanning the whole table on the UNINDEXED
+# file_path. Every line number has to fit in the low bits, which a file capped at
+# _MAX_FILE_BYTES bytes -- hence at most that many lines -- always does.
+_LINE_ROWID_BITS = 20
+_LINE_ROWID_MASK = (1 << _LINE_ROWID_BITS) - 1
+assert _MAX_FILE_BYTES <= _LINE_ROWID_MASK, "_LINE_ROWID_BITS cannot address every line of a _MAX_FILE_BYTES file"
+# The one definition of each FTS5 table's shape. `_init_schema`, the fts.sqlite
+# bootstrap in `_init_secondary_schemas_locked` and the drop-and-recreate full
+# rebuild in `_index_repo_unsafe` all build their DDL from here, so a column,
+# tokenizer or prefix change reaches every one of them -- a rebuild that spelled
+# out its own DDL could silently recreate a table `_schema_current` then rejects.
+_FTS_TABLE_BODY: dict[str, str] = {
+    # prefix indexes turn the "term"* prefix-channel MATCH from a term-range scan +
+    # doclist merge into direct doclist seeks for prefixes of 2-6 chars (the bulk of
+    # what _fts_prefix_query_from_terms emits after IDF pruning). Results are
+    # identical; cost is index size. _schema_current greps the stored SQL for
+    # `prefix=`, so dropping it here also re-triggers that migration.
+    "symbol_fts": (
+        "fts5(symbol_id UNINDEXED, name, qualified_name, signature," " file_path UNINDEXED, source, prefix='2 3 4 5 6')"
+    ),
+    # Read-only term->document-frequency view over symbol_fts (zero write cost,
+    # auto-maintained). Powers IDF pruning of common query tokens.
+    "symbol_fts_vocab": "fts5vocab(symbol_fts, 'row')",
+    # Trigram tokenizer handles substring matching natively; signature is omitted
+    # (5x size amplification, and symbol_fts already covers it).
+    "symbol_trigram": "fts5(symbol_id UNINDEXED, name, qualified_name, file_path, tokenize='trigram')",
+    # One row per FILE (not per symbol like symbol_trigram): the path channel in
+    # _search_symbols_local matches path patterns against this much smaller table
+    # (file-cardinality: thousands even on a huge repo) and joins back to symbols via
+    # idx_symbols_repo_file, instead of scanning symbol_trigram's one-row-per-symbol
+    # duplication of every file's path.
+    "file_path_trigram": "fts5(repo_id UNINDEXED, file_path, tokenize='trigram')",
+    "file_line_fts": "fts5(repo_id UNINDEXED, file_path UNINDEXED, line UNINDEXED, text)",
+}
+
+
+def _fts_create_sql(table: str, *, schema: str = "", if_not_exists: bool = False) -> str:
+    """``CREATE VIRTUAL TABLE`` for one FTS5 table, from the single definition of its shape."""
+    exists = "IF NOT EXISTS " if if_not_exists else ""
+    qualified = f"{schema}.{table}" if schema else table
+    return f"CREATE VIRTUAL TABLE {exists}{qualified} USING {_FTS_TABLE_BODY[table]}"
+
+
+def _rowid_tables_dense(conn: sqlite3.Connection) -> bool:
+    """True when ``files`` and ``symbols`` occupy rowids 1..N with no gaps.
+
+    Both are rowid tables without an ``INTEGER PRIMARY KEY``, and SQLite is free to
+    renumber such a table's rowids during ``VACUUM`` -- while the FTS5 shadow tables
+    keyed on those rowids (``_apply_file_data_batch``) keep theirs, because every
+    shadow table does have one. The renumbering is the identity map only while the
+    rowids are already dense, which is exactly the state a full rebuild leaves
+    behind. Anywhere else a VACUUM would silently repoint every FTS row at a
+    different file or symbol, so the caller skips it: the cost is disk, not data.
+    """
+    for table in ("files", "symbols"):
+        row = conn.execute(f"SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM {table}").fetchone()
+        if row is None or int(row[0]) != int(row[1]):
+            return False
+    return True
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -349,7 +412,8 @@ _SEARCH_COMPACT_DEFAULT_KEYS = set([*_SEARCH_ESSENTIAL_KEYS, "score", "commit_sh
 _LINEAGE_INDEX_VERSION = 2
 # Bump when source selection or symbol/text extraction semantics change in a way
 # an incremental mtime/hash check cannot see for unchanged files.
-_CODE_INDEXER_SEMANTICS_VERSION = 2
+# 3: FTS5 rows carry explicit rowids derived from files.rowid / symbols.rowid.
+_CODE_INDEXER_SEMANTICS_VERSION = 3
 _LINEAGE_DEFAULT_SCORE_PENALTY = 0.1
 
 # --- File-watcher constants ---
@@ -972,6 +1036,31 @@ def _safe_relpath(repo_root: Path, path: Path) -> str:
         return str(resolved.relative_to(repo_root))
     except ValueError:
         return str(resolved)
+
+
+def _dir_cached_relpath(repo_root: Path) -> Callable[[Path], str]:
+    """``_safe_relpath`` that resolves each directory once instead of once per file.
+
+    ``Path.resolve`` lstat()s every component of the path, so one call per file of
+    a 17k-file tree is ~2 s of syscalls on every index run. A file that is not
+    itself a symlink resolves to its parent's resolution joined with its name, and
+    parents repeat, so only they need resolving -- and only once each.
+    """
+    parents: dict[Path, Path] = {}
+
+    def relpath(path: Path) -> str:
+        if path.is_symlink():
+            return _safe_relpath(repo_root, path)
+        parent = parents.get(path.parent)
+        if parent is None:
+            parent = parents[path.parent] = path.parent.resolve()
+        resolved = parent / path.name
+        try:
+            return str(resolved.relative_to(repo_root))
+        except ValueError:
+            return str(resolved)
+
+    return relpath
 
 
 # Binary/non-text extensions to skip when walking non-source files for the
@@ -2576,6 +2665,15 @@ def _resolve_index_max_workers() -> int:
     return _memory_capped_index_workers(os.cpu_count() or 1)
 
 
+# The autosync loop wakes once per tick to check git HEAD, which costs one
+# `git rev-parse`. The full-tree check stat-walks every source file, so it runs
+# once per poll interval, never more often than the floor.
+_AUTOSYNC_TICK_MS = 60_000
+_AUTOSYNC_MIN_POLL_MS = 60_000
+_AUTOSYNC_DEFAULT_POLL_MS = 300_000
+_AUTOSYNC_GIT_HEAD_TIMEOUT_S = 3.0
+
+
 def _resolve_autosync_index_max_workers() -> int:
     """Worker count for background autosync indexing.
 
@@ -3702,6 +3800,9 @@ class CodeContextEngine:
         self._autosync_pending_events = 0
         self._autosync_reindex_count = 0
         self._autosync_history: list[dict[str, Any]] = []
+        self._autosync_head: str | None = None
+        # Monotonic ms, unlike the wall-clock _autosync_last_sync_ms.
+        self._autosync_last_full_check_ms: int | None = None
         # Counts completed tool calls; used to pace the periodic heap trim.
         self._tool_call_count: int = 0
         self._last_heap_trim_ts: float = 0.0
@@ -3947,8 +4048,23 @@ class CodeContextEngine:
         conn: sqlite3.Connection,
         results: list[_FileIndexData],
     ) -> None:
-        """Batch-insert all extracted data using ``executemany`` (single writer)."""
+        """Batch-insert all extracted data using ``executemany`` (single writer).
+
+        Every FTS5 row is written with an explicit rowid taken from the regular
+        table it mirrors, which is what lets :meth:`_delete_files_index` find it
+        again without a full-table scan. That makes the rowid a key: exactly one
+        FTS row may exist per ``files`` / ``symbols`` row, so a path or symbol_id
+        repeated inside one batch is written once.
+        """
         # --- files ---
+        seen_rels: set[str] = set()
+        deduped: list[_FileIndexData] = []
+        for d in results:
+            if d.rel in seen_rels:
+                continue
+            seen_rels.add(d.rel)
+            deduped.append(d)
+        results = deduped
         conn.executemany(
             """
             INSERT INTO files(repo_id, file_path, language, content_hash, size_bytes, mtime_ns, indexed_at)
@@ -3962,6 +4078,14 @@ class CodeContextEngine:
             """,
             [(self.repo_id, d.rel, d.language, d.content_hash, d.size_bytes, d.mtime_ns) for d in results],
         )
+        file_rowids: dict[str, int] = {
+            str(row["file_path"]): int(row["rowid"])
+            for row in conn.execute(
+                "SELECT rowid, file_path FROM files "
+                "WHERE repo_id = ? AND file_path IN (SELECT value FROM json_each(?))",
+                (self.repo_id, json.dumps(sorted(seen_rels))),
+            )
+        }
 
         # --- symbols + FTS ---
         symbol_rows: list[
@@ -3985,10 +4109,18 @@ class CodeContextEngine:
         ] = []
         fts_rows: list[tuple[str, str, str, str, str, str]] = []
         trigram_rows: list[tuple[str, str, str, str]] = []  # (symbol_id, name_plain, qualified_name, file_path)
+        seen_symbol_ids: set[str] = set()
         for d in results:
             for i, sym in enumerate(d.symbols):
                 raw_id = f"{self.repo_id}:{d.rel}:{sym.qualified_name}:{sym.start_byte}:{d.content_hash}"
                 sid = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:24]
+                if sid in seen_symbol_ids:
+                    # Two extracted symbols collapsing to one symbol_id (same file,
+                    # qualified name and start byte) yield one `symbols` row under
+                    # INSERT OR IGNORE, hence one rowid -- and a second FTS row for
+                    # that rowid would be a duplicate key, not a second symbol.
+                    continue
+                seen_symbol_ids.add(sid)
                 symbol_rows.append(
                     (
                         sid,
@@ -4030,25 +4162,46 @@ class CodeContextEngine:
             """,
             symbol_rows,
         )
+        symbol_rowids: dict[str, int] = {
+            str(row["symbol_id"]): int(row["rowid"])
+            for row in conn.execute(
+                "SELECT rowid, symbol_id FROM symbols WHERE symbol_id IN (SELECT value FROM json_each(?))",
+                (json.dumps(sorted(seen_symbol_ids)),),
+            )
+        }
         conn.executemany(
-            "INSERT INTO symbol_fts(symbol_id, name, qualified_name, signature, file_path, source) VALUES (?, ?, ?, ?, ?, ?)",
-            fts_rows,
+            "INSERT INTO symbol_fts(rowid, symbol_id, name, qualified_name, signature, file_path, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(symbol_rowids[r[0]], r[0], r[1], r[2], r[3], r[4], r[5]) for r in fts_rows if r[0] in symbol_rowids],
         )
         conn.executemany(
-            "INSERT INTO symbol_trigram(symbol_id, name, qualified_name, file_path) VALUES (?, ?, ?, ?)",
-            trigram_rows,
+            "INSERT INTO symbol_trigram(rowid, symbol_id, name, qualified_name, file_path) VALUES (?, ?, ?, ?, ?)",
+            [(symbol_rowids[r[0]], r[0], r[1], r[2], r[3]) for r in trigram_rows if r[0] in symbol_rowids],
         )
         conn.executemany(
-            "INSERT INTO file_path_trigram(repo_id, file_path) VALUES (?, ?)",
-            [(self.repo_id, d.rel) for d in results],
+            "INSERT INTO file_path_trigram(rowid, repo_id, file_path) VALUES (?, ?, ?)",
+            [(file_rowids[d.rel], self.repo_id, d.rel) for d in results if d.rel in file_rowids],
         )
 
         # --- line text + FTS ---
-        line_rows: list[tuple[str, str, int, str]] = []
+        line_rows: list[tuple[int, str, str, int, str]] = []
         for d in results:
-            line_rows.extend((self.repo_id, d.rel, line_no, text) for line_no, text in d.text_lines if text.strip())
+            base = file_rowids.get(d.rel)
+            if base is None:
+                continue
+            base <<= _LINE_ROWID_BITS
+            for line_no, text in d.text_lines:
+                if not text.strip():
+                    continue
+                if line_no > _LINE_ROWID_MASK:
+                    # Past the rowid range reserved for this file; packing it anyway
+                    # would write into the next file's range. Only reachable if a file
+                    # grew past _MAX_FILE_BYTES between its stat and its read.
+                    logger.warning("context_engine: %s exceeds %d lines; indexing the first", d.rel, _LINE_ROWID_MASK)
+                    break
+                line_rows.append((base | line_no, self.repo_id, d.rel, line_no, text))
         conn.executemany(
-            "INSERT INTO file_line_fts(repo_id, file_path, line, text) VALUES (?, ?, ?, ?)",
+            "INSERT INTO file_line_fts(rowid, repo_id, file_path, line, text) VALUES (?, ?, ?, ?, ?)",
             line_rows,
         )
 
@@ -4229,15 +4382,32 @@ class CodeContextEngine:
 
         with self._connect() as conn:
             self._init_schema(conn)
-            if not force and self._stored_indexer_semantics_version(conn) != _CODE_INDEXER_SEMANTICS_VERSION:
+            if not force and not self._rowid_scheme_trustworthy(conn):
                 force = True
 
             if force:
                 # --- Full rebuild: wipe everything, then parallel-extract + batch-write ---
-                conn.execute("DELETE FROM file_line_fts")
-                conn.execute("DELETE FROM symbol_fts")
-                conn.execute("DELETE FROM symbol_trigram")
-                conn.execute("DELETE FROM file_path_trigram")
+                # DROP + CREATE rather than DELETE: emptying file_line_fts row by row
+                # is 12.4M deletes on a large repo. Python's sqlite3 opens a
+                # transaction implicitly for DML but never for DDL, so without an
+                # explicit BEGIN the first DROP would commit on its own and show every
+                # reader an empty index for the length of the rebuild.
+                if not conn.in_transaction:
+                    conn.execute("BEGIN")
+                # file_line_fts lives in the attached fts database; the rest in main.
+                # symbol_fts_vocab is an fts5vocab view over symbol_fts, so it drops
+                # first and is recreated last -- hence the reversed second pass.
+                _rebuilt = (
+                    ("fts", "file_line_fts"),
+                    ("main", "symbol_fts_vocab"),
+                    ("main", "symbol_fts"),
+                    ("main", "symbol_trigram"),
+                    ("main", "file_path_trigram"),
+                )
+                for _schema, _fts_table in _rebuilt:
+                    conn.execute(f"DROP TABLE IF EXISTS {_schema}.{_fts_table}")
+                for _schema, _fts_table in reversed(_rebuilt):
+                    conn.execute(_fts_create_sql(_fts_table, schema=_schema))
                 conn.execute("DELETE FROM symbols")
                 conn.execute("DELETE FROM imports")
                 conn.execute('DELETE FROM "references"')
@@ -4283,9 +4453,11 @@ class CodeContextEngine:
 
                 to_extract: list[tuple[Path, bytes]] = []  # (path, source_bytes)
                 current_paths: set[str] = set()
+                stale: list[str] = []
+                relpath = _dir_cached_relpath(self.repo_root)
 
                 for path in all_files:
-                    rel = _safe_relpath(self.repo_root, path)
+                    rel = relpath(path)
                     current_paths.add(rel)
                     try:
                         stat = path.stat()
@@ -4293,7 +4465,7 @@ class CodeContextEngine:
                         continue
                     if stat.st_size > _MAX_FILE_BYTES:
                         if rel in existing:
-                            self._delete_file_index(conn, rel)
+                            stale.append(rel)
                         continue
                     previous = existing.get(rel)
                     # Fast path: a file whose (size, mtime) matches the indexed row
@@ -4324,12 +4496,11 @@ class CodeContextEngine:
                             (int(stat.st_mtime_ns), self.repo_id, rel),
                         )
                         continue
-                    self._delete_file_index(conn, rel)
+                    stale.append(rel)
                     to_extract.append((path, source_bytes))
 
                 removed_paths = set(existing.keys()) - current_paths
-                for rel in sorted(removed_paths):
-                    self._delete_file_index(conn, rel)
+                self._delete_files_index(conn, [*stale, *sorted(removed_paths)])
 
                 if to_extract:
                     paths = [item[0] for item in to_extract]
@@ -4412,7 +4583,13 @@ class CodeContextEngine:
                 if _vac_db.exists():
                     with contextlib.suppress(Exception):
                         _vc = sqlite3.connect(str(_vac_db))
-                        _vc.execute("VACUUM")
+                        # VACUUM renumbers the rowids of a table with no INTEGER
+                        # PRIMARY KEY, and `files`/`symbols` rowids are what every FTS5
+                        # row is keyed on. Dense after the rebuild that just ran, that
+                        # renumbering is the identity map; sparse, it would repoint
+                        # every FTS row at another file, so leave the free pages be.
+                        if _vac_db != self.db_path or _rowid_tables_dense(_vc):
+                            _vc.execute("VACUUM")
                         _vc.close()
 
         with self._connect() as conn:
@@ -4455,6 +4632,39 @@ class CodeContextEngine:
         except (TypeError, ValueError):
             return None
 
+    def _rowid_scheme_trustworthy(self, conn: sqlite3.Connection) -> bool:
+        """True when this index's FTS5 rowids still identify the rows they mirror.
+
+        ``_apply_file_data_batch`` keys every FTS row on a ``files``/``symbols`` rowid
+        and ``_delete_files_index`` finds it again by that rowid alone, so both sides
+        have to come from the same index generation. Two states break that, and the
+        drop-and-recreate rebuild this returning False forces heals both: an index
+        written before the scheme existed (a stale stored semantics version), and a
+        schema migration that empties ``files`` while leaving the FTS tables loaded
+        (``_init_schema``'s pre-prefix symbol_fts migration and
+        ``_init_secondary_schemas_locked``'s references/call_edges reshape both do).
+        In the second state the rowids handed back to the repopulated ``files`` rows
+        are the ones the surviving FTS rows already occupy, so the deletes no-op and
+        the inserts collide -- and ``_stored_indexer_semantics_version`` cannot see it,
+        because an emptied ``files`` table reads exactly like a never-indexed one.
+        """
+        if self._stored_indexer_semantics_version(conn) != _CODE_INDEXER_SEMANTICS_VERSION:
+            return False
+        if conn.execute("SELECT 1 FROM files WHERE repo_id = ? LIMIT 1", (self.repo_id,)).fetchone() is not None:
+            return True
+        # Only the tables keyed on files.rowid can collide: those migrations leave
+        # `symbols`, and so the symbol_fts/symbol_trigram rowids, intact. The probe is
+        # scoped to this repo because a shared db_path holds other repos' rows too, and
+        # the rebuild a False forces wipes every repo's index, not just this one's.
+        for table in ("file_path_trigram", "fts.file_line_fts"):
+            with contextlib.suppress(sqlite3.Error):
+                if (
+                    conn.execute(f"SELECT 1 FROM {table} WHERE repo_id = ? LIMIT 1", (self.repo_id,)).fetchone()
+                    is not None
+                ):
+                    return False
+        return True
+
     def _stamp_indexer_semantics_version(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """
@@ -4464,47 +4674,65 @@ class CodeContextEngine:
             (str(_CODE_INDEXER_SEMANTICS_VERSION),),
         )
 
-    def _delete_file_index(self, conn: sqlite3.Connection, rel: str) -> None:
-        conn.execute("DELETE FROM file_line_fts WHERE repo_id = ? AND file_path = ?", (self.repo_id, rel))
-        conn.execute("DELETE FROM file_path_trigram WHERE repo_id = ? AND file_path = ?", (self.repo_id, rel))
-        conn.execute(
-            """
-            DELETE FROM symbol_trigram
-            WHERE symbol_id IN (
-                SELECT symbol_id FROM symbols WHERE repo_id = ? AND file_path = ?
+    def _delete_files_index(self, conn: sqlite3.Connection, rels: list[str]) -> None:
+        """Remove every indexed row for the files *rels*, in one pass per table.
+
+        ``file_path`` and ``symbol_id`` are UNINDEXED columns of the FTS5 tables, so
+        a delete filtered on either scans the whole table -- ~2 s per scan on a
+        12M-line index. Issued once per changed file, that made an incremental run
+        after a pull outlive the autosync subprocess's 600 s timeout: it was killed
+        before it committed, and the next run started over.
+        Every FTS row is therefore written under a rowid taken from the regular table
+        it mirrors (``_apply_file_data_batch``), which the regular tables index on
+        ``file_path``, so each delete below is a rowid seek. EXPLAIN QUERY PLAN on a
+        12M-line index: ``SCAN symbol_fts VIRTUAL TABLE INDEX 0:=`` for the rowid IN
+        form and ``0:><`` for the file_line_fts range, against a constraint-free
+        ``0:`` for the file_path filter they replace.
+        """
+        if not rels:
+            return
+        batch = json.dumps(rels)
+        paths = "SELECT value FROM json_each(?)"
+        symbols = f"SELECT symbol_id FROM symbols WHERE repo_id = ? AND file_path IN ({paths})"
+        # Read the rowids before the regular tables lose the rows that carry them.
+        file_rowids = [
+            int(row[0])
+            for row in conn.execute(
+                f"SELECT rowid FROM files WHERE repo_id = ? AND file_path IN ({paths})", (self.repo_id, batch)
             )
-            """,
-            (self.repo_id, rel),
+        ]
+        symbol_rowids = json.dumps(
+            [
+                int(row[0])
+                for row in conn.execute(
+                    f"SELECT rowid FROM symbols WHERE repo_id = ? AND file_path IN ({paths})", (self.repo_id, batch)
+                )
+            ]
         )
-        conn.execute(
-            """
-            DELETE FROM symbol_fts
-            WHERE symbol_id IN (
-                SELECT symbol_id FROM symbols WHERE repo_id = ? AND file_path = ?
-            )
-            """,
-            (self.repo_id, rel),
-        )
-        # Prune persisted embeddings for this file's symbols *before* the symbols
+        for file_rowid in file_rowids:
+            low = file_rowid << _LINE_ROWID_BITS
+            conn.execute("DELETE FROM file_line_fts WHERE rowid BETWEEN ? AND ?", (low, low | _LINE_ROWID_MASK))
+        conn.execute(f"DELETE FROM file_path_trigram WHERE rowid IN ({paths})", (json.dumps(file_rowids),))
+        conn.execute(f"DELETE FROM symbol_trigram WHERE rowid IN ({paths})", (symbol_rowids,))
+        conn.execute(f"DELETE FROM symbol_fts WHERE rowid IN ({paths})", (symbol_rowids,))
+        # Prune persisted embeddings for these files' symbols *before* the symbols
         # themselves. symbol_id encodes the file content hash, so an edited or
         # removed file yields fresh ids -- without this the old vectors orphan
         # (never overwritten, never cleaned) and pollute semantic ranking. The
         # vector table is created lazily, so guard against its absence.
         with contextlib.suppress(sqlite3.OperationalError):
             conn.execute(
-                """
-                DELETE FROM symbol_vectors
-                WHERE repo_id = ? AND symbol_id IN (
-                    SELECT symbol_id FROM symbols WHERE repo_id = ? AND file_path = ?
-                )
-                """,
-                (self.repo_id, self.repo_id, rel),
+                f"DELETE FROM symbol_vectors WHERE repo_id = ? AND symbol_id IN ({symbols})",
+                (self.repo_id, self.repo_id, batch),
             )
-        conn.execute("DELETE FROM symbols WHERE repo_id = ? AND file_path = ?", (self.repo_id, rel))
-        conn.execute("DELETE FROM imports WHERE repo_id = ? AND source_file = ?", (self.repo_id, rel))
-        conn.execute('DELETE FROM "references" WHERE repo_id = ? AND file_path = ?', (self.repo_id, rel))
-        conn.execute("DELETE FROM call_edges WHERE repo_id = ? AND caller_file_path = ?", (self.repo_id, rel))
-        conn.execute("DELETE FROM files WHERE repo_id = ? AND file_path = ?", (self.repo_id, rel))
+        for table, column in (
+            ("symbols", "file_path"),
+            ("imports", "source_file"),
+            ('"references"', "file_path"),
+            ("call_edges", "caller_file_path"),
+            ("files", "file_path"),
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE repo_id = ? AND {column} IN ({paths})", (self.repo_id, batch))
 
     def tool_index(
         self,
@@ -8726,7 +8954,7 @@ class CodeContextEngine:
         # Skip symbols whose vector is already current. symbol_id encodes the file
         # content hash, so an unchanged symbol keeps its id across reindexes and is
         # skipped here; an edited symbol gets a new id and its stale vector is pruned
-        # by _delete_file_index. index_version stays provenance-only -- gating on it
+        # by _delete_files_index. index_version stays provenance-only -- gating on it
         # would make every reindex re-embed the whole repo instead of just the delta.
         fresh = self._ann_symbol_index.existing_stamped_ids(conn, embedder_name=embedder.name, embedding_dim=dim)
         pending = [sym for sym in (_row_to_symbol(row) for row in rows) if sym.symbol_id not in fresh]
@@ -10930,14 +11158,7 @@ class CodeContextEngine:
         self.fts_db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.fts_db_path, timeout=30.0) as fc:
             fc.execute("PRAGMA journal_mode = WAL")
-            fc.executescript("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS file_line_fts USING fts5(
-                    repo_id UNINDEXED,
-                    file_path UNINDEXED,
-                    line UNINDEXED,
-                    text
-                );
-            """)
+            fc.execute(_fts_create_sql("file_line_fts", if_not_exists=True))
 
         # Recompute AFTER the DDL: the files may have just been created, so the
         # pre-DDL identity (with (-1, -1) placeholders) must not be cached.
@@ -11225,40 +11446,6 @@ class CodeContextEngine:
                 doc_summary TEXT,
                 content_hash TEXT NOT NULL
             );
-            -- prefix indexes turn the "term"* prefix-channel MATCH from a
-            -- term-range scan + doclist merge into direct doclist seeks for
-            -- prefixes of 2-6 chars (the bulk of what _fts_prefix_query_from_terms
-            -- emits after IDF pruning). Results are identical; cost is index size.
-            CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(
-                symbol_id UNINDEXED,
-                name,
-                qualified_name,
-                signature,
-                file_path UNINDEXED,
-                source,
-                prefix='2 3 4 5 6'
-            );
-            -- Read-only term->document-frequency view over the FTS index (zero write
-            -- cost, auto-maintained). Powers IDF pruning of common query tokens.
-            CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts_vocab USING fts5vocab(symbol_fts, 'row');
-            CREATE VIRTUAL TABLE IF NOT EXISTS symbol_trigram USING fts5(
-                symbol_id UNINDEXED,
-                name,
-                qualified_name,
-                file_path,
-                tokenize='trigram'
-            );
-            -- One row per FILE (not per symbol like symbol_trigram): the path
-            -- channel in _search_symbols_local matches path patterns against this
-            -- much smaller table (file-cardinality: thousands even on a huge repo)
-            -- and joins back to symbols via idx_symbols_repo_file, instead of
-            -- scanning symbol_trigram's one-row-per-symbol duplication of every
-            -- file's path.
-            CREATE VIRTUAL TABLE IF NOT EXISTS file_path_trigram USING fts5(
-                repo_id UNINDEXED,
-                file_path,
-                tokenize='trigram'
-            );
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_name_nocase
                 ON symbols(repo_id, symbol_name COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_symbols_repo_qual_nocase
@@ -11294,6 +11481,8 @@ class CodeContextEngine:
             CREATE INDEX IF NOT EXISTS idx_commit_author_date ON commit_chunks(author_date);
             CREATE INDEX IF NOT EXISTS idx_commit_files ON commit_chunks(files_touched);
             """)
+        for _fts_table in ("symbol_fts", "symbol_fts_vocab", "symbol_trigram", "file_path_trigram"):
+            conn.execute(_fts_create_sql(_fts_table, if_not_exists=True))
         # Migration: older DBs predate the files.mtime_ns column used to fast-skip
         # unchanged files during incremental reindex. CREATE TABLE IF NOT EXISTS
         # never adds a column to an existing table, so add it here when absent.
@@ -11308,25 +11497,22 @@ class CodeContextEngine:
             _trig_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(symbol_trigram)")}
             if "signature" in _trig_cols:
                 conn.execute("DROP TABLE IF EXISTS symbol_trigram")
-                conn.execute(
-                    "CREATE VIRTUAL TABLE symbol_trigram USING fts5("
-                    " symbol_id UNINDEXED, name, qualified_name, file_path,"
-                    " tokenize='trigram')"
-                )
+                conn.execute(_fts_create_sql("symbol_trigram"))
         # Backfill the substring trigram index for DBs built before it existed, so the
         # substring/path channels use the index instead of full-scanning symbols.
         if conn.execute("SELECT 1 FROM symbol_trigram LIMIT 1").fetchone() is None:
             if conn.execute("SELECT 1 FROM symbols LIMIT 1").fetchone() is not None:
                 conn.execute(
-                    "INSERT INTO symbol_trigram(symbol_id, name, qualified_name, file_path) "
-                    "SELECT symbol_id, symbol_name, qualified_name, file_path FROM symbols"
+                    "INSERT INTO symbol_trigram(rowid, symbol_id, name, qualified_name, file_path) "
+                    "SELECT rowid, symbol_id, symbol_name, qualified_name, file_path FROM symbols"
                 )
         # Backfill the file-level path trigram index for DBs built before it existed
         # (see _search_symbols_local's path channel).
         if conn.execute("SELECT 1 FROM file_path_trigram LIMIT 1").fetchone() is None:
             if conn.execute("SELECT 1 FROM files LIMIT 1").fetchone() is not None:
                 conn.execute(
-                    "INSERT INTO file_path_trigram(repo_id, file_path) SELECT DISTINCT repo_id, file_path FROM files"
+                    "INSERT INTO file_path_trigram(rowid, repo_id, file_path) "
+                    "SELECT rowid, repo_id, file_path FROM files"
                 )
         # Migration: symbol_fts built before the prefix indexes existed. FTS5 cannot
         # add prefix indexes to an existing table, so drop and recreate it empty
@@ -11339,12 +11525,12 @@ class CodeContextEngine:
         if _fts_sql_row is not None and "prefix=" not in str(_fts_sql_row[0] or ""):
             conn.execute("DROP TABLE IF EXISTS symbol_fts_vocab")
             conn.execute("DROP TABLE IF EXISTS symbol_fts")
-            conn.execute(
-                "CREATE VIRTUAL TABLE symbol_fts USING fts5("
-                " symbol_id UNINDEXED, name, qualified_name, signature,"
-                " file_path UNINDEXED, source, prefix='2 3 4 5 6')"
-            )
-            conn.execute("CREATE VIRTUAL TABLE symbol_fts_vocab USING fts5vocab(symbol_fts, 'row')")
+            conn.execute(_fts_create_sql("symbol_fts"))
+            conn.execute(_fts_create_sql("symbol_fts_vocab"))
+            # `files` is emptied so the change detector sees every file as new, which
+            # leaves file_path_trigram / file_line_fts holding rows under rowids the
+            # repopulated `files` rows will be handed again. _rowid_scheme_trustworthy
+            # recognises that state and forces the full rebuild that clears them.
             conn.execute("DELETE FROM files")
         conn.execute("INSERT OR IGNORE INTO engine_state(key, value) VALUES ('index_version', '0')")
         # Self-heal DBs built before planner statistics were collected: with data
@@ -11503,6 +11689,8 @@ class CodeContextEngine:
         # autosync always on in practice; index will be built by the worker
 
     def _excluded(self, path: Path, patterns: list[str]) -> bool:
+        if not patterns:
+            return False
         rel = _safe_relpath(self.repo_root, path)
         return any(fnmatch.fnmatch(rel, pattern) for pattern in patterns)
 
@@ -13407,8 +13595,13 @@ class CodeContextEngine:
                     return
                 with self._connect() as conn:
                     self._init_schema(conn)
-                    for rel in rels:
-                        self._delete_file_index(conn, rel)
+                    if not self._rowid_scheme_trustworthy(conn):
+                        # The stored index's FTS rowids mean nothing: deleting by one
+                        # would drop another symbol's row, and inserting at one would
+                        # collide. The full rebuild this state forces in
+                        # _index_repo_unsafe picks these files up instead.
+                        return
+                    self._delete_files_index(conn, rels)
                     results = (
                         self._parallel_extract(existing_paths, total=len(existing_paths)) if existing_paths else []
                     )
@@ -14650,32 +14843,36 @@ class CodeContextEngine:
             logging.exception("code index subprocess error for %s", self.repo_root)
             return False
 
-    def _maybe_autosync_reindex(self, *, _from_watcher: bool = False) -> None:
+    def _maybe_autosync_reindex(self, *, known_change: str | None = None) -> bool:
         if not self._autosync_lock.acquire(blocking=False):
-            return
+            return False
         try:
-            self._maybe_autosync_reindex_locked(_from_watcher=_from_watcher)
+            return self._maybe_autosync_reindex_locked(known_change=known_change)
         finally:
             self._autosync_lock.release()
 
-    def _maybe_autosync_reindex_locked(self, *, _from_watcher: bool = False) -> None:
-        # When called from the file watcher we already know a change happened,
-        # so skip the expensive _source_tree_signature() stat walk entirely.
-        if _from_watcher:
+    def _maybe_autosync_reindex_locked(self, *, known_change: str | None = None) -> bool:
+        """Reindex if the tree changed; True iff a reindex ran and succeeded.
+
+        ``known_change`` names a change the caller already detected (the file
+        watcher, or a HEAD move). It forces the reindex, bypassing the tree
+        check and the debounce window, and is recorded as the reindex's reason.
+        """
+        if known_change is not None:
             self._autosync_state = "syncing"
             if not self._run_index_subprocess():
                 # Reindex failed; leave the signature/pending state stale so the
                 # next poll retries instead of recording a failed sync as done.
                 self._autosync_state = "idle"
-                self._record_autosync_event(event="reindex", reason="watcher_triggered", reindexed=False)
-                return
+                self._record_autosync_event(event="reindex", reason=known_change, reindexed=False)
+                return False
             self._autosync_signature = self._source_tree_signature()
             self._autosync_last_sync_ms = int(time.time() * 1000)
             self._autosync_pending_events = 0
             self._autosync_state = "idle"
             self._autosync_reindex_count += 1
-            self._record_autosync_event(event="reindex", reason="watcher_triggered", reindexed=True)
-            return
+            self._record_autosync_event(event="reindex", reason=known_change, reindexed=True)
+            return True
 
         current_signature = self._source_tree_signature()
         if self._autosync_signature is None:
@@ -14683,31 +14880,33 @@ class CodeContextEngine:
             self._autosync_last_sync_ms = int(time.time() * 1000)
             self._autosync_state = "idle"
             self._record_autosync_event(event="bootstrap", reason="seed_signature", reindexed=False)
-            return
+            return False
         if current_signature == self._autosync_signature:
             self._autosync_state = "idle"
             self._autosync_pending_events = 0
-            return
+            self._record_autosync_event(event="full_check", reason="unchanged", reindexed=False)
+            return False
         now_ms = int(time.time() * 1000)
         self._autosync_last_event_at = datetime.now(UTC).isoformat()
         self._autosync_pending_events = max(1, self._autosync_pending_events + 1)
         if now_ms - self._autosync_last_sync_ms < self._autosync_debounce_ms:
             self._autosync_state = "debouncing"
             self._record_autosync_event(event="change_detected", reason="within_debounce_window", reindexed=False)
-            return
+            return False
         self._autosync_state = "syncing"
         if not self._run_index_subprocess():
             # Reindex failed; leave the signature/pending state stale so the next
             # poll retries instead of recording a failed sync as complete.
             self._autosync_state = "idle"
             self._record_autosync_event(event="reindex", reason="source_signature_changed", reindexed=False)
-            return
+            return False
         self._autosync_signature = self._source_tree_signature()
         self._autosync_last_sync_ms = int(time.time() * 1000)
         self._autosync_pending_events = 0
         self._autosync_state = "idle"
         self._autosync_reindex_count += 1
         self._record_autosync_event(event="reindex", reason="source_signature_changed", reindexed=True)
+        return True
 
     def _maybe_refresh_zoekt_index(self) -> None:
         """Keep the git-repo Zoekt shard fresh at commit granularity.
@@ -14726,10 +14925,10 @@ class CodeContextEngine:
 
     def _parse_autosync_poll_ms(self, raw_value: str | None) -> int:
         if raw_value is None:
-            return 10000
+            return _AUTOSYNC_DEFAULT_POLL_MS
         with contextlib.suppress(ValueError):
             return max(1000, int(raw_value))
-        return 10000
+        return _AUTOSYNC_DEFAULT_POLL_MS
 
     def _start_autosync_worker(self) -> None:
         if self._autosync_thread is not None:
@@ -14867,7 +15066,7 @@ class CodeContextEngine:
         self._watcher_last_event_ms = now_ms
         self._autosync_last_event_at = datetime.now(UTC).isoformat()
         self._autosync_pending_events = max(1, self._autosync_pending_events + 1)
-        self._maybe_autosync_reindex(_from_watcher=True)
+        self._maybe_autosync_reindex(known_change="watcher_triggered")
 
     def _parse_watcher_enabled(self, raw_value: str | None) -> bool:
         if raw_value is None:
@@ -14895,28 +15094,66 @@ class CodeContextEngine:
                 self._run_index_subprocess()
             except Exception:
                 logging.exception("autosync: initial index build failed")
-        # When the file watcher is active, polling is a safety net only -- the
-        # watcher handles real-time change detection. When it's absent (no
-        # `watchdog` installed, EMFILE/inotify limit, etc.) polling is the
-        # *only* detection path, but each poll still does a full source-tree
-        # stat walk + two `git ls-files` subprocesses, so it must never run
-        # hotter than the same 60s floor used for the watcher's safety net.
-        poll_ms = max(self._autosync_poll_ms, 60000)
-        while not self._autosync_stop.wait(poll_ms / 1000.0):
+        while not self._autosync_stop.wait(_AUTOSYNC_TICK_MS / 1000.0):
             try:
-                if not self.index_ready():
-                    # Still empty (e.g. the initial build lost an index-lock race
-                    # with a concurrent prewarm). Keep retrying until it exists.
-                    self._run_index_subprocess()
-                else:
-                    # Polling-based check is the safety net; skip when watcher is
-                    # active (the watcher already triggers reindex on change).
-                    if self._file_watcher is None or not self._file_watcher.is_alive():
-                        self._maybe_autosync_reindex()
-                self._maybe_refresh_zoekt_index()
+                self._autosync_tick(int(time.monotonic() * 1000))
             except Exception as exc:
                 logging.exception("Recovered from broad exception handler")
                 self._record_autosync_event(event="worker_error", reason=str(exc), reindexed=False)
+
+    def _autosync_tick(self, now_ms: int) -> None:
+        """One pass of the autosync loop; ``now_ms`` is a monotonic clock in ms.
+
+        A moved git HEAD (pull, checkout, merge, rebase) reindexes on the tick
+        that sees it. Other working-tree changes wait for the full-tree check,
+        which runs once per poll interval. Both are skipped while the file
+        watcher is alive: it already reindexes the files any change touches, a
+        checkout included, so checking HEAD too would reindex a checkout twice.
+        """
+        if not self.index_ready():
+            # Still empty (e.g. the initial build lost an index-lock race
+            # with a concurrent prewarm). Keep retrying until it exists.
+            self._run_index_subprocess()
+        elif self._file_watcher is None or not self._file_watcher.is_alive():
+            # Non-blocking like every autosync entry point: an edit's reindex
+            # may hold the lock, and the next tick checks again.
+            if self._autosync_lock.acquire(blocking=False):
+                try:
+                    self._autosync_poll_locked(now_ms)
+                finally:
+                    self._autosync_lock.release()
+        self._maybe_refresh_zoekt_index()
+
+    def _autosync_poll_locked(self, now_ms: int) -> None:
+        head = self._autosync_git_head()
+        if head is not None and self._autosync_head is not None and head != self._autosync_head:
+            # On failure keep the old HEAD, so the next tick retries.
+            if self._maybe_autosync_reindex_locked(known_change="head_moved"):
+                self._autosync_head = head
+                # The reindex reseeded the tree signature: that is a full check.
+                self._autosync_last_full_check_ms = now_ms
+            return
+        if head is not None:
+            self._autosync_head = head
+        last = self._autosync_last_full_check_ms
+        if last is None or now_ms - last >= max(self._autosync_poll_ms, _AUTOSYNC_MIN_POLL_MS):
+            self._autosync_last_full_check_ms = now_ms
+            self._maybe_autosync_reindex_locked()
+
+    def _autosync_git_head(self) -> str | None:
+        """HEAD's commit sha; None for a non-git repo or when git fails."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                timeout=_AUTOSYNC_GIT_HEAD_TIMEOUT_S,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        head = result.stdout.strip()
+        return head if result.returncode == 0 and head else None
 
     def _detected_repo_languages(self) -> frozenset[str]:
         """Lightweight language detection from file extensions in the symbol index."""
@@ -14942,15 +15179,23 @@ class CodeContextEngine:
         return frozenset(langs)
 
     def _record_autosync_event(self, *, event: str, reason: str, reindexed: bool) -> None:
+        at = datetime.now(UTC).isoformat()
+        history = self._autosync_history
+        if event == "full_check" and history and (history[-1]["event"], history[-1]["reason"]) == (event, reason):
+            # Consecutive idle checks share one entry, so they never evict the
+            # reindex, error and bootstrap entries from the bounded history.
+            history[-1] = {**history[-1], "at": at, "count": history[-1]["count"] + 1}
+            return
         entry = {
-            "at": datetime.now(UTC).isoformat(),
+            "at": at,
             "event": event,
             "reason": reason,
             "reindexed": reindexed,
+            "count": 1,
         }
-        self._autosync_history.append(entry)
-        if len(self._autosync_history) > 20:
-            self._autosync_history = self._autosync_history[-20:]
+        history.append(entry)
+        if len(history) > 20:
+            self._autosync_history = history[-20:]
 
     def _json_safe(self, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):

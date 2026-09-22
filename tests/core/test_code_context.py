@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import time
@@ -10,9 +11,11 @@ from pathlib import Path
 
 import pytest
 
+from lemoncrow.core.settings_registry import SETTINGS
 from lemoncrow.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.code_context.budget import BudgetPacker
+from lemoncrow.pro.capabilities.code_context.engine import _CODE_INDEXER_SEMANTICS_VERSION
 from lemoncrow.pro.capabilities.code_context.models import SymbolRecord, TextMatch
 from lemoncrow.pro.capabilities.code_context.output_policy import TRUNCATION_MARKER
 from lemoncrow.pro.code_intel.cross_lang.runner import CrossLangRunner
@@ -363,7 +366,7 @@ def test_incremental_index_forces_rebuild_when_indexer_semantics_version_changes
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT value FROM engine_state WHERE key = 'indexer_semantics_version'").fetchone()
     assert row is not None
-    assert int(row[0]) == 2
+    assert int(row[0]) == _CODE_INDEXER_SEMANTICS_VERSION
 
 
 def test_search_symbols_refreshes_stale_line_numbers_after_external_edit(tmp_path: Path) -> None:
@@ -1979,38 +1982,17 @@ def test_autosync_incremental_reindex_updates_index_after_edit(tmp_path: Path, m
     assert any(event["event"] == "reindex" for event in status["autosync"]["history"])
 
 
+_AUTOSYNC_MINUTE_MS = 60_000
+
+
 def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", raising=False)
     _write_fixture_repo(tmp_path)
-    monkeypatch.setenv("LEMONCROW_CODE_AUTOSYNC_DEBOUNCE_MS", "50")
-    monkeypatch.setenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", "100")
-    # Bypass the production-code poll floor (1000ms) so the worker detects
-    # changes within ~200ms instead of ~2s.
-    monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.code_context.engine.CodeContextEngine._parse_autosync_poll_ms",
-        lambda self, raw_value: max(100, int(raw_value)) if raw_value else 100,
-    )
-    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite")
-
-    for _ in range(40):
-        if engine._current_index_version() > 0:
-            break
-        time.sleep(0.05)
-    if engine._current_index_version() <= 0:
-        engine.index_repo()
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo()
+    engine._autosync_tick(0)  # the worker's first tick seeds the tree signature
     version_before = engine._current_index_version()
-    assert version_before > 0
 
-    # Wait for the autosync worker to seed its initial source-tree signature
-    # so the file write happens *after* the seed, guaranteeing the next
-    # worker poll detects the change.
-    for _ in range(40):
-        if engine._autosync_signature is not None:
-            break
-        time.sleep(0.05)
-
-    # Modern filesystems (tmpfs, ext4, xfs) have nanosecond timestamps;
-    # a brief pause is sufficient to ensure the edit timestamp advances.
-    time.sleep(0.05)
     (tmp_path / "src" / "orders.py").write_text(
         "class OrderService:\n"
         "    def calculate_total(self, items: list[int]) -> int:\n"
@@ -2020,17 +2002,184 @@ def test_autosync_worker_reindexes_without_search_trigger(tmp_path: Path, monkey
         "    pass\n",
         encoding="utf-8",
     )
+    engine._autosync_last_sync_ms -= 60_000  # outside the debounce window
+    engine._autosync_tick(5 * _AUTOSYNC_MINUTE_MS)  # the next full check, with a real reindex
 
-    for _ in range(40):
-        if engine._current_index_version() > version_before:
-            break
-        time.sleep(0.05)
-    if engine._current_index_version() <= version_before:
-        engine.index_repo(force=False)
-
+    assert engine._current_index_version() > version_before
     found = engine.search_symbols("BackgroundSyncedService", mode="lexical", limit=5, auto_index=False)
     assert found
     assert found[0].symbol_name == "BackgroundSyncedService"
+
+
+class _AutosyncProbe:
+    """Counts one engine's full-tree checks and stands in for its reindex subprocess."""
+
+    def __init__(self, engine: CodeContextEngine, monkeypatch: pytest.MonkeyPatch, reindex_results: list[bool]) -> None:
+        self.tree_walks = 0
+        # For each reindex, the tree walks counted when it started.
+        self.reindexes: list[int] = []
+        real_signature = engine._source_tree_signature
+
+        def signature() -> str:
+            self.tree_walks += 1
+            return real_signature()
+
+        def run_index_subprocess(*, force: bool = False) -> bool:
+            self.reindexes.append(self.tree_walks)
+            return reindex_results.pop(0) if reindex_results else True
+
+        monkeypatch.setattr(engine, "_source_tree_signature", signature)
+        monkeypatch.setattr(engine, "_run_index_subprocess", run_index_subprocess)
+        monkeypatch.setattr(engine, "index_ready", lambda: True)
+        monkeypatch.setattr(engine, "_maybe_refresh_zoekt_index", lambda: None)
+
+
+def _autosync_probe_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, git: bool = False, reindex_results: list[bool] | None = None
+) -> tuple[CodeContextEngine, _AutosyncProbe]:
+    repo = tmp_path / "repo"
+    if git:
+        _init_git_fixture_repo(repo)
+    else:
+        repo.mkdir()
+    _write_fixture_repo(repo)
+    if git:
+        _commit_all(repo, "initial")
+    engine = CodeContextEngine(repo, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    return engine, _AutosyncProbe(engine, monkeypatch, reindex_results or [])
+
+
+def test_autosync_idle_ticks_walk_the_tree_once_per_poll_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", raising=False)
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch)
+
+    walks_after_each_tick = []
+    for minute in range(1, 11):
+        engine._autosync_tick(minute * _AUTOSYNC_MINUTE_MS)
+        walks_after_each_tick.append(probe.tree_walks)
+
+    # The first tick seeds the signature; the next check is 5 minutes later.
+    assert walks_after_each_tick == [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+    assert probe.reindexes == []
+    assert [event["event"] for event in engine._autosync_history] == ["bootstrap", "full_check"]
+
+
+def test_autosync_idle_full_checks_fold_into_one_history_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", raising=False)
+    engine, _ = _autosync_probe_engine(tmp_path, monkeypatch)
+
+    # Two idle hours: 24 full checks, more than the 20-entry history holds.
+    for check in range(25):
+        engine._autosync_tick(check * 5 * _AUTOSYNC_MINUTE_MS)
+
+    history = [(event["event"], event["count"]) for event in engine._autosync_history]
+    assert history == [("bootstrap", 1), ("full_check", 24)]
+
+
+def test_autosync_tree_change_without_head_move_waits_for_the_poll_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", raising=False)
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch, git=True)
+    engine._autosync_tick(0)
+
+    (engine.repo_root / "src" / "orders.py").write_text("class WrittenOutsideLemonCrow:\n    pass\n", encoding="utf-8")
+    engine._autosync_last_sync_ms -= 60_000  # outside the debounce window
+    for minute in range(1, 5):
+        engine._autosync_tick(minute * _AUTOSYNC_MINUTE_MS)
+    assert probe.reindexes == []
+
+    engine._autosync_tick(5 * _AUTOSYNC_MINUTE_MS)
+
+    assert len(probe.reindexes) == 1
+    assert engine._autosync_history[-1]["reason"] == "source_signature_changed"
+
+
+def test_autosync_head_move_reindexes_on_the_next_tick_without_a_tree_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LEMONCROW_CODE_AUTOSYNC_POLL_MS", raising=False)
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch, git=True)
+    engine._autosync_tick(0)  # the first reading only seeds HEAD
+    assert probe.reindexes == []
+
+    (engine.repo_root / "src" / "orders.py").write_text("class Committed:\n    pass\n", encoding="utf-8")
+    new_head = _commit_all(engine.repo_root, "move HEAD")
+    walks_before = probe.tree_walks
+    engine._autosync_tick(_AUTOSYNC_MINUTE_MS)
+
+    assert probe.reindexes == [walks_before]
+    assert engine._autosync_head == new_head
+    last_event = engine._autosync_history[-1]
+    assert (last_event["event"], last_event["reason"], last_event["reindexed"]) == ("reindex", "head_moved", True)
+
+    # The reindex reseeded the signature, so it counts as the full check.
+    walks_after_reindex = probe.tree_walks
+    for minute in range(2, 6):
+        engine._autosync_tick(minute * _AUTOSYNC_MINUTE_MS)
+    assert probe.tree_walks == walks_after_reindex
+    engine._autosync_tick(6 * _AUTOSYNC_MINUTE_MS)
+    assert probe.tree_walks == walks_after_reindex + 1
+    assert len(probe.reindexes) == 1
+
+
+def test_autosync_failed_head_move_reindex_retries_on_the_next_tick(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch, git=True, reindex_results=[False, True])
+    engine._autosync_tick(0)
+    old_head = engine._autosync_head
+    (engine.repo_root / "src" / "orders.py").write_text("class Committed:\n    pass\n", encoding="utf-8")
+    new_head = _commit_all(engine.repo_root, "move HEAD")
+
+    engine._autosync_tick(_AUTOSYNC_MINUTE_MS)
+    assert len(probe.reindexes) == 1
+    assert engine._autosync_head == old_head
+
+    engine._autosync_tick(2 * _AUTOSYNC_MINUTE_MS)
+    assert len(probe.reindexes) == 2
+    assert engine._autosync_head == new_head
+
+
+@pytest.mark.parametrize(
+    ("configured", "interval_ms"),
+    [("not-a-number", 300_000), ("120000", 120_000), ("1000", 60_000)],
+)
+def test_autosync_poll_interval_default_override_and_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: str, interval_ms: int
+) -> None:
+    env_var = next(spec.env_var for spec in SETTINGS if spec.key == "code_context.autosync_poll_ms")
+    assert env_var is not None
+    monkeypatch.setenv(env_var, configured)
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch)
+
+    engine._autosync_tick(0)
+    engine._autosync_tick(interval_ms - 1)
+    assert probe.tree_walks == 1
+    engine._autosync_tick(interval_ms)
+    assert probe.tree_walks == 2
+
+
+def test_autosync_tick_leaves_change_detection_to_a_live_file_watcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _LiveWatcher:
+        def is_alive(self) -> bool:
+            return True
+
+    engine, probe = _autosync_probe_engine(tmp_path, monkeypatch)
+    head_reads: list[int] = []
+    monkeypatch.setattr(engine, "_autosync_git_head", lambda: head_reads.append(1))
+    monkeypatch.setattr(engine, "_file_watcher", _LiveWatcher())
+
+    for minute in range(11):
+        engine._autosync_tick(minute * _AUTOSYNC_MINUTE_MS)
+
+    assert head_reads == []
+    assert probe.tree_walks == 0
+    assert probe.reindexes == []
 
 
 def test_incremental_index_noop_does_not_bump_version(tmp_path: Path) -> None:
@@ -2080,6 +2229,411 @@ def test_incremental_index_updates_changed_and_removed_files(tmp_path: Path) -> 
         ).fetchone()
     assert row is not None
     assert int(row["n"]) == 0
+
+
+_FTS_TABLES = ("file_line_fts", "file_path_trigram", "symbol_fts", "symbol_trigram")
+_FTS_DELETE = re.compile(r"\s*DELETE FROM (" + "|".join(_FTS_TABLES) + r")\s+WHERE")
+
+
+def test_incremental_index_leaves_no_rows_for_replaced_or_removed_files(tmp_path: Path) -> None:
+    """Every table drops a changed file's old rows and a removed file's rows; the rest stay."""
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo()
+    untouched = "tests/test_checkout.py"
+    with engine._connect() as conn:
+        untouched_lines = conn.execute(
+            "SELECT COUNT(*) FROM file_line_fts WHERE file_path = ?", (untouched,)
+        ).fetchone()[0]
+    assert untouched_lines > 0
+
+    (tmp_path / "src" / "orders.py").write_text("class RenamedService:\n    pass\n", encoding="utf-8")
+    (tmp_path / "src" / "checkout.py").unlink()
+    engine.index_repo(force=False)
+
+    with engine._connect() as conn:
+
+        def count(sql: str, *args: object) -> int:
+            return int(conn.execute(sql, args).fetchone()[0])
+
+        indexed = "SELECT file_path FROM files"
+        assert count(f"SELECT COUNT(*) FROM file_line_fts WHERE file_path NOT IN ({indexed})") == 0
+        assert count(f"SELECT COUNT(*) FROM file_path_trigram WHERE file_path NOT IN ({indexed})") == 0
+        assert count(f'SELECT COUNT(*) FROM "references" WHERE file_path NOT IN ({indexed})') == 0
+        assert count(f"SELECT COUNT(*) FROM call_edges WHERE caller_file_path NOT IN ({indexed})") == 0
+        assert count(f"SELECT COUNT(*) FROM imports WHERE source_file NOT IN ({indexed})") == 0
+        live_symbols = "SELECT symbol_id FROM symbols"
+        assert count(f"SELECT COUNT(*) FROM symbol_fts WHERE symbol_id NOT IN ({live_symbols})") == 0
+        assert count(f"SELECT COUNT(*) FROM symbol_trigram WHERE symbol_id NOT IN ({live_symbols})") == 0
+
+        assert count("SELECT COUNT(*) FROM files WHERE file_path = 'src/checkout.py'") == 0
+        assert (
+            count("SELECT COUNT(*) FROM file_line_fts WHERE file_path = 'src/orders.py' AND text LIKE '%OrderService%'")
+            == 0
+        )
+        assert (
+            count("SELECT COUNT(*) FROM symbols WHERE file_path = 'src/orders.py' AND symbol_name = 'RenamedService'")
+            == 1
+        )
+        assert count("SELECT COUNT(*) FROM file_line_fts WHERE file_path = ?", untouched) == untouched_lines
+
+
+_FTS_DELETE_BY_CONTENT_KEY = re.compile(r"\b(file_path|symbol_id)\b")
+
+
+def _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine: CodeContextEngine) -> None:
+    """Each FTS5 rowid identifies the ``files``/``symbols`` row the FTS row describes.
+
+    This is the invariant the rowid-keyed deletes rely on: break it and a reindex
+    drops some other file's rows and leaves its own behind.
+    """
+    from lemoncrow.pro.capabilities.code_context.engine import _LINE_ROWID_BITS, _LINE_ROWID_MASK
+
+    with engine._connect() as conn:
+
+        def count(sql: str) -> int:
+            return int(conn.execute(sql).fetchone()[0])
+
+        symbols = count("SELECT COUNT(*) FROM symbols")
+        files = count("SELECT COUNT(*) FROM files")
+        assert symbols > 0 and files > 0
+        for table in ("symbol_fts", "symbol_trigram"):
+            assert count(f"SELECT COUNT(*) FROM {table}") == symbols
+            assert (
+                count(
+                    f"SELECT COUNT(*) FROM {table} t JOIN symbols s ON s.rowid = t.rowid "
+                    "WHERE s.symbol_id = t.symbol_id"
+                )
+                == symbols
+            )
+        assert count("SELECT COUNT(*) FROM file_path_trigram") == files
+        assert (
+            count(
+                "SELECT COUNT(*) FROM file_path_trigram t JOIN files f ON f.rowid = t.rowid "
+                "WHERE f.repo_id = t.repo_id AND f.file_path = t.file_path"
+            )
+            == files
+        )
+        lines = count("SELECT COUNT(*) FROM file_line_fts")
+        assert lines > 0
+        assert (
+            count(
+                "SELECT COUNT(*) FROM file_line_fts l "
+                f"JOIN files f ON f.rowid = (l.rowid >> {_LINE_ROWID_BITS}) "
+                f"WHERE f.file_path = l.file_path AND (l.rowid & {_LINE_ROWID_MASK}) = l.line"
+            )
+            == lines
+        )
+
+
+def test_reindexes_delete_fts_rows_by_rowid_not_by_file_path_or_symbol_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``file_path`` and ``symbol_id`` are UNINDEXED in every FTS5 table, so a delete
+    filtered on either scans the table whole -- ~2 s per run on a 12M-line index, and
+    an incremental run after a pull outlived the autosync subprocess's 600 s timeout,
+    was killed before it committed, and the next run started over. Both the batched
+    incremental run and the single-file reindex must seek by rowid instead.
+    """
+    _write_fixture_repo(tmp_path)
+    for i in range(6):
+        (tmp_path / "src" / f"extra{i}.py").write_text(f"def extra{i}():\n    return {i}\n", encoding="utf-8")
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo()
+    for i in range(6):
+        (tmp_path / "src" / f"extra{i}.py").write_text(f"def extra{i}():\n    return {i + 100}\n", encoding="utf-8")
+    (tmp_path / "src" / "checkout.py").unlink()
+
+    statements: list[str] = []
+    connect = engine._connect
+
+    def traced_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        conn = connect(*args, **kwargs)  # type: ignore[arg-type]
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(engine, "_connect", traced_connect)
+    stats = engine.index_repo(force=False)
+
+    assert stats.files_indexed == 6
+    scans = [s for s in statements if _FTS_DELETE.match(s) and _FTS_DELETE_BY_CONTENT_KEY.search(s)]
+    assert [s for s in statements if _FTS_DELETE.match(s)], "the run issued no FTS delete at all"
+    assert scans == [], f"7 stale files cost {len(scans)} FTS scans"
+
+    statements.clear()
+    orders = tmp_path / "src" / "orders.py"
+    orders.write_text("class RenamedService:\n    pass\n", encoding="utf-8")
+    engine._reindex_files([str(orders)])
+
+    assert [s for s in statements if _FTS_DELETE.match(s)], "the single-file reindex issued no FTS delete at all"
+    assert [s for s in statements if _FTS_DELETE.match(s) and _FTS_DELETE_BY_CONTENT_KEY.search(s)] == []
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+
+def test_fts_rowids_key_their_tables_after_a_full_and_an_incremental_index(tmp_path: Path) -> None:
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo(force=True)
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+    (tmp_path / "src" / "orders.py").write_text("class RenamedService:\n    pass\n", encoding="utf-8")
+    (tmp_path / "src" / "checkout.py").unlink()
+    (tmp_path / "src" / "added.py").write_text("def added() -> int:\n    return 1\n", encoding="utf-8")
+    engine.index_repo(force=False)
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+    assert [h.qualified_name for h in engine.search_symbols("RenamedService", limit=5)]
+    assert [h.qualified_name for h in engine.search_symbols("added", limit=5)]
+
+
+def test_a_symbol_id_repeated_in_one_batch_gets_exactly_one_fts_row(tmp_path: Path) -> None:
+    """``symbols`` keeps one row per symbol_id (INSERT OR IGNORE) and the FTS tables are
+    keyed on that row's rowid, so a second FTS row for the same id is not a second
+    symbol -- it is a duplicate key.
+    """
+    from lemoncrow.pro.capabilities.code_context.engine import _ExtractedSymbol, _FileIndexData
+
+    sym = _ExtractedSymbol(
+        name="dup",
+        qualified_name="dup",
+        kind="function",
+        signature="def dup() -> int",
+        start_byte=0,
+        end_byte=24,
+        start_line=1,
+        end_line=2,
+    )
+    source = "def dup() -> int:\n    return 1\n"
+    data = _FileIndexData(
+        rel="src/dup.py",
+        language="python",
+        content_hash="deadbeef",
+        size_bytes=len(source),
+        text_lines=[(1, "def dup() -> int:"), (2, "    return 1")],
+        symbols=[sym, sym],
+        symbol_sources=[source, source],
+        imports=[],
+        references=[],
+        call_edges=[],
+        mtime_ns=1,
+    )
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    with engine._connect() as conn:
+        engine._init_schema(conn)
+        engine._apply_file_data_batch(conn, [data, data])
+
+        def count(sql: str) -> int:
+            return int(conn.execute(sql).fetchone()[0])
+
+        assert count("SELECT COUNT(*) FROM symbols") == 1
+        assert count("SELECT COUNT(*) FROM symbol_fts") == 1
+        assert count("SELECT COUNT(*) FROM symbol_trigram") == 1
+        assert count("SELECT COUNT(*) FROM files") == 1
+        assert count("SELECT COUNT(*) FROM file_path_trigram") == 1
+        assert count("SELECT COUNT(*) FROM file_line_fts") == 2
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+
+def test_an_index_at_the_previous_semantics_version_is_rebuilt_into_the_rowid_scheme(tmp_path: Path) -> None:
+    """Existing workspaces carry FTS rowids that mean nothing, so the version bump has
+    to rebuild them before anything deletes or inserts by rowid.
+    """
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    first = engine.index_repo(force=True)
+
+    with engine._connect() as conn:
+        conn.execute("UPDATE engine_state SET value = '2' WHERE key = 'indexer_semantics_version'")
+        for table in ("symbol_fts", "symbol_trigram", "file_path_trigram"):
+            conn.execute(f"UPDATE {table} SET rowid = rowid + 10000")
+        conn.execute("UPDATE file_line_fts SET rowid = rowid + 10000")
+        conn.commit()
+    with pytest.raises(AssertionError):
+        _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+    # A single-file reindex must not touch a stale-scheme index: its rowid deletes
+    # would hit other files' rows. The pending rebuild picks the file up instead.
+    version_before = engine._current_index_version()
+    (tmp_path / "src" / "orders.py").write_text("class RenamedService:\n    pass\n", encoding="utf-8")
+    engine._reindex_files([str(tmp_path / "src" / "orders.py")])
+    assert engine._current_index_version() == version_before
+
+    rebuilt = engine.index_repo(force=False)
+
+    assert rebuilt.files_indexed == first.files_indexed
+    with engine._connect() as conn:
+        stored = conn.execute("SELECT value FROM engine_state WHERE key = 'indexer_semantics_version'").fetchone()
+    assert int(stored[0]) == _CODE_INDEXER_SEMANTICS_VERSION
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+    assert [h.qualified_name for h in engine.search_symbols("RenamedService", limit=5)]
+
+
+def test_a_migration_that_empties_files_rebuilds_instead_of_colliding_on_rowid(tmp_path: Path) -> None:
+    """Two schema migrations clear `files` and leave the FTS tables loaded so a normal
+    reindex repopulates them. The rowids handed back to the repopulated `files` rows
+    are the ones the surviving FTS rows already occupy: the rowid deletes match
+    nothing and the rowid inserts collide. An emptied `files` table also reads exactly
+    like a never-indexed one, so the stored semantics version cannot catch this.
+    """
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    first = engine.index_repo(force=True)
+
+    with engine._connect() as conn:
+        conn.execute("DELETE FROM engine_state WHERE key = 'indexer_semantics_version'")
+        conn.execute("DELETE FROM files")
+        conn.commit()
+        for table in ("file_path_trigram", "file_line_fts", "symbol_trigram"):
+            assert int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]) > 0
+
+    recovered = engine.index_repo(force=False)
+
+    assert recovered.files_indexed == first.files_indexed
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+    assert [h.qualified_name for h in engine.search_symbols("OrderService", limit=5)]
+
+
+def test_a_new_repo_indexed_into_a_shared_db_leaves_the_other_repos_index_intact(tmp_path: Path) -> None:
+    """`files` being empty for *this* repo while the FTS tables hold rows is the
+    migration signature only when those rows are this repo's. A second repo's first
+    index into a db_path another repo already filled must stay incremental: the full
+    rebuild wipes every repo's rows, not just its own.
+    """
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    repo_a.mkdir()
+    (repo_b / "src").mkdir(parents=True)
+    _write_fixture_repo(repo_a)
+    (repo_b / "src" / "inventory.py").write_text(
+        "class InventoryLedger:\n    def reserve(self) -> int:\n        return 1\n", encoding="utf-8"
+    )
+    db_path = tmp_path / "shared.sqlite"
+    engine_a = CodeContextEngine(repo_a, db_path=db_path, autosync_enabled=False)
+    engine_b = CodeContextEngine(repo_b, db_path=db_path, autosync_enabled=False)
+    assert engine_a.repo_id != engine_b.repo_id
+
+    def a_rows() -> dict[str, int]:
+        with engine_a._connect() as conn:
+
+            def count(sql: str) -> int:
+                return int(conn.execute(sql, (engine_a.repo_id,)).fetchone()[0])
+
+            return {
+                "files": count("SELECT COUNT(*) FROM files WHERE repo_id = ?"),
+                "symbols": count("SELECT COUNT(*) FROM symbols WHERE repo_id = ?"),
+                "symbol_fts": count(
+                    "SELECT COUNT(*) FROM symbol_fts t JOIN symbols s ON s.rowid = t.rowid WHERE s.repo_id = ?"
+                ),
+                "file_path_trigram": count("SELECT COUNT(*) FROM file_path_trigram WHERE repo_id = ?"),
+                "file_line_fts": count("SELECT COUNT(*) FROM file_line_fts WHERE repo_id = ?"),
+                "symbol_match": count(
+                    "SELECT COUNT(*) FROM symbol_fts t JOIN symbols s ON s.rowid = t.rowid "
+                    "WHERE symbol_fts MATCH 'OrderService' AND s.repo_id = ?"
+                ),
+                "line_match": count(
+                    "SELECT COUNT(*) FROM file_line_fts WHERE file_line_fts MATCH 'calculate_total' AND repo_id = ?"
+                ),
+            }
+
+    engine_a.index_repo(force=False)
+    before = a_rows()
+    assert all(before.values()), before
+
+    indexed_b = engine_b.index_repo(force=False)
+
+    assert indexed_b.files_indexed == 1
+    assert a_rows() == before
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine_a)
+    assert [h.qualified_name for h in engine_a.search_symbols("OrderService", limit=5)]
+    assert [h.qualified_name for h in engine_b.search_symbols("InventoryLedger", limit=5)]
+
+
+def test_the_full_rebuild_recreates_the_fts_tables_exactly_as_the_schema_defines_them(tmp_path: Path) -> None:
+    """The rebuild drops and recreates the FTS5 tables. A column, tokenizer or prefix
+    set that drifts from `_init_schema`'s would be rebuilt into an index every later
+    `_schema_current` probe rejects, with nothing to re-migrate it.
+    """
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo(force=False)
+
+    def fts_shapes() -> dict[str, str]:
+        with engine._connect() as conn:
+            rows = conn.execute(
+                "SELECT name, sql FROM main.sqlite_master WHERE sql LIKE 'CREATE VIRTUAL%' "
+                "UNION ALL SELECT name, sql FROM fts.sqlite_master WHERE sql LIKE 'CREATE VIRTUAL%'"
+            ).fetchall()
+        # Compare from USING onward, so a schema qualifier or IF NOT EXISTS does not
+        # read as a shape change; whitespace around the punctuation likewise.
+        shapes = {}
+        for name, sql in rows:
+            body = re.sub(r"\s+", " ", str(sql)[str(sql).index(" USING ") :]).strip()
+            shapes[str(name)] = body.replace("( ", "(").replace(" )", ")").replace(" ,", ",")
+        return shapes
+
+    before = fts_shapes()
+    assert set(before) == {"symbol_fts", "symbol_fts_vocab", "symbol_trigram", "file_path_trigram", "file_line_fts"}
+
+    engine.index_repo(force=True)
+
+    assert fts_shapes() == before
+
+
+def test_the_post_rebuild_vacuum_is_skipped_once_the_rowids_it_would_renumber_go_sparse(tmp_path: Path) -> None:
+    """`files`/`symbols` are rowid tables with no INTEGER PRIMARY KEY, so VACUUM may
+    renumber them while the FTS5 shadow tables keyed on those rowids keep theirs. That
+    renumbering is the identity map only while the rowids are dense -- the state a
+    full rebuild leaves behind, and the only state the VACUUM may run in.
+    """
+    from lemoncrow.pro.capabilities.code_context.engine import _rowid_tables_dense
+
+    _write_fixture_repo(tmp_path)
+    engine = CodeContextEngine(tmp_path, db_path=tmp_path / "code.sqlite", autosync_enabled=False)
+    engine.index_repo(force=True)
+    with engine._connect() as conn:
+        assert _rowid_tables_dense(conn)
+        first_indexed = str(conn.execute("SELECT file_path FROM files ORDER BY rowid LIMIT 1").fetchone()[0])
+
+    # Removing the lowest-rowid file leaves a hole at rowid 1, so COUNT no longer
+    # equals MAX(rowid) however the remaining files were numbered.
+    (tmp_path / first_indexed).unlink()
+    engine.index_repo(force=False)
+    with engine._connect() as conn:
+        assert not _rowid_tables_dense(conn)
+
+    engine.index_repo(force=True)
+
+    with engine._connect() as conn:
+        assert _rowid_tables_dense(conn)
+    _assert_every_fts_row_is_keyed_to_the_row_it_mirrors(engine)
+
+
+def test_dir_cached_relpath_resolves_exactly_like_safe_relpath(tmp_path: Path) -> None:
+    """Resolving each directory once must not change what any file resolves to."""
+    from lemoncrow.pro.capabilities.code_context.engine import _dir_cached_relpath, _safe_relpath
+
+    root = (tmp_path / "repo").resolve()
+    outside = (tmp_path / "outside").resolve()
+    (root / "real").mkdir(parents=True)
+    outside.mkdir()
+    (root / "real" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (outside / "b.py").write_text("y = 2\n", encoding="utf-8")
+    (root / "linked_dir").symlink_to(root / "real")
+    (root / "linked_file.py").symlink_to(root / "real" / "a.py")
+    (root / "escape.py").symlink_to(outside / "b.py")
+    (root / "escape_dir").symlink_to(outside)
+    paths = [
+        root / "real" / "a.py",
+        root / "linked_dir" / "a.py",
+        root / "linked_file.py",
+        root / "escape.py",
+        root / "escape_dir" / "b.py",
+        root / "real" / "missing.py",
+    ]
+
+    relpath = _dir_cached_relpath(root)
+
+    assert [relpath(p) for p in paths] == [_safe_relpath(root, p) for p in paths]
 
 
 def test_search_symbols_filters_with_zoekt_candidate_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
